@@ -1,0 +1,52 @@
+# BUI - Blender-derived UI toolkit
+#
+# A decoupled UI library extracted from the Blender project.
+# The application-specific layers (scene, nodes, depsgraph, operators on
+# datablocks...) are NOT part of this library. Only reusable interface
+# machinery lives here: core containers/math (C), UI types, drawing
+# abstraction, and the widget toolkit.
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+cmake_minimum_required(VERSION 3.20)
+project(bui LANGUAGES C CXX VERSION 0.1.0)
+
+option(BUI_BUILD_TESTS "Build BUI test executables" ON)
+option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
+option(BUI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(MSVC)
+  add_compile_options(/W3)
+else()
+  add_compile_options(-Wall -Wno-unused-parameter -Wno-missing-field-initializers)
+  if(NOT BUI_WARNINGS_AS_ERRORS)
+    add_compile_options(-Wno-error)
+  endif()
+endif()
+
+set(BUI_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Dependency order matters: each layer may only use layers above it in this list.
+add_subdirectory(core)   # pure C foundation
+add_subdirectory(types)  # BUI-owned shared data types
+add_subdirectory(gpu)    # draw abstraction (null backend for now)
+add_subdirectory(compat) # seam headers/stubs replacing Blender-app APIs
+add_subdirectory(ui)     # the widget toolkit
+
+if(BUI_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(core/tests)
+endif()
+
+if(BUI_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
