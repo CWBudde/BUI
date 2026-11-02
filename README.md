@@ -19,7 +19,7 @@ All three share one C runtime (`kit/`). Python builds the widget tree and
 runs your callbacks. Layout, input, drawing and presenting stay in C.
 
 ```sh
-pip install blenderui          # PyPI name (packaging is ready, first release pending)
+pip install blenderui          # on PyPI: https://pypi.org/project/blenderui/
 ```
 
 <p align="center">
@@ -72,12 +72,16 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
 | **Qt syntax** (`bui.qtsyntax`)       | 🟡 **Partial (~25%)** | The common subset works: widgets, layouts, signals, `QPainter`, menus, timers. Model/view, docks, toolbars, splitters and stylesheets are missing. [Details](docs/qt.md#coverage). |
 | Component library (`bui.components`) | ✅ Working            | 45 Blender components, including editors (color ramp, curves) and templates                                                                                                        |
 | C++ / Qt render-sink backends        | ✅ Working            | For embedding BUI drawing into your own renderer ([INTEGRATION.md](INTEGRATION.md))                                                                                                |
-| Packaging (`pip install blenderui`)  | 🟡 Scaffolded         | `pyproject.toml` (scikit-build-core), CI wheels for Windows, Linux and macOS, trusted publishing. A locally built wheel passes all suites. First PyPI release pending. ([docs/publishing.md](docs/publishing.md)) |
-| Rust, egui, WebAssembly / React, more | 🗺️ Planned            | See the [roadmap](#roadmap-more-languages-and-platforms)                                                                                                                           |
+| Packaging (`pip install blenderui`)  | ✅ Published          | [`blenderui` 0.1.0 on PyPI](https://pypi.org/project/blenderui/): a prebuilt wheel for Windows / CPython 3.12, and a source package that other platforms compile on install (needs CMake and a C compiler). Prebuilt wheels for all platforms come from CI on the next tagged release ([docs/publishing.md](docs/publishing.md)) |
+| **Rust port** (`blenderui` crate)    | 🗺️ Planned (next)      | `blenderui-sys` (bindgen over `BUI_kit.h`) plus a safe crate: owned node tree, closures for callbacks, `winit` windows. First item on the [roadmap](#roadmap-more-languages-and-platforms) |
+| **egui integration**                 | 🗺️ Planned             | BUI panels drawn inside egui (raster → `egui::TextureHandle`, input forwarded) and a Blender-styled `egui::Visuals` theme. Builds on the Rust crate |
+| **WebAssembly build**                | 🗺️ Planned             | The kit compiled with Emscripten: the raster blits to `<canvas>` (damage rectangles only), DOM events feed `BK_press` / `BK_key` |
+| **React** (`@blenderui/react`)       | 🗺️ Planned             | A JSX reconciler over the WASM build (`<Panel>`, `<NumberSlider>` ...); `@blenderui/web` for plain JS/TS, N-API for Node |
+| Other languages and hosts            | 🗺️ Planned             | C#, Go, Zig, Swift, Kotlin, Lua; Dear ImGui; Godot, Unity, Bevy; Flutter; native Linux/macOS windows; GPU renderers ([roadmap](#roadmap-more-languages-and-platforms)) |
 
 ## Install and build
 
-### From PyPI (once released)
+### From PyPI
 
 ```sh
 pip install blenderui
