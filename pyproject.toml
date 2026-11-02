@@ -1,0 +1,73 @@
+# blenderui: Blender's UI as a Python library (import blenderui / bui).
+# Built with scikit-build-core, which drives the CMake build of the C kit and
+# the buipy extension. See docs/publishing.md for the release checklist.
+
+[build-system]
+requires = ["scikit-build-core>=0.10"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "blenderui"
+dynamic = ["version"]
+description = "Blender's UI as a library: run tkinter apps unchanged, write Qt-style code, or use Blender components — all drawn by a fast C kit"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "BUI contributors" }]
+keywords = ["gui", "ui", "blender", "tkinter", "qt", "widgets", "toolkit"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: C",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Topic :: Software Development :: User Interfaces",
+  "Topic :: Software Development :: Widget Sets",
+]
+dependencies = []
+
+[project.optional-dependencies]
+qt = ["PySide6>=6.5"]            # only for bui.qt.BuiCanvas (embedding in a real Qt app)
+test = []
+
+[project.urls]
+Documentation = "https://github.com/OWNER/BUI/tree/main/docs"
+Source = "https://github.com/OWNER/BUI"
+Issues = "https://github.com/OWNER/BUI/issues"
+Changelog = "https://github.com/OWNER/BUI/blob/main/CHANGELOG.md"
+
+[project.scripts]
+blenderui-tk = "bui.tksyntax.__main__:main"   # blenderui-tk app.py == python -m bui.tksyntax app.py
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.20"
+build.targets = ["buipy"]
+wheel.packages = []          # CMake installs bui/, blenderui/ and buipy
+wheel.exclude = ["**/__pycache__/**"]
+sdist.exclude = ["reference/", "build*/", ".github/", "**/__pycache__/", "*.pyd", "*.so"]
+
+[tool.scikit-build.cmake.define]
+BUI_BUILD_TESTS = "OFF"
+BUI_BUILD_EXAMPLES = "OFF"
+BUI_BUILD_UI = "OFF"
+BUI_BUILD_QT_BACKEND = "OFF"
+BUI_BUILD_PYTHON_BINDINGS = "ON"
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "bindings/python/bui/_version.py"
+
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux_* *-win32 *_i686"
+test-command = "python -c \"import blenderui, buipy, blenderui.tksyntax, blenderui.components; print(blenderui.__version__)\""

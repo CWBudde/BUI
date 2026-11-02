@@ -18,6 +18,10 @@ the color wheel, Ctrl+Z on any edit and you can drive it three ways:
 All three share one C runtime (`kit/`). Python builds the widget tree and
 runs your callbacks. Layout, input, drawing and presenting stay in C.
 
+```sh
+pip install blenderui          # PyPI name (packaging is ready, first release pending)
+```
+
 <p align="center">
   <img src="docs/images/components.png" width="340" alt="Blender components">
   <img src="docs/images/tkinter_items.png" width="300" alt="A plain tkinter program on BUI">
@@ -38,6 +42,8 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
   - [Blender components](#blender-components)
 - [How it works](#how-it-works)
 - [Performance](#performance)
+- [Roadmap: more languages and platforms](#roadmap-more-languages-and-platforms)
+- [Packaging](#packaging)
 - [Documentation](#documentation)
 - [Repository layout](#repository-layout)
 - [Testing](#testing)
@@ -66,12 +72,33 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
 | **Qt syntax** (`bui.qtsyntax`)       | 🟡 **Partial (~25%)** | The common subset works: widgets, layouts, signals, `QPainter`, menus, timers. Model/view, docks, toolbars, splitters and stylesheets are missing. [Details](docs/qt.md#coverage). |
 | Component library (`bui.components`) | ✅ Working            | 45 Blender components, including editors (color ramp, curves) and templates                                                                                                        |
 | C++ / Qt render-sink backends        | ✅ Working            | For embedding BUI drawing into your own renderer ([INTEGRATION.md](INTEGRATION.md))                                                                                                |
-| Packaging (`pip install`)            | ❌ Not yet            | Build from source with CMake (below)                                                                                                                                               |
+| Packaging (`pip install blenderui`)  | 🟡 Scaffolded         | `pyproject.toml` (scikit-build-core), CI wheels for Windows, Linux and macOS, trusted publishing. A locally built wheel passes all suites. First PyPI release pending. ([docs/publishing.md](docs/publishing.md)) |
+| Rust, egui, WebAssembly / React, more | 🗺️ Planned            | See the [roadmap](#roadmap-more-languages-and-platforms)                                                                                                                           |
 
 ## Install and build
 
-Requirements: **CMake ≥ 3.20**, a **C11/C++17 compiler** (GCC / MinGW, Clang
-or MSVC), and **Python 3** with development headers (for the Python APIs).
+### From PyPI (once released)
+
+```sh
+pip install blenderui
+```
+
+```python
+import blenderui.tksyntax as tk          # tkinter syntax
+from blenderui.components import App     # Blender components
+from blenderui.qtsyntax import QWidget   # Qt syntax
+```
+
+`blenderui` and `bui` are the same package (`blenderui.X` *is* `bui.X`);
+the examples below use `bui` because that's how the source tree is
+organised. Use `blenderui` in published code: the `bui` name on PyPI
+belongs to an unrelated project. A console script comes with it:
+`blenderui-tk app.py` runs a tkinter app on BUI.
+
+### From source
+
+Requirements: **CMake ≥ 3.20**, a **C11/C++17 compiler** (GCC / MinGW or
+Clang; MSVC is untested), and **Python 3.11+** with development headers.
 
 ```sh
 git clone <this repository> BUI
@@ -239,6 +266,107 @@ Measured on the full component demo (520×900) on a desktop CPU:
 The test suite enforces a 120 Hz budget: full frames under 8.3 ms, and
 interaction frames under 1 ms.
 
+## Roadmap: more languages and platforms
+
+BUI's core is plain C with a small, stable surface (`kit/include/BUI_kit.h`
+for widgets, `api/bui_c_api.h` for render sinks). Its output is either a
+frame buffer (`BuiRaster`, ARGB pixels plus damage rectangles) or a stream
+of draw primitives. That makes every target below the same job: bind the C
+API, feed in input events, and present the pixels or primitives. None of
+them needs Python.
+
+| Target | Plan | Status |
+|---|---|---|
+| **Python**: tkinter, Qt, components | `bui.tksyntax`, `bui.qtsyntax`, `bui.components` | ✅ Done (Qt partial) |
+| **C / C++** | `BUI_kit.h`, render sinks, Qt/QPainter backend | ✅ Done |
+| **Rust** | `blenderui-sys` (bindgen over `BUI_kit.h`) and a safe `blenderui` crate: an owned node tree, closures for callbacks, `winit` windows | 🗺️ Planned |
+| **egui** | Two ways in: draw a BUI panel inside egui (raster to an `egui::TextureHandle`, with input forwarded), and a Blender-styled `egui::Visuals` theme | 🗺️ Planned |
+| **WebAssembly** | Compile the kit with Emscripten. The raster blits to a `<canvas>` (`putImageData` of the damage rectangles only), and DOM pointer and keyboard events go to `BK_press` / `BK_key` | 🗺️ Planned |
+| **React** | `@blenderui/react` on top of the WASM build: a reconciler that maps JSX to kit nodes (`<Panel>`, `<NumberSlider>` ...) | 🗺️ Planned |
+| **JavaScript / TypeScript** | `@blenderui/web` (the plain WASM API), and Node through N-API | 🗺️ Planned |
+| **Tauri / Electron** | The WASM build in the webview, or the native kit through the host language | 🗺️ Planned |
+| **C# / .NET** | P/Invoke over `BUI_kit.h` (WinForms / WPF / Avalonia hosts) | 🗺️ Planned |
+| **Go**, **Zig**, **Swift**, **Kotlin/JVM**, **Lua** | cgo / `@cImport` / Swift C interop / Panama FFI / LuaJIT FFI over the same header | 🗺️ Planned |
+| **Dear ImGui** | A backend that shows BUI panels in an ImGui window, plus a Blender-styled ImGui theme | 🗺️ Planned |
+| **Game engines**: Godot, Unity, Bevy | Editor-style tool panels: GDExtension, a native Unity plugin, a Bevy plugin through the Rust crate | 🗺️ Planned |
+| **Flutter** | `dart:ffi` bindings, with the frame buffer shown as a `Texture` | 🗺️ Planned |
+| **Native windows on Linux / macOS** | Wayland / X11 and Cocoa hosts in C, like the Win32 one (today the stdlib Tk window hosts them) | 🗺️ Planned |
+| **GPU renderers** | OpenGL / Vulkan / Metal / WebGPU render sinks for very large or high-DPI UIs (today a SIMD-friendly CPU raster, under 1 ms per frame) | 🗺️ Planned |
+
+<details>
+<summary>Intended API sketches (planned, not implemented yet)</summary>
+
+Rust:
+
+```rust
+use blenderui::{App, Panel, NumberSlider, Checkbox, Button};
+
+fn main() {
+    App::new("Tool", (360, 260))
+        .child(Panel::new("Object")
+            .child(NumberSlider::new("Size", 1.0).range(0.0, 10.0)
+                .on_change(|v| println!("size = {v}")))
+            .child(Checkbox::new("Smooth", true))
+            .child(Button::new("Apply").on_click(|| println!("apply"))))
+        .run();
+}
+```
+
+egui:
+
+```rust
+egui::Window::new("Properties").show(ctx, |ui| {
+    blenderui_egui::panel(ui, &mut state.bui_panel);   // a BUI subtree inside egui
+});
+```
+
+React (WebAssembly):
+
+```jsx
+import { BlenderUI, Panel, NumberSlider, Checkbox } from "@blenderui/react";
+
+export default function Properties() {
+  const [size, setSize] = useState(1);
+  return (
+    <BlenderUI width={360} height={260}>
+      <Panel title="Object">
+        <NumberSlider label="Size" value={size} min={0} max={10} onChange={setSize} />
+        <Checkbox label="Smooth" defaultChecked />
+      </Panel>
+    </BlenderUI>
+  );
+}
+```
+
+</details>
+
+Work order: the Rust crate first (it also unlocks egui and Bevy), then
+the WebAssembly build (it unlocks React, JS/TS, Tauri and Electron), then
+native Linux / macOS windows.
+
+## Packaging
+
+The project is packaged as **`blenderui`** for PyPI: `pyproject.toml` with
+scikit-build-core, which drives the CMake build. One wheel contains the
+`buipy` extension plus the `bui` and `blenderui` packages.
+
+```sh
+python -m pip install build
+python -m build                     # dist/blenderui-<version>.tar.gz and a wheel
+```
+
+- **Version:** a single source, `bindings/python/bui/_version.py`, read by
+  CMake and by the packaging.
+- **CI:** `.github/workflows/wheels.yml` runs `cibuildwheel` for CPython
+  3.11–3.14 on Windows (MinGW), Linux (manylinux) and macOS (arm64 and
+  x86_64), plus an sdist and the full ctest run. Pushing a `v*` tag
+  publishes to PyPI with trusted publishing (no tokens stored).
+- **Verified locally:** a wheel built on Windows installs into a clean
+  virtualenv and passes the component, syntax, render, tkinter-compat and
+  input suites.
+- **Release steps and one-time PyPI setup:** [docs/publishing.md](docs/publishing.md).
+  Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## Documentation
 
 | Guide                                              | What's inside                                                                            |
@@ -248,6 +376,8 @@ interaction frames under 1 ms.
 | [docs/qt.md](docs/qt.md)                           | Qt-syntax guide: classes, signals, layouts, painting, timers, coverage and gaps          |
 | [docs/components.md](docs/components.md)           | `bui.components` reference: layout, values, views, menus, color, editors, `App`          |
 | [docs/c-api.md](docs/c-api.md)                     | The C kit (`BUI_kit.h`): nodes, properties, events, windows                              |
+| [docs/publishing.md](docs/publishing.md)           | Packaging as `blenderui`, building wheels, CI, releasing to PyPI                          |
+| [CHANGELOG.md](CHANGELOG.md)                       | Release notes                                                                             |
 | [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md)           | Member-by-member coverage tables for both syntax layers                                  |
 | [INTEGRATION.md](INTEGRATION.md)                   | Embedding BUI drawing in C, C++, Qt or PySide hosts through render sinks                 |
 | [ARCHITECTURE.md](ARCHITECTURE.md)                 | Modules, dependency rules, what was taken from Blender and how                           |
@@ -260,6 +390,7 @@ Examples (`examples/`):
 | `tk_syntax_demo.py`            | tkinter syntax laid out like a Blender properties editor        |
 | `qt_syntax_demo.py`            | Qt syntax: layouts, form widgets, signals                       |
 | `components_demo.py`           | Every Blender component, in a properties-editor layout          |
+| `kit_hello.c`                  | The C kit from C: a slider and a button in a native window      |
 | `python_demo.py`, `svg_demo.c` | Low-level drawing into an SVG render sink                       |
 
 ## Repository layout
@@ -273,6 +404,8 @@ Examples (`examples/`):
 | `api/`                | Stable C ABI for render-sink hosts (`bui_c_api.h`)                                                                                                                                                                                                                                                                                           |
 | `bindings/python/`    | `buipy` extension (`src/`) and the `bui` package: `tksyntax/`, `qtsyntax.py`, `components/`, `host.py`                                                                                                                                                                                                                                       |
 | `backends/qt/`        | C++ Qt/QPainter render-sink backend                                                                                                                                                                                                                                                                                                          |
+| `bindings/python/blenderui/` | The `blenderui` import alias (the PyPI name)                                                                                                                                                                                                                                                                                       |
+| `pyproject.toml`, `.github/workflows/` | PyPI packaging (scikit-build-core) and the wheel and release CI                                                                                                                                                                                                                                                        |
 | `examples/`, `tools/` | Demos, the icon generator, the docs screenshot generator                                                                                                                                                                                                                                                                                     |
 
 ## Testing

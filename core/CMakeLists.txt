@@ -53,7 +53,11 @@ target_include_directories(bui_core PRIVATE
 )
 
 # Forced compat shim so upstream sources compile as-is in C mode (GCC/Clang).
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+if(MSVC)  # cl and clang-cl spell the forced include /FI
+  target_compile_options(bui_core PRIVATE
+    "/FI${CMAKE_CURRENT_SOURCE_DIR}/intern/bui_c_compat.h"
+  )
+elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(bui_core PRIVATE
     "-include${CMAKE_CURRENT_SOURCE_DIR}/intern/bui_c_compat.h"
   )

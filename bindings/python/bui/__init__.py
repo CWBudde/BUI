@@ -112,6 +112,9 @@ except ImportError as _e:  # pragma: no cover
     ) from _e
 
 
+from bui._version import __version__  # noqa: E402
+
+
 def version() -> str:
     """BUI library version as a string."""
     return buipy.version()

@@ -9,7 +9,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 cmake_minimum_required(VERSION 3.20)
-project(bui LANGUAGES C CXX VERSION 0.1.0)
+
+# One version for the C library, the Python package and the PyPI wheel.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/bui/_version.py" _bui_version_line
+     REGEX "^__version__")
+string(REGEX MATCH "[0-9]+[.][0-9]+[.][0-9]+" BUI_VERSION "${_bui_version_line}")
+project(bui LANGUAGES C CXX VERSION ${BUI_VERSION})
 
 option(BUI_BUILD_TESTS "Build BUI test executables" ON)
 option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)

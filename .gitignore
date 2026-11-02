@@ -3,3 +3,9 @@ build-ui/
 *.obj
 *.o
 reference/
+
+# packaging
+dist/
+wheelhouse/
+*.egg-info/
+*.whl

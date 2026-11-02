@@ -20,6 +20,17 @@ set_target_properties(buipy PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python
 )
 
+# Wheel layout (pip install blenderui / scikit-build-core): the extension and
+# the pure-Python packages side by side in site-packages.
+if(SKBUILD)
+  install(TARGETS buipy LIBRARY DESTINATION . RUNTIME DESTINATION .)
+  install(DIRECTORY bui blenderui DESTINATION .
+          PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
+  if(MINGW)  # no MinGW runtime DLLs next to the wheel's .pyd
+    target_link_options(buipy PRIVATE -static-libgcc -static)
+  endif()
+endif()
+
 if(BUI_BUILD_TESTS)
   # buipy comes from the build dir; the 'bui' package from this source dir.
   if(WIN32)
