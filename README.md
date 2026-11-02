@@ -1,234 +1,296 @@
-# BUI
+# BUI (Blender UI)
 
 > [!NOTE]
-> This repository is built entirely using LLMs. No Human written code.
+> This repository is built entirely using LLMs. No human-written code.
 
-A modular UI toolkit extracted from the Blender project. Core in C, widgets in
-C++, no Blender application logic — just the interface machinery. Renderable
-from C++, **Qt**, and **Python (PySide6 / PyQt6)** through one stable
-integration point.
+BUI is the user interface of [Blender](https://www.blender.org), extracted
+into a standalone, fast, C-first UI library. You get Blender's look _and_
+Blender's interactions, scrubbable number fields, drag-toggles, pie menus,
+the color wheel, Ctrl+Z on any edit and you can drive it three ways:
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module layout and dependency
-rules, and [INTEGRATION.md](INTEGRATION.md) for host-application guides.
+- **tkinter syntax**: run existing tkinter programs unchanged, now looking
+  like Blender.
+- **Qt syntax**: write `QWidget` / `QVBoxLayout` / `clicked.connect` code
+  (a common subset today).
+- **Blender components**: a native component library (`Panel`,
+  `NumberSlider`, `ColorSwatch`, `TreeView`, `PieMenu` ...).
+
+All three share one C runtime (`kit/`). Python builds the widget tree and
+runs your callbacks. Layout, input, drawing and presenting stay in C.
+
+<p align="center">
+  <img src="docs/images/components.png" width="340" alt="Blender components">
+  <img src="docs/images/tkinter_items.png" width="300" alt="A plain tkinter program on BUI">
+</p>
+<p align="center"><sub>Left: the component library (<code>examples/components_demo.py</code>).
+Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>) running on BUI.</sub></p>
+
+---
+
+## Contents
+
+- [Why BUI](#why-bui)
+- [Status](#status)
+- [Install and build](#install-and-build)
+- [Quick start](#quick-start)
+  - [tkinter syntax](#tkinter-syntax)
+  - [Qt syntax](#qt-syntax)
+  - [Blender components](#blender-components)
+- [How it works](#how-it-works)
+- [Performance](#performance)
+- [Documentation](#documentation)
+- [Repository layout](#repository-layout)
+- [Testing](#testing)
+- [License](#license)
+
+---
+
+## Why BUI
+
+|                            |                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Blender's real UI code** | Widget drawing is a C port of Blender's `interface_widgets.cc` (`round_box_edges`, `widgetbase_draw`, `widget_state`, the shape tables). Color math, rects and text cursors are Blender's `blenlib`, linked. The HSV wheel uses Blender's own functions.                                                                                                                                                                                       |
+| **Blender's interactions** | Drag number fields with a hidden, continuous cursor (Shift is precise, Ctrl snaps). Ctrl+Wheel steps values, Ctrl+C/V copies and pastes them, Backspace resets. Drag across checkboxes to set them all. Press-drag-release picks menu items, and typing in a menu searches it. Ctrl+Z / Ctrl+Shift+Z undoes UI edits. Tab moves between fields. Drag vertically over number fields to edit several at once. Panels collapse with an animation. |
+| **Familiar APIs**          | Use the tkinter or Qt code you already know, or the component library.                                                                                                                                                                                                                                                                                                                                                                         |
+| **Fast**                   | Rendering is damage-driven: an idle UI draws nothing, and a hover or scrub redraws only the widget it touches. A full window renders in under a millisecond (see [Performance](#performance)).                                                                                                                                                                                                                                                 |
+| **Small dependencies**     | C11 plus a CPython extension. No Qt or Tk widgets are used to draw anything.                                                                                                                                                                                                                                                                                                                                                                   |
+
+## Status
+
+| Part                                 | State                 | Details                                                                                                                                                                            |
+| ------------------------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C kit (`kit/`)                       | ✅ Working            | Nodes, Tk-style geometry managers, input, Blender widget drawing, damage rendering, undo, animation, text area, canvas, scroll views, multi-select                                 |
+| Native window (Windows)              | ✅ Working            | Win32 window in C: DPI-aware, vsync'd animation, clipboard, cursors, window-manager features                                                                                       |
+| Other platforms                      | ⚠️ Fallback           | The window is hosted by the stdlib `tkinter`, which draws the frame buffer; the UI is identical. Linux and macOS are not regularly tested.                                         |
+| **tkinter syntax** (`bui.tksyntax`)  | ✅ **Complete API**   | Every public name of every tkinter and ttk widget class exists (7846/7846). Nine real tkinter programs behave identically on the stdlib and on BUI.                                |
+| **Qt syntax** (`bui.qtsyntax`)       | 🟡 **Partial (~25%)** | The common subset works: widgets, layouts, signals, `QPainter`, menus, timers. Model/view, docks, toolbars, splitters and stylesheets are missing. [Details](docs/qt.md#coverage). |
+| Component library (`bui.components`) | ✅ Working            | 45 Blender components, including editors (color ramp, curves) and templates                                                                                                        |
+| C++ / Qt render-sink backends        | ✅ Working            | For embedding BUI drawing into your own renderer ([INTEGRATION.md](INTEGRATION.md))                                                                                                |
+| Packaging (`pip install`)            | ❌ Not yet            | Build from source with CMake (below)                                                                                                                                               |
+
+## Install and build
+
+Requirements: **CMake ≥ 3.20**, a **C11/C++17 compiler** (GCC / MinGW, Clang
+or MSVC), and **Python 3** with development headers (for the Python APIs).
+
+```sh
+git clone <this repository> BUI
+cd BUI
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build            # C + Python test suites
+```
+
+The Python package lives in `bindings/python/bui`. Its compiled extension
+(`buipy`) stays in the build tree, and `import bui` finds it there
+automatically. Put `bindings/python` on `PYTHONPATH` and you are done:
+
+```sh
+export PYTHONPATH=$PWD/bindings/python        # Windows: set PYTHONPATH=%CD%\bindings\python
+python examples/components_demo.py
+```
+
+More detail, including environment variables and troubleshooting:
+[docs/getting-started.md](docs/getting-started.md).
 
 ## Quick start
 
-```sh
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build        # core + Python binding tests
-```
+### tkinter syntax
 
-With the full widget toolkit and examples:
+Run any tkinter program on BUI **without changing it**:
 
 ```sh
-cmake -S . -B build-ui -DBUI_BUILD_UI=ON -DBUI_BUILD_EXAMPLES=ON
-cmake --build build-ui
-cmake --build build-ui --target bui_svg_demo
-./build-ui/examples/bui_svg_demo demo.svg    # renders a showcase scene to SVG
+python -m bui.tksyntax examples/tk_unchanged_app.py
 ```
 
-## Modules
-
-- `core/` – pure C11 foundation (containers, memory, math, strings)
-- `types/` – shared data-type shapes (DNA structs, verbatim)
-- `gpu/` – drawing abstraction: null backend + primitive **sink dispatch**
-- `compat/` – seam headers replacing Blender-app APIs (RNA/WM/ED/BLF/IMB/CTX)
-- `ui/` – the widget toolkit sources extracted from Blender (blocks/buttons, layout, handlers, views)
-- `kit/` – **Blender's UI as a C runtime**: nodes, layout, input, widget drawing ported from `interface_widgets.cc`, damage-driven rendering
-- `api/` – stable C ABI (`bui_c_api.h`) for hosts and bindings
-- `bindings/python/` – `buipy` CPython extension + `bui` package (SVG sink, Qt canvas)
-- `backends/qt/` – C++ Qt/QPainter backend (`BuiWidget`, `BUI::QtSink`)
-
-## Rendering from any stack
-
-BUI never opens a window itself. Hosts install a **render sink** — a table of
-function pointers (`BuiGpuSink`) — and receive every primitive the toolkit
-draws (triangles, lines, points, text, scissor). One API, any renderer:
-
-| Host stack             | What to use                                             |
-| ---------------------- | ------------------------------------------------------- |
-| C / C++ (any renderer) | `bui_set_render_sink()` from `api/bui_c_api.h`          |
-| Qt (C++)               | `BUI::QtSink` + `BUI::BuiWidget` in `backends/qt/`      |
-| Python (PySide6/PyQt6) | `bui.qt.BuiCanvas` from `bindings/python/bui/qt.py`     |
-| Python (headless/CI)   | `bui.svg.SvgSink` renders frames to SVG                 |
-| Any (no GPU)           | `buipy.Raster` / `GPU_raster.h` — native frame renderer |
-
-### The fast path: native raster + damage-only present
-
-The tkinter- and Qt-syntax layers render the way Blender does, adapted to a
-CPU host: the whole UI is drawn into **one frame buffer in C**
-(`gpu/intern/gpu_raster.c` — anti-aliased SDF boxes/circles/ellipses/lines,
-polygons, and a cached native text engine), then presented with **one blit of
-just the tiles that changed** (direct GDI blit on Windows, dirty-rect
-`PhotoImage.put` elsewhere, a single `drawImage` under Qt). Redraw requests
-are coalesced into one frame per idle, and hover with no handler costs
-nothing. A 60-widget window renders a changed frame in ~1.5 ms.
+Or opt in from code, before anything imports `tkinter`:
 
 ```python
-import bui                      # locates the built buipy extension
-import buipy
-r = buipy.Raster(640, 480)
-buipy.set_backend(r)            # draw_* calls now rasterize natively
-buipy.begin_frame(640, 480)
-buipy.draw_roundrect(20, 20, 120, 32, 6, (0.2, 0.4, 0.8, 1.0))
-buipy.draw_text(32, 41, 13, "Hello", (1, 1, 1, 1))
-buipy.end_frame()
-r.damage()                      # [(x, y, w, h), ...] changed since last frame
-r.present_native(hwnd)          # Windows; or r.ppm(...) / r.rgb32()
-```
+import bui.tksyntax
+bui.tksyntax.install()          # `import tkinter` now returns BUI's tkinter
 
-## Blender component library — `bui.components` (runs in C)
+import tkinter as tk
+from tkinter import ttk, messagebox
 
-Blender's UI as composable components: Blender's look _and_ Blender's
-interactions. Every component is a node of the C kit (`kit/`); Python only
-builds the tree and receives callbacks.
-
-- **Blender's code**: the widget drawing is a C port of
-  `interface_widgets.cc` — `round_box_edges`, `widgetbase_draw`, the shape
-  tables (number arrows, checkmark, menu chevron), `widget_state` /
-  `widget_active_color` (Blender's HSL hover tint), `widget_numbut`,
-  `widget_numslider`, `widget_optionbut`, `widget_menu_back` …, rendered by a
-  software implementation of the `GPU_SHADER_2D_WIDGET_BASE` parameters.
-  The HSV wheel uses `hsvcircle_vals_from_pos` / `hsv_cursor`; color math,
-  rects and the UTF-8 word-jump text cursor are blenlib (`core/`), linked.
-- **Fast**: rendering is damage driven — state changes mark only the
-  widget's rect, a frame redraws and diffs just those regions, and an idle
-  UI draws nothing. Measured on the full demo (520×900): **~0.7 ms** for a
-  complete frame, **~0.05 ms** for a hover/scrub frame, **~0.18 ms**
-  including the Tk event and the window blit — far inside a 120 Hz (8.3 ms)
-  budget, i.e. thousands of frames per second.
-
-```python
-from bui.components import App, Panel, NumberSlider, EnumRow, Checkbox, Button
-
-App("Demo", (420, 600),
-    Panel("Object",
-          NumberSlider("Size", 1.0, min=0, max=10, on_change=print,
-                       description="Object size"),
-          EnumRow("Mode", ["Object", "Edit"]),
-          Checkbox("Smooth", True),
-          Button("Apply", on_click=lambda: print("apply"))),
-).run()
-```
-
-|           |                                                                                                                                                                                                                      |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Layout    | `Column`, `Row` (`align=True` joins; `weight=0` keeps natural width), `Split`, `Grid`, `Box`, `Panel` (sub-panels, header checkbox, icon), `Tabs`, `SideTabs` (properties-editor icon tabs), `ScrollView`            |
-| Values    | `NumberField`, `NumberSlider`, `VectorField`, `TextField`, `SearchField`, `HotkeyField`, `Checkbox`, `Toggle` (icon toggles), `Decorator`, `Dropdown` (icons), `EnumRow` (icons, vertical, icon-only), `ColorSwatch` |
-| Buttons   | `Button` (icon, `emboss=False`), `IconButton`, `Popover`, `MenuButton`                                                                                                                                               |
-| Views     | `ListView` (UI list), `TreeView` + `TreeItem` (outliner, toggle columns), `GridView` (preview tiles)                                                                                                                 |
-| Menus     | `Menu` / `MenuItem` (icons, shortcuts, checkboxes, submenus, type-to-search), `MenuBar`, `PieMenu`, right-click context menus                                                                                        |
-| Color     | `ColorSwatch` picker: HSV wheel + value strip or SV square + hue strip, RGB/HSV/HSL sliders, hex, eyedropper                                                                                                         |
-| Editors   | `ColorRamp`, `CurveMapping` (channels), `NormalBall`, `Histogram`                                                                                                                                                    |
-| Templates | `IDSelector` (`template_ID`), `PathField`                                                                                                                                                                            |
-| Other     | `Label` (icon), `ProgressBar`, `Separator`, `Spacer`, tooltips, 120 vector icon names from Blender (`buipy.kit_icon_names()`)                                                                                        |
-
-Interactions, as in Blender:
-
-- **Numbers** — the cursor turns into Blender's ↔ arrows over number
-  fields; dragging hides it with a continuous grab (it never hits the
-  window edge and returns where it started). Shift = precise, Ctrl = snap,
-  Alt = edit X/Y/Z together. Click to type (`2*pi` works).
-- **Any value** — Ctrl+Wheel steps, Ctrl+C / Ctrl+V copy/paste, Backspace
-  resets, Minus negates, right-click for Copy/Paste/Reset; Ctrl+Alt+C/V
-  copies a whole vector.
-- **Toggles & panels** — drag across checkboxes or panel headers to set them
-  all; Ctrl+click a header to solo it; drag a panel's grip to reorder.
-- **Menus** — press-drag-release picks; hover switches between menu-bar
-  menus and opens submenus; typing searches every item; `PieMenu.show()` on
-  a hotkey (`app.bind("q", ...)`).
-- **Views** — double-click / F2 renames, arrows navigate, Left/Right
-  collapse/expand trees, drag down outliner toggle columns.
-- **Color** — wheel with red at the bottom and Blender's cursor; the
-  eyedropper samples any pixel of the window.
-
-See `examples/components_demo.py` (every component, properties-editor style).
-
-C kit (`kit/intern/`): `kit_core.c` (nodes, properties, input context,
-damage rendering, text editing, number expressions), `kit_draw.c` (theme +
-the `interface_widgets.cc` port, text, icons), `kit_widgets.c` (layouts and
-widgets), `kit_views.c`, `kit_menus.c`, `kit_color.c` (picker, eyedropper,
-ramp, curves, normal, histogram). Icons are generated into
-`kit_icons_data.c` by `tools/gen_kit_icons.py`. Python wrappers:
-`bui/components/` (`core`, `widgets`, `containers`, `views`, `menus`,
-`editors`, `templates`, `app`); the C API is `kit/include/BUI_kit.h`.
-
-## High-level syntax layers — write Qt or tkinter, render BUI
-
-BUI ships two Python facades that speak the syntax of established toolkits
-while BUI does all the rendering:
-
-```python
-# Qt syntax  (examples/qt_syntax_demo.py)
-from bui.qtsyntax import QApplication, QWidget, QPushButton, QLabel, QVBoxLayout
-app = QApplication([])
-window = QWidget()
-layout = QVBoxLayout()
-status = QLabel("Press the button.")
-button = QPushButton("Click me")
-button.clicked.connect(lambda: status.setText("Clicked!"))
-layout.addWidget(status); layout.addWidget(button)
-window.setLayout(layout); window.show()
-app.exec()
-
-# tkinter syntax  (examples/tk_syntax_demo.py) - the full tkinter API, incl.
-# ttk, messagebox, filedialog, simpledialog, font, scrolledtext
-from bui.tksyntax import Tk, Label, Button
-root = Tk(); root.geometry("420x260")
-Label(root, text="Hello BUI").pack()
-Button(root, text="Click me", command=on_click).pack()
+root = tk.Tk()
+root.title("Hello")
+name = tk.StringVar(value="Cube")
+ttk.Entry(root, textvariable=name).pack(fill="x", padx=8, pady=8)
+ttk.Button(root, text="Greet",
+           command=lambda: messagebox.showinfo("Hi", "Hello " + name.get())).pack()
 root.mainloop()
 ```
 
-Existing tkinter programs run unchanged, Blender-styled:
-`python -m bui.tksyntax app.py` (try `examples/tk_unchanged_app.py`), or call
-`bui.tksyntax.install()` before `import tkinter`.
-
-No Qt or Tk widgets are involved: both facades are thin Python over the C kit
-(`kit/`). Every widget is a kit node, `pack`/`grid`/`place` and Qt's
-box/grid/form layouts run on the kit's C geometry managers (a port of Tk's
-packer and gridder), `Canvas` and `QPainter` record into a kit display list,
-and windows are native Win32 windows (`kit/intern/kit_window.c`) — input,
-layout, rendering and presenting never leave C; Python only runs your
-callbacks. Elsewhere (or with `BUI_HOST=tk`) a stdlib Tk window hosts the
-frame buffer. See [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md).
-
-Blender's interaction polish comes for free in all three APIs: Ctrl+Z /
-Ctrl+Shift+Z undo of UI edits, Tab / Shift+Tab between fields, vertical
-multi-drag over number fields, animated panel collapse.
-
-## Low-level Python quick start
+Or import it directly, under its own name:
 
 ```python
-import buipy
-from bui.svg import SvgSink
-
-sink = SvgSink(640, 480)
-buipy.set_backend(sink)
-buipy.demo_scene(640, 480)          # drives the toolkit's draw seam
-sink.save("demo.svg")               # or render into QPainter via bui.qt.BuiCanvas
+import bui.tksyntax as tk
+from bui.tksyntax import ttk
 ```
 
-See [INTEGRATION.md](INTEGRATION.md) for installing/testing `buipy`.
+<p align="center">
+  <img src="docs/images/tkinter_notes.png" width="260" alt="Text with tags">
+  <img src="docs/images/tkinter_canvas.png" width="260" alt="Canvas">
+  <img src="docs/images/tkinter_messagebox.png" width="260" alt="messagebox">
+</p>
 
-## Qt quick start (C++)
+Everything is supported, including ttk, `messagebox`, `filedialog`,
+`simpledialog`, `colorchooser`, `font` and `scrolledtext`. That covers
+`pack`/`grid`/`place`, scrollbars, `Canvas` (tags, `create_window`,
+scroll regions), `Text` (indices, tags, marks, search, undo), `Treeview`,
+bindings, variables and traces, `after`, and window-manager calls.
+Full guide: **[docs/tkinter.md](docs/tkinter.md)**.
 
-```cmake
-set(BUI_BUILD_QT_BACKEND ON)        # requires Qt5/Qt6 Widgets
-add_subdirectory(BUI)
-target_link_libraries(myapp PRIVATE bui::qt)
+### Qt syntax
+
+```python
+from bui.qtsyntax import (QApplication, QWidget, QVBoxLayout, QFormLayout,
+                          QLineEdit, QSlider, QPushButton, QLabel)
+
+app = QApplication([])
+window = QWidget()
+window.setWindowTitle("Qt syntax on BUI")
+layout = QVBoxLayout(window)
+
+form = QFormLayout()
+name = QLineEdit()
+name.setPlaceholderText("type here…")
+level = QSlider()
+level.setRange(0, 100)
+form.addRow("Name:", name)
+form.addRow("Level:", level)
+layout.addLayout(form)
+
+status = QLabel("Press the button.")
+button = QPushButton("Click me")
+button.clicked.connect(lambda: status.setText("Hello " + (name.text() or "BUI")))
+layout.addWidget(status)
+layout.addWidget(button)
+
+window.show()
+app.exec()
 ```
 
-```cpp
-BUI::BuiWidget canvas(parent);
-canvas.render_func = [&](int w, int h) { /* BUI draw calls */ };
+<p align="center"><img src="docs/images/qt.png" width="460" alt="Qt syntax on BUI"></p>
+
+Supported classes, signals, layouts and the known gaps:
+**[docs/qt.md](docs/qt.md)**.
+
+### Blender components
+
+```python
+from bui.components import (App, Panel, NumberSlider, VectorField, EnumRow,
+                            Checkbox, ColorSwatch, Button)
+
+App("Object", (420, 520),
+    Panel("Transform",
+          VectorField("Location", (0.0, 1.25, 0.0)),
+          NumberSlider("Scale", 1.0, min=0, max=10, on_change=print)),
+    Panel("Shading",
+          EnumRow("Mode", ["Solid", "Material", "Rendered"]),
+          Checkbox("Shadows", True),
+          ColorSwatch("Color", (0.8, 0.3, 0.1, 1.0))),
+    Button("Apply", on_click=lambda: print("apply")),
+).run()
 ```
 
-The pure-Python path needs no C++ build at all — see
-`bindings/python/bui/qt.py`.
+Component reference and Blender interaction details:
+**[docs/components.md](docs/components.md)**.
+
+## How it works
+
+```
+ your code:  tkinter syntax      Qt syntax       bui.components
+                  │                 │                  │
+                  └──────── Python: options, signals, variables, callbacks
+                                    │
+ C kit (kit/):  node tree ─ geometry (pack/grid/place) ─ input & interaction
+                ─ Blender widget drawing ─ damage-driven raster rendering
+                                    │
+ window host:   native Win32 window (Windows)   │   stdlib Tk window (elsewhere)
+```
+
+- **One node tree.** Every widget wraps one kit node: `button`, `number`,
+  `slider`, `text`, `textarea`, `list`, `tree`, `canvas`, `scrollbar` and so
+  on. The C kit owns layout, hit testing, hover, focus, drag grabs, menus,
+  tooltips, undo and animation.
+- **Tk's geometry managers in C.** `pack` and `grid` are ports of Tk's own
+  packer and gridder. Qt's box, grid and form layouts are mapped onto them.
+- **Damage rendering.** A state change marks only its widget's rectangle.
+  A frame redraws just those regions into a frame buffer (anti-aliased SDF
+  shapes and a cached native text engine). Only the changed tiles are
+  presented to the window.
+- **Python stays thin.** Facades keep what tkinter and Qt keep in their own
+  scripting layers: option values, variables, traces, signals and bindings.
+
+More: [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Performance
+
+Measured on the full component demo (520×900) on a desktop CPU:
+
+| Frame                                           | Time     |
+| ----------------------------------------------- | -------- |
+| Complete frame (everything redrawn)             | ~0.7 ms  |
+| Hover or number-scrub frame (damage only)       | ~0.05 ms |
+| Native window: input event → render → on screen | ~0.06 ms |
+| Tk-hosted window, the same path                 | ~0.18 ms |
+
+The test suite enforces a 120 Hz budget: full frames under 8.3 ms, and
+interaction frames under 1 ms.
+
+## Documentation
+
+| Guide                                              | What's inside                                                                            |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [docs/getting-started.md](docs/getting-started.md) | Building, `PYTHONPATH`, environment variables, choosing the window host, troubleshooting |
+| [docs/tkinter.md](docs/tkinter.md)                 | Running tkinter apps on BUI, module map, behaviour notes, the Blender look, limitations  |
+| [docs/qt.md](docs/qt.md)                           | Qt-syntax guide: classes, signals, layouts, painting, timers, coverage and gaps          |
+| [docs/components.md](docs/components.md)           | `bui.components` reference: layout, values, views, menus, color, editors, `App`          |
+| [docs/c-api.md](docs/c-api.md)                     | The C kit (`BUI_kit.h`): nodes, properties, events, windows                              |
+| [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md)           | Member-by-member coverage tables for both syntax layers                                  |
+| [INTEGRATION.md](INTEGRATION.md)                   | Embedding BUI drawing in C, C++, Qt or PySide hosts through render sinks                 |
+| [ARCHITECTURE.md](ARCHITECTURE.md)                 | Modules, dependency rules, what was taken from Blender and how                           |
+
+Examples (`examples/`):
+
+| File                           | Shows                                                           |
+| ------------------------------ | --------------------------------------------------------------- |
+| `tk_unchanged_app.py`          | A plain tkinter app: menus, notebook, form, table, text, canvas |
+| `tk_syntax_demo.py`            | tkinter syntax laid out like a Blender properties editor        |
+| `qt_syntax_demo.py`            | Qt syntax: layouts, form widgets, signals                       |
+| `components_demo.py`           | Every Blender component, in a properties-editor layout          |
+| `python_demo.py`, `svg_demo.c` | Low-level drawing into an SVG render sink                       |
+
+## Repository layout
+
+| Path                  | Contents                                                                                                                                                                                                                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kit/`                | **The C runtime**: `kit_core.c` (nodes, input, rendering, undo, views), `kit_draw.c` (theme and the `interface_widgets.cc` port), `kit_widgets.c`, `kit_views.c` (lists, trees), `kit_menus.c`, `kit_color.c`, `kit_frame.c` (geometry managers, canvas), `kit_textarea.c`, `kit_window.c` (Win32 host). Public API: `kit/include/BUI_kit.h` |
+| `gpu/`                | Drawing: software raster (`gpu_raster.c`), render-sink dispatch                                                                                                                                                                                                                                                                              |
+| `core/`, `types/`     | Blender's `blenlib` subset (C11) and data types                                                                                                                                                                                                                                                                                              |
+| `ui/`, `compat/`      | Blender's original interface sources and the seams replacing Blender's application APIs                                                                                                                                                                                                                                                      |
+| `api/`                | Stable C ABI for render-sink hosts (`bui_c_api.h`)                                                                                                                                                                                                                                                                                           |
+| `bindings/python/`    | `buipy` extension (`src/`) and the `bui` package: `tksyntax/`, `qtsyntax.py`, `components/`, `host.py`                                                                                                                                                                                                                                       |
+| `backends/qt/`        | C++ Qt/QPainter render-sink backend                                                                                                                                                                                                                                                                                                          |
+| `examples/`, `tools/` | Demos, the icon generator, the docs screenshot generator                                                                                                                                                                                                                                                                                     |
+
+## Testing
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+| Suite                            | Covers                                                                             |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core`                           | blenlib subset                                                                     |
+| `buipy`, `buipy_render`          | Raster primitives, damage tracking, the native window against the frame buffer     |
+| `buipy_components`               | Every component, Blender interactions, undo, multi-drag, animation, 120 Hz budgets |
+| `buipy_syntax`, `buipy_advanced` | Qt and tkinter facades: layouts, painting, menus, dialogs, images                  |
+| `buipy_tk_compat`                | Nine tkinter programs run on stdlib tkinter **and** BUI; results must match        |
+| `buipy_tk_input`                 | tkinter widgets driven by real pointer and keyboard input through the kit          |
 
 ## License
 
-Derived from Blender sources: GPL-2.0-or-later (see upstream `COPYING` and the
-SPDX headers preserved in every file).
+Derived from Blender sources: **GPL-2.0-or-later** (see `LICENSE` and the SPDX
+headers kept in every file).
