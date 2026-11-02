@@ -42,6 +42,7 @@ add_library(bui::core ALIAS bui_core)
 
 target_include_directories(bui_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/types/dna/include
   # headers #include "intern/*.c" inline implementations, relative to module root
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -60,3 +61,4 @@ endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(bui_core PUBLIC Threads::Threads)
+

@@ -2,9 +2,9 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-/** \file
+/** ile
  * \ingroup DNA
- * \brief These structs are the foundation for all linked lists in the library system.
+ * rief These structs are the foundation for all linked lists in the library system.
  *
  * Doubly-linked lists start from a ListBase and contain elements beginning
  * with Link.
@@ -12,44 +12,40 @@
 
 #pragma once
 
-namespace blender {
-
-/** Generic - all structs which are put into linked lists begin with this. */
+/* The de-C++ified core (core/include/DNA_listBase.h, shared through the
+ * BUI_DNA_LISTBASE_SHARED guard) owns the global struct definitions. The
+ * blender-qualified names below alias onto them so DNA structs and the C
+ * listbase API share exactly one type. */
+#ifndef BUI_DNA_LISTBASE_SHARED
+#define BUI_DNA_LISTBASE_SHARED
+typedef struct Link Link;
+typedef struct LinkData LinkData;
+typedef struct ListBase ListBase;
 struct Link {
   struct Link *next, *prev;
 };
-
-/** Simple subclass of Link. Use this when it is not worth defining a custom one. */
 struct LinkData {
   struct LinkData *next, *prev;
   void *data;
 };
-
-/**
- * The basic double linked-list structure.
- *
- * \warning Never change the size/definition of this struct! The #init_structDNA
- * function (from dna_genfile.cc) uses it to compute the #pointer_size.
- */
 struct ListBase {
   void *first, *last;
 };
+#endif
 
-#ifdef __cplusplus
+#include "BLI_listbase_iterator.hh"
 
-template<typename T> struct ListBaseTIterator;
-template<typename T> struct ListBaseEnumerateWrapper;
-template<typename T> struct ListBaseMutableWrapper;
-template<typename T> struct ListBaseBackwardWrapper;
-template<typename T> struct ListBaseMutableBackwardWrapper;
+namespace blender {
+
+using Link = ::Link;
+using LinkData = ::LinkData;
+using ListBase = ::ListBase;
 
 /**
  * This is a thin wrapper around #ListBase to make it type-safe. It's designed to be used in DNA
  * structs. It is written as untyped #ListBase in .blend files for compatibility.
  */
 template<typename T> struct ListBaseT : public ListBase {
-  /* TODO: Add const and non-const iterators. However this will require some refactoring
-   * as some places rely on being able to get a mutable list element from a const list. */
   ListBaseTIterator<T> begin() const
   {
     return ListBaseTIterator<T>{static_cast<T *>(this->first)};
@@ -109,9 +105,5 @@ template<typename T> struct ListBaseT : public ListBase {
     return *reinterpret_cast<ListBaseT<OtherT> *>(this);
   }
 };
-
-#endif
-
-/* 8 byte alignment! */
 
 }  // namespace blender

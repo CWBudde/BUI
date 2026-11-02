@@ -106,3 +106,28 @@ size_t MEM_allocN_len(const void *vmemh)
   return bui_malloc_usable_size((void *)vmemh);
 }
 
+void *MEM_new_uninitialized(size_t size, const char *str)
+{
+  return MEM_mallocN(size, str);
+}
+
+void *MEM_new_zeroed(size_t size, const char *str)
+{
+  return MEM_callocN(size, str);
+}
+
+void *MEM_new_uninitialized_aligned(size_t size, size_t alignment, const char *str)
+{
+  return MEM_mallocN_aligned(size, alignment, str);
+}
+
+void MEM_delete_void(void *ptr)
+{
+  MEM_freeN(ptr);
+}
+
+
+void *MEM_dupalloc_void(const void *vmemh)
+{
+  return MEM_dupallocN(vmemh);
+}

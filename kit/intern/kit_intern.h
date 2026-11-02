@@ -1,0 +1,535 @@
+/* BUI kit internals: node/context structs, theme, drawing and class API.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later */
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "BUI_kit.h"
+
+typedef unsigned char uchar;
+
+/* -------------------------------------------------------------------- */
+/* Geometry (screen space, y down; xmax/ymax exclusive) */
+
+typedef struct BKRect {
+  int xmin, ymin, xmax, ymax;
+} BKRect;
+
+static inline int bk_rw(const BKRect *r)
+{
+  return r->xmax - r->xmin;
+}
+static inline int bk_rh(const BKRect *r)
+{
+  return r->ymax - r->ymin;
+}
+static inline BKRect bk_rect(int x, int y, int w, int h)
+{
+  BKRect r = {x, y, x + w, y + h};
+  return r;
+}
+
+/* Corner flags (Blender's CNR_*; "top" = screen top). */
+enum { CNR_TL = 1, CNR_TR = 2, CNR_BR = 4, CNR_BL = 8, CNR_ALL = 15 };
+
+/* -------------------------------------------------------------------- */
+/* Theme (Blender's uiWidgetColors / ThemeUI defaults) */
+
+typedef struct BKWCol {
+  uchar outline[4], outline_sel[4], inner[4], inner_sel[4], item[4], text[4], text_sel[4];
+  uchar shaded;
+  short shadetop, shadedown;
+  float roundness;
+} BKWCol;
+
+typedef struct BKTheme {
+  BKWCol regular, tool, toggle, radio, option, textfield, num, numslider, menu, pulldown, menu_back,
+      menu_item, list_item, box, scroll, progress, tooltip, tab, pie_menu;
+  uchar region_bg[4], header_bg[4], tabs_bg[4];
+  uchar panel_header[4], panel_back[4], panel_sub_back[4], panel_outline[4];
+  uchar text[4], text_hi[4], emboss[4], cursor[4], selection[4];
+  float menu_shadow_fac;
+  int menu_shadow_width;
+  float panel_roundness;
+} BKTheme;
+
+extern BKTheme bk_theme;
+
+/* Metrics (U.widget_unit, U.pixelsize, UI text size). */
+extern float bk_scale_fac;
+int bk_unit(void);
+float bk_px(void);
+float bk_font_size(void);
+float bk_line_height(void);
+extern float bk_text_scale; /* per-node font scale while measuring/drawing it */
+float bk_masked_width(const char *s, int len, const char *mask, bool bold);
+int bk_mask_text(const char *s, int len, const char *mask, char *buf, int size);
+int bk_pad(void); /* UI_TEXT_MARGIN_X * widget_unit */
+
+/* -------------------------------------------------------------------- */
+/* Drawing (kit_draw.c): Blender's widget base, text, icons */
+
+typedef struct BKDraw {
+  BuiRaster *r;
+  int clip[4]; /* current clip (x0, y0, x1, y1) */
+} BKDraw;
+
+extern BKDraw bk_draw; /* active frame */
+
+void bk_clip_push(int x, int y, int w, int h);
+void bk_clip_pop(void);
+void bk_clip_reset(int w, int h);
+bool bk_clip_visible(const BKRect *r);
+
+void bk_rgba(const uchar c[4], float r_out[4]);
+void bk_rgba_alpha(const uchar c[4], float alpha, float r_out[4]);
+void bk_fill(float x, float y, float w, float h, const uchar c[4]);
+void bk_fill_f(float x, float y, float w, float h, const float c[4]);
+void bk_roundbox(float x, float y, float w, float h, float rad, int corners, const float c[4]);
+void bk_shadow(const BKRect *r, float rad);
+void bk_line(float x0, float y0, float x1, float y1, const float c[4], float width);
+void bk_circle(float cx, float cy, float rad, const float c[4]);
+void bk_ring(float cx, float cy, float rad, const float c[4], float width);
+void bk_polygon(const float (*pts)[2], int n, const float c[4]);
+void bk_checker(float x, float y, float w, float h);
+
+/* Widget state flags (subset of Blender's UI_SELECT, UI_HOVER, ...). */
+enum {
+  ST_SELECT = 1 << 0,
+  ST_HOVER = 1 << 1,
+  ST_DISABLED = 1 << 2,
+  ST_TEXT_INPUT = 1 << 3,
+  ST_HOVER_LEFT = 1 << 4,
+  ST_HOVER_RIGHT = 1 << 5,
+  ST_NO_EMBOSS = 1 << 6,
+  ST_ALIGN_DOWN = 1 << 7, /* no emboss: stacked above another button */
+  ST_INDETERMINATE = 1 << 8,
+  ST_ACTIVE_DEFAULT = 1 << 9,
+};
+
+/* Apply Blender's widget_state(): theme colors adjusted for state. */
+void bk_widget_state(BKWCol *wcol, const BKWCol *theme, int state);
+void bk_widget_state_menu_item(BKWCol *wcol, const BKWCol *theme, int state);
+void bk_widget_active_color(BKWCol *wcol);
+float bk_widget_radius(const BKWCol *wcol);
+
+/* Ported widget draw functions. `rect` is narrowed to the text area like
+ * Blender's (the caller then draws text into it). */
+void bk_widget_but(BKWCol *wcol, BKRect *rect, int state, int corners);
+void bk_widget_numbut(BKWCol *wcol, BKRect *rect, int state, int corners);
+void bk_widget_numslider(BKWCol *wcol, BKRect *rect, int state, int corners, float factor);
+void bk_widget_textbut(BKWCol *wcol, BKRect *rect, int state, int corners);
+void bk_widget_menubut(BKWCol *wcol, BKRect *rect, int state, int corners);
+void bk_widget_optionbut(BKWCol *wcol, BKRect *rect, int state);
+void bk_widget_pulldownbut(BKWCol *wcol, BKRect *rect, int state, int corners);
+void bk_widget_menu_itembut(BKWCol *wcol, BKRect *rect);
+void bk_widget_list_itembut(BKWCol *wcol, BKRect *rect, int state);
+void bk_widget_box(BKWCol *wcol, BKRect *rect, int corners, const uchar *color);
+void bk_widget_progress(BKWCol *wcol, BKRect *rect, int corners, float factor);
+void bk_widget_swatch(BKWCol *wcol, BKRect *rect, int state, int corners, const float col[4]);
+void bk_widget_scroll(BKWCol *wcol, const BKRect *rect, const BKRect *slider, bool pressed);
+void bk_widget_tab(BKWCol *wcol, BKRect *rect, int state, int corners);
+void bk_widget_menu_back(const BKRect *rect, int corners);
+void bk_widget_tooltip_back(const BKRect *rect);
+
+/* Text (Blender's widget_draw_text: left/center/right in a rect, clipped
+ * with an ellipsis). */
+enum { BK_ALIGN_LEFT = 0, BK_ALIGN_CENTER = 1, BK_ALIGN_RIGHT = 2 };
+float bk_text_width(const char *s, int len, bool bold);
+float bk_text_baseline(const BKRect *rect);
+void bk_text(float x, float baseline, const char *s, int len, const uchar color[4], bool bold);
+void bk_text_f(float x, float baseline, const char *s, int len, const float c[4], bool bold);
+/* Draw `s` inside rect with alignment; returns drawn width. Ellipsizes. */
+float bk_text_in(const BKRect *rect, const char *s, const uchar color[4], int align, bool bold);
+/* Text + optional icon in rect (Blender's widget_draw_text_icon). */
+void bk_text_icon(const BKRect *rect,
+                  const char *s,
+                  int icon,
+                  const uchar color[4],
+                  int align,
+                  bool enabled);
+int bk_icon_size(void);
+void bk_icon(int icon, float cx, float cy, const uchar *color, float alpha, float size);
+const float *bk_icon_tint(int icon); /* NULL: use text color */
+float bk_content_width(const char *s, int icon, bool bold);
+void bk_tria(float cx, float cy, char dir, const float c[4], float size);
+void bk_chevron_down(float cx, float cy, const uchar c[4]);
+
+/* Icons (kit_icons.c). */
+int bk_icons_lookup(const char *name);
+void bk_icons_draw(int id, float x, float y, float s, const float color[4]);
+
+/* -------------------------------------------------------------------- */
+/* Text editing (Blender's text button behavior) */
+
+typedef struct BKTextEdit {
+  char *text;
+  int len, cap;
+  int caret, anchor; /* byte offsets; anchor < 0 = no selection */
+  float scroll;
+  char mask[8]; /* shown instead of each character (password fields), "" = none */
+} BKTextEdit;
+
+enum { TE_NONE = 0, TE_CHANGED, TE_CONFIRM, TE_CANCEL, TE_NEXT, TE_PREV };
+
+BKTextEdit *bk_te_new(const char *text, bool select_all);
+void bk_te_free(BKTextEdit *te);
+int bk_te_key(BKTextEdit *te, BKContext *ctx, const char *text, const char *keysym, int mods);
+int bk_te_index_at(BKTextEdit *te, float px);
+void bk_te_click(BKTextEdit *te, float px, bool extend);
+void bk_te_drag(BKTextEdit *te, float px);
+void bk_te_select_word(BKTextEdit *te, int index);
+void bk_te_draw(BKTextEdit *te, const BKRect *rect, const uchar color[4]);
+
+/* -------------------------------------------------------------------- */
+/* Nodes */
+
+typedef struct BKEvent {
+  int x, y;   /* window */
+  int lx, ly; /* relative to the node */
+  int dx, dy; /* since press */
+  int mods;
+  int delta;
+  bool inside, dragged;
+  const char *text;
+  const char *keysym;
+} BKEvent;
+
+#define EV_SHIFT(e) (((e)->mods & BK_SHIFT) != 0)
+#define EV_CTRL(e) (((e)->mods & BK_CTRL) != 0)
+#define EV_ALT(e) (((e)->mods & BK_ALT) != 0)
+
+typedef struct BKClass {
+  const char *name;
+  unsigned flags;  /* CLS_* */
+  int cursor;      /* hover cursor */
+  int drag_cursor; /* while dragged (BK_CURSOR_NONE = continuous grab) */
+  int drag_group;  /* drag-toggle group (0 = none) */
+  void (*init)(BKNode *n);
+  void (*free_ext)(BKNode *n);
+  void (*measure)(BKNode *n, int *r_w, int *r_h);
+  void (*arrange)(BKNode *n); /* place children inside n's rect */
+  void (*draw)(BKNode *n);
+  void (*draw_tree)(BKNode *n); /* optional: replaces draw + children */
+  BKNode *(*hit)(BKNode *n, int x, int y);
+  int (*press)(BKNode *n, BKEvent *e);
+  int (*dbl)(BKNode *n, BKEvent *e);
+  int (*drag)(BKNode *n, BKEvent *e);
+  int (*release)(BKNode *n, BKEvent *e);
+  int (*move)(BKNode *n, BKEvent *e);
+  int (*leave)(BKNode *n);
+  int (*key)(BKNode *n, BKEvent *e);
+  int (*wheel)(BKNode *n, BKEvent *e);
+  int (*cursor_at)(BKNode *n, int x, int y);
+  void (*finish_edit)(BKNode *n, bool confirm);
+  int (*context_items)(BKNode *n, BKMenuSpec *items, int max);
+  /* value hooks for the shared value shortcuts (Ctrl+C/V, Backspace ...) */
+  int (*to_text)(BKNode *n, char *buf, int size);
+  int (*from_text)(BKNode *n, const char *s); /* 1 when set */
+  void (*step)(BKNode *n, int dir);
+  void (*reset)(BKNode *n, bool to_zero);
+  void (*negate)(BKNode *n);
+  void (*activate)(BKNode *n);
+  /* class-specific properties (consulted before the generic ones) */
+  int (*set_num)(BKNode *n, const char *key, double v);
+  int (*get_num)(BKNode *n, const char *key, double *r_v);
+  /* scrollable view along an axis (0 = y, 1 = x), in the class's units
+   * (rows, lines, pixels): Tk's xview/yview and scrollbars build on this */
+  void (*view)(BKNode *n, int axis, int *r_first, int *r_visible, int *r_total);
+  void (*set_view)(BKNode *n, int axis, int first);
+} BKClass;
+
+enum {
+  CLS_INTERACTIVE = 1 << 0,
+  CLS_VALUE = 1 << 1, /* has the value shortcuts and context menu */
+  CLS_POPUP = 1 << 2,
+};
+
+enum { DRAG_GROUP_TOGGLE = 1, DRAG_GROUP_PANEL = 2 };
+
+/* Node flags. */
+enum {
+  NF_VISIBLE = 1 << 0,
+  NF_ENABLED = 1 << 1,
+  NF_ALIGN = 1 << 2,
+  NF_EMBOSS = 1 << 3,
+  NF_VERTICAL = 1 << 4,
+  NF_ICON_ONLY = 1 << 5,
+  NF_COLLAPSED = 1 << 6,
+  NF_INTEGER = 1 << 7,
+  NF_LIVE = 1 << 8,
+  NF_ALPHA = 1 << 9,
+  NF_SQUARE = 1 << 10, /* color picker type */
+  NF_DIRECTORY = 1 << 11,
+  NF_LINE = 1 << 12,   /* separator line */
+  NF_BOLD = 1 << 13,
+  NF_VECTOR = 1 << 14, /* column of linked number fields (Ctrl+Alt+C/V) */
+  NF_HAS_MIN = 1 << 15,
+  NF_HAS_MAX = 1 << 16,
+  NF_EVENTS = 1 << 17,  /* forward raw events to the host (bind) */
+  NF_NOPROPAGATE = 1 << 18, /* frame: keep its own size (pack_propagate(False)) */
+  NF_HAS_BG = 1 << 19,  /* frame/canvas: fill with `color` */
+  NF_SELECTED = 1 << 20, /* drawn selected (multi-drag set) */
+  NF_VIEWEVENTS = 1 << 21, /* emit BK_EV_VIEW when the scrolled view changes */
+  NF_NOSCROLLBAR = 1 << 22, /* an external scrollbar drives the view */
+  NF_CONFIGURED = 1 << 23,  /* geometry changed since the host was told (BK_EV_CONFIGURE) */
+};
+
+typedef struct BKStrs {
+  char **v;
+  int n;
+} BKStrs;
+
+struct BKNode {
+  const BKClass *cls;
+  BKNode *parent;
+  BKNode **kids;
+  int nkids, capkids;
+  BKContext *ctx_root; /* set on a context's root (and popups) */
+  void *ref;           /* host object */
+
+  int x, y, w, h;
+  int nat_w, nat_h, nat_gen;
+  float weight;
+  int corners;
+  unsigned flags;
+
+  /* common data */
+  char *text;  /* label text / title / string value */
+  char *label; /* value component label */
+  char *desc;  /* tooltip */
+  char *placeholder, *suffix;
+  int icon, icon_on;
+  int align; /* label alignment */
+  uchar color_text[4];
+  bool has_color_text;
+
+  /* values */
+  double value, defval, vmin, vmax, step, factor;
+  int precision;
+  float color[4];
+  BKStrs items, item_icons_s, shortcuts;
+  int *item_icons;
+  int spacing, padding, columns, rows;
+  float tile, height_units, split;
+  int hot, scroll, current;
+  int scroll_x;       /* horizontal view offset (canvas) */
+  int cursor_override; /* hover cursor + 1 (0 = the class's) */
+  float font_scale;    /* text size relative to the UI font (0 = 1) */
+  int selmode; /* list/tree: 0 single, 1 multiple (toggle), 2 extended (Ctrl/Shift),
+                * 3 single shown with marks (clearable) */
+  unsigned char *marks;   /* list: selected rows when selmode != 0 */
+  int nmarks;
+  char mask[8];        /* text fields: password mask character (Tk's show=) */
+  float view_seen[4]; /* last reported view fractions (y0, y1, x0, x1) */
+
+  /* interaction scratch */
+  double drag_start;
+  BKNode **linked;
+  int nlinked;
+  double *linked_start;
+  BKTextEdit *edit;
+  int rename_row;
+  int dragmode;
+
+  struct BKGeom *geom; /* geometry manager info (children of frames) */
+  float anim;          /* panel open fraction while animating (0..1) */
+  void *image;         /* BKImage on labels/buttons */
+
+  void *ext; /* type-specific data */
+  /* internal C wiring (composites built in C, e.g. the color picker) */
+  void (*on_change)(BKNode *n, void *data);
+  void *on_change_data;
+  void (*on_click)(BKNode *n, void *data);
+  void *on_click_data;
+};
+
+#define NODE_VISIBLE(n) (((n)->flags & NF_VISIBLE) != 0)
+#define NODE_ENABLED(n) (((n)->flags & NF_ENABLED) != 0)
+
+const BKClass *bk_class_find(const char *name);
+BKNode *bk_node_new_cls(const BKClass *cls);
+void bk_node_add(BKNode *parent, BKNode *child);
+BKContext *bk_ctx(const BKNode *n);
+void bk_invalidate(BKNode *n);
+void bk_relayout(BKNode *n);
+void bk_natural(BKNode *n, int *r_w, int *r_h);
+void bk_arrange(BKNode *n, int x, int y, int w, int h);
+void bk_draw_tree(BKNode *n);
+BKNode *bk_hit(BKNode *n, int x, int y);
+bool bk_contains(const BKNode *n, int x, int y);
+BKRect bk_node_rect(const BKNode *n);
+bool bk_hovered(const BKNode *n);
+bool bk_pressed(const BKNode *n);
+void bk_emit(BKNode *n, int kind, void *ref, double a, double b);
+void bk_view_fractions(BKNode *n, int axis, float *r_first, float *r_last);
+void bk_views_check(BKContext *ctx);
+extern int bk_configure_pending;
+void bk_changed(BKNode *n); /* invalidate + emit change + C hook */
+char *bk_strdup(const char *s);
+void bk_set_text(char **dst, const char *s);
+void bk_strs_set(BKStrs *s, const char *const *v, int n);
+void bk_strs_free(BKStrs *s);
+void bk_retain(void *ref);
+void bk_release(void *ref);
+
+/* Value helpers shared by classes. */
+void bk_set_value(BKNode *n, double v);           /* clamp + notify */
+void bk_set_value_silent(BKNode *n, double v);
+double bk_clamp_value(const BKNode *n, double v);
+int bk_value_key(BKNode *n, BKEvent *e);          /* Blender value shortcuts */
+int bk_value_wheel(BKNode *n, BKEvent *e);        /* Ctrl+Wheel */
+int bk_value_context_items(BKNode *n, BKMenuSpec *items, int max);
+void bk_begin_edit(BKNode *n, const char *text, bool select_all);
+int bk_edit_key(BKNode *n, BKEvent *e);           /* routes to TextEdit, confirms/cancels */
+
+/* -------------------------------------------------------------------- */
+/* Context */
+
+#define BK_MAX_POPUPS 16
+#define BK_MAX_DIRTY 24
+#define BK_MAX_KEYS 64
+
+typedef struct BKKeyBinding {
+  int mods;
+  char keysym[32];
+  void *ref;
+} BKKeyBinding;
+
+typedef struct BKGeom {
+  int manager;
+  int side, fill, expand, anchor;
+  int padx[2], pady[2], ipadx, ipady;
+  int row, column, rowspan, columnspan, sticky;
+  float x, y, relx, rely, width, height, relwidth, relheight;
+  unsigned has; /* place: which of width/height/relwidth/relheight were given */
+  int reqw, reqh;
+} BKGeom;
+
+typedef struct BKImage {
+  int w, h;
+  uint32_t *argb; /* premultiplied-free 0xAARRGGBB */
+} BKImage;
+
+void bk_image_free(BKImage *img);
+void bk_image_draw(const BKImage *img, float x, float y, float w, float h, float alpha);
+
+/* Undo entries (BK_undo). */
+typedef struct BKUndo {
+  BKNode *node;
+  int kind; /* 0 number, 1 text, 2 color */
+  double v[2];
+  char *t[2];
+  float c[2][4];
+  int interaction;
+} BKUndo;
+
+#define BK_MAX_UNDO 128
+#define BK_MAX_MULTI 32
+#define BK_MAX_ANIM 32
+
+struct BKContext {
+  BKNode *root, *header;
+  BKHost host;
+  BKNode *hover, *grab, *focus, *modal;
+  BKNode *popups[BK_MAX_POPUPS];
+  int npopups;
+  /* tooltip */
+  BKNode *tip_node;
+  int tip_x, tip_y, tip_serial, tip_shown;
+  BKRect tip_rect;
+  /* drag-toggle */
+  int dt_group, dt_value, dt_active;
+  /* pointer */
+  bool dragging;
+  int press_x, press_y, off_x, off_y, skip_x, skip_y;
+  bool has_skip;
+  int pointer_x, pointer_y;
+  double last_click_t;
+  BKNode *last_click_node;
+  int last_click_x, last_click_y;
+  int cursor;
+  /* window / region */
+  int win_w, win_h, scroll, content_h, header_h;
+  /* damage */
+  bool layout_dirty, full_dirty;
+  BKRect dirty[BK_MAX_DIRTY];
+  int ndirty;
+  BKKeyBinding keys[BK_MAX_KEYS];
+  int nkeys;
+  BuiRaster *raster; /* last rendered frame (eyedropper sampling) */
+  /* undo */
+  BKUndo undo[BK_MAX_UNDO];
+  int nundo, undo_pos, interaction, in_input, in_undo;
+  /* multi-drag over number fields */
+  BKNode *multi[BK_MAX_MULTI];
+  double multi_start[BK_MAX_MULTI];
+  int nmulti, multi_x0;
+  /* animations */
+  BKNode *anim[BK_MAX_ANIM];
+  int nanim;
+  double anim_t;
+};
+
+void bk_undo_record(BKNode *n, int kind);
+void bk_anim_start(BKNode *n);
+BKNode *bk_next_editable(BKNode *from, int dir);
+void bk_event(BKNode *n, int kind, int mods, const BKEvent *e);
+BKNode *bk_hit_at(BKContext *ctx, int x, int y);
+bool bk_anim_running(const BKNode *n);
+void bk_edit_next(BKNode *from, int dir);
+int bk_textarea_set_text(BKNode *n, const char *s);
+const char *bk_textarea_text(BKNode *n);
+
+void bk_ctx_dirty_rect(BKContext *ctx, BKRect r);
+void bk_ctx_request(BKContext *ctx);
+void bk_open_popup(BKContext *ctx, BKNode *popup, BKNode *owner, BKNode *parent_popup);
+void bk_close_popups_after(BKContext *ctx, BKNode *after); /* NULL: all */
+bool bk_owns_popup(BKContext *ctx, const BKNode *owner);
+int bk_popup_index(BKContext *ctx, const BKNode *popup);
+void bk_start_drag_toggle(BKContext *ctx, int group, int value);
+void bk_begin_modal(BKContext *ctx, BKNode *tool);
+void bk_end_modal(BKContext *ctx);
+char *bk_clipboard_get(BKContext *ctx);
+void bk_clipboard_set(BKContext *ctx, const char *s);
+void bk_forget(BKContext *ctx, BKNode *subtree);
+double bk_time(void);
+
+/* Popup placement fields live in ext of popup nodes (kit_menus.c). */
+typedef struct BKPopupPlace {
+  int at_x, at_y; /* < -9999: below owner */
+  int side_x, side_y, side_xl; /* submenu beside a row (side_x < -9999: none) */
+} BKPopupPlace;
+void bk_popup_place(BKNode *popup, int win_w, int win_h);
+
+/* Picker / menus (kit_menus.c, kit_color.c) */
+BKNode *bk_menu_new(const BKMenuSpec *items, int n, const char *title, const char *current);
+BKNode *bk_picker_new(BKNode *swatch);
+void bk_menu_on_close(BKNode *menu);
+void bk_eyedropper_start(BKContext *ctx, void (*pick)(void *data, const float rgb[3]), void *data);
+int bk_parse_hex(const char *s, float out[4], float alpha);
+BKNode *bk_popover_panel_new(BKNode *owner, BKNode *body);
+void bk_menuspec_free(BKMenuSpec *items, int n);
+BKMenuSpec *bk_menuspec_copy(const BKMenuSpec *items, int n);
+int bk_tree_columns_from_icons(BKNode *n);
+
+/* Classes (kit_widgets.c, kit_views.c, kit_color.c, kit_menus.c) */
+extern const BKClass bk_cls_column, bk_cls_row, bk_cls_grid, bk_cls_box, bk_cls_panel,
+    bk_cls_tabs, bk_cls_sidetabs, bk_cls_scroll, bk_cls_scrollbar, bk_cls_label, bk_cls_separator,
+    bk_cls_progress, bk_cls_button, bk_cls_toggle, bk_cls_checkbox, bk_cls_decorator,
+    bk_cls_text, bk_cls_search, bk_cls_hotkey, bk_cls_number, bk_cls_slider, bk_cls_dropdown,
+    bk_cls_enum, bk_cls_swatch, bk_cls_popover, bk_cls_menubutton, bk_cls_menubar, bk_cls_list,
+    bk_cls_tree, bk_cls_gridview, bk_cls_ramp, bk_cls_curve, bk_cls_normal, bk_cls_histogram,
+    bk_cls_hsv_circle, bk_cls_hsv_square, bk_cls_hue_strip, bk_cls_value_strip, bk_cls_menu,
+    bk_cls_pie, bk_cls_popover_panel, bk_cls_picker, bk_cls_eyedropper, bk_cls_frame,
+    bk_cls_radio, bk_cls_canvas, bk_cls_textarea, bk_cls_image;
+
+/* Small utilities */
+#define BK_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define BK_MAX(a, b) ((a) > (b) ? (a) : (b))
+#define BK_CLAMP(v, a, b) ((v) < (a) ? (a) : ((v) > (b) ? (b) : (v)))
+int bk_iround(float v);
+bool bk_streq(const char *a, const char *b);
+bool bk_keysym_is(const char *keysym, const char *name); /* case-insensitive */

@@ -1,4 +1,4 @@
-﻿/* SPDX-FileCopyrightText: 2001-2002 NaN Holding BV. All rights reserved.
+/* SPDX-FileCopyrightText: 2001-2002 NaN Holding BV. All rights reserved.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -11,6 +11,12 @@
  */
 
 #pragma once
+
+/* Shared with types/dna/include/DNA_listBase.h: whichever is included first
+ * defines the global structs once so both translation units and the
+ * blender-qualified aliases below/in there refer to the same types. */
+#ifndef BUI_DNA_LISTBASE_SHARED
+#define BUI_DNA_LISTBASE_SHARED
 
 /* typedef-first so the headers work in both C11 and C++ translation units. */
 typedef struct Link Link;
@@ -38,6 +44,8 @@ struct ListBase {
   void *first, *last;
 };
 
+#endif /* BUI_DNA_LISTBASE_SHARED */
+
 #ifdef __cplusplus
 
 template<typename T> struct ListBaseTIterator;
@@ -61,7 +69,7 @@ template<typename T> struct ListBaseT : public ListBase {
   ListBaseTIterator<T> end() const
   {
     /* Don't use `this->last` because this iterator has to point to one-past-the-end. */
-    return ListBaseTIterator<T>{NULL};
+    return ListBaseTIterator<T>{nullptr};
   }
 
   /** Iterator that returns also gives an index for every item. This helps prevent mistakes

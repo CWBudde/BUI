@@ -10,8 +10,6 @@
 
 namespace blender {
 
-struct Link;
-
 /** An iterator for use with #ListBase.  */
 template<typename T> struct ListBaseTIterator {
  public:
@@ -29,7 +27,7 @@ template<typename T> struct ListBaseTIterator {
 
   ListBaseTIterator &operator++()
   {
-    data_ = reinterpret_cast<T *>((reinterpret_cast<const Link *>(data_))->next);
+    data_ = reinterpret_cast<T *>((reinterpret_cast<const ::Link *>(data_))->next);
     return *this;
   }
 
@@ -42,7 +40,7 @@ template<typename T> struct ListBaseTIterator {
 
   ListBaseTIterator &operator--()
   {
-    data_ = reinterpret_cast<T *>((reinterpret_cast<const Link *>(data_))->prev);
+    data_ = reinterpret_cast<T *>((reinterpret_cast<const ::Link *>(data_))->prev);
     return *this;
   }
 
@@ -87,7 +85,7 @@ template<typename T> struct ListBaseEnumerateIterator {
 
   ListBaseEnumerateIterator &operator++()
   {
-    data_ = reinterpret_cast<T *>(reinterpret_cast<const Link *>(data_)->next);
+    data_ = reinterpret_cast<T *>(reinterpret_cast<const ::Link *>(data_)->next);
     index_++;
     return *this;
   }
@@ -146,7 +144,7 @@ template<typename T> struct ListBaseMutableIterator {
   ListBaseMutableIterator(T *data) : current_(data)
   {
     if (current_) {
-      next_ = reinterpret_cast<T *>((reinterpret_cast<const Link *>(current_))->next);
+      next_ = reinterpret_cast<T *>((reinterpret_cast<const ::Link *>(current_))->next);
     }
   }
 
@@ -154,7 +152,7 @@ template<typename T> struct ListBaseMutableIterator {
   {
     current_ = next_;
     if (current_) {
-      next_ = reinterpret_cast<T *>((reinterpret_cast<const Link *>(current_))->next);
+      next_ = reinterpret_cast<T *>((reinterpret_cast<const ::Link *>(current_))->next);
     }
     return *this;
   }
@@ -213,7 +211,7 @@ template<typename T> struct ListBaseBackwardIterator {
 
   ListBaseBackwardIterator &operator++()
   {
-    data_ = reinterpret_cast<T *>((reinterpret_cast<const Link *>(data_))->prev);
+    data_ = reinterpret_cast<T *>((reinterpret_cast<const ::Link *>(data_))->prev);
     return *this;
   }
 
@@ -271,7 +269,7 @@ template<typename T> struct ListBaseMutableBackwardIterator {
   ListBaseMutableBackwardIterator(T *data) : current_(data)
   {
     if (current_) {
-      prev_ = reinterpret_cast<T *>((reinterpret_cast<const Link *>(current_))->prev);
+      prev_ = reinterpret_cast<T *>((reinterpret_cast<const ::Link *>(current_))->prev);
     }
   }
 
@@ -279,7 +277,7 @@ template<typename T> struct ListBaseMutableBackwardIterator {
   {
     current_ = prev_;
     if (current_) {
-      prev_ = reinterpret_cast<T *>((reinterpret_cast<const Link *>(current_))->prev);
+      prev_ = reinterpret_cast<T *>((reinterpret_cast<const ::Link *>(current_))->prev);
     }
     return *this;
   }

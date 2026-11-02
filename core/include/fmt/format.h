@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #pragma once
 
-#include <string>
 #include <sstream>
+#include <string>
+#include <type_traits>
 
 namespace fmt {
 
@@ -22,5 +23,7 @@ template<typename T> inline std::string to_string(const T &value)
   ss << value;
   return ss.str();
 }
+
+template<typename T, typename... Args> struct is_range : std::false_type {};
 
 }  // namespace fmt

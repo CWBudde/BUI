@@ -1,4 +1,4 @@
-﻿/* SPDX-FileCopyrightText: 2011 Blender Authors
+/* SPDX-FileCopyrightText: 2011 Blender Authors
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -11,18 +11,18 @@
 #include "BLI_sys_types.h"
 
 
-typedef enum eStrCursorJumpType eStrCursorJumpType;
 enum eStrCursorJumpType {
   STRCUR_JUMP_NONE,
   STRCUR_JUMP_DELIM,
   STRCUR_JUMP_ALL,
 };
+typedef enum eStrCursorJumpType eStrCursorJumpType;
 
-typedef enum eStrCursorJumpDirection eStrCursorJumpDirection;
 enum eStrCursorJumpDirection {
   STRCUR_DIR_PREV,
   STRCUR_DIR_NEXT,
 };
+typedef enum eStrCursorJumpDirection eStrCursorJumpDirection;
 
 bool BLI_str_cursor_step_next_utf8(const char *str, int str_maxlen, int *pos);
 bool BLI_str_cursor_step_prev_utf8(const char *str, int str_maxlen, int *pos);

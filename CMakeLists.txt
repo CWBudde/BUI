@@ -14,6 +14,8 @@ project(bui LANGUAGES C CXX VERSION 0.1.0)
 option(BUI_BUILD_TESTS "Build BUI test executables" ON)
 option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
 option(BUI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" ON)
+option(BUI_BUILD_QT_BACKEND "Build the Qt/QPainter backend (needs Qt5/Qt6 with Widgets)" OFF)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
@@ -21,7 +23,7 @@ endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(MSVC)
@@ -38,13 +40,23 @@ set(BUI_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 # Dependency order matters: each layer may only use layers above it in this list.
 add_subdirectory(core)   # pure C foundation
 add_subdirectory(types)  # BUI-owned shared data types
-add_subdirectory(gpu)    # draw abstraction (null backend for now)
+add_subdirectory(gpu)    # draw abstraction (null backend + sink dispatch)
 add_subdirectory(compat) # seam headers/stubs replacing Blender-app APIs
 add_subdirectory(ui)     # the widget toolkit
+add_subdirectory(kit)    # Blender UI runtime in C (widgets, input, damage rendering)
+add_subdirectory(api)    # stable C ABI for hosts & bindings
 
 if(BUI_BUILD_TESTS)
   enable_testing()
   add_subdirectory(core/tests)
+endif()
+
+if(BUI_BUILD_PYTHON_BINDINGS)
+  add_subdirectory(bindings/python)
+endif()
+
+if(BUI_BUILD_QT_BACKEND)
+  add_subdirectory(backends/qt)
 endif()
 
 if(BUI_BUILD_EXAMPLES)

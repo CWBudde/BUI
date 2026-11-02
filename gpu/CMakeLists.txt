@@ -7,6 +7,7 @@
 
 set(SRC
   intern/gpu_null.c
+  intern/gpu_raster.c
 )
 
 add_library(bui_gpu STATIC ${SRC})
@@ -17,3 +18,10 @@ target_include_directories(bui_gpu PUBLIC
   ${CMAKE_SOURCE_DIR}/core/include
 )
 target_link_libraries(bui_gpu PUBLIC bui::core)
+if(NOT MSVC)
+  target_link_libraries(bui_gpu PRIVATE m)
+endif()
+if(WIN32)
+  # gpu_raster.c: GDI glyph-run text engine + native window present.
+  target_link_libraries(bui_gpu PUBLIC gdi32 user32)
+endif()

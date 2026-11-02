@@ -17,6 +17,22 @@ typedef enum eGPUBuiltinShader {
   GPU_SHADER_2D_IMAGE,
   GPU_SHADER_2D_CHECKER,
   GPU_SHADER_2D_LINE_DASHED_UNIFORM_COLOR,
+  GPU_SHADER_2D_POINT_UNIFORM_SIZE_UNIFORM_COLOR_AA,
+  GPU_SHADER_2D_POINT_UNIFORM_SIZE_UNIFORM_COLOR_OUTLINE_AA,
+  GPU_SHADER_3D_UNIFORM_COLOR,
+  GPU_SHADER_3D_FLAT_COLOR,
+  GPU_SHADER_3D_POINT_FLAT_COLOR,
+  GPU_SHADER_3D_SMOOTH_COLOR,
+  GPU_SHADER_3D_DEPTH_ONLY,
+  GPU_SHADER_3D_IMAGE_COLOR,
+  GPU_SHADER_3D_LINE_DASHED_UNIFORM_COLOR,
+  GPU_SHADER_3D_POINT_UNIFORM_SIZE_UNIFORM_COLOR_AA,
+  GPU_SHADER_3D_POINT_VARYING_SIZE_VARYING_COLOR,
+  /* Widget shaders. */
+  GPU_SHADER_2D_WIDGET_BASE,
+  GPU_SHADER_2D_WIDGET_BASE_INST,
+  GPU_SHADER_2D_WIDGET_SHADOW,
+  GPU_SHADER_SIMPLE_LIGHTING,
   /* Keep last. */
   GPU_SHADER_BUILTIN_LEN,
 } eGPUBuiltinShader;
@@ -30,7 +46,7 @@ void imm_draw_circle_wire_2d(unsigned int pos_id, float x, float y, float radius
 void imm_draw_disk_partial_fill_2d(unsigned int pos_id,
                                    float x,
                                    float y,
-                               float radius_inner,
+                                   float radius_inner,
                                    float radius_outer,
                                    float start_angle,
                                    float sweep_angle,
@@ -38,19 +54,10 @@ void imm_draw_disk_partial_fill_2d(unsigned int pos_id,
 
 /* Theme-color uniforms are provided by the ui module via this hook to avoid a
  * gpu -> ui dependency. The toolkit installs it at startup. */
-struct bThemeUIColor; /* opaque */
 extern void (*bui_imm_theme_color_hook)(int region_color_id, float r_color[4]);
 extern void (*bui_imm_theme_color_alpha_hook)(int region_color_id, float alpha, float r_color[4]);
 void immUniformThemeColor(int color_id);
 void immUniformThemeColorAlpha(int color_id, float alpha);
-
-/* Pixel-texture drawing (icons etc). Null backend discards. */
-void immDrawPixelsTexSetup(int shader_id); /* placeholder signature */
-void immDrawPixelsTexScaledFullSize(
-    float x, float y, float img_w, float img_h, float tex_w, float tex_h,
-    float scale_x, float scale_y, int clip_min_x, int clip_min_y, int clip_max_x, int clip_max_y,
-    bool linear_filter, const void *rect, int pixels_w, int pixels_h, int components,
-    const float pixel_outline[4]);
 
 #ifdef __cplusplus
 }

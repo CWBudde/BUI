@@ -620,7 +620,7 @@ template<class T, size_t N> constexpr size_t ARRAY_SIZE(const T (&arg)[N]) noexc
  *   `BOUNDED_ARRAY_TYPE_SIZE<decltype(MyType::array)>` returns 12.
  */
 template<class T>
-constexpr std::enable_if_t<blenlib_internal::IsBoundedArray<T>::value, size_t>
+constexpr std::enable_if_t<IsBoundedArray<T>::value, size_t>
 BOUNDED_ARRAY_TYPE_SIZE() noexcept
 {
   return sizeof(std::declval<T>()) / sizeof(std::declval<T>()[0]);

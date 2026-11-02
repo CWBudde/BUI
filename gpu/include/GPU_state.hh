@@ -1,4 +1,4 @@
-/* BUI GPU seam: state management.
+﻿/* BUI GPU seam: state management.
  * Minimal replacement for upstream GPU_state.hh. Backed by a null backend;
  * plug a real renderer behind these calls.
  * SPDX-License-Identifier: GPL-2.0-or-later */
@@ -16,6 +16,9 @@ typedef enum eGPUBlend {
   GPU_BLEND_ALPHA_PREMULT,
   GPU_BLEND_ADDITIVE,
 } eGPUBlend;
+
+/* Upstream spells the plain type GPUBlend in some call-sites. */
+typedef eGPUBlend GPUBlend;
 
 typedef enum eGPUFaceCullTest {
   GPU_CULL_NONE = 0,
@@ -45,3 +48,5 @@ void GPU_viewport_size_get_f(float viewport[4]);
 #ifdef __cplusplus
 }
 #endif
+
+

@@ -42,6 +42,12 @@ if(BUI_BUILD_UI)
     ${CMAKE_SOURCE_DIR}/gpu/include
   )
   target_link_libraries(bui_ui PUBLIC bui::core bui::types bui::gpu bui::compat)
+  # Upstream headers rely on transitive math includes that the de-namespaced
+  # core no longer provides implicitly.
+  target_compile_options(bui_ui PRIVATE
+    "-includeBLI_math_vector.h"
+    "-includeBLI_math_color.h"
+  )
 else()
   # Headers-only target: lets consumers resolve UI_* headers without compiling.
   add_library(bui_ui INTERFACE)

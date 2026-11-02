@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2001-2002 NaN Holding BV. All rights reserved.
+﻿/* SPDX-FileCopyrightText: 2001-2002 NaN Holding BV. All rights reserved.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -20,6 +20,9 @@
 #include "DNA_session_uid_types.h"
 #include "DNA_userdef_types.h" /* ThemeWireColor */
 #include "DNA_view2d_types.h"
+#ifdef __cplusplus
+#  include "GPU_batch.hh"
+#endif
 
 #include "BLI_enum_flags.hh"
 
@@ -34,10 +37,15 @@ struct FCurve;
 struct GHash;
 struct Object;
 struct SpaceLink;
+#ifdef __cplusplus
 namespace gpu {
-class VertBuf;
-class Batch;
+using VertBuf = ::GPUVertBuf;
+using Batch = ::GPUBatch;
 }  // namespace gpu
+#else
+struct GPUVertBuf;
+struct GPUBatch;
+#endif
 
 /* Forward declarations so the actual declarations can happen top-down. */
 struct ActionLayer;
@@ -1362,3 +1370,4 @@ static_assert(
 #endif
 
 }  // namespace blender
+

@@ -10,13 +10,15 @@
 #ifndef __RNA_TYPES_H__
 #define __RNA_TYPES_H__
 
+#include "DNA_listBase.h"
+
 #include <optional>
 #include <string>
 
-#include "../blenlib/BLI_enum_flags.hh"
-#include "../blenlib/BLI_function_ref.hh"
-#include "../blenlib/BLI_sys_types.h"
-#include "../blenlib/BLI_vector.hh"
+#include "BLI_enum_flags.hh"
+#include "BLI_function_ref.hh"
+#include "BLI_sys_types.h"
+#include "BLI_vector.hh"
 
 namespace blender {
 
@@ -577,7 +579,6 @@ enum ParameterFlag {
 ENUM_OPERATORS(ParameterFlag)
 
 struct CollectionPropertyIterator;
-struct Link;
 using IteratorSkipFunc = bool (*)(CollectionPropertyIterator *iter, void *data);
 
 struct ListBaseIterator {
@@ -1088,3 +1089,4 @@ struct PrimitiveBooleanRNA {
 }  // namespace blender
 
 #endif /* __RNA_TYPES_H__ */
+

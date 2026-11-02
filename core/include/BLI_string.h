@@ -1,4 +1,4 @@
-﻿/* SPDX-FileCopyrightText: 2001-2002 NaN Holding BV. All rights reserved.
+/* SPDX-FileCopyrightText: 2001-2002 NaN Holding BV. All rights reserved.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -692,7 +692,10 @@ void BLI_string_debug_size_after_nil(char *str, size_t str_maxncpy);
  * Returns the dst.
  */
 
-
-
-
-
+/* Upstream-compatible safe copy for fixed-size char arrays. */
+#ifdef __cplusplus
+template<size_t N> inline char *STRNCPY(char (&dst)[N], const char *src)
+{
+  return BLI_strncpy(dst, src, N);
+}
+#endif

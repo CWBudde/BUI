@@ -50,8 +50,8 @@ struct wmOperatorType;
 struct wmTimer;
 
 namespace gpu {
-class Batch;
-}
+using ::blender::gpu::Batch;
+}  // namespace gpu
 
 namespace ui {
 

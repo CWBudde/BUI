@@ -1546,11 +1546,11 @@ void draw_but_UNITVEC(Button *but,
   GPU_matrix_scale_1f(size);
 
   gpu::Batch *sphere = GPU_batch_preset_sphere(2);
-  SimpleLightingData simple_lighting_data;
+  gpu::SimpleLightingData simple_lighting_data;
   copy_v4_fl4(simple_lighting_data.l_color, diffuse[0], diffuse[1], diffuse[2], 1.0f);
   copy_v3_v3(simple_lighting_data.light, light);
   gpu::UniformBuf *ubo = GPU_uniformbuf_create_ex(
-      sizeof(SimpleLightingData), &simple_lighting_data, __func__);
+      sizeof(gpu::SimpleLightingData), &simple_lighting_data, __func__);
 
   GPU_batch_program_set_builtin(sphere, GPU_SHADER_SIMPLE_LIGHTING);
   GPU_batch_uniformbuf_bind(sphere, "simple_lighting_data", ubo);

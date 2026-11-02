@@ -1,9 +1,12 @@
-/* BUI GPU seam: immediate mode drawing.
+﻿/* BUI GPU seam: immediate mode drawing.
  * Minimal API-compatible surface for the extracted UI toolkit.
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #pragma once
 
 #include "BLI_sys_types.h"
+#include "GPU_batch.hh"
+#include "GPU_matrix.hh"
+#include "GPU_immediate_util.hh"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,15 +17,15 @@ typedef enum eGPUPrimType {
   GPU_PRIM_POINTS,
   GPU_PRIM_LINES,
   GPU_PRIM_LINE_STRIP,
+  GPU_PRIM_LINE_LOOP,
   GPU_PRIM_TRIS,
   GPU_PRIM_TRI_STRIP,
   GPU_PRIM_TRI_FAN,
 } eGPUPrimType;
+typedef enum eGPUPrimType GPUPrimType;
 
-/* Opaque vertex format handle (see GPU_vertex_format.hh). */
-typedef struct GPUVertFormatRaw GPUVertFormatRaw;
-
-unsigned int immVertexFormat(void);
+/* Returns a scratch vertex format (upstream semantics). */
+GPUVertFormat *immVertexFormat(void);
 void immBindBuiltinProgram(int shader_id);
 bool immIsShaderBound(void);
 void immUnbindProgram(void);
@@ -61,3 +64,4 @@ void immUniformColor4ubv(const unsigned char rgba[4]);
 #ifdef __cplusplus
 }
 #endif
+

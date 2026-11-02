@@ -14,6 +14,10 @@
 #include "BLI_compiler_compat.h"
 #include "DNA_listBase.h"
 
+#ifdef __cplusplus
+#  include "BLI_listbase_iterator.hh"
+#endif
+
 
 
 
@@ -360,6 +364,7 @@ LinkData *BLI_genericNodeN(void *data);
     ; \
   } \
   ((void)0)
+
 
 
 

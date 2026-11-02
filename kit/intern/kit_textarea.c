@@ -1,0 +1,612 @@
+/* Multi-line text area (Tk Text, Qt QTextEdit/QPlainTextEdit).
+ *
+ * UTF-8 buffer with caret/selection, colored spans (tags), vertical
+ * scrolling; editing keys follow the single-line field (Blender's word
+ * jumps via BLI_str_cursor_step_utf8). Drawn on Blender's text-field
+ * widget (wcol_text).
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later */
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "kit_intern.h"
+
+typedef enum { STRCUR_JUMP_NONE, STRCUR_JUMP_DELIM, STRCUR_JUMP_ALL } eStrCursorJumpType;
+typedef enum { STRCUR_DIR_PREV, STRCUR_DIR_NEXT } eStrCursorJumpDirection;
+void BLI_str_cursor_step_utf8(const char *str, int str_maxlen, int *pos,
+                              eStrCursorJumpDirection direction, eStrCursorJumpType jump,
+                              bool use_init_step);
+void BLI_str_cursor_step_bounds_utf8(const char *str, int str_maxlen, int pos, int *r_start,
+                                     int *r_end);
+
+typedef BKTextSpan Span;
+
+typedef struct TAData {
+  char *text;
+  int len, cap;
+  int caret, anchor; /* anchor < 0: no selection */
+  float want_x;      /* column memory for Up/Down */
+  int scroll;        /* first visible line */
+  int *lines;        /* line start offsets */
+  int nlines, caplines;
+  Span *spans;
+  int nspans;
+} TAData;
+
+#define TA(n) ((TAData *)(n)->ext)
+
+static int line_h(void)
+{
+  return bk_iround(0.8f * bk_unit());
+}
+
+static void ta_reindex(TAData *t)
+{
+  t->nlines = 0;
+  for (int i = 0; i <= t->len; i++) {
+    if (i == 0 || t->text[i - 1] == '\n') {
+      if (t->nlines == t->caplines) {
+        t->caplines = t->caplines ? t->caplines * 2 : 64;
+        t->lines = (int *)realloc(t->lines, sizeof(int) * (size_t)t->caplines);
+      }
+      t->lines[t->nlines++] = i;
+    }
+  }
+}
+
+static int line_end(const TAData *t, int line)
+{
+  return line + 1 < t->nlines ? t->lines[line + 1] - 1 : t->len;
+}
+
+static int line_of(const TAData *t, int off)
+{
+  int lo = 0, hi = t->nlines - 1;
+  while (lo < hi) {
+    const int mid = (lo + hi + 1) / 2;
+    if (t->lines[mid] <= off) {
+      lo = mid;
+    }
+    else {
+      hi = mid - 1;
+    }
+  }
+  return lo;
+}
+
+static void ta_init(BKNode *n)
+{
+  TAData *t = (TAData *)calloc(1, sizeof(TAData));
+  t->cap = 64;
+  t->text = (char *)calloc(1, (size_t)t->cap);
+  t->anchor = -1;
+  ta_reindex(t);
+  n->ext = t;
+  n->rows = 8;
+}
+
+static void ta_free(BKNode *n)
+{
+  TAData *t = TA(n);
+  free(t->text);
+  free(t->lines);
+  free(t->spans);
+  free(t);
+}
+
+static void ta_changed(BKNode *n)
+{
+  ta_reindex(TA(n));
+  bk_invalidate(n);
+  bk_emit(n, BK_EV_CHANGE, NULL, TA(n)->caret, 0);
+}
+
+static void ta_insert_raw(TAData *t, int off, const char *s)
+{
+  const int n = (int)strlen(s);
+  if (t->len + n + 1 > t->cap) {
+    t->cap = t->len + n + 64;
+    t->text = (char *)realloc(t->text, (size_t)t->cap);
+  }
+  off = BK_CLAMP(off, 0, t->len);
+  memmove(t->text + off + n, t->text + off, (size_t)(t->len - off + 1));
+  memcpy(t->text + off, s, (size_t)n);
+  t->len += n;
+  /* keep spans attached to their text */
+  for (int i = 0; i < t->nspans; i++) {
+    if (t->spans[i].start >= off) {
+      t->spans[i].start += n;
+    }
+    if (t->spans[i].end > off) {
+      t->spans[i].end += n;
+    }
+  }
+}
+
+static void ta_delete_raw(TAData *t, int a, int b)
+{
+  a = BK_CLAMP(a, 0, t->len);
+  b = BK_CLAMP(b, a, t->len);
+  memmove(t->text + a, t->text + b, (size_t)(t->len - b + 1));
+  t->len -= b - a;
+  for (int i = 0; i < t->nspans; i++) {
+    Span *s = &t->spans[i];
+    s->start = s->start >= b ? s->start - (b - a) : BK_MIN(s->start, a);
+    s->end = s->end >= b ? s->end - (b - a) : BK_MIN(s->end, a);
+  }
+}
+
+void BK_textarea_insert(BKNode *n, int off, const char *text)
+{
+  TAData *t = TA(n);
+  ta_insert_raw(t, off, text ? text : "");
+  if (t->caret >= off) {
+    t->caret += (int)strlen(text ? text : "");
+  }
+  t->anchor = -1;
+  ta_reindex(t);
+  bk_invalidate(n);
+}
+
+void BK_textarea_delete(BKNode *n, int a, int b)
+{
+  TAData *t = TA(n);
+  ta_delete_raw(t, a, b);
+  if (t->caret > a) {
+    t->caret = BK_MAX(a, t->caret - (b - a));
+  }
+  t->anchor = -1;
+  ta_reindex(t);
+  bk_invalidate(n);
+}
+
+int BK_textarea_caret(BKNode *n)
+{
+  return TA(n)->caret;
+}
+
+void BK_textarea_set_caret(BKNode *n, int off)
+{
+  TA(n)->caret = BK_CLAMP(off, 0, TA(n)->len);
+  TA(n)->anchor = -1;
+  bk_invalidate(n);
+}
+
+int BK_textarea_selection(BKNode *n, int *a, int *b)
+{
+  TAData *t = TA(n);
+  if (t->anchor < 0 || t->anchor == t->caret) {
+    return 0;
+  }
+  *a = BK_MIN(t->anchor, t->caret);
+  *b = BK_MAX(t->anchor, t->caret);
+  return 1;
+}
+
+void BK_textarea_set_selection(BKNode *n, int a, int b)
+{
+  TAData *t = TA(n);
+  t->anchor = BK_CLAMP(a, 0, t->len);
+  t->caret = BK_CLAMP(b, 0, t->len);
+  bk_invalidate(n);
+}
+
+void BK_textarea_set_spans(BKNode *n, const BKTextSpan *spans, int count)
+{
+  TAData *t = TA(n);
+  free(t->spans);
+  t->spans = (Span *)calloc((size_t)BK_MAX(1, count), sizeof(Span));
+  memcpy(t->spans, spans, sizeof(Span) * (size_t)count);
+  t->nspans = count;
+  bk_invalidate(n);
+}
+
+static int visible_lines(const BKNode *n)
+{
+  return BK_MAX(1, (n->h - bk_pad()) / line_h());
+}
+
+static void ta_view(BKNode *n, int axis, int *first, int *vis, int *total)
+{
+  if (axis == 0) { /* lines */
+    *first = TA(n)->scroll;
+    *vis = visible_lines(n);
+    *total = TA(n)->nlines;
+  }
+}
+
+static void ta_set_view(BKNode *n, int axis, int first)
+{
+  if (axis == 0) {
+    TA(n)->scroll = first;
+  }
+}
+
+void BK_textarea_see(BKNode *n, int off)
+{
+  TAData *t = TA(n);
+  const int line = line_of(t, BK_CLAMP(off, 0, t->len)), vis = visible_lines(n);
+  if (line < t->scroll) {
+    t->scroll = line;
+  }
+  else if (line >= t->scroll + vis) {
+    t->scroll = line - vis + 1;
+  }
+  bk_invalidate(n);
+}
+
+/* Set/get the whole text through the generic "value" property. */
+int bk_textarea_set_text(BKNode *n, const char *s)
+{
+  TAData *t = TA(n);
+  ta_delete_raw(t, 0, t->len);
+  t->nspans = 0;
+  ta_insert_raw(t, 0, s ? s : "");
+  t->caret = BK_MIN(t->caret, t->len);
+  t->anchor = -1;
+  ta_reindex(t);
+  bk_invalidate(n);
+  return 1;
+}
+
+const char *bk_textarea_text(BKNode *n)
+{
+  return TA(n)->text;
+}
+
+/* -- input -- */
+
+static int col_at(const TAData *t, int line, float px)
+{
+  const int a = t->lines[line], b = line_end(t, line);
+  float prev = 0.0f;
+  int i = a;
+  while (i < b) {
+    int nx = i;
+    BLI_str_cursor_step_utf8(t->text, t->len, &nx, STRCUR_DIR_NEXT, STRCUR_JUMP_NONE, true);
+    const float w = bk_text_width(t->text + a, nx - a, false);
+    if (px < (prev + w) * 0.5f) {
+      return i;
+    }
+    prev = w;
+    i = nx;
+  }
+  return b;
+}
+
+static int offset_at(BKNode *n, int x, int y)
+{
+  TAData *t = TA(n);
+  const int line = BK_CLAMP((y - n->y - bk_pad() / 2) / line_h() + t->scroll, 0, t->nlines - 1);
+  return col_at(t, line, (float)(x - n->x - bk_pad()));
+}
+
+int BK_textarea_index_at(BKNode *n, int x, int y)
+{
+  return offset_at(n, x, y);
+}
+
+static float caret_x(const TAData *t, int off)
+{
+  const int line = line_of(t, off);
+  return bk_text_width(t->text + t->lines[line], off - t->lines[line], false);
+}
+
+static void move(TAData *t, int to, bool extend)
+{
+  if (extend) {
+    if (t->anchor < 0) {
+      t->anchor = t->caret;
+    }
+  }
+  else {
+    t->anchor = -1;
+  }
+  t->caret = BK_CLAMP(to, 0, t->len);
+}
+
+static bool delete_selection(BKNode *n)
+{
+  int a, b;
+  if (!BK_textarea_selection(n, &a, &b)) {
+    return false;
+  }
+  bk_undo_record(n, 1);
+  ta_delete_raw(TA(n), a, b);
+  TA(n)->caret = a;
+  TA(n)->anchor = -1;
+  return true;
+}
+
+static int ta_press(BKNode *n, BKEvent *e)
+{
+  BKContext *ctx = bk_ctx(n);
+  if (ctx && ctx->focus != n) {
+    if (ctx->focus && ctx->focus->cls->finish_edit) {
+      ctx->focus->cls->finish_edit(ctx->focus, true);
+    }
+    ctx->focus = n;
+  }
+  move(TA(n), offset_at(n, e->x, e->y), EV_SHIFT(e));
+  TA(n)->want_x = caret_x(TA(n), TA(n)->caret);
+  bk_invalidate(n);
+  return 1;
+}
+
+static int ta_dbl(BKNode *n, BKEvent *e)
+{
+  TAData *t = TA(n);
+  int a, b;
+  BLI_str_cursor_step_bounds_utf8(t->text, t->len, offset_at(n, e->x, e->y), &a, &b);
+  t->anchor = a;
+  t->caret = b;
+  bk_invalidate(n);
+  return 1;
+}
+
+static int ta_drag(BKNode *n, BKEvent *e)
+{
+  TAData *t = TA(n);
+  if (t->anchor < 0) {
+    t->anchor = t->caret;
+  }
+  t->caret = offset_at(n, e->x, e->y);
+  BK_textarea_see(n, t->caret);
+  return 1;
+}
+
+static int ta_wheel(BKNode *n, BKEvent *e)
+{
+  TAData *t = TA(n);
+  const int ns = BK_CLAMP(t->scroll - 3 * e->delta, 0, BK_MAX(0, t->nlines - visible_lines(n)));
+  if (ns != t->scroll) {
+    t->scroll = ns;
+    bk_invalidate(n);
+    return 1;
+  }
+  return 0;
+}
+
+static int step(TAData *t, int pos, bool next, bool word)
+{
+  BLI_str_cursor_step_utf8(t->text, t->len, &pos, next ? STRCUR_DIR_NEXT : STRCUR_DIR_PREV,
+                           word ? STRCUR_JUMP_DELIM : STRCUR_JUMP_NONE, true);
+  return pos;
+}
+
+static int ta_key(BKNode *n, BKEvent *e)
+{
+  BKContext *ctx = bk_ctx(n);
+  if (!ctx || ctx->focus != n || !NODE_ENABLED(n)) {
+    return 0;
+  }
+  TAData *t = TA(n);
+  const char *ks = e->keysym;
+  const bool ctrl = EV_CTRL(e), shift = EV_SHIFT(e);
+  int a, b;
+  const bool sel = BK_textarea_selection(n, &a, &b);
+  bool edited = false, keep_x = false;
+  if (bk_keysym_is(ks, "Escape")) {
+    ctx->focus = NULL;
+    t->anchor = -1;
+    bk_invalidate(n);
+    return 1;
+  }
+  if (ctrl && bk_keysym_is(ks, "a")) {
+    t->anchor = 0;
+    t->caret = t->len;
+  }
+  else if (ctrl && (bk_keysym_is(ks, "c") || bk_keysym_is(ks, "x"))) {
+    if (sel) {
+      char *s = (char *)malloc((size_t)(b - a + 1));
+      memcpy(s, t->text + a, (size_t)(b - a));
+      s[b - a] = 0;
+      bk_clipboard_set(ctx, s);
+      free(s);
+      if (bk_keysym_is(ks, "x")) {
+        edited = delete_selection(n);
+      }
+    }
+  }
+  else if (ctrl && bk_keysym_is(ks, "v")) {
+    char *clip = bk_clipboard_get(ctx);
+    if (clip) {
+      bk_undo_record(n, 1);
+      delete_selection(n);
+      ta_insert_raw(t, t->caret, clip);
+      t->caret += (int)strlen(clip);
+      free(clip);
+      edited = true;
+    }
+  }
+  else if (bk_keysym_is(ks, "Left") || bk_keysym_is(ks, "Right")) {
+    const bool right = bk_keysym_is(ks, "Right");
+    if (sel && !shift) {
+      move(t, right ? b : a, false);
+    }
+    else {
+      move(t, step(t, t->caret, right, ctrl), shift);
+    }
+  }
+  else if (bk_keysym_is(ks, "Up") || bk_keysym_is(ks, "Down") || bk_keysym_is(ks, "Prior") ||
+           bk_keysym_is(ks, "Next"))
+  {
+    const int line = line_of(t, t->caret);
+    int d = bk_keysym_is(ks, "Up") ? -1 : (bk_keysym_is(ks, "Down") ? 1 : 0);
+    if (!d) {
+      d = (bk_keysym_is(ks, "Prior") ? -1 : 1) * visible_lines(n);
+    }
+    const int target = BK_CLAMP(line + d, 0, t->nlines - 1);
+    move(t, col_at(t, target, t->want_x), shift);
+    keep_x = true;
+  }
+  else if (bk_keysym_is(ks, "Home")) {
+    move(t, ctrl ? 0 : t->lines[line_of(t, t->caret)], shift);
+  }
+  else if (bk_keysym_is(ks, "End")) {
+    move(t, ctrl ? t->len : line_end(t, line_of(t, t->caret)), shift);
+  }
+  else if (bk_keysym_is(ks, "BackSpace")) {
+    if (!(edited = delete_selection(n)) && t->caret > 0) {
+      bk_undo_record(n, 1);
+      const int start = step(t, t->caret, false, ctrl);
+      ta_delete_raw(t, start, t->caret);
+      t->caret = start;
+      edited = true;
+    }
+  }
+  else if (bk_keysym_is(ks, "Delete")) {
+    if (!(edited = delete_selection(n)) && t->caret < t->len) {
+      bk_undo_record(n, 1);
+      ta_delete_raw(t, t->caret, step(t, t->caret, true, ctrl));
+      edited = true;
+    }
+  }
+  else if (bk_keysym_is(ks, "Return") || bk_keysym_is(ks, "KP_Enter") ||
+           bk_keysym_is(ks, "Tab") || (e->text && (unsigned char)e->text[0] >= 0x20 && !ctrl))
+  {
+    const char *ins = bk_keysym_is(ks, "Tab") ? "    " :
+                      (bk_keysym_is(ks, "Return") || bk_keysym_is(ks, "KP_Enter")) ? "\n" :
+                                                                                     e->text;
+    bk_undo_record(n, 1);
+    delete_selection(n);
+    ta_insert_raw(t, t->caret, ins);
+    t->caret += (int)strlen(ins);
+    t->anchor = -1;
+    edited = true;
+  }
+  else {
+    return 0;
+  }
+  if (!keep_x) {
+    ta_reindex(t);
+    t->want_x = caret_x(t, t->caret);
+  }
+  if (edited) {
+    ta_changed(n);
+  }
+  BK_textarea_see(n, t->caret);
+  return 1;
+}
+
+static int ta_cursor(BKNode *n, int x, int y)
+{
+  return BK_CURSOR_TEXT;
+}
+
+static void ta_finish(BKNode *n, bool confirm)
+{
+  TA(n)->anchor = -1;
+  bk_invalidate(n);
+}
+
+static void ta_measure(BKNode *n, int *rw, int *rh)
+{
+  *rw = 12 * bk_unit();
+  *rh = n->rows * line_h() + bk_pad();
+}
+
+static void draw_line_spans(TAData *t, int a, int b, float x, const BKRect *line,
+                            const uchar def[4])
+{
+  for (int i = 0; i < t->nspans; i++) { /* backgrounds first */
+    const Span *s = &t->spans[i];
+    const int s0 = BK_MAX(s->start, a), s1 = BK_MIN(s->end, b);
+    if (s->has_bg && s1 > s0) {
+      const float sx = x + bk_text_width(t->text + a, s0 - a, false);
+      bk_fill_f(sx, (float)line->ymin, bk_text_width(t->text + s0, s1 - s0, false),
+                (float)bk_rh(line), s->bg);
+    }
+  }
+  const float base = bk_text_baseline(line);
+  /* split [a, b) at span boundaries; later spans win */
+  int pos = a;
+  while (pos < b) {
+    int next = b;
+    const float *col = NULL;
+    for (int i = 0; i < t->nspans; i++) {
+      const Span *s = &t->spans[i];
+      if (s->start <= pos && s->end > pos) {
+        if (s->has_fg) {
+          col = s->fg;
+        }
+        next = BK_MIN(next, s->end);
+      }
+      else if (s->start > pos) {
+        next = BK_MIN(next, s->start);
+      }
+    }
+    const float sx = x + bk_text_width(t->text + a, pos - a, false);
+    if (col) {
+      bk_text_f(sx, base, t->text + pos, next - pos, col, false);
+    }
+    else {
+      bk_text(sx, base, t->text + pos, next - pos, def, false);
+    }
+    pos = next;
+  }
+}
+
+static void ta_draw(BKNode *n)
+{
+  TAData *t = TA(n);
+  BKContext *ctx = bk_ctx(n);
+  const bool focused = ctx && ctx->focus == n;
+  BKRect r = bk_node_rect(n);
+  int st = NODE_ENABLED(n) ? (bk_hovered(n) ? ST_HOVER : 0) : ST_DISABLED;
+  if (focused) {
+    st = ST_SELECT;
+  }
+  BKWCol w;
+  bk_widget_state(&w, &bk_theme.textfield, st);
+  bk_widget_textbut(&w, &r, st, n->corners);
+  const int p = bk_pad(), lh = line_h();
+  bk_clip_push(n->x + 2, n->y + 2, n->w - 4, n->h - 4);
+  t->scroll = BK_CLAMP(t->scroll, 0, BK_MAX(0, t->nlines - 1));
+  int a = -1, b = -1;
+  BK_textarea_selection(n, &a, &b);
+  const float x0 = (float)(n->x + p);
+  for (int line = t->scroll; line < t->nlines; line++) {
+    const int y = n->y + p / 2 + (line - t->scroll) * lh;
+    if (y > n->y + n->h) {
+      break;
+    }
+    const int la = t->lines[line], lb = line_end(t, line);
+    if (a >= 0 && a < lb + 1 && b > la) { /* selection on this line */
+      const int s0 = BK_MAX(a, la), s1 = BK_MIN(b, lb);
+      const float sx = x0 + bk_text_width(t->text + la, s0 - la, false);
+      float sw = bk_text_width(t->text + s0, s1 - s0, false);
+      if (b > lb) {
+        sw += bk_font_size() * 0.4f; /* the newline */
+      }
+      bk_fill(sx, (float)y, sw, (float)lh, bk_theme.selection);
+    }
+    const BKRect lr = bk_rect(n->x, y, n->w, lh);
+    draw_line_spans(t, la, lb, x0, &lr, w.text);
+    if (focused && t->caret >= la && t->caret <= lb) {
+      const float cx = x0 + bk_text_width(t->text + la, t->caret - la, false);
+      bk_fill(floorf(cx), (float)y + 1, BK_MAX(1.0f, floorf(0.1f * bk_unit() + 0.5f)),
+              (float)lh - 2, bk_theme.cursor);
+    }
+  }
+  bk_clip_pop();
+}
+
+const BKClass bk_cls_textarea = {.name = "textarea",
+                                 .flags = CLS_INTERACTIVE,
+                                 .cursor = BK_CURSOR_TEXT,
+                                 .init = ta_init,
+                                 .free_ext = ta_free,
+                                 .measure = ta_measure,
+                                 .draw = ta_draw,
+                                 .press = ta_press,
+                                 .dbl = ta_dbl,
+                                 .drag = ta_drag,
+                                 .wheel = ta_wheel,
+                                 .key = ta_key,
+                                 .cursor_at = ta_cursor,
+                                 .finish_edit = ta_finish,
+                                 .view = ta_view,
+                                 .set_view = ta_set_view};

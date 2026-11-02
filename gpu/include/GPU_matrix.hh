@@ -20,6 +20,8 @@ void GPU_matrix_scale_1f(float scale);
 void GPU_matrix_scale_2f(float x, float y);
 
 /* Set an orthographic projection over the given extents (z near/far too). */
+/* Depth range used by orthographic widget projections (upstream constant). */
+#define GPU_MATRIX_ORTHO_CLIP_NEAR_DEFAULT (-100)
 void GPU_matrix_ortho_set_z(float near, float far);
 void GPU_matrix_projection_get(float result[4][4]);
 
