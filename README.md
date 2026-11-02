@@ -1,6 +1,6 @@
 # BUI
 
-> ![NOTE]
+> [!NOTE]
 > This repository is built entirely using LLMs. No Human written code.
 
 A modular UI toolkit extracted from the Blender project. Core in C, widgets in
