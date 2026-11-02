@@ -1,0 +1,17 @@
+[package]
+name = "blenderui"
+description = "Blender's UI for Rust: gpui-style syntax, every HTML element and CSS, drawn by the BUI C kit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords = ["gui", "ui", "blender", "gpui", "html"]
+categories = ["gui"]
+readme = "README.md"
+
+[dependencies]
+blenderui-sys = { path = "../blenderui-sys", version = "0.1.0" }
+taffy = { version = "0.6", default-features = false, features = ["std", "flexbox", "grid", "block_layout", "taffy_tree", "content_size"] }
+paste = "1"
+png = "0.17"

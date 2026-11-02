@@ -32,7 +32,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(MSVC)
-  add_compile_options(/W3)
+  add_compile_options(/W3 /utf-8)
+  add_compile_definitions(_USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)  # M_PI*; POSIX names
 else()
   add_compile_options(-Wall -Wno-unused-parameter -Wno-missing-field-initializers)
   if(NOT BUI_WARNINGS_AS_ERRORS)

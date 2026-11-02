@@ -173,6 +173,24 @@ int BUI_raster_text(BuiRaster *r,
 int BUI_text_measure(
     const char *family, int flags, float size, const char *utf8, int len, float *r_width);
 
+/* Parallel rasterisation. A view draws into `src`'s pixels, clipped to
+ * src's clip and the rectangle [x0, x1) x [y0, y1); views over disjoint
+ * rectangles may be drawn into from different threads. `dst` points at
+ * BUI_raster_view_size() bytes. Views only draw: no frames, damage or present. */
+size_t BUI_raster_view_size(void);
+void BUI_raster_view(const BuiRaster *src, BuiRaster *dst, int x0, int y0, int x1, int y1);
+
+/* Text in two steps so the drawing can run on several threads: prepare
+ * (one thread; builds the glyph mask) and draw the prepared run (any thread,
+ * read-only). Prepared runs stay valid while BUI_text_generation() is
+ * unchanged. Prepare returns NULL when there is nothing to draw or no native
+ * text engine. */
+typedef struct BuiTextRun BuiTextRun;
+const BuiTextRun *BUI_text_prepare(
+    const char *family, int flags, float size, const char *utf8, int len, float *r_width);
+unsigned BUI_text_generation(void);
+void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, const float rgba[4]);
+
 /* A BuiGpuSink that renders into `r` (user pointer is the raster). */
 const BuiGpuSink *BUI_raster_sink(BuiRaster *r);
 

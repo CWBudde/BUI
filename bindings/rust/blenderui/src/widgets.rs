@@ -1,0 +1,426 @@
+//! Form controls are Blender's own widgets: each `<button>`, `<input>`,
+//! `<select>`, `<textarea>`, `<progress>` and `<meter>` is a kit node,
+//! reconciled by key across renders and placed where layout put it.
+
+use std::collections::HashMap;
+use std::ffi::{CStr, CString};
+
+use crate::color::{parse_color, Rgba};
+use crate::element::{AnyElement, Div};
+use crate::events::ChangeEvent;
+use crate::geometry::Bounds;
+use crate::layout::UiState;
+use blenderui_sys as sys;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WKind {
+    Button,
+    Text { mask: bool },
+    Number,
+    Slider,
+    Checkbox,
+    Radio,
+    Color,
+    Select,
+    TextArea,
+    Progress,
+}
+
+impl WKind {
+    fn class(self) -> &'static CStr {
+        match self {
+            WKind::Button => c"button",
+            WKind::Text { .. } => c"text",
+            WKind::Number => c"number",
+            WKind::Slider => c"slider",
+            WKind::Checkbox => c"checkbox",
+            WKind::Radio => c"radio",
+            WKind::Color => c"swatch",
+            WKind::Select => c"dropdown",
+            WKind::TextArea => c"textarea",
+            WKind::Progress => c"progress",
+        }
+    }
+
+    /// Default size in logical pixels when the kit's natural size is smaller.
+    fn min_size(self) -> (f32, f32) {
+        match self {
+            WKind::Text { .. } | WKind::Number | WKind::Slider => (150.0, 20.0),
+            WKind::Select => (120.0, 20.0),
+            WKind::TextArea => (240.0, 64.0),
+            WKind::Progress => (160.0, 20.0),
+            WKind::Color => (40.0, 20.0),
+            WKind::Checkbox | WKind::Radio => (20.0, 20.0),
+            WKind::Button => (20.0, 20.0),
+        }
+    }
+}
+
+/// What a form element asks for (compared with the last render to sync).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct WidgetSpec {
+    pub kind: WKind,
+    pub label: String,
+    pub text: Option<String>,
+    pub value: Option<f64>,
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
+    pub items: Vec<String>,
+    pub color: Option<Rgba>,
+    pub placeholder: String,
+    pub disabled: bool,
+    pub name: Option<String>,
+}
+
+fn text_of(children: &[AnyElement]) -> Option<String> {
+    let mut s = String::new();
+    for c in children {
+        match c {
+            AnyElement::Text(t) => s.push_str(t),
+            AnyElement::Element(d) if matches!(d.tag, "span" | "b" | "i" | "em" | "strong") => {
+                s.push_str(&text_of(&d.children)?)
+            }
+            AnyElement::Element(_) => return None,
+        }
+    }
+    Some(s.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+impl WidgetSpec {
+    fn new(kind: WKind, d: &Div) -> WidgetSpec {
+        let num = |k: &str| d.get_attr(k).and_then(|v| v.trim().parse::<f64>().ok());
+        WidgetSpec {
+            kind,
+            label: String::new(),
+            text: None,
+            value: None,
+            min: num("min").unwrap_or(f64::NEG_INFINITY),
+            max: num("max").unwrap_or(f64::INFINITY),
+            step: num("step").unwrap_or(1.0),
+            items: Vec::new(),
+            color: None,
+            placeholder: d.get_attr("placeholder").unwrap_or("").to_owned(),
+            disabled: d.get_attr("disabled").is_some(),
+            name: d.get_attr("name").map(str::to_owned),
+        }
+    }
+
+    /// The widget for a form element, or None to lay it out as a box
+    /// (a `<button>` holding elements, `<option>` outside a select ...).
+    pub(crate) fn from_element(d: &Div, key: &str, state: &UiState) -> Option<WidgetSpec> {
+        let num = |k: &str| d.get_attr(k).and_then(|v| v.trim().parse::<f64>().ok());
+        let checked = || {
+            state.checked.get(key).copied().unwrap_or(d.get_attr("checked").is_some())
+        };
+        let mut s;
+        match d.tag {
+            "button" => {
+                s = WidgetSpec::new(WKind::Button, d);
+                s.label = text_of(&d.children)?;
+            }
+            "input" => {
+                let ty = d.get_attr("type").unwrap_or("text").to_ascii_lowercase();
+                let value = d.get_attr("value").map(str::to_owned);
+                match ty.as_str() {
+                    "button" | "submit" | "reset" => {
+                        s = WidgetSpec::new(WKind::Button, d);
+                        s.label = value.unwrap_or_else(|| match ty.as_str() {
+                            "submit" => "Submit".into(),
+                            "reset" => "Reset".into(),
+                            _ => String::new(),
+                        });
+                    }
+                    "file" => {
+                        s = WidgetSpec::new(WKind::Button, d);
+                        s.label = "Browse\u{2026}".into();
+                    }
+                    "checkbox" => {
+                        s = WidgetSpec::new(WKind::Checkbox, d);
+                        s.value = Some(checked() as i32 as f64);
+                    }
+                    "radio" => {
+                        s = WidgetSpec::new(WKind::Radio, d);
+                        s.value = Some(checked() as i32 as f64);
+                    }
+                    "number" => {
+                        s = WidgetSpec::new(WKind::Number, d);
+                        s.value = num("value");
+                    }
+                    "range" => {
+                        s = WidgetSpec::new(WKind::Slider, d);
+                        if s.min.is_infinite() {
+                            s.min = 0.0;
+                        }
+                        if s.max.is_infinite() {
+                            s.max = 100.0;
+                        }
+                        s.value = Some(num("value").unwrap_or((s.min + s.max) / 2.0));
+                    }
+                    "color" => {
+                        s = WidgetSpec::new(WKind::Color, d);
+                        s.color = Some(value.as_deref().and_then(parse_color)
+                            .unwrap_or(crate::color::black()));
+                    }
+                    "image" | "hidden" => return None,
+                    _ => {
+                        // text, password, email, url, search, tel, date, time ...
+                        s = WidgetSpec::new(WKind::Text { mask: ty == "password" }, d);
+                        s.text = value;
+                    }
+                }
+            }
+            "select" => {
+                s = WidgetSpec::new(WKind::Select, d);
+                let mut selected = None;
+                let want = d.get_attr("value");
+                fn options<'a>(c: &'a [AnyElement], out: &mut Vec<&'a Div>) {
+                    for e in c {
+                        if let AnyElement::Element(d) = e {
+                            match d.tag {
+                                "option" => out.push(d),
+                                "optgroup" => options(&d.children, out),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                let mut opts = Vec::new();
+                options(&d.children, &mut opts);
+                for (k, o) in opts.iter().enumerate() {
+                    let label = text_of(&o.children).unwrap_or_default();
+                    let value = o.get_attr("value").map(str::to_owned).unwrap_or_else(|| label.clone());
+                    if o.get_attr("selected").is_some() || want == Some(value.as_str()) {
+                        selected = Some(k);
+                    }
+                    s.items.push(label);
+                }
+                s.value = Some(selected.unwrap_or(0) as f64);
+            }
+            "textarea" => {
+                s = WidgetSpec::new(WKind::TextArea, d);
+                s.text = Some(d.get_attr("value").map(str::to_owned)
+                    .unwrap_or_else(|| d.children.iter().filter_map(|c| match c {
+                        AnyElement::Text(t) => Some(t.as_ref()),
+                        _ => None,
+                    }).collect()));
+            }
+            "progress" | "meter" => {
+                s = WidgetSpec::new(WKind::Progress, d);
+                let min = if d.tag == "meter" { num("min").unwrap_or(0.0) } else { 0.0 };
+                let max = num("max").unwrap_or(1.0);
+                let v = num("value").unwrap_or(0.0);
+                s.value = Some(((v - min) / (max - min).max(1e-9)).clamp(0.0, 1.0));
+                s.label = text_of(&d.children).unwrap_or_default();
+            }
+            _ => return None,
+        }
+        Some(s)
+    }
+}
+
+fn cstr(s: &str) -> CString {
+    CString::new(s.replace('\0', "")).unwrap_or_default()
+}
+
+pub(crate) struct WidgetNode {
+    pub node: *mut sys::BKNode,
+    pub spec: WidgetSpec,
+    seen: bool,
+}
+
+/// The kit widgets of one window, keyed by element key.
+pub(crate) struct Widgets {
+    pub nodes: HashMap<String, WidgetNode>,
+    /// Set while Rust writes values, so the kit's change echoes are ignored.
+    pub syncing: bool,
+}
+
+impl Widgets {
+    pub(crate) fn new() -> Widgets {
+        Widgets { nodes: HashMap::new(), syncing: false }
+    }
+
+    /// Ensure the kit node for `key` exists and matches `spec`; returns its
+    /// natural size in logical pixels.
+    pub(crate) fn ensure(&mut self, parent: *mut sys::BKNode, key: &str, spec: &WidgetSpec, scale: f32)
+        -> (f32, f32) {
+        if self.nodes.get(key).is_some_and(|w| w.spec.kind != spec.kind) {
+            let w = self.nodes.remove(key).unwrap();
+            // SAFETY: the node is ours and attached to `parent`.
+            unsafe { sys::BK_node_free(w.node) };
+        }
+        self.syncing = true;
+        let entry = self.nodes.entry(key.to_owned()).or_insert_with(|| {
+            // SAFETY: plain constructor calls on a fresh node.
+            let node = unsafe { sys::BK_node_new(spec.kind.class().as_ptr()) };
+            unsafe {
+                sys::BK_node_add(parent, node, -1);
+                sys::BK_geom_set_manager(node, sys::BK_GEOM_PLACE);
+            }
+            let w = WidgetNode { node, spec: spec.clone(), seen: true };
+            sync(node, None, spec);
+            w
+        });
+        if entry.spec != *spec {
+            sync(entry.node, Some(&entry.spec), spec);
+            entry.spec = spec.clone();
+        }
+        entry.seen = true;
+        self.syncing = false;
+        let mut nat = [0i32; 2];
+        // SAFETY: valid node, two-int out array.
+        unsafe { sys::BK_node_natural(entry.node, nat.as_mut_ptr()) };
+        let (mw, mh) = spec.kind.min_size();
+        ((nat[0] as f32 / scale).max(mw), (nat[1] as f32 / scale).max(mh))
+    }
+
+    /// Place every widget at its laid-out bounds; free those not rendered.
+    pub(crate) fn place(&mut self, at: &HashMap<String, (Bounds<f32>, Option<Bounds<f32>>, bool)>,
+                        scale: f32) {
+        self.nodes.retain(|key, w| {
+            if !w.seen || !at.contains_key(key) {
+                // SAFETY: frees our node (detaching it from the canvas).
+                unsafe { sys::BK_node_free(w.node) };
+                return false;
+            }
+            w.seen = false;
+            let (b, clip, visible) = at[key];
+            let shown = visible && clip.is_none_or(|c| {
+                let i = c.intersect(&b);
+                i.size.width > 0.0 && i.size.height > 0.0
+            });
+            unsafe {
+                sys::BK_geom_set(w.node, c"x".as_ptr(), (b.origin.x * scale).round() as f64);
+                sys::BK_geom_set(w.node, c"y".as_ptr(), (b.origin.y * scale).round() as f64);
+                sys::BK_geom_set(w.node, c"width".as_ptr(), (b.size.width * scale).round() as f64);
+                sys::BK_geom_set(w.node, c"height".as_ptr(), (b.size.height * scale).round() as f64);
+                sys::BK_set_num(w.node, c"visible".as_ptr(), shown as i32 as f64);
+            }
+            true
+        });
+    }
+
+    pub(crate) fn key_of(&self, node: *mut sys::BKNode) -> Option<String> {
+        self.nodes.iter().find(|(_, w)| w.node == node).map(|(k, _)| k.clone())
+    }
+
+    /// The control's current value, as an HTML `change` event sees it.
+    pub(crate) fn read(&self, key: &str) -> ChangeEvent {
+        let Some(w) = self.nodes.get(key) else { return ChangeEvent::default() };
+        let n = w.node;
+        // SAFETY: live node; returned strings are copied immediately.
+        unsafe {
+            let num = sys::BK_get_num(n, c"value".as_ptr());
+            let text = CStr::from_ptr(sys::BK_get_str(n, c"value".as_ptr())).to_string_lossy().into_owned();
+            match w.spec.kind {
+                WKind::Text { .. } | WKind::TextArea => ChangeEvent { value: text, checked: false, number: 0.0 },
+                WKind::Checkbox | WKind::Radio => ChangeEvent {
+                    value: if num != 0.0 { "on".into() } else { String::new() },
+                    checked: num != 0.0,
+                    number: num,
+                },
+                WKind::Select => ChangeEvent {
+                    value: w.spec.items.get(num as usize).cloned().unwrap_or_default(),
+                    checked: false,
+                    number: num,
+                },
+                WKind::Color => {
+                    let mut c = [0f32; 4];
+                    sys::BK_get_color(n, c"value".as_ptr(), c.as_mut_ptr());
+                    let b = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                    ChangeEvent { value: format!("#{:02x}{:02x}{:02x}", b(c[0]), b(c[1]), b(c[2])),
+                                  checked: false, number: 0.0 }
+                }
+                _ => ChangeEvent { value: format_num(num), checked: false, number: num },
+            }
+        }
+    }
+
+    /// Radio groups: turning one on turns the others with its name off.
+    pub(crate) fn radio_group(&self, key: &str) -> Vec<String> {
+        let Some(name) = self.nodes.get(key).and_then(|w| w.spec.name.clone()) else { return vec![] };
+        self.nodes.iter()
+            .filter(|(k, w)| *k != key && w.spec.kind == WKind::Radio && w.spec.name.as_ref() == Some(&name))
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
+    pub(crate) fn set_value(&mut self, key: &str, v: f64) {
+        if let Some(w) = self.nodes.get(key) {
+            self.syncing = true;
+            unsafe { sys::BK_set_num(w.node, c"value".as_ptr(), v) };
+            self.syncing = false;
+        }
+    }
+
+    pub(crate) fn free_all(&mut self) {
+        for (_, w) in self.nodes.drain() {
+            unsafe { sys::BK_node_free(w.node) };
+        }
+    }
+}
+
+fn format_num(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 { format!("{}", v as i64) } else { format!("{v}") }
+}
+
+/// Push the properties of `spec` that differ from `old` into the kit node.
+fn sync(n: *mut sys::BKNode, old: Option<&WidgetSpec>, spec: &WidgetSpec) {
+    // SAFETY: `n` is a live node; C strings outlive each call.
+    unsafe {
+        let set_num = |k: &CStr, v: f64| { sys::BK_set_num(n, k.as_ptr(), v); };
+        let set_str = |k: &CStr, v: &str| { let c = cstr(v); sys::BK_set_str(n, k.as_ptr(), c.as_ptr()); };
+        if old.is_none_or(|o| o.disabled != spec.disabled) {
+            set_num(c"enabled", (!spec.disabled) as i32 as f64);
+        }
+        if old.is_none_or(|o| o.label != spec.label) && !spec.label.is_empty() {
+            match spec.kind {
+                WKind::Button | WKind::Progress => set_str(c"text", &spec.label),
+                _ => set_str(c"label", &spec.label),
+            }
+        }
+        if old.is_none_or(|o| o.placeholder != spec.placeholder) && !spec.placeholder.is_empty() {
+            set_str(c"placeholder", &spec.placeholder);
+        }
+        if let WKind::Text { mask: true } = spec.kind {
+            if old.is_none() {
+                set_num(c"mask", 1.0);
+            }
+        }
+        if old.is_none_or(|o| (o.min, o.max, o.step) != (spec.min, spec.max, spec.step))
+            && matches!(spec.kind, WKind::Number | WKind::Slider)
+        {
+            if spec.min.is_finite() {
+                set_num(c"min", spec.min);
+            }
+            if spec.max.is_finite() {
+                set_num(c"max", spec.max);
+            }
+            set_num(c"step", spec.step);
+            if spec.step.fract() == 0.0 {
+                set_num(c"precision", 0.0);
+            }
+        }
+        if old.is_none_or(|o| o.items != spec.items) && spec.kind == WKind::Select {
+            let cs: Vec<CString> = spec.items.iter().map(|s| cstr(s)).collect();
+            let ptrs: Vec<*const std::ffi::c_char> = cs.iter().map(|c| c.as_ptr()).collect();
+            sys::BK_set_strs(n, c"items".as_ptr(), ptrs.as_ptr(), ptrs.len() as i32);
+        }
+        if old.is_none_or(|o| o.text != spec.text) {
+            if let Some(t) = &spec.text {
+                set_str(c"text", t);
+            }
+        }
+        if old.is_none_or(|o| o.value != spec.value) {
+            if let Some(v) = spec.value {
+                set_num(if spec.kind == WKind::Progress { c"factor" } else { c"value" }, v);
+            }
+        }
+        if old.is_none_or(|o| o.color != spec.color) {
+            if let Some(c) = spec.color {
+                sys::BK_set_color(n, c"value".as_ptr(), c.to_array().as_ptr());
+            }
+        }
+    }
+}

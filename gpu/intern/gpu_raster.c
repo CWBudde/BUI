@@ -294,6 +294,20 @@ void BUI_raster_invalidate(BuiRaster *r)
   r->full_damage = 1;
 }
 
+size_t BUI_raster_view_size(void)
+{
+  return sizeof(BuiRaster);
+}
+
+void BUI_raster_view(const BuiRaster *src, BuiRaster *dst, int x0, int y0, int x1, int y1)
+{
+  *dst = *src; /* shares the pixels; drawing only touches pix inside the clip */
+  dst->cx0 = clampi(x0 > src->cx0 ? x0 : src->cx0, 0, src->w);
+  dst->cy0 = clampi(y0 > src->cy0 ? y0 : src->cy0, 0, src->h);
+  dst->cx1 = clampi(x1 < src->cx1 ? x1 : src->cx1, dst->cx0, src->w);
+  dst->cy1 = clampi(y1 < src->cy1 ? y1 : src->cy1, dst->cy0, src->h);
+}
+
 void BUI_raster_set_clip(BuiRaster *r, int x, int y, int w, int h)
 {
   if (w <= 0 || h <= 0) {
@@ -1332,9 +1346,11 @@ typedef struct TextRun {
 #  define RUN_MAX_FILL 6000
 static TextRun *g_runs = NULL;
 static int g_run_count = 0;
+static unsigned g_text_gen = 1; /* bumped whenever runs or fonts are freed */
 
 static void runs_flush(void)
 {
+  g_text_gen++;
   if (!g_runs) {
     return;
   }
@@ -1348,6 +1364,7 @@ static void runs_flush(void)
 
 static void fonts_flush(void)
 {
+  g_text_gen++;
   for (int i = 0; i < g_font_count; i++) {
     DeleteObject(g_fonts[i].font);
   }
@@ -1564,6 +1581,37 @@ int BUI_text_measure(
   return 1;
 }
 
+unsigned BUI_text_generation(void)
+{
+  return g_text_gen;
+}
+
+const BuiTextRun *BUI_text_prepare(
+    const char *family, int flags, float size, const char *utf8, int len, float *r_width)
+{
+  if (r_width) {
+    *r_width = 0.0f;
+  }
+  if (len <= 0) {
+    return NULL;
+  }
+  const int f = font_get(family, flags, size);
+  if (f < 0) {
+    return NULL;
+  }
+  TextRun *e = run_get(f, utf8, len);
+  if (!e) {
+    return NULL;
+  }
+  if (r_width) {
+    *r_width = e->advance;
+  }
+  if (!e->built) {
+    run_build(e);
+  }
+  return e->mask ? (const BuiTextRun *)e : NULL; /* NULL: whitespace-only */
+}
+
 int BUI_raster_text(BuiRaster *r,
                     float x,
                     float y,
@@ -1575,26 +1623,25 @@ int BUI_raster_text(BuiRaster *r,
   if (len <= 0) {
     return 1;
   }
-  const int f = font_get(r->font_family, r->font_flags, size);
-  if (f < 0) {
+  if (font_get(r->font_family, r->font_flags, size) < 0) {
     return 0;
   }
-  TextRun *e = run_get(f, utf8, len);
-  if (!e) {
-    return 0;
+  const BuiTextRun *run = BUI_text_prepare(r->font_family, r->font_flags, size, utf8, len, NULL);
+  if (run) {
+    BUI_raster_text_run(r, x, y, run, rgba);
   }
-  if (!e->built) {
-    run_build(e);
-  }
-  if (!e->mask) {
-    return 1; /* whitespace-only or empty */
-  }
+  return 1;
+}
+
+void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, const float rgba[4])
+{
+  const TextRun *e = (const TextRun *)run;
   const Paint p = paint_from(rgba);
-  if (p.a <= 0) {
-    return 1;
+  if (!e || !e->mask || p.a <= 0) {
+    return;
   }
   const int dx = (int)floorf(x + 0.5f) - e->ox;
-  const int dy = (int)floorf(y + 0.5f) - g_fonts[f].ascent;
+  const int dy = (int)floorf(y + 0.5f) - g_fonts[e->font].ascent;
   const int x0 = clampi(dx, r->cx0, r->cx1), x1 = clampi(dx + e->mw, r->cx0, r->cx1);
   const int y0 = clampi(dy, r->cy0, r->cy1), y1 = clampi(dy + e->mh, r->cy0, r->cy1);
   for (int py = y0; py < y1; py++) {
@@ -1614,7 +1661,6 @@ int BUI_raster_text(BuiRaster *r,
       }
     }
   }
-  return 1;
 }
 
 int BUI_raster_present_native(BuiRaster *r, void *window_handle, int full)
@@ -1723,6 +1769,34 @@ int BUI_raster_present_native(BuiRaster *r, void *window_handle, int full)
   (void)window_handle;
   (void)full;
   return 0;
+}
+
+unsigned BUI_text_generation(void)
+{
+  return 1;
+}
+
+const BuiTextRun *BUI_text_prepare(
+    const char *family, int flags, float size, const char *utf8, int len, float *r_width)
+{
+  (void)family;
+  (void)flags;
+  (void)size;
+  (void)utf8;
+  (void)len;
+  if (r_width) {
+    *r_width = 0.0f;
+  }
+  return NULL;
+}
+
+void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, const float rgba[4])
+{
+  (void)r;
+  (void)x;
+  (void)y;
+  (void)run;
+  (void)rgba;
 }
 
 #endif

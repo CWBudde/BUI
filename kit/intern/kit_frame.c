@@ -16,6 +16,20 @@
 
 #include "kit_intern.h"
 
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0601
+#    undef _WIN32_WINNT
+#    define _WIN32_WINNT 0x0601 /* thread pool work objects */
+#  endif
+#  include <windows.h>
+#endif
+
 static int u(void)
 {
   return bk_unit();
@@ -772,13 +786,13 @@ static int canvas_find(CanvasData *d, int id)
   return -1;
 }
 
-void BK_canvas_set_item(BKNode *n, const BKCanvasItem *item)
+static void canvas_store(BKNode *n, const BKCanvasItem *item, bool replace)
 {
   if (n->cls != &bk_cls_canvas) {
     return;
   }
   CanvasData *d = CANVAS(n);
-  int i = canvas_find(d, item->id);
+  int i = replace ? canvas_find(d, item->id) : -1;
   if (i < 0) {
     if (d->n == d->cap) {
       d->cap = d->cap ? d->cap * 2 : 16;
@@ -800,6 +814,17 @@ void BK_canvas_set_item(BKNode *n, const BKCanvasItem *item)
   c->img = image_from_rgba(item->rgba, item->iw, item->ih);
   c->it.rgba = NULL;
   bk_invalidate(n);
+}
+
+void BK_canvas_set_item(BKNode *n, const BKCanvasItem *item)
+{
+  canvas_store(n, item, true);
+}
+
+/* Rebuilding a whole display list (immediate-mode hosts): no id lookup. */
+void BK_canvas_add_item(BKNode *n, const BKCanvasItem *item)
+{
+  canvas_store(n, item, false);
 }
 
 void BK_canvas_delete(BKNode *n, int id)
@@ -857,7 +882,17 @@ static void draw_polyline(const float *pts, int npts, float ox, float oy, const 
   }
 }
 
-static void canvas_item_draw(const CItem *ci, float ox, float oy)
+/* Per-item data computed before drawing (one thread): the rows an item can
+ * touch, and its prepared text. */
+typedef struct ItemPrep {
+  float y0, y1;
+  const BuiTextRun *run;
+  float tx, ty;
+} ItemPrep;
+
+/* Draw one item into `r`. With `prep`, text uses the prepared run (safe on
+ * any thread); without it, text is prepared here. */
+static void canvas_item_draw(BuiRaster *r, const CItem *ci, float ox, float oy, const ItemPrep *prep)
 {
   const BKCanvasItem *it = &ci->it;
   if (it->hidden) {
@@ -866,7 +901,6 @@ static void canvas_item_draw(const CItem *ci, float ox, float oy)
   const float *p = ci->coords;
   const float lw = it->width > 0 ? it->width : 1.0f;
   const bool fill = it->fill[3] > 0, outline = it->outline[3] > 0;
-  BuiRaster *r = bk_draw.r;
   switch (it->type) {
     case BK_ITEM_RECT:
     case BK_ITEM_ROUNDRECT: {
@@ -875,7 +909,11 @@ static void canvas_item_draw(const CItem *ci, float ox, float oy)
       }
       const float x0 = BK_MIN(p[0], p[2]), y0 = BK_MIN(p[1], p[3]);
       const float w = fabsf(p[2] - p[0]), h = fabsf(p[3] - p[1]);
-      if (it->type == BK_ITEM_ROUNDRECT || it->radius > 0) {
+      if ((it->type == BK_ITEM_ROUNDRECT || it->radius > 0) && fill && !outline) {
+        /* fill only: the span-filled rounded rect (AA work on the rim only) */
+        BUI_raster_round_rect(r, ox + x0, oy + y0, w, h, it->radius, it->fill);
+      }
+      else if (it->type == BK_ITEM_ROUNDRECT || it->radius > 0) {
         BuiWidgetBase wb = {{ox + x0, oy + y0, w, h}, it->radius, BK_MAX(0, it->radius - lw), CNR_ALL};
         if (fill) {
           memcpy(wb.inner1, it->fill, sizeof(float[4]));
@@ -965,15 +1003,22 @@ static void canvas_item_draw(const CItem *ci, float ox, float oy)
       const float size = it->size > 0 ? it->size : bk_font_size();
       const int len = (int)strlen(ci->text);
       float tw = 0;
-      BUI_text_measure("", 0, size, ci->text, len, &tw);
+      if (!(it->anchor & BK_ANCHOR_W)) { /* the width only moves centred / right text */
+        BUI_text_measure("", it->text_flags, size, ci->text, len, &tw);
+      }
       float x = ox + p[0], y = oy + p[1];
       x -= anchor_off(it->anchor, (int)tw, BK_ANCHOR_W, BK_ANCHOR_E);
       /* y: baseline from the anchor (cap height ~0.72 em) */
       const float asc = size * 0.72f;
       y += asc - anchor_off(it->anchor, (int)asc, BK_ANCHOR_N, BK_ANCHOR_S);
       const float *c = it->fill[3] > 0 ? it->fill : it->outline;
-      BUI_raster_set_font(r, "", 0);
-      BUI_raster_text(r, floorf(x + 0.5f), floorf(y + 0.5f), ci->text, len, size, c);
+      if (prep) {
+        BUI_raster_text_run(r, prep->tx, prep->ty, prep->run, c);
+      }
+      else {
+        BUI_raster_set_font(r, "", it->text_flags);
+        BUI_raster_text(r, floorf(x + 0.5f), floorf(y + 0.5f), ci->text, len, size, c);
+      }
       break;
     }
     case BK_ITEM_IMAGE: {
@@ -983,10 +1028,207 @@ static void canvas_item_draw(const CItem *ci, float ox, float oy)
       const float w = (float)ci->img->w, h = (float)ci->img->h;
       const float x = ox + p[0] - anchor_off(it->anchor, (int)w, BK_ANCHOR_W, BK_ANCHOR_E);
       const float y = oy + p[1] - anchor_off(it->anchor, (int)h, BK_ANCHOR_N, BK_ANCHOR_S);
-      bk_image_draw(ci->img, x, y, w, h, 1.0f);
+      BUI_raster_image(r, x, y, w, h, ci->img->argb, ci->img->w, ci->img->h, 1.0f);
       break;
     }
   }
+}
+
+/* -- parallel canvas drawing ------------------------------------------------
+ * Large display lists are drawn in horizontal bands on the thread pool. Each
+ * band draws every item that touches it, in list order, into a view clipped
+ * to the band, so the pixels equal serial drawing. Text is prepared first on
+ * this thread (the glyph cache is not thread-safe); lines, arcs and outlined
+ * polygons use the kit's global drawing state and keep a canvas serial. */
+
+#define PAR_MIN_ITEMS 64
+
+static bool item_parallel_safe(const BKCanvasItem *it)
+{
+  switch (it->type) {
+    case BK_ITEM_LINE:
+    case BK_ITEM_ARC:
+      return false;
+    case BK_ITEM_POLYGON:
+      return !(it->outline[3] > 0);
+    default:
+      return true;
+  }
+}
+
+/* Rows an item can touch, and its prepared text; false if text was not ready. */
+static bool item_prepare(const CItem *ci, float ox, float oy, ItemPrep *pp)
+{
+  const BKCanvasItem *it = &ci->it;
+  const float *p = ci->coords;
+  const float pad = (it->width > 0 ? it->width : 1.0f) + 2.0f;
+  pp->run = NULL;
+  pp->y0 = 1e30f;
+  pp->y1 = -1e30f;
+  for (int k = 1; k < it->ncoords; k += 2) {
+    pp->y0 = BK_MIN(pp->y0, oy + p[k] - pad);
+    pp->y1 = BK_MAX(pp->y1, oy + p[k] + pad);
+  }
+  if (it->type == BK_ITEM_TEXT && ci->text && it->ncoords >= 2) {
+    const float size = it->size > 0 ? it->size : bk_font_size();
+    float tw = 0;
+    pp->run = BUI_text_prepare("", it->text_flags, size, ci->text, (int)strlen(ci->text), &tw);
+    float x = ox + p[0], y = oy + p[1];
+    x -= anchor_off(it->anchor, (int)tw, BK_ANCHOR_W, BK_ANCHOR_E);
+    const float asc = size * 0.72f;
+    y += asc - anchor_off(it->anchor, (int)asc, BK_ANCHOR_N, BK_ANCHOR_S);
+    pp->tx = floorf(x + 0.5f);
+    pp->ty = floorf(y + 0.5f);
+    pp->y0 = y - size * 1.5f - 2.0f;
+    pp->y1 = y + size + 2.0f;
+  }
+  else if (it->type == BK_ITEM_IMAGE && ci->img) {
+    pp->y0 = oy + p[1] - (float)ci->img->h;
+    pp->y1 = oy + p[1] + (float)ci->img->h;
+  }
+  if (it->clip_on) {
+    pp->y0 = BK_MAX(pp->y0, oy + it->clip[1] - 1.0f);
+    pp->y1 = BK_MIN(pp->y1, oy + it->clip[1] + it->clip[3] + 1.0f);
+  }
+  return true;
+}
+
+typedef struct BandJob {
+  const CanvasData *d;
+  const ItemPrep *prep;
+  const BuiRaster *base;
+  int clip[4]; /* the canvas clip, x0 y0 x1 y1 */
+  float ox, oy;
+  int nbands, band_h;
+  volatile long next;
+} BandJob;
+
+static void band_draw(const BandJob *j, int b)
+{
+  const int y0 = j->clip[1] + b * j->band_h, y1 = BK_MIN(j->clip[3], y0 + j->band_h);
+  if (y1 <= y0) {
+    return;
+  }
+  BuiRaster *view = (BuiRaster *)malloc(BUI_raster_view_size());
+  if (!view) {
+    return;
+  }
+  for (int i = 0; i < j->d->n; i++) {
+    const ItemPrep *pp = &j->prep[i];
+    if (pp->y1 < (float)y0 || pp->y0 >= (float)y1) {
+      continue;
+    }
+    const CItem *ci = &j->d->items[i];
+    const BKCanvasItem *it = &ci->it;
+    int cx0 = j->clip[0], cy0 = y0, cx1 = j->clip[2], cy1 = y1;
+    if (it->clip_on) {
+      cx0 = BK_MAX(cx0, (int)floorf(j->ox + it->clip[0]));
+      cy0 = BK_MAX(cy0, (int)floorf(j->oy + it->clip[1]));
+      cx1 = BK_MIN(cx1, (int)floorf(j->ox + it->clip[0]) + (int)ceilf(it->clip[2]));
+      cy1 = BK_MIN(cy1, (int)floorf(j->oy + it->clip[1]) + (int)ceilf(it->clip[3]));
+      if (cx1 <= cx0 || cy1 <= cy0) {
+        continue;
+      }
+    }
+    BUI_raster_view(j->base, view, cx0, cy0, cx1, cy1);
+    canvas_item_draw(view, ci, j->ox, j->oy, it->type == BK_ITEM_TEXT ? pp : NULL);
+  }
+  free(view);
+}
+
+static int par_threads(void)
+{
+  static int n = -1;
+  if (n < 0) {
+    const char *env = getenv("BUI_RASTER_THREADS");
+    n = env ? atoi(env) : 0;
+#ifdef _WIN32
+    if (n <= 0) {
+      SYSTEM_INFO si;
+      GetSystemInfo(&si);
+      n = (int)si.dwNumberOfProcessors;
+    }
+#endif
+    n = BK_CLAMP(n, 1, 8);
+  }
+  return n;
+}
+
+#ifdef _WIN32
+static BandJob g_job;
+static VOID CALLBACK band_worker(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work)
+{
+  (void)inst;
+  (void)work;
+  BandJob *j = (BandJob *)ctx;
+  long b;
+  while ((b = InterlockedIncrement(&j->next) - 1) < j->nbands) {
+    band_draw(j, (int)b);
+  }
+}
+#endif
+
+/* Draw `d` in bands on several threads; false when it has to be drawn serially. */
+static bool canvas_draw_parallel(const CanvasData *d, float ox, float oy)
+{
+  const int threads = par_threads();
+  if (threads < 2 || d->n < PAR_MIN_ITEMS) {
+    return false;
+  }
+  for (int i = 0; i < d->n; i++) {
+    if (!item_parallel_safe(&d->items[i].it)) {
+      return false;
+    }
+  }
+#ifdef _WIN32
+  ItemPrep *prep = (ItemPrep *)malloc(sizeof(ItemPrep) * (size_t)d->n);
+  if (!prep) {
+    return false;
+  }
+  /* phase 1: rows and text, on this thread; redo if the glyph cache was flushed */
+  bool ready = false;
+  for (int attempt = 0; attempt < 3 && !ready; attempt++) {
+    const unsigned gen = BUI_text_generation();
+    for (int i = 0; i < d->n; i++) {
+      item_prepare(&d->items[i], ox, oy, &prep[i]);
+    }
+    ready = BUI_text_generation() == gen;
+  }
+  if (!ready) {
+    free(prep);
+    return false;
+  }
+  /* phase 2: bands on the pool, this thread included */
+  static PTP_WORK work = NULL;
+  if (!work) {
+    work = CreateThreadpoolWork(band_worker, &g_job, NULL);
+    if (!work) {
+      free(prep);
+      return false;
+    }
+  }
+  BandJob *j = &g_job;
+  j->d = d;
+  j->prep = prep;
+  j->base = bk_draw.r;
+  memcpy(j->clip, bk_draw.clip, sizeof(j->clip));
+  j->ox = ox;
+  j->oy = oy;
+  j->nbands = threads * 3; /* more bands than threads: balances uneven rows */
+  j->band_h = BK_MAX(1, (j->clip[3] - j->clip[1] + j->nbands - 1) / j->nbands);
+  j->next = 0;
+  for (int t = 1; t < threads; t++) {
+    SubmitThreadpoolWork(work);
+  }
+  band_worker(NULL, j, NULL);
+  WaitForThreadpoolWorkCallbacks(work, FALSE);
+  free(prep);
+  return true;
+#else
+  (void)ox;
+  (void)oy;
+  return false;
+#endif
 }
 
 static void canvas_draw(BKNode *n)
@@ -997,8 +1239,23 @@ static void canvas_draw(BKNode *n)
   CanvasData *d = CANVAS(n);
   bk_clip_push(n->x, n->y, n->w, n->h);
   const float ox = (float)(n->x - n->scroll_x), oy = (float)(n->y - n->scroll);
+  if (bk_draw.clip[2] > bk_draw.clip[0] && bk_draw.clip[3] > bk_draw.clip[1] &&
+      canvas_draw_parallel(d, ox, oy))
+  {
+    bk_clip_pop();
+    return;
+  }
   for (int i = 0; i < d->n; i++) {
-    canvas_item_draw(&d->items[i], ox, oy);
+    const BKCanvasItem *it = &d->items[i].it;
+    if (it->clip_on) { /* overflow: hidden / scroll containers */
+      bk_clip_push((int)floorf(ox + it->clip[0]), (int)floorf(oy + it->clip[1]),
+                   (int)ceilf(it->clip[2]), (int)ceilf(it->clip[3]));
+      canvas_item_draw(bk_draw.r, &d->items[i], ox, oy, NULL);
+      bk_clip_pop();
+    }
+    else {
+      canvas_item_draw(bk_draw.r, &d->items[i], ox, oy, NULL);
+    }
   }
   bk_clip_pop();
 }

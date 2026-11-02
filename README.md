@@ -14,9 +14,12 @@ the color wheel, Ctrl+Z on any edit and you can drive it three ways:
   (a common subset today).
 - **Blender components**: a native component library (`Panel`,
   `NumberSlider`, `ColorSwatch`, `TreeView`, `PieMenu` ...).
+- **Rust, gpui syntax**: the `blenderui` crate. `div().flex().gap_2().child(...)`,
+  `cx.listener`, `Render`, plus every HTML element and CSS (stylesheets,
+  selectors, flexbox, grid, tables), with form controls as Blender widgets.
 
-All three share one C runtime (`kit/`). Python builds the widget tree and
-runs your callbacks. Layout, input, drawing and presenting stay in C.
+All of them share one C runtime (`kit/`). Python (or Rust) builds the widget
+tree and runs your callbacks. Input, widget drawing and presenting stay in C.
 
 ```sh
 pip install blenderui          # on PyPI: https://pypi.org/project/blenderui/
@@ -40,6 +43,7 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
   - [tkinter syntax](#tkinter-syntax)
   - [Qt syntax](#qt-syntax)
   - [Blender components](#blender-components)
+  - [Rust (gpui syntax, HTML and CSS)](#rust-gpui-syntax-html-and-css)
 - [How it works](#how-it-works)
 - [Performance](#performance)
 - [Roadmap: more languages and platforms](#roadmap-more-languages-and-platforms)
@@ -73,7 +77,7 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
 | Component library (`bui.components`) | ✅ Working            | 45 Blender components, including editors (color ramp, curves) and templates                                                                                                        |
 | C++ / Qt render-sink backends        | ✅ Working            | For embedding BUI drawing into your own renderer ([INTEGRATION.md](INTEGRATION.md))                                                                                                |
 | Packaging (`pip install blenderui`)  | ✅ Published          | [`blenderui` 0.1.0 on PyPI](https://pypi.org/project/blenderui/): a prebuilt wheel for Windows / CPython 3.12, and a source package that other platforms compile on install (needs CMake and a C compiler). Prebuilt wheels for all platforms come from CI on the next tagged release ([docs/publishing.md](docs/publishing.md)) |
-| **Rust port** (`blenderui` crate)    | 🗺️ Planned (next)      | `blenderui-sys` (bindgen over `BUI_kit.h`) plus a safe crate: owned node tree, closures for callbacks, `winit` windows. First item on the [roadmap](#roadmap-more-languages-and-platforms) |
+| **Rust** (`blenderui` crate)         | ✅ **Working**        | gpui syntax (`Render`, `Context`, `Entity`, `cx.listener`, ~1,300 `Styled` methods) over **113/113 HTML elements** and CSS: **173 properties rendered** (+87 parsed without effect), CSS 2.1 screen properties 76/90 rendered (90/90 parsed), Flexbox 12/12, Grid 22/23. Layout by [taffy](https://github.com/DioxusLabs/taffy). Native window on Windows, headless rendering everywhere. Fastest in a 3000-element full-animation benchmark: 32.6 fps vs gpui-fast 29.7 and gpui 22.8, with about half their memory ([benchmark](bindings/rust/bench/README.md)). [docs/rust.md](docs/rust.md) |
 | **egui integration**                 | 🗺️ Planned             | BUI panels drawn inside egui (raster → `egui::TextureHandle`, input forwarded) and a Blender-styled `egui::Visuals` theme. Builds on the Rust crate |
 | **WebAssembly build**                | 🗺️ Planned             | The kit compiled with Emscripten: the raster blits to `<canvas>` (damage rectangles only), DOM events feed `BK_press` / `BK_key` |
 | **React** (`@blenderui/react`)       | 🗺️ Planned             | A JSX reconciler over the WASM build (`<Panel>`, `<NumberSlider>` ...); `@blenderui/web` for plain JS/TS, N-API for Node |
@@ -228,6 +232,47 @@ App("Object", (420, 520),
 Component reference and Blender interaction details:
 **[docs/components.md](docs/components.md)**.
 
+### Rust (gpui syntax, HTML and CSS)
+
+```toml
+[dependencies]
+blenderui = { git = "https://github.com/ppmpreetham/BUI" }   # needs CMake and a C compiler
+```
+
+```rust
+use blenderui::prelude::*;
+
+struct Counter { count: i32 }
+
+impl Render for Counter {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().flex().flex_col().gap_2().p_4()
+            .child(h1().child(format!("Count: {}", self.count)))
+            .child(p().child("Any ").child(b().child("HTML element")).child(", styled with ")
+                .child(code().child(".css()")).child(" or a <style> sheet."))
+            .child(button().child("Add one").on_click(cx.listener(|this, _, _, cx| {
+                this.count += 1;
+                cx.notify();
+            })))
+            .child(input().input_type("range").min(0.0).max(10.0))   // a Blender slider
+    }
+}
+
+fn main() {
+    Application::new().run(|cx: &mut App| {
+        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Counter { count: 0 }))
+            .unwrap();
+    });
+}
+```
+
+<p align="center"><img src="docs/images/rust-showcase.png" width="560" alt="The Rust showcase example"></p>
+<p align="center"><sub><code>bindings/rust/blenderui/examples/showcase.rs</code>: a stylesheet, grid cards with
+gradients and shadows, Blender form widgets, a table, lists, <code>&lt;details&gt;</code> and <code>&lt;pre&gt;</code>.</sub></p>
+
+Elements, the CSS that is supported, events and testing headless:
+**[docs/rust.md](docs/rust.md)**.
+
 ## How it works
 
 ```
@@ -283,7 +328,7 @@ them needs Python.
 |---|---|---|
 | **Python**: tkinter, Qt, components | `bui.tksyntax`, `bui.qtsyntax`, `bui.components` | ✅ Done (Qt partial) |
 | **C / C++** | `BUI_kit.h`, render sinks, Qt/QPainter backend | ✅ Done |
-| **Rust** | `blenderui-sys` (bindgen over `BUI_kit.h`) and a safe `blenderui` crate: an owned node tree, closures for callbacks, `winit` windows | 🗺️ Planned |
+| **Rust** | `blenderui-sys` (FFI over `BUI_kit.h`, builds the kit with CMake) and `blenderui`: gpui syntax, all HTML elements, CSS, taffy layout ([docs/rust.md](docs/rust.md)) | ✅ Done (native window on Windows; Linux/macOS render headless until their window hosts land) |
 | **egui** | Two ways in: draw a BUI panel inside egui (raster to an `egui::TextureHandle`, with input forwarded), and a Blender-styled `egui::Visuals` theme | 🗺️ Planned |
 | **WebAssembly** | Compile the kit with Emscripten. The raster blits to a `<canvas>` (`putImageData` of the damage rectangles only), and DOM pointer and keyboard events go to `BK_press` / `BK_key` | 🗺️ Planned |
 | **React** | `@blenderui/react` on top of the WASM build: a reconciler that maps JSX to kit nodes (`<Panel>`, `<NumberSlider>` ...) | 🗺️ Planned |
@@ -299,22 +344,6 @@ them needs Python.
 
 <details>
 <summary>Intended API sketches (planned, not implemented yet)</summary>
-
-Rust:
-
-```rust
-use blenderui::{App, Panel, NumberSlider, Checkbox, Button};
-
-fn main() {
-    App::new("Tool", (360, 260))
-        .child(Panel::new("Object")
-            .child(NumberSlider::new("Size", 1.0).range(0.0, 10.0)
-                .on_change(|v| println!("size = {v}")))
-            .child(Checkbox::new("Smooth", true))
-            .child(Button::new("Apply").on_click(|| println!("apply"))))
-        .run();
-}
-```
 
 egui:
 
@@ -344,7 +373,7 @@ export default function Properties() {
 
 </details>
 
-Work order: the Rust crate first (it also unlocks egui and Bevy), then
+Work order: the Rust crate is done (it also unlocks egui and Bevy); next is
 the WebAssembly build (it unlocks React, JS/TS, Tauri and Electron), then
 native Linux / macOS windows.
 
@@ -380,6 +409,7 @@ python -m build                     # dist/blenderui-<version>.tar.gz and a whee
 | [docs/qt.md](docs/qt.md)                           | Qt-syntax guide: classes, signals, layouts, painting, timers, coverage and gaps          |
 | [docs/components.md](docs/components.md)           | `bui.components` reference: layout, values, views, menus, color, editors, `App`          |
 | [docs/c-api.md](docs/c-api.md)                     | The C kit (`BUI_kit.h`): nodes, properties, events, windows                              |
+| [docs/rust.md](docs/rust.md)                       | The Rust crate: gpui syntax, HTML elements, CSS coverage, events, headless testing       |
 | [docs/publishing.md](docs/publishing.md)           | Packaging as `blenderui`, building wheels, CI, releasing to PyPI                          |
 | [CHANGELOG.md](CHANGELOG.md)                       | Release notes                                                                             |
 | [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md)           | Member-by-member coverage tables for both syntax layers                                  |
@@ -395,6 +425,7 @@ Examples (`examples/`):
 | `qt_syntax_demo.py`            | Qt syntax: layouts, form widgets, signals                       |
 | `components_demo.py`           | Every Blender component, in a properties-editor layout          |
 | `kit_hello.c`                  | The C kit from C: a slider and a button in a native window      |
+| `bindings/rust/blenderui/examples/showcase.rs` | Rust: HTML, a stylesheet, flex/grid, tables, Blender form widgets |
 | `python_demo.py`, `svg_demo.c` | Low-level drawing into an SVG render sink                       |
 
 ## Repository layout
@@ -408,6 +439,7 @@ Examples (`examples/`):
 | `api/`                | Stable C ABI for render-sink hosts (`bui_c_api.h`)                                                                                                                                                                                                                                                                                           |
 | `bindings/python/`    | `buipy` extension (`src/`) and the `bui` package: `tksyntax/`, `qtsyntax.py`, `components/`, `host.py`                                                                                                                                                                                                                                       |
 | `backends/qt/`        | C++ Qt/QPainter render-sink backend                                                                                                                                                                                                                                                                                                          |
+| `bindings/rust/`      | Cargo workspace: `blenderui-sys` (FFI, builds the kit with CMake) and `blenderui` (gpui syntax, HTML, CSS, taffy layout)                                                                                                                                                                                                                  |
 | `bindings/python/blenderui/` | The `blenderui` import alias (the PyPI name)                                                                                                                                                                                                                                                                                       |
 | `pyproject.toml`, `.github/workflows/` | PyPI packaging (scikit-build-core) and the wheel and release CI                                                                                                                                                                                                                                                        |
 | `examples/`, `tools/` | Demos, the icon generator, the docs screenshot generator                                                                                                                                                                                                                                                                                     |
@@ -426,6 +458,10 @@ ctest --test-dir build --output-on-failure
 | `buipy_syntax`, `buipy_advanced` | Qt and tkinter facades: layouts, painting, menus, dialogs, images                  |
 | `buipy_tk_compat`                | Nine tkinter programs run on stdlib tkinter **and** BUI; results must match        |
 | `buipy_tk_input`                 | tkinter widgets driven by real pointer and keyboard input through the kit          |
+
+Rust (`cd bindings/rust && cargo test`): CSS parsing and selectors, the HTML and CSS
+coverage report (`cargo test --test parity -- --nocapture`), and headless windows
+checking layout positions, painted pixels, clicks, `:hover` and Blender widgets.
 
 ## License
 

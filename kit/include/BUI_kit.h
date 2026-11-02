@@ -212,8 +212,12 @@ typedef struct BKCanvasItem {
   const unsigned char *rgba; /* images: iw * ih RGBA pixels */
   int iw, ih;
   int hidden;
+  int text_flags;  /* BUI_FONT_BOLD | ITALIC | UNDERLINE */
+  int clip_on;     /* clip the item to `clip` (x, y, w, h in canvas space) */
+  float clip[4];
 } BKCanvasItem;
 void BK_canvas_set_item(BKNode *canvas, const BKCanvasItem *item); /* insert or replace by id */
+void BK_canvas_add_item(BKNode *canvas, const BKCanvasItem *item); /* append, ids not checked */
 void BK_canvas_delete(BKNode *canvas, int id);                     /* id < 0: all */
 void BK_canvas_raise(BKNode *canvas, int id, int to_top);
 int BK_canvas_count(BKNode *canvas);
@@ -313,6 +317,9 @@ typedef struct BKWindowCallbacks {
   void *data;
   void (*on_timer)(void *data, BKWindow *win, int id); /* BK_window_timer fired */
   int (*on_close)(void *data, BKWindow *win);          /* return 0 to keep it open */
+  /* BK_window_request_frame: called right before the frame renders, so a host
+   * can rebuild its UI for exactly the frame that presents it. */
+  void (*on_frame)(void *data, BKWindow *win);
 } BKWindowCallbacks;
 int BK_window_supported(void);
 BKWindow *BK_window_new(BKContext *ctx, const char *title, int width, int height);
@@ -328,6 +335,9 @@ BuiRaster *BK_window_raster(BKWindow *win);
 int BK_window_frames(BKWindow *win);
 void BK_window_render_now(BKWindow *win);
 int BK_window_timer(BKWindow *win, int ms); /* one-shot; returns its id */
+/* Ask for an animation frame: `on_frame` runs before the next render. With
+ * `vsync`, consecutive frames are paced to the display's refresh. */
+void BK_window_request_frame(BKWindow *win, int vsync);
 void BK_window_cancel_timer(BKWindow *win, int id);
 void *BK_window_handle(BKWindow *win);       /* HWND */
 /* Window-manager requests (Tk's wm): "pos" (x, y), "minsize"/"maxsize" (w, h),

@@ -3,6 +3,7 @@ build-ui/
 *.obj
 *.o
 reference/
+**/target/
 
 # packaging
 dist/

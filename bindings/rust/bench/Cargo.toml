@@ -1,0 +1,8 @@
+# Benchmark: the same UI on blenderui and on gpui (Zed's framework).
+# Separate workspace so gpui's dependencies never touch the main crates.
+[workspace]
+resolver = "2"
+members = ["bui-bench", "gpui-bench", "gpui-fast-bench"]
+
+[profile.release]
+debug = false

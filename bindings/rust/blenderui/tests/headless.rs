@@ -1,0 +1,215 @@
+//! Off-screen windows: layout, painting and interaction end to end.
+
+use blenderui::prelude::*;
+
+fn pixel(img: &(usize, usize, Vec<u32>), x: usize, y: usize) -> u32 {
+    img.2[y * img.0 + x]
+}
+
+fn open<V: Render>(cx: &mut App, w: f32, h: f32, v: V) -> WindowHandle<V> {
+    let opts = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(w), px(h)),
+        })),
+        ..Default::default()
+    };
+    cx.open_window(opts, |_, cx| cx.new(|_| v)).unwrap()
+}
+
+struct Boxes;
+
+impl Render for Boxes {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        body()
+            .m_0()
+            .child(div().id("red").w(px(50.0)).h(px(30.0)).bg(rgb(0xff0000)))
+            .child(
+                div().id("row").flex().gap(px(10.0)).child(div().id("a").size(px(20.0)).bg(rgb(0x00ff00)))
+                    .child(div().id("b").flex_1().h(px(20.0)).bg(rgb(0x0000ff))),
+            )
+            .child(div().id("styled").style("width: 40px; height: 10px; background: #ffff00; margin-left: 5px"))
+    }
+}
+
+#[test]
+fn block_and_flex_layout_paint() {
+    Application::headless().run(|cx| {
+        let win = open(cx, 200.0, 100.0, Boxes);
+        let id = win.id;
+        let img = cx.draw(id);
+        assert!(img.0 > 0);
+        let s = img.0 as f32 / 200.0; // device pixels per logical pixel
+        let b = cx.element_bounds(id, "red").unwrap();
+        assert_eq!((b.origin.x, b.origin.y, b.size.width, b.size.height), (0.0, 0.0, 50.0, 30.0));
+        let a = cx.element_bounds(id, "a").unwrap();
+        let bb = cx.element_bounds(id, "b").unwrap();
+        assert_eq!(a.origin.y, 30.0);
+        assert_eq!(bb.origin.x, 30.0);
+        assert_eq!(bb.size.width, 170.0);
+        let st = cx.element_bounds(id, "styled").unwrap();
+        assert_eq!((st.origin.x, st.origin.y, st.size.width), (5.0, 50.0, 40.0));
+        let at = |x: f32, y: f32| pixel(&img, (x * s) as usize, (y * s) as usize);
+        assert_eq!(at(10.0, 10.0), 0xff0000);
+        assert_eq!(at(35.0, 40.0), 0x0000ff);
+        assert_eq!(at(10.0, 40.0), 0x00ff00);
+        assert_eq!(at(20.0, 55.0), 0xffff00);
+        assert_eq!(at(150.0, 90.0), 0x303030); // html background
+    });
+}
+
+struct Counter {
+    count: i32,
+    changed: String,
+}
+
+impl Render for Counter {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .child(
+                div().id("plus").w(px(60.0)).h(px(20.0)).bg(rgb(0x4772b3))
+                    .hover(|s| s.bg(rgb(0xffffff)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.count += 1;
+                        cx.notify();
+                    })),
+            )
+            .child(p().id("label").child(format!("count {}", self.count)))
+            .child(button().id("btn").child("Add").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.count += 10;
+                cx.notify();
+            })))
+            .child(input().id("check").input_type("checkbox").on_change(cx.listener(
+                |this, e: &ChangeEvent, _, cx| {
+                    this.changed = format!("checked={}", e.checked);
+                    cx.notify();
+                },
+            )))
+    }
+}
+
+#[test]
+fn clicks_hover_and_widgets() {
+    Application::headless().run(|cx| {
+        let win = open(cx, 300.0, 200.0, Counter { count: 0, changed: String::new() });
+        let id = win.id;
+        cx.draw(id);
+        let plus = cx.element_bounds(id, "plus").unwrap();
+        cx.simulate_click(id, plus.origin.x + 5.0, plus.origin.y + 5.0);
+        cx.simulate_click(id, plus.origin.x + 5.0, plus.origin.y + 5.0);
+        assert_eq!(win.root().read(cx).count, 2);
+        // :hover style from .hover(|s| ...)
+        let img = cx.draw(id);
+        let s = img.0 as f32 / 300.0;
+        let at = |x: f32, y: f32| pixel(&img, (x * s) as usize, (y * s) as usize);
+        assert_eq!(at(plus.origin.x + 30.0, plus.origin.y + 10.0), 0xffffff);
+        // a real Blender button
+        let btn = cx.element_bounds(id, "btn").unwrap();
+        assert!(btn.size.width > 20.0 && btn.size.height >= 18.0, "{btn:?}");
+        cx.simulate_click(id, btn.origin.x + btn.size.width / 2.0, btn.origin.y + btn.size.height / 2.0);
+        assert_eq!(win.root().read(cx).count, 12);
+        let check = cx.element_bounds(id, "check").unwrap();
+        cx.simulate_click(id, check.origin.x + 8.0, check.origin.y + check.size.height / 2.0);
+        assert_eq!(win.root().read(cx).changed, "checked=true");
+    });
+}
+
+struct Page;
+
+impl Render for Page {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        html()
+            .child(head().child(style().child(
+                "body { margin: 0 } .card > p:first-child { color: #ff0000 } #wrap { width: 100px; }
+                 ul li:nth-child(2) { height: 33px } @media (max-width: 100px) { #wrap { width: 1px } }",
+            )))
+            .child(body().child(
+                div().id("wrap")
+                    .child(div().class("card").child(p().id("first").child("one two three four five six seven")))
+                    .child(ul().child(li().child("a")).child(li().id("second").child("b"))),
+            ))
+    }
+}
+
+#[test]
+fn stylesheets_and_inline_wrapping() {
+    Application::headless().run(|cx| {
+        let win = open(cx, 400.0, 300.0, Page);
+        let id = win.id;
+        cx.draw(id);
+        let wrap = cx.element_bounds(id, "wrap").unwrap();
+        assert_eq!(wrap.size.width, 100.0);
+        let first = cx.element_bounds(id, "first").unwrap();
+        // seven words cannot fit 100px on one line: they wrap
+        assert!(first.size.height > 30.0, "{first:?}");
+        let second = cx.element_bounds(id, "second").unwrap();
+        assert_eq!(second.size.height, 33.0);
+    });
+}
+
+struct Tables;
+
+impl Render for Tables {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        body().m_0()
+            .child(style().child("#t { border-spacing: 10px 4px; width: 200px } caption { caption-side: bottom }
+                                  #g { display: grid; grid: auto-flow 30px / 50px 50px; width: 100px }"))
+            .child(table().id("t")
+                .child(caption().id("cap").child("cap"))
+                .child(tbody().child(tr().id("r1").child(td().id("c1").child("a")).child(td().id("c2").child("b")))
+                    .child(tr().id("r2").child(td().child("c")).child(td().child("d")))))
+            .child(div().id("g").children((0..4).map(|k| div().id(format!("g{k}")))))
+    }
+}
+
+#[test]
+fn tables_captions_and_grid_shorthand() {
+    Application::headless().run(|cx| {
+        let win = open(cx, 300.0, 300.0, Tables);
+        let id = win.id;
+        cx.draw(id);
+        let c1 = cx.element_bounds(id, "c1").unwrap();
+        let c2 = cx.element_bounds(id, "c2").unwrap();
+        let r1 = cx.element_bounds(id, "r1").unwrap();
+        let r2 = cx.element_bounds(id, "r2").unwrap();
+        assert_eq!(c1.origin.x, 10.0, "spacing pads the table");
+        assert_eq!(c2.origin.x - (c1.origin.x + c1.size.width), 10.0, "horizontal spacing");
+        assert_eq!(r2.origin.y - (r1.origin.y + r1.size.height), 4.0, "vertical spacing");
+        let cap = cx.element_bounds(id, "cap").unwrap();
+        assert!(cap.origin.y > r2.origin.y, "caption-side: bottom");
+        let g3 = cx.element_bounds(id, "g3").unwrap();
+        assert_eq!((g3.origin.x - cx.element_bounds(id, "g").unwrap().origin.x, g3.size.height), (50.0, 30.0));
+    });
+}
+
+struct Paint;
+
+impl Render for Paint {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        body().m_0().child(
+            canvas(|b, p| {
+                p.fill(b, rgb(0x232323));
+                p.quad(b, 6.0, rgba(0x4772b380), rgb(0x4772b3), 1.0);
+                p.line(&[(b.origin.x, b.origin.y), (b.origin.x + 80.0, b.origin.y + 40.0)], white(), 2.0);
+                p.oval(Bounds { origin: point(150.0, 10.0), size: size(20.0, 20.0) }, red(), black(), 1.0);
+                p.text(b.origin.x + 4.0, b.origin.y + 4.0, "hello", 13.0, white());
+            })
+            .id("cv")
+            .w(px(200.0))
+            .h(px(100.0)),
+        )
+    }
+}
+
+#[test]
+fn canvas_painter() {
+    Application::headless().run(|cx| {
+        let win = open(cx, 220.0, 120.0, Paint);
+        let img = cx.draw(win.id);
+        let s = img.0 as f32 / 220.0;
+        let at = |x: f32, y: f32| pixel(&img, (x * s) as usize, (y * s) as usize);
+        assert_eq!(cx.element_bounds(win.id, "cv").unwrap().size.width, 200.0);
+        assert_eq!(at(160.0, 20.0), 0xff0000, "oval");
+        assert_ne!(at(100.0, 80.0), 0x303030, "filled");
+    });
+}

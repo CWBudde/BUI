@@ -759,6 +759,7 @@ static const struct {
     {"line", NF_LINE, false},          {"bold", NF_BOLD, true},
     {"events", NF_EVENTS, false},      {"nopropagate", NF_NOPROPAGATE, true},
     {"viewevents", NF_VIEWEVENTS, false}, {"noscrollbar", NF_NOSCROLLBAR, true},
+    {"opaque", NF_OPAQUE, false},
 };
 
 static int g_view_watchers; /* > 0 once any node asked for view events */
@@ -1749,7 +1750,9 @@ static void draw_region(BKContext *ctx, const BKRect *rect)
   const int w = ctx->win_w, h = ctx->win_h;
   bk_clip_reset(w, h);
   bk_clip_push(rect->xmin, rect->ymin, bk_rw(rect), bk_rh(rect));
-  bk_fill(rect->xmin, rect->ymin, bk_rw(rect), bk_rh(rect), bk_theme.region_bg);
+  if (!(ctx->root && (ctx->root->flags & NF_OPAQUE))) {
+    bk_fill(rect->xmin, rect->ymin, bk_rw(rect), bk_rh(rect), bk_theme.region_bg);
+  }
   const int top = ctx->header_h, view_h = h - top;
   bk_clip_push(0, top, w, view_h);
   if (ctx->root) {

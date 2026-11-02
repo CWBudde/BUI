@@ -17,7 +17,9 @@
 #ifdef __cplusplus
 #define BLI_array_alloca(arr, realsize) \
   (std::remove_reference_t<decltype(arr)>)alloca(sizeof(*arr) * (realsize))
-#else
+#elif defined(__GNUC__)
 #define BLI_array_alloca(arr, realsize) \
   ((typeof(arr))alloca(sizeof(*arr) * (realsize)))
+#else /* C: void * converts to the target pointer type (MSVC has no typeof) */
+#define BLI_array_alloca(arr, realsize) alloca(sizeof(*arr) * (realsize))
 #endif

@@ -37,6 +37,8 @@ struct BKWindow {
   BuiRaster *raster;
   BKWindowCallbacks cb;
   int render_pending, frames, cursor, tip_id, next_timer, tracking, full;
+  int want_frame, frame_vsync; /* BK_window_request_frame */
+  LARGE_INTEGER frame_start;    /* when the last animation frame began */
   float scale;
   int min_w, min_h, max_w, max_h; /* client size limits (logical px; 0 = none) */
   int fixed_w, fixed_h;           /* axes the user may not resize (Tk's resizable) */
@@ -235,17 +237,48 @@ static void vsync(void)
   }
 }
 
+/* Milliseconds since the current animation frame began. */
+static double frame_ms(const BKWindow *win)
+{
+  LARGE_INTEGER now, freq;
+  QueryPerformanceCounter(&now);
+  QueryPerformanceFrequency(&freq);
+  return (double)(now.QuadPart - win->frame_start.QuadPart) * 1000.0 / (double)freq.QuadPart;
+}
+
 static void do_render(BKWindow *win)
 {
   RECT rc;
   GetClientRect(win->hwnd, &rc);
   const int w = BK_MAX(1, rc.right - rc.left), h = BK_MAX(1, rc.bottom - rc.top);
   const int resized = BUI_raster_width(win->raster) != w || BUI_raster_height(win->raster) != h;
+  /* BUI_PROFILE: kit raster and present times, averaged over 60 frames */
+  static int prof = -1;
+  static double acc_render, acc_present;
+  static int acc_n;
+  LARGE_INTEGER t0, t1, t2, freq;
+  if (prof < 0) {
+    prof = getenv("BUI_PROFILE") != NULL;
+  }
+  QueryPerformanceCounter(&t0);
   const int regions = BK_render(win->ctx, win->raster, w, h, win->full);
+  QueryPerformanceCounter(&t1);
   win->full = 0;
   if (regions || resized) {
     BUI_raster_present_native(win->raster, win->hwnd, resized);
     win->frames++;
+  }
+  QueryPerformanceCounter(&t2);
+  if (prof) {
+    QueryPerformanceFrequency(&freq);
+    acc_render += (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart;
+    acc_present += (double)(t2.QuadPart - t1.QuadPart) * 1000.0 / (double)freq.QuadPart;
+    if (++acc_n == 60) {
+      fprintf(stderr, "kit ms: raster %.2f  present %.2f  (%dx%d)\n", acc_render / 60,
+              acc_present / 60, w, h);
+      acc_render = acc_present = 0;
+      acc_n = 0;
+    }
   }
   if (BK_animating(win->ctx)) {
     vsync(); /* pace animation frames to the display */
@@ -318,8 +351,20 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
   BKContext *ctx = win->ctx;
   switch (msg) {
     case WM_BK_RENDER:
+      if (win->want_frame && win->cb.on_frame) {
+        /* render_pending is still set: edits made here join this frame */
+        win->want_frame = 0;
+        QueryPerformanceCounter(&win->frame_start);
+        win->cb.on_frame(win->cb.data, win);
+      }
       win->render_pending = 0;
       do_render(win);
+      if (win->want_frame) { /* the host asked for the next frame */
+        if (win->frame_vsync && frame_ms(win) < 15.0) {
+          vsync(); /* early: wait for the next refresh; late: start right away */
+        }
+        host_request(win);
+      }
       return 0;
     case WM_PAINT: {
       PAINTSTRUCT ps;
@@ -655,6 +700,13 @@ int BK_window_timer(BKWindow *win, int ms)
   return id;
 }
 
+void BK_window_request_frame(BKWindow *win, int vsync)
+{
+  win->want_frame = 1;
+  win->frame_vsync = vsync;
+  host_request(win);
+}
+
 void BK_window_cancel_timer(BKWindow *win, int id)
 {
   if (win->hwnd) {
@@ -847,6 +899,7 @@ int BK_window_timer(BKWindow *win, int ms)
   return 0;
 }
 void BK_window_cancel_timer(BKWindow *win, int id) {}
+void BK_window_request_frame(BKWindow *win, int vsync) {}
 void *BK_window_handle(BKWindow *win)
 {
   return NULL;

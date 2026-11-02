@@ -275,6 +275,7 @@ enum {
   NF_VIEWEVENTS = 1 << 21, /* emit BK_EV_VIEW when the scrolled view changes */
   NF_NOSCROLLBAR = 1 << 22, /* an external scrollbar drives the view */
   NF_CONFIGURED = 1 << 23,  /* geometry changed since the host was told (BK_EV_CONFIGURE) */
+  NF_OPAQUE = 1 << 24,      /* root: the host paints every pixel, skip the region clear */
 };
 
 typedef struct BKStrs {
