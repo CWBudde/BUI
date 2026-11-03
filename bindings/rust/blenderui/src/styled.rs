@@ -39,6 +39,13 @@ impl<const N: usize> StyleBlock for [Decl; N] {
         out.extend(self);
     }
 }
+/// Declarations parsed earlier (`css::parse_declarations`), reused as they
+/// are: values that are `Value::Shared` clone without allocating.
+impl StyleBlock for &[Decl] {
+    fn push_into(self, out: &mut Vec<Decl>) {
+        out.extend_from_slice(self);
+    }
+}
 impl StyleBlock for &str {
     fn push_into(self, out: &mut Vec<Decl>) {
         out.extend(parse_declarations(self));

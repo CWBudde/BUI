@@ -185,7 +185,11 @@ impl<V: 'static> WindowHandle<V> {
     pub fn update<R>(&self, cx: &mut App,
                      f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R) -> Option<R> {
         let mut w = cx.windows.get_mut(self.id.0)?.take()?;
+        let notified = cx.notified;
         let r = self.entity.update(cx, |v, cx| f(v, &mut w, cx));
+        if cx.notified != notified {
+            w.refresh(); // `cx.notify()` ran while this window was out of the list
+        }
         cx.windows[self.id.0] = Some(w);
         Some(r)
     }
@@ -221,6 +225,7 @@ pub struct Application {
     headless: bool,
     gpu: Option<bool>,
     slug: Option<bool>,
+    keep_alive: bool,
 }
 
 impl Default for Application {
@@ -232,7 +237,7 @@ impl Default for Application {
 impl Application {
     /// Native windows.
     pub fn new() -> Application {
-        Application { headless: false, gpu: None, slug: None }
+        Application { headless: false, gpu: None, slug: None, keep_alive: false }
     }
 
     /// Draw every window on the GPU (Direct3D 11 on Windows): the same
@@ -253,10 +258,17 @@ impl Application {
         self
     }
 
+    /// Keep the event loop running with no windows open, until
+    /// [`App::quit`]: for apps driven from another thread ([`App::ui_sender`]).
+    pub fn keep_alive(mut self, on: bool) -> Application {
+        self.keep_alive = on;
+        self
+    }
+
     /// Off-screen windows (tests, screenshots, CI): nothing is shown, the
     /// `simulate_*` and `draw` methods drive it.
     pub fn headless() -> Application {
-        Application { headless: true, gpu: None, slug: None }
+        Application { headless: true, gpu: None, slug: None, keep_alive: false }
     }
 
     /// Run `f`, then the event loop until every window is closed.
@@ -280,6 +292,7 @@ impl Application {
         }
         // the app stays on this stack frame; kit callbacks reach it through APP
         APP.with(|a| a.set(&mut app as *mut App));
+        unsafe { sys::BK_window_set_keep_alive(self.keep_alive as c_int) };
         // SAFETY: plain message loop; `app` isn't touched here until it returns.
         unsafe { sys::BK_window_run() };
         APP.with(|a| a.set(std::ptr::null_mut()));
@@ -329,11 +342,48 @@ pub struct App {
     headless: bool,
     globals: HashMap<TypeId, Box<dyn Any>>,
     propagate: bool,
+    /// Work sent from other threads ([`UiSender`]).
+    remote: Option<(std::sync::mpsc::Sender<RemoteJob>, std::sync::mpsc::Receiver<RemoteJob>)>,
+    /// Called when the user closes a window.
+    close_hooks: Vec<Box<dyn FnMut(WindowId, &mut App)>>,
+    /// Counts `notify_all` calls (see `WindowHandle::update`).
+    notified: u64,
+}
+
+type RemoteJob = Box<dyn FnOnce(&mut App) + Send>;
+
+/// Runs closures on the UI thread from any thread ([`App::ui_sender`]):
+/// the UI loop wakes, runs them in order, then re-renders what they changed.
+#[derive(Clone)]
+pub struct UiSender {
+    tx: std::sync::mpsc::Sender<RemoteJob>,
+}
+
+impl UiSender {
+    /// Queue `f` for the UI thread. False when the app has ended.
+    pub fn send(&self, f: impl FnOnce(&mut App) + Send + 'static) -> bool {
+        let ok = self.tx.send(Box::new(f)).is_ok();
+        // SAFETY: posts a message; callable from any thread.
+        unsafe { sys::BK_window_wake() };
+        ok
+    }
+}
+
+unsafe extern "C" fn on_wake() {
+    let ran = with_running_app(|app| {
+        app.drain();
+        app.flush();
+    });
+    if !ran {
+        // a callback further up holds the app: try again on the next turn
+        unsafe { sys::BK_window_wake() };
+    }
 }
 
 impl App {
     fn create(headless: bool) -> App {
-        App { windows: Vec::new(), entities: Vec::new(), headless, globals: HashMap::new(), propagate: true }
+        App { windows: Vec::new(), entities: Vec::new(), headless, globals: HashMap::new(), propagate: true,
+              remote: None, close_hooks: Vec::new(), notified: 0 }
     }
 
     /// Create an entity (gpui's `cx.new`).
@@ -404,8 +454,43 @@ impl App {
 
     /// Mark every window for re-render.
     pub fn notify_all(&mut self) {
+        self.notified = self.notified.wrapping_add(1);
         for w in self.windows.iter_mut().flatten() {
             w.refresh();
+        }
+    }
+
+    /// A handle other threads use to run code on this (the UI) thread.
+    pub fn ui_sender(&mut self) -> UiSender {
+        if self.remote.is_none() {
+            self.remote = Some(std::sync::mpsc::channel());
+            if !self.headless {
+                unsafe { sys::BK_window_wake_init(Some(on_wake)) };
+            }
+        }
+        UiSender { tx: self.remote.as_ref().map(|(tx, _)| tx.clone()).unwrap() }
+    }
+
+    /// Run work queued by [`UiSender`]s and re-render what changed (for a
+    /// loop that isn't the native one, e.g. headless apps driven by
+    /// another thread).
+    pub fn run_pending(&mut self) {
+        self.drain();
+        self.flush();
+    }
+
+    /// Call `f` whenever the user closes a window.
+    pub fn on_window_closed(&mut self, f: impl FnMut(WindowId, &mut App) + 'static) {
+        self.close_hooks.push(Box::new(f));
+    }
+
+    /// Close a window (as if the user had).
+    pub fn close_window(&mut self, id: WindowId) {
+        if let Some(w) = self.windows.get_mut(id.0).and_then(|w| w.as_deref_mut()) {
+            w.closed = true;
+            if let Some(n) = w.native {
+                unsafe { sys::BK_window_close(n) };
+            }
         }
     }
 
@@ -450,6 +535,17 @@ impl App {
     fn drain(&mut self) {
         while let Some(ev) = queue_pop() {
             self.with_window(ev.window, |w, app| w.dispatch(ev, app));
+        }
+        // work from other threads (UiSender)
+        loop {
+            let job = match &self.remote {
+                Some((_, rx)) => rx.try_recv().ok(),
+                None => None,
+            };
+            match job {
+                Some(f) => f(self),
+                None => break,
+            }
         }
     }
 
@@ -631,6 +727,12 @@ unsafe extern "C" fn on_close(data: *mut c_void, _win: *mut sys::BKWindow) -> c_
         if let Some(w) = app.windows.get_mut(id).and_then(|w| w.as_deref_mut()) {
             w.closed = true;
         }
+        let mut hooks = std::mem::take(&mut app.close_hooks);
+        for h in hooks.iter_mut() {
+            h(WindowId(id), app);
+        }
+        hooks.append(&mut app.close_hooks);
+        app.close_hooks = hooks;
     });
     1
 }

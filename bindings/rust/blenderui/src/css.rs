@@ -342,6 +342,9 @@ pub enum Value {
     One(Tok),
     Static(&'static [Tok]),
     Owned(Box<[Tok]>),
+    /// Shared between elements: cloning bumps a count (styles parsed once
+    /// and reused every render, e.g. by the Node binding).
+    Shared(std::sync::Arc<[Tok]>),
 }
 
 impl std::ops::Deref for Value {
@@ -351,6 +354,7 @@ impl std::ops::Deref for Value {
             Value::One(t) => std::slice::from_ref(t),
             Value::Static(s) => s,
             Value::Owned(b) => b,
+            Value::Shared(a) => a,
         }
     }
 }
@@ -359,6 +363,7 @@ impl PartialEq for Value {
     fn eq(&self, o: &Value) -> bool {
         match (self, o) {
             (Value::Static(a), Value::Static(b)) if std::ptr::eq(*a, *b) => true,
+            (Value::Shared(a), Value::Shared(b)) if std::sync::Arc::ptr_eq(a, b) => true,
             _ => **self == **o,
         }
     }

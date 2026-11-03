@@ -1,0 +1,18 @@
+{
+  "name": "@blenderui/native",
+  "version": "0.1.0",
+  "description": "Blender's UI from JavaScript: native windows, HTML/CSS/Tailwind, driven from Node through napi-rs",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "signals.js", "index.d.ts", "*.node", "README.md"],
+  "scripts": {
+    "build": "node scripts/build.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=18" },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "license": "GPL-2.0-or-later",
+  "repository": { "type": "git", "url": "git+https://github.com/ppmpreetham/BUI.git", "directory": "bindings/node" },
+  "keywords": ["blender", "ui", "gui", "napi", "native", "desktop", "tailwind", "react"]
+}

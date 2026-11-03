@@ -135,6 +135,13 @@ impl Div {
         self
     }
 
+    /// Identity without an `id` attribute: keeps state (scroll position,
+    /// form values) across renders, invisible to CSS (`#id` doesn't match).
+    pub fn key(mut self, key: impl Into<ElementId>) -> Self {
+        self.id = Some(key.into());
+        self
+    }
+
     /// Set an HTML attribute (`href`, `type`, `value`, `placeholder` ...).
     pub fn attr(mut self, name: impl Into<SharedString>, value: impl Into<SharedString>) -> Self {
         let name = name.into();

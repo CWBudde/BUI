@@ -235,6 +235,9 @@ unsafe extern "C" {
     pub fn BK_window_wm_get(win: *mut BKWindow, key: *const c_char, r_a: *mut c_double,
                             r_b: *mut c_double) -> c_int;
     pub fn BK_window_run();
+    pub fn BK_window_wake_init(cb: Option<unsafe extern "C" fn()>) -> c_int;
+    pub fn BK_window_wake();
+    pub fn BK_window_set_keep_alive(on: c_int);
     pub fn BK_window_pump() -> c_int;
     pub fn BK_window_quit();
 

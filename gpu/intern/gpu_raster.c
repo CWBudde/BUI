@@ -251,9 +251,16 @@ void BUI_gpu_set_slug(int on)
 
 int BUI_gpu_slug(void)
 {
-  const char *env = getenv("BUI_SLUG");
-  if (env && env[0]) {
-    return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' || env[0] == 'T';
+  /* called per text run: read the environment once */
+  static int env_slug = -2; /* -2 unread, -1 unset */
+  if (env_slug == -2) {
+    const char *env = getenv("BUI_SLUG");
+    env_slug = (env && env[0]) ? (env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' ||
+                                  env[0] == 'T') :
+                                 -1;
+  }
+  if (env_slug >= 0) {
+    return env_slug;
   }
   return g_slug >= 0 ? g_slug : BUI_SLUG_DEFAULT;
 }

@@ -38,7 +38,7 @@ UI library with a small C core. Your code builds the widget tree and handles
 callbacks. Layout, input, drawing and presenting all happen in fast native
 code.
 
-You can drive it four ways, and all of them share the same C runtime:
+You can drive it five ways, and all of them share the same C runtime:
 
 | You write | You get | Status |
 |---|---|---|
@@ -46,6 +46,7 @@ You can drive it four ways, and all of them share the same C runtime:
 | **Qt-style** Python (`QWidget`, layouts, `clicked.connect`) | The common subset of Qt widgets | 🟡 Partial |
 | **Blender components** in Python (`Panel`, `NumberSlider`, `PieMenu` ...) | 45 native Blender widgets and editors | ✅ Complete |
 | **Rust**: HTML + CSS + Tailwind, JSX (`rsx!`), hooks, or gpui syntax | A web-like framework rendered with Blender widgets | ✅ Working |
+| **JavaScript / React** from Node: a DOM-like API or JSX | The same engine in native windows, driven over napi-rs ([guide](docs/javascript.md)) | 🟡 New (Windows) |
 
 ## Quick start
 
@@ -241,6 +242,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | Components | 45 Blender components, including the color ramp and curve editors |
 | Rust | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 82/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`/`@container`/`@font-face`/`@property`, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, headless testing |
 | Rendering | Software raster (parallel, damage-tracked), GPU renderer (Direct3D 11), portable text engine |
+| JavaScript / React | `@blenderui/native` (DOM-like API over napi-rs, its own UI thread, only changes cross the boundary, vsync-paced `requestAnimationFrame`) and `@blenderui/react` (React 19 renderer), with BUI's signals (`useSignal`, `useComputed`, `useSignalEffect`) updating nodes without re-renders; headless testing ([guide](docs/javascript.md)) |
 | Packaging | [`blenderui` on PyPI](https://pypi.org/project/blenderui/), with a CI workflow for wheels on all platforms |
 
 ### 🟡 Partial or in progress
@@ -251,6 +253,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | CSS (207 of 745 W3C properties render, 177 more parse) | Rendering effects: `rotate`/`skew` transforms, `filter`/`backdrop-filter`, blend modes, `clip-path`, masks, `border-image`, non-solid borders. Also animations and transitions. Most of the remaining W3C list is drafts, speech, print and SVG ([breakdown](docs/rust.md#coverage)) |
 | Text | No text wrapping around floats; no right-to-left shaping |
 | Rust components | No async resources (`use_resource`); no generic components |
+| JavaScript / React | Native windows on Windows only (headless elsewhere); npm packages not published yet; events are asynchronous (no native `preventDefault`) |
 | Linux / macOS | They work through a fallback window (the stdlib Tk window shows BUI's frame), but they're less tested. No native window host and no GPU renderer yet |
 | crates.io | The crates are ready to publish but not published yet; use the git dependency for now |
 
@@ -258,8 +261,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 
 | Target | Plan |
 |---|---|
-| **WebAssembly** | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit. This unlocks the React, JS/TS and Tauri targets |
-| **React** (`@blenderui/react`) | A JSX reconciler over the WASM build |
+| **WebAssembly** | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit; `@blenderui/react` and the DOM-like API on top, unchanged |
 | **egui** | BUI panels inside egui, plus a Blender-styled theme |
 | **Native Linux / macOS windows** | Wayland / X11 and Cocoa hosts in C, like the Win32 one |
 | **More GPU backends** | Vulkan / Metal / WebGPU drawing the same instance stream as Direct3D 11 |
@@ -350,6 +352,7 @@ gpui-fast's heavy-scene frame rate varies between sessions on this laptop
 | [Qt syntax](docs/qt.md) | Classes, signals, layouts, painting, coverage |
 | [Components](docs/components.md) | The `bui.components` reference |
 | [Rust](docs/rust.md) | `rsx!`, hooks, HTML, CSS and Tailwind coverage, events, headless tests |
+| [JavaScript and React](docs/javascript.md) | `@blenderui/native`, `@blenderui/react`, how changes cross to the UI thread, performance |
 | [C API](docs/c-api.md) | The C kit (`BUI_kit.h`) |
 | [Integration](INTEGRATION.md) | Embedding BUI drawing in C, C++, Qt or PySide hosts |
 | [Architecture](ARCHITECTURE.md) | Modules and what was taken from Blender |

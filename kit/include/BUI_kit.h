@@ -365,6 +365,14 @@ void BK_window_run(void);
 int BK_window_pump(void); /* handle pending messages; returns open windows */
 void BK_window_quit(void);
 void BK_window_set_stop_check(int (*stop)(void)); /* polled after each message */
+/* Waking the loop from other threads (a UI thread driven by another runtime,
+ * e.g. Node): BK_window_wake_init(cb) on the loop's thread, then
+ * BK_window_wake() from any thread makes the loop call cb soon (wakes are
+ * coalesced, and survive Win32's modal move/resize loops). With keep-alive,
+ * BK_window_run keeps running with no windows open, until BK_window_quit. */
+int BK_window_wake_init(void (*cb)(void));
+void BK_window_wake(void);
+void BK_window_set_keep_alive(int on);
 
 /* Evaluate Blender-style number input ("2*pi", "1/3 + 2^2"). */
 int BK_eval_number(const char *expr, double *r_value);

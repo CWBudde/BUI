@@ -1,0 +1,19 @@
+{
+  "name": "@blenderui/react",
+  "version": "0.1.0",
+  "description": "React renderer for BUI: Blender's UI in native windows, from JSX",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "hooks.js", "index.d.ts", "README.md"],
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@blenderui/native": "file:../node",
+    "react-reconciler": "0.31.0"
+  },
+  "peerDependencies": { "react": "^19.0.0" },
+  "devDependencies": { "react": "19.0.0" },
+  "license": "GPL-2.0-or-later",
+  "repository": { "type": "git", "url": "git+https://github.com/ppmpreetham/BUI.git", "directory": "bindings/react" },
+  "keywords": ["react", "renderer", "blender", "ui", "native", "desktop", "napi", "tailwind"]
+}

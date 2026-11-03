@@ -6,6 +6,25 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Added (JavaScript)
+- **`@blenderui/native`** (`bindings/node`, napi-rs crate `blenderui-node`): BUI from Node.js in native windows, GPUIX style.
+  - A DOM-like API: `createElement`, `setAttribute`, `appendChild`, `addEventListener`, `requestAnimationFrame`, `getBoundingClientRect`, `screenshot`.
+  - BUI runs on its own UI thread, so Node is never blocked and an idle UI uses no CPU.
+  - Each tick sends only the changes: one `Int32Array` of ops and a string table per window. Events return through a thread-safe function.
+  - Animation frames are vsync-paced with one rebuild per frame.
+  - Headless mode for tests.
+- **`@blenderui/react`** (`bindings/react`): a React 19 renderer (react-reconciler 0.31) with HTML host components, `className` / `style` objects / events, and one native batch per commit.
+- **Signals in JavaScript**: the Rust hooks' `Signal` / `Memo` / `Effect` as `signal`, `memo`, `effect`, `batch` (plain JS) and `useSignal`, `useComputed`, `useSignalEffect`, `useSignalValue` (React). A signal passed as an attribute, `style`, text, React prop or React child updates that node alone, without a re-render: React at 3,000 cells drops from ~184 MB to ~95 MB.
+- **Rust:**
+  - `UiSender` / `App::ui_sender()`: run closures on the UI thread from any thread.
+  - `Application::keep_alive`, `App::run_pending`, `App::on_window_closed`, `App::close_window`, `Div::key`, `blenderui::native_windows()`.
+  - `css::Value::Shared`, and `StyleBlock` for `&[Decl]`, for pre-parsed styles.
+- **C:** `BK_window_wake_init` / `BK_window_wake` (a cross-thread wake through a message-only window) and `BK_window_set_keep_alive`.
+
+### Fixed
+- **GPU text:** `BUI_gpu_slug()` read the environment on every text run, which pushed the GPU raster from 1.6 to 9.4 ms per frame at 3,000 cells. It now reads it once.
+- **`WindowHandle::update`:** `cx.notify()` inside the closure didn't re-render that window.
+
 ### Changed
 - **Text looks like Blender's:** Inter, Blender's UI font, is embedded and is the default face on every platform. The portable stb_truetype engine is now the default on Windows too. `-DBUI_TEXT_GDI=ON` (Rust: the `gdi-text` feature) restores GDI and system fonts. `BUI_TEXT_STB` and `portable-text` are now no-ops.
 

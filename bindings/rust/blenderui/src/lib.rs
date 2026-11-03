@@ -155,6 +155,13 @@ pub fn set_slug(on: bool) {
     unsafe { sys::BUI_gpu_set_slug(on as std::os::raw::c_int) }
 }
 
+/// Whether this platform has native windows (Windows today); elsewhere
+/// apps run headless or through a host such as the Tk fallback.
+pub fn native_windows() -> bool {
+    // SAFETY: a constant query.
+    unsafe { sys::BK_window_supported() != 0 }
+}
+
 /// Whether GPU text is drawn with Slug (see [`set_slug`]).
 pub fn slug() -> bool {
     // SAFETY: reads a global flag.

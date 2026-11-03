@@ -55,7 +55,54 @@ static void wake_loop(void)
   PostThreadMessageW(GetCurrentThreadId(), WM_NULL, 0, 0);
 }
 static int g_quit = 0;
+static int g_keep_alive = 0;
 static int (*g_stop)(void) = NULL;
+
+/* -- cross-thread wake: a message-only window on the loop's thread ------------------- */
+#  define WM_BK_WAKE (WM_APP + 7)
+static HWND g_wake_hwnd = NULL;
+static void (*g_wake_cb)(void) = NULL;
+static volatile LONG g_wake_pending = 0;
+
+static LRESULT CALLBACK wake_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+  if (msg == WM_BK_WAKE) {
+    InterlockedExchange(&g_wake_pending, 0); /* wakes after this point post again */
+    if (g_wake_cb) {
+      g_wake_cb();
+    }
+    return 0;
+  }
+  return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+int BK_window_wake_init(void (*cb)(void))
+{
+  g_wake_cb = cb;
+  if (g_wake_hwnd) {
+    return 1;
+  }
+  WNDCLASSW wc = {0};
+  wc.lpfnWndProc = wake_proc;
+  wc.hInstance = GetModuleHandleW(NULL);
+  wc.lpszClassName = L"BUIKitWake";
+  RegisterClassW(&wc); /* fails harmlessly when already registered */
+  g_wake_hwnd = CreateWindowExW(0, L"BUIKitWake", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL,
+                                wc.hInstance, NULL);
+  return g_wake_hwnd != NULL;
+}
+
+void BK_window_wake(void)
+{
+  if (g_wake_hwnd && InterlockedExchange(&g_wake_pending, 1) == 0) {
+    PostMessageW(g_wake_hwnd, WM_BK_WAKE, 0, 0);
+  }
+}
+
+void BK_window_set_keep_alive(int on)
+{
+  g_keep_alive = on;
+}
 static const wchar_t *k_class = L"BUIKitWindow";
 
 int BK_window_supported(void)
@@ -874,7 +921,7 @@ void BK_window_run(void)
 {
   g_quit = 0;
   MSG msg;
-  while (g_open > 0 && !g_quit && GetMessageW(&msg, NULL, 0, 0) > 0) {
+  while ((g_open > 0 || g_keep_alive) && !g_quit && GetMessageW(&msg, NULL, 0, 0) > 0) {
     TranslateMessage(&msg);
     DispatchMessageW(&msg);
     if (g_stop && g_stop()) {
@@ -960,5 +1007,15 @@ int BK_window_pump(void)
 }
 void BK_window_quit(void) {}
 void BK_window_set_stop_check(int (*stop)(void)) {}
+int BK_window_wake_init(void (*cb)(void))
+{
+  (void)cb;
+  return 0;
+}
+void BK_window_wake(void) {}
+void BK_window_set_keep_alive(int on)
+{
+  (void)on;
+}
 
 #endif
