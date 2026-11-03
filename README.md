@@ -188,7 +188,7 @@ Build from source with CMake (see [Building from source](#building-from-source))
 - **Damage rendering**: an idle UI costs 0% CPU, and a hover redraws only the widget it touches.
 - **Opt-in GPU renderer** (Direct3D 11), modeled on Blender's instanced widget drawing. It draws the same pixels as the CPU raster.
 - In the benchmark, **2–4× less CPU per frame than gpui-fast**, with **less RAM** and a **~5 ms first frame**.
-- Text works everywhere: GDI on Windows, a bundled TrueType engine on Linux, macOS and wasm.
+- **Blender's text**: Inter (Blender's UI font) is embedded, so text looks the same on every platform. On the GPU, glyphs are drawn from their outlines with [Slug](https://github.com/EricLengyel/Slug), falling back to a per-glyph atlas like Blender's.
 
 </td></tr>
 </table>
@@ -393,7 +393,7 @@ cd bindings/rust && cargo test              # Rust: CSS, Tailwind, rsx!, hooks, 
 | Path | Contents |
 |---|---|
 | `kit/` | The C runtime: nodes, input, widget drawing (the `interface_widgets.cc` port), menus, geometry managers, canvas, the Win32 host. API: `kit/include/BUI_kit.h` |
-| `gpu/` | Software raster, Direct3D 11 renderer (`gpu_d3d11.c`, `shaders/`), text (GDI / stb_truetype) |
+| `gpu/` | Software raster, Direct3D 11 renderer (`gpu_d3d11.c`, `shaders/`, Slug text), text engine (stb_truetype + embedded Inter, or GDI) |
 | `core/`, `types/` | Blender's `blenlib` subset and data types |
 | `ui/`, `compat/` | Blender's original interface sources and the seams replacing Blender's application APIs |
 | `api/` | Stable C ABI for render-sink hosts |
@@ -452,11 +452,14 @@ issues privately, as [SECURITY.md](SECURITY.md) describes.
 - [Blender](https://www.blender.org): the UI this project is built from.
 - [taffy](https://github.com/DioxusLabs/taffy): flexbox, grid and block layout for the Rust crate.
 - [Tailwind CSS](https://tailwindcss.com): the v4 theme (MIT) behind the Tailwind support.
-- [stb_truetype](https://github.com/nothings/stb): the portable text engine (public domain).
+- [stb_truetype](https://github.com/nothings/stb): the text engine (public domain).
+- [Inter](https://rsms.me/inter) by Rasmus Andersson: the embedded UI font, as in Blender (SIL Open Font License 1.1).
+- [Slug](https://github.com/EricLengyel/Slug) by Eric Lengyel: the GPU glyph coverage algorithm (shader code MIT, "Copyright 2017 by Eric Lengyel").
 - [gpui](https://github.com/zed-industries/zed), [zopra](https://github.com/ppmpreetham/zopra) and [Leptos](https://leptos.dev): the APIs the Rust syntax follows.
 
 ## License
 
 BUI is derived from Blender sources and is licensed **GPL-2.0-or-later**. The
 SPDX header is kept in every file. Third-party parts keep their own licenses:
-stb_truetype is public domain, and the Tailwind theme values are MIT.
+stb_truetype is public domain, the Tailwind theme values are MIT, Inter is
+OFL-1.1 (`gpu/extern/Inter-LICENSE.txt`), and the Slug shader port is MIT.

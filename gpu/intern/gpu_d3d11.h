@@ -22,6 +22,7 @@ enum {
   BG_GRADIENT = 7,
   BG_HSV = 8,
   BG_SPHERE = 9,
+  BG_SLUG = 10, /* glyph outline (Slug): rect = pen x, baseline y, px per unit, shear */
 };
 enum {
   BG_W_SHADE_H = 1,
@@ -55,6 +56,19 @@ BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1);
  * Returns 0 when it can't be placed. */
 int bui_gpu_mask(BuiGpu *g, const void *key, unsigned gen, const uint8_t *mask, int w, int h,
                  int *r_x, int *r_y);
+/* Slug text (Eric Lengyel's algorithm): 1 when glyph outlines are
+ * rendered on the GPU (default; BUI_SLUG=0 turns it off). */
+int bui_gpu_slug_on(BuiGpu *g);
+/* Curve/band data for glyph `glyph` of font face `face` (uploaded on first
+ * use): its box in font units, the band transform (instance c1) and its
+ * band location (instance uv). 0 for empty glyphs or when unavailable.
+ * `gen` changes whenever faces may have been freed. */
+int bui_gpu_slug_glyph(BuiGpu *g, int face, int glyph, unsigned gen, float r_bbox[4],
+                       float r_band[4], int r_loc[4]);
+/* Provided by the text engine (gpu_raster.c): a glyph's outline as
+ * quadratic curves (6 floats each, font units, y up) and its box. */
+int bui_text_glyph_outline(int face, int glyph, float **r_curves, int *r_n, float r_bbox[4]);
+
 /* Atlas placement of a 0xAARRGGBB image (cached by content). */
 int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *r_y);
 void bui_gpu_triangles(BuiGpu *g,

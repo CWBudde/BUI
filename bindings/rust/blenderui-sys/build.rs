@@ -16,12 +16,13 @@ fn main() {
     // Windows canonical paths are \\?\C:\...; compilers' /FI and -include can't take them.
     let root = PathBuf::from(root.to_string_lossy().trim_start_matches(r"\\?\").to_string());
 
-    // Portable (stb_truetype) text on Windows too: the `portable-text`
-    // feature or BUI_TEXT_STB=1. Other platforms always use it.
-    let stb = std::env::var("CARGO_FEATURE_PORTABLE_TEXT").is_ok()
-        || std::env::var("BUI_TEXT_STB").map(|v| v == "1").unwrap_or(false);
+    // Text: the portable engine (embedded Inter, GPU Slug glyphs) everywhere;
+    // the `gdi-text` feature or BUI_TEXT_GDI=1 selects GDI on Windows.
+    let gdi = std::env::var("CARGO_FEATURE_GDI_TEXT").is_ok()
+        || std::env::var("BUI_TEXT_GDI").map(|v| v == "1").unwrap_or(false);
+    println!("cargo:rerun-if-env-changed=BUI_TEXT_GDI");
     let dst = cmake::Config::new(&root)
-        .define("BUI_TEXT_STB", if stb { "ON" } else { "OFF" })
+        .define("BUI_TEXT_GDI", if gdi { "ON" } else { "OFF" })
         .define("BUI_BUILD_TESTS", "OFF")
         .define("BUI_BUILD_EXAMPLES", "OFF")
         .define("BUI_BUILD_PYTHON_BINDINGS", "OFF")

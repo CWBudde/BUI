@@ -6,7 +6,11 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Text looks like Blender's:** Inter, Blender's UI font, is embedded and is the default face on every platform. The portable stb_truetype engine is now the default on Windows too. `-DBUI_TEXT_GDI=ON` (Rust: the `gdi-text` feature) restores GDI and system fonts. `BUI_TEXT_STB` and `portable-text` are now no-ops.
+
 ### Added
+- **Slug GPU text:** with the GPU renderer, glyphs are drawn from their outlines with Eric Lengyel's Slug algorithm: one instance per glyph, exact coverage in the pixel shader, cached curve and band textures, no CPU rasterization. `BUI_SLUG=0` falls back to per-glyph bitmaps in the GPU atlas (Blender's approach).
 - **Components and hooks** (Rust, compatible with zopra, React and Leptos):
   - `#[component]` turns a function into a component, with lowercase or uppercase names and `&str` props.
   - `use_state` returns `count()` / `set_count(..)` closures that need no `cx`.

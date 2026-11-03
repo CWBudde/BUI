@@ -73,6 +73,21 @@ typedef struct Slot {
 #  define IMG_MAP 1024
 #  define IMG_MAP_FILL 700
 
+/* Slug glyph data: curves (2 RGBA32F texels each) and bands (RG32_UINT
+ * texels), both addressed linearly over 4096-wide textures. */
+#  define SLUG_W 4096
+#  define SLUG_H 64
+#  define SLUG_MAP 8192 /* power of two */
+#  define SLUG_MAP_FILL 6000
+#  define SLUG_MAX_BANDS 16
+
+typedef struct SlugGlyph {
+  uint32_t key; /* (face + 1) << 16 | glyph; 0 = empty */
+  int ok;       /* 0: empty glyph */
+  float bbox[4], band[4];
+  int loc[4];
+} SlugGlyph;
+
 typedef struct Batch {
   int tri; /* 0: quad instances, 1: triangles */
   int first, count;
@@ -113,6 +128,13 @@ struct BuiGpu {
   Slot *mask_map, *img_map;
   int mask_n, img_n;
   unsigned mask_gen;
+
+  int slug; /* -1: off (env or unavailable), 0: not created yet, 1: ready */
+  ID3D11Texture2D *curve_tex, *band_tex;
+  ID3D11ShaderResourceView *curve_srv, *band_srv;
+  SlugGlyph *slug_map;
+  int slug_n, curve_next, band_next;
+  unsigned slug_gen;
 
   BuiGpuInst *inst;
   int n_inst, cap_inst;
@@ -372,6 +394,10 @@ void bui_gpu_free(BuiGpu *g)
   REL(g->mask.tex);
   REL(g->rgba.srv);
   REL(g->rgba.tex);
+  REL(g->curve_srv);
+  REL(g->curve_tex);
+  REL(g->band_srv);
+  REL(g->band_tex);
   REL(g->rtv);
   REL(g->target);
   REL(g->rs);
@@ -394,6 +420,7 @@ void bui_gpu_free(BuiGpu *g)
   free(g->b);
   free(g->mask_map);
   free(g->img_map);
+  free(g->slug_map);
   free(g);
 }
 
@@ -562,6 +589,234 @@ int bui_gpu_mask(BuiGpu *g, const void *key, unsigned gen, const uint8_t *mask, 
   return 1;
 }
 
+/* -------------------------------------------------------------------- */
+/** \name Slug glyphs
+ *
+ * Eric Lengyel's Slug algorithm (https://github.com/EricLengyel/Slug):
+ * glyph outlines live on the GPU as quadratic curves, split into horizontal
+ * and vertical bands; the pixel shader casts a ray each way through the
+ * pixel's bands and integrates exact coverage. Resolution independent, one
+ * quad per glyph, no rasterizing or atlas packing on the CPU.
+ * \{ */
+
+static int slug_tex(BuiGpu *g, DXGI_FORMAT fmt, ID3D11Texture2D **r_tex,
+                    ID3D11ShaderResourceView **r_srv)
+{
+  D3D11_TEXTURE2D_DESC td = {0};
+  td.Width = SLUG_W;
+  td.Height = SLUG_H;
+  td.MipLevels = td.ArraySize = 1;
+  td.Format = fmt;
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D11_USAGE_DEFAULT;
+  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+  return SUCCEEDED(ID3D11Device_CreateTexture2D(g->dev, &td, NULL, r_tex)) &&
+         SUCCEEDED(ID3D11Device_CreateShaderResourceView(g->dev, (ID3D11Resource *)*r_tex, NULL,
+                                                         r_srv));
+}
+
+int bui_gpu_slug_on(BuiGpu *g)
+{
+  if (g->slug == 0) {
+    const char *env = getenv("BUI_SLUG");
+    g->slug = -1;
+    if (!(env && env[0] == '0') &&
+        slug_tex(g, DXGI_FORMAT_R32G32B32A32_FLOAT, &g->curve_tex, &g->curve_srv) &&
+        slug_tex(g, DXGI_FORMAT_R32G32_UINT, &g->band_tex, &g->band_srv) &&
+        (g->slug_map = (SlugGlyph *)calloc(SLUG_MAP, sizeof(SlugGlyph))) != NULL)
+    {
+      g->slug = 1;
+    }
+  }
+  return g->slug > 0;
+}
+
+static void slug_reset(BuiGpu *g)
+{
+  flush(g); /* recorded instances still point at the old data */
+  memset(g->slug_map, 0, sizeof(SlugGlyph) * SLUG_MAP);
+  g->slug_n = g->curve_next = g->band_next = 0;
+}
+
+/* Uploads `count` texels at linear index `at`, row by row. */
+static void slug_upload(BuiGpu *g, ID3D11Texture2D *tex, int at, const void *data, int count,
+                        int texel)
+{
+  const char *p = (const char *)data;
+  while (count > 0) {
+    const int x = at % SLUG_W, y = at / SLUG_W;
+    const int n = count < SLUG_W - x ? count : SLUG_W - x;
+    D3D11_BOX box = {(UINT)x, (UINT)y, 0, (UINT)(x + n), (UINT)(y + 1), 1};
+    ID3D11DeviceContext_UpdateSubresource(g->ctx, (ID3D11Resource *)tex, 0, &box, p,
+                                          (UINT)(n * texel), 0);
+    p += (size_t)n * texel;
+    at += n;
+    count -= n;
+  }
+}
+
+typedef struct SlugSort {
+  float key;
+  uint32_t curve;
+} SlugSort;
+
+static int slug_cmp(const void *a, const void *b)
+{
+  const float ka = ((const SlugSort *)a)->key, kb = ((const SlugSort *)b)->key;
+  return ka < kb ? 1 : ka > kb ? -1 : 0; /* descending */
+}
+
+static float min3(float a, float b, float c)
+{
+  return a < b ? (a < c ? a : c) : (b < c ? b : c);
+}
+static float max3(float a, float b, float c)
+{
+  return a > b ? (a > c ? a : c) : (b > c ? b : c);
+}
+
+/* Builds and uploads a glyph's curve and band data. */
+static int slug_build(BuiGpu *g, SlugGlyph *sg, const float *cv, int n, const float bb[4])
+{
+  const int nb = n < 8 ? 1 : (n / 4 < SLUG_MAX_BANDS ? n / 4 : SLUG_MAX_BANDS);
+  const float w = bb[2] - bb[0] > 1.0f ? bb[2] - bb[0] : 1.0f;
+  const float h = bb[3] - bb[1] > 1.0f ? bb[3] - bb[1] : 1.0f;
+  /* horizontal bands split y, vertical bands split x */
+  const float hs = (float)nb / h, vs = (float)nb / w;
+  const float eps = 1.0f / 1024.0f * (w > h ? w : h);
+
+  /* worst case every curve lands in every band */
+  const int max_entries = 2 * nb * n;
+  const int need_band = 2 * nb + max_entries, need_curve = 2 * n;
+  if (need_curve > SLUG_W * SLUG_H / 4 || need_band > SLUG_W * SLUG_H / 4) {
+    return 0; /* absurd glyph */
+  }
+  if (g->curve_next + need_curve > SLUG_W * SLUG_H || g->band_next + need_band > SLUG_W * SLUG_H ||
+      g->slug_n >= SLUG_MAP_FILL)
+  {
+    return -1; /* full: caller resets and retries */
+  }
+  float *ct = (float *)malloc(sizeof(float) * 8 * (size_t)n);
+  uint32_t *bt = (uint32_t *)malloc(sizeof(uint32_t) * 2 * (size_t)need_band);
+  SlugSort *tmp = (SlugSort *)malloc(sizeof(SlugSort) * (size_t)n);
+  if (!ct || !bt || !tmp) {
+    free(ct);
+    free(bt);
+    free(tmp);
+    return 0;
+  }
+  const int cbase = g->curve_next; /* even: a curve never straddles a row */
+  for (int i = 0; i < n; i++) {
+    const float *q = cv + 6 * i;
+    float *t = ct + 8 * i;
+    t[0] = q[0];
+    t[1] = q[1];
+    t[2] = q[2];
+    t[3] = q[3];
+    t[4] = q[4];
+    t[5] = q[5];
+    t[6] = t[7] = 0.0f;
+  }
+  const int bbase = g->band_next;
+  int at = 2 * nb; /* entries follow the 2 * nb headers */
+  for (int dir = 0; dir < 2; dir++) {
+    for (int b = 0; b < nb; b++) {
+      /* band range in font units */
+      const float s = dir == 0 ? hs : vs, o = dir == 0 ? bb[1] : bb[0];
+      const float lo = o + (float)b / s - eps, hi = o + (float)(b + 1) / s + eps;
+      int m = 0;
+      for (int i = 0; i < n; i++) {
+        const float *q = cv + 6 * i;
+        /* dir 0 (horizontal rays) uses y extents, sorted by max x; dir 1 the reverse */
+        const float a0 = dir == 0 ? q[1] : q[0], a1 = dir == 0 ? q[3] : q[2],
+                    a2 = dir == 0 ? q[5] : q[4];
+        const float amin = min3(a0, a1, a2), amax = max3(a0, a1, a2);
+        if (amax < lo || amin > hi || (a0 == a1 && a1 == a2)) {
+          continue; /* outside, or parallel to the ray: never crosses it */
+        }
+        tmp[m].key = dir == 0 ? max3(q[0], q[2], q[4]) : max3(q[1], q[3], q[5]);
+        tmp[m].curve = (uint32_t)(cbase + 2 * i);
+        m++;
+      }
+      qsort(tmp, (size_t)m, sizeof(SlugSort), slug_cmp);
+      const int hdr = dir * nb + b;
+      bt[2 * hdr] = (uint32_t)m;
+      bt[2 * hdr + 1] = (uint32_t)(bbase + at);
+      for (int k = 0; k < m; k++) {
+        bt[2 * (at + k)] = tmp[k].curve;
+        bt[2 * (at + k) + 1] = 0;
+      }
+      at += m;
+    }
+  }
+  slug_upload(g, g->curve_tex, cbase, ct, 2 * n, 16);
+  slug_upload(g, g->band_tex, bbase, bt, at, 8);
+  g->curve_next += 2 * n;
+  g->band_next += at;
+  free(ct);
+  free(bt);
+  free(tmp);
+  memcpy(sg->bbox, bb, sizeof(float[4]));
+  sg->band[0] = hs;
+  sg->band[1] = -bb[1] * hs;
+  sg->band[2] = vs;
+  sg->band[3] = -bb[0] * vs;
+  sg->loc[0] = bbase;
+  sg->loc[1] = nb;
+  sg->loc[2] = nb;
+  sg->loc[3] = 0;
+  sg->ok = 1;
+  return 1;
+}
+
+int bui_gpu_slug_glyph(BuiGpu *g, int face, int glyph, unsigned gen, float r_bbox[4],
+                       float r_band[4], int r_loc[4])
+{
+  if (g->slug <= 0 || face < 0 || face > 0x7ffe || glyph < 0 || glyph > 0xffff) {
+    return 0;
+  }
+  if (gen != g->slug_gen) { /* faces were freed: ids may be reused */
+    g->slug_gen = gen;
+    slug_reset(g);
+  }
+  const uint32_t key = ((uint32_t)(face + 1) << 16) | (uint32_t)glyph;
+  uint32_t idx = (key * 2654435761u) >> 19 & (SLUG_MAP - 1);
+  SlugGlyph *sg;
+  for (;;) {
+    sg = &g->slug_map[idx];
+    if (sg->key == 0 || sg->key == key) {
+      break;
+    }
+    idx = (idx + 1) & (SLUG_MAP - 1);
+  }
+  if (sg->key == 0) {
+    float *cv = NULL;
+    int n = 0;
+    float bb[4];
+    sg->ok = 0;
+    if (bui_text_glyph_outline(face, glyph, &cv, &n, bb)) {
+      int got = slug_build(g, sg, cv, n, bb);
+      if (got < 0) {
+        slug_reset(g);
+        free(cv);
+        return bui_gpu_slug_glyph(g, face, glyph, gen, r_bbox, r_band, r_loc);
+      }
+    }
+    free(cv);
+    sg->key = key;
+    g->slug_n++;
+  }
+  if (!sg->ok) {
+    return 0;
+  }
+  memcpy(r_bbox, sg->bbox, sizeof(float[4]));
+  memcpy(r_band, sg->band, sizeof(float[4]));
+  memcpy(r_loc, sg->loc, sizeof(int[4]));
+  return 1;
+}
+
+/** \} */
+
 static void img_reset(BuiGpu *g)
 {
   flush(g);
@@ -724,8 +979,8 @@ static void flush(BuiGpu *g)
   ID3D11DeviceContext_RSSetViewports(c, 1, &vp);
   ID3D11DeviceContext_RSSetState(c, g->rs);
   ID3D11DeviceContext_VSSetConstantBuffers(c, 0, 1, &g->cb);
-  ID3D11ShaderResourceView *srv[2] = {g->mask.srv, g->rgba.srv};
-  ID3D11DeviceContext_PSSetShaderResources(c, 0, 2, srv);
+  ID3D11ShaderResourceView *srv[4] = {g->mask.srv, g->rgba.srv, g->curve_srv, g->band_srv};
+  ID3D11DeviceContext_PSSetShaderResources(c, 0, 4, srv);
 
   int cur = -1;
   for (int i = 0; i < g->n_b; i++) {
@@ -874,6 +1129,24 @@ int bui_gpu_read(BuiGpu *g, uint32_t *dst, int w, int h)
 /** \} */
 
 #else /* !_WIN32: no GPU backend yet; every raster stays in software */
+
+int bui_gpu_slug_on(BuiGpu *g)
+{
+  (void)g;
+  return 0;
+}
+int bui_gpu_slug_glyph(BuiGpu *g, int face, int glyph, unsigned gen, float r_bbox[4],
+                       float r_band[4], int r_loc[4])
+{
+  (void)g;
+  (void)face;
+  (void)glyph;
+  (void)gen;
+  (void)r_bbox;
+  (void)r_band;
+  (void)r_loc;
+  return 0;
+}
 
 #  include <stddef.h>
 

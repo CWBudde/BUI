@@ -503,14 +503,22 @@ renderer.
 
 ### Text
 
-Windows draws text with GDI by default. Linux, macOS and wasm use the
-bundled stb_truetype engine; enable it on Windows too with the
-`portable-text` feature. It finds the platform's fonts, or `BUI_FONT` /
-`BUI_FONT_DIR`. Where there are no system fonts (wasm), register one:
+Text uses Blender's UI font, Inter, embedded in the library, so it looks
+the same on every platform. The default family (and `sans-serif`,
+`system-ui` or an unknown family) is Inter. Named families such as
+`"Segoe UI"` or `monospace` load from the platform's fonts. `BUI_FONT=path.ttf`
+overrides the default face, and you can register more faces:
 
 ```rust
-blenderui::add_font("Inter", false, false, include_bytes!("Inter-Regular.ttf"));
+blenderui::add_font("Brand", false, false, include_bytes!("Brand-Regular.ttf"));
 ```
+
+With `.gpu(true)`, glyphs are drawn straight from their outlines using
+Eric Lengyel's [Slug](https://github.com/EricLengyel/Slug) algorithm: one
+quad per glyph, exact coverage computed in the pixel shader, and no glyph
+bitmaps. `BUI_SLUG=0` switches to a per-glyph bitmap atlas (Blender's
+approach) instead. The `gdi-text` feature uses Windows' GDI engine and
+system fonts.
 
 ## Limitations
 

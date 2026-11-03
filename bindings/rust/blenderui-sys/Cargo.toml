@@ -14,7 +14,10 @@ categories = ["gui", "external-ffi-bindings"]
 include = ["src/**", "build.rs", "Cargo.toml", "csrc/**"]
 
 [features]
-# The portable stb_truetype text engine on Windows too (always on elsewhere).
+# Windows' native GDI text engine (system fonts) instead of the portable
+# engine (embedded Inter, GPU Slug glyphs).
+gdi-text = []
+# Deprecated no-op: the portable engine is the default everywhere.
 portable-text = []
 
 [build-dependencies]

@@ -22,11 +22,14 @@ target_link_libraries(bui_gpu PUBLIC bui::core)
 if(NOT MSVC)
   target_link_libraries(bui_gpu PRIVATE m)
 endif()
-# Text: GDI on Windows; the portable stb_truetype engine everywhere else, or
-# on Windows too with BUI_TEXT_STB=ON.
-option(BUI_TEXT_STB "Use the portable (stb_truetype) text engine on Windows too" OFF)
-if(BUI_TEXT_STB)
-  target_compile_definitions(bui_gpu PRIVATE BUI_TEXT_STB=1)
+# Text: the portable stb_truetype engine everywhere (Inter embedded as the
+# default face, like Blender; glyph outlines feed the GPU's Slug renderer).
+# BUI_TEXT_GDI=ON switches Windows to the native GDI engine (system fonts,
+# ClearType-style hinting, no Slug). BUI_TEXT_STB is kept as a no-op.
+option(BUI_TEXT_GDI "Use the native GDI text engine on Windows" OFF)
+option(BUI_TEXT_STB "Deprecated: the portable engine is the default" ON)
+if(BUI_TEXT_GDI)
+  target_compile_definitions(bui_gpu PRIVATE BUI_TEXT_GDI=1)
 endif()
 if(WIN32)
   # gpu_raster.c: GDI glyph-run text engine + native window present.

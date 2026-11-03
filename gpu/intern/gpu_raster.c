@@ -1634,9 +1634,9 @@ void BUI_raster_set_font(BuiRaster *r, const char *family, int flags)
  * One cache for every platform: a run is a (font slot, UTF-8 string) pair
  * with its advance and, once drawn, an 8-bit coverage mask. Two backends
  * fill slots and masks:
- *  - GDI (Windows default): the system's hinted ClearType-free grayscale AA.
- *  - Portable (stb_truetype): Linux, macOS, wasm, and Windows when built
- *    with BUI_TEXT_STB. Faces come from BUI_text_add_font(), the BUI_FONT /
+ *  - GDI (Windows, with BUI_TEXT_GDI): the system's hinted grayscale AA.
+ *  - Portable (stb_truetype, the default everywhere): Inter is embedded as
+ *    the default face; others come from BUI_text_add_font(), the BUI_FONT /
  *    BUI_FONT_DIR environment variables, or the platform's font folders.
  * \{ */
 
@@ -1647,7 +1647,7 @@ void BUI_raster_set_font(BuiRaster *r, const char *family, int flags)
 #  include <windows.h>
 #endif
 
-#if defined(_WIN32) && !defined(BUI_TEXT_STB)
+#if defined(_WIN32) && defined(BUI_TEXT_GDI)
 #  define TEXT_GDI 1
 #else
 #  define TEXT_GDI 0
@@ -1683,6 +1683,10 @@ typedef struct TextRun {
   int built;
   int mw, mh, ox; /* ox: left padding baked into the mask */
   uint8_t *mask;
+  /* glyphs (portable engine; for GPU text): ids and pen x, built lazily */
+  int ng; /* -1: not built yet */
+  uint16_t *gid;
+  float *gx;
 } TextRun;
 
 #define RUN_CAP 8192 /* power of two */
@@ -1707,6 +1711,8 @@ static void runs_flush(void)
   for (int i = 0; i < RUN_CAP; i++) {
     free(g_runs[i].text);
     free(g_runs[i].mask);
+    free(g_runs[i].gid);
+    free(g_runs[i].gx);
   }
   memset(g_runs, 0, sizeof(TextRun) * RUN_CAP);
   g_run_count = 0;
@@ -1800,6 +1806,7 @@ static TextRun *run_get(int font, const char *s, int len)
   e->hash = h;
   e->font = font;
   e->len = len;
+  e->ng = -1;
   g_run_count++;
   e->advance = be_measure(&g_fonts[font], s, len);
   return e;
@@ -1885,6 +1892,8 @@ int BUI_raster_text(BuiRaster *r,
   return 1;
 }
 
+static int gpu_text_glyphs(BuiRaster *r, TextRun *e, float x, float y, const float rgba[4]);
+
 void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, const float rgba[4])
 {
   const TextRun *e = (const TextRun *)run;
@@ -1896,6 +1905,9 @@ void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, 
   const int dy = (int)floorf(y + 0.5f) - g_fonts[e->font].ascent;
   const int x0 = clampi(dx, r->cx0, r->cx1), x1 = clampi(dx + e->mw, r->cx0, r->cx1);
   const int y0 = clampi(dy, r->cy0, r->cy1), y1 = clampi(dy + e->mh, r->cy0, r->cy1);
+  if (r->gpu && gpu_text_glyphs(r, (TextRun *)e, x, y, rgba)) {
+    return;
+  }
   if (r->gpu) {
     int ax, ay;
     BuiGpuInst *in = x1 > x0 && y1 > y0 &&
@@ -1926,6 +1938,88 @@ void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, 
       }
     }
   }
+}
+
+static int run_glyphs(TextRun *e);
+static int glyph_draw_info(const TextRun *e, int i, int *r_face, float *r_scale, float *r_embolden,
+                           float *r_shear);
+static const void *glyph_bitmap(const TextRun *e, int i, float pen, int *r_x, int *r_y, int *r_w,
+                                int *r_h, const uint8_t **r_bits);
+
+/* GPU text, one instance per glyph: Slug (outline curves evaluated in the
+ * pixel shader) when the renderer supports it, else glyph bitmaps from the
+ * shared glyph cache packed into the GPU atlas (Blender's BLF approach).
+ * Returns 0 to fall back to the run's mask (no glyph data). */
+static int gpu_text_glyphs(BuiRaster *r, TextRun *e, float x, float y, const float rgba[4])
+{
+  if (!run_glyphs(e) || e->ng == 0) {
+    return e->ng == 0;
+  }
+  int face;
+  float scale, embolden, shear;
+  if (!glyph_draw_info(e, 0, &face, &scale, &embolden, &shear)) {
+    return 0;
+  }
+  const FontSlot *fs = &g_fonts[e->font];
+  const float ox = floorf(x + 0.5f), base = floorf(y + 0.5f);
+  const int slug = bui_gpu_slug_on(r->gpu);
+  const int passes = embolden > 0.0f ? 1 + (int)(embolden + 0.5f) : 1; /* synthetic bold */
+  for (int i = 0; i < e->ng; i++) {
+    const float pen = ox + e->gx[i];
+    if (slug) {
+      float bbox[4], band[4];
+      int loc[4];
+      if (!bui_gpu_slug_glyph(r->gpu, face, e->gid[i], 0 /* faces are never freed */, bbox, band, loc)) {
+        continue; /* empty glyph (space) */
+      }
+      /* screen box of the glyph (font units, y up -> pixels, y down), plus shear and AA */
+      const float top = base - bbox[3] * scale, bottom = base - bbox[1] * scale;
+      const float lean = shear * (bbox[3] > 0.0f ? bbox[3] : 0.0f) * scale;
+      for (int k = 0; k < passes; k++) {
+        const float gx = pen + (float)k;
+        int x0, y0, x1, y1;
+        if (!clip_box(r, gx + bbox[0] * scale - 1.0f, top - 1.0f, gx + bbox[2] * scale + lean + 1.0f,
+                      bottom + 1.0f, &x0, &y0, &x1, &y1)) {
+          continue;
+        }
+        BuiGpuInst *in = gpu_inst(r, BG_SLUG, x0, y0, x1, y1);
+        if (in) {
+          v4(in->rect, gx, base, scale, shear);
+          c4(in->c0, rgba);
+          v4(in->c1, band[0], band[1], band[2], band[3]);
+          v4(in->uv, (float)loc[0], (float)loc[1], (float)loc[2], (float)loc[3]);
+        }
+      }
+    }
+    else {
+      int gx, gy, gw, gh;
+      const uint8_t *bits;
+      const void *key = glyph_bitmap(e, i, e->gx[i], &gx, &gy, &gw, &gh, &bits);
+      int ax, ay;
+      if (!key || gw <= 0 || gh <= 0 || !bui_gpu_mask(r->gpu, key, g_text_gen, bits, gw, gh, &ax, &ay)) {
+        continue;
+      }
+      for (int k = 0; k < passes; k++) {
+        const int px = (int)ox + gx + k, py = (int)base + gy;
+        int x0, y0, x1, y1;
+        if (!clip_box(r, (float)px, (float)py, (float)(px + gw), (float)(py + gh), &x0, &y0, &x1, &y1)) {
+          continue;
+        }
+        BuiGpuInst *in = gpu_inst(r, BG_MASK, x0, y0, x1, y1);
+        if (in) {
+          v4(in->rect, (float)px, (float)py, (float)gw, (float)gh);
+          v4(in->uv, (float)ax, (float)ay, 0.0f, 0.0f);
+          c4(in->c0, rgba);
+        }
+      }
+    }
+  }
+  if (fs->flags & BUI_FONT_UNDERLINE) {
+    const float t = fs->px / 14 > 1 ? (float)(fs->px / 14) : 1.0f;
+    const float uy = base + (float)((fs->height - fs->ascent) / 2);
+    BUI_raster_fill_rect(r, ox, uy, e->advance, t, rgba);
+  }
+  return 1;
 }
 
 /* Text runs for GPU renderers: mask size, left padding and ascent. */
@@ -1995,6 +2089,45 @@ static void be_font_close(FontSlot *s)
 }
 
 static void be_flush_glyphs(void) {}
+
+static int run_glyphs(TextRun *e)
+{
+  (void)e;
+  return 0;
+}
+static int glyph_draw_info(const TextRun *e, int i, int *r_face, float *r_scale, float *r_embolden,
+                           float *r_shear)
+{
+  (void)e;
+  (void)i;
+  (void)r_face;
+  (void)r_scale;
+  (void)r_embolden;
+  (void)r_shear;
+  return 0;
+}
+static const void *glyph_bitmap(const TextRun *e, int i, float pen, int *r_x, int *r_y, int *r_w,
+                                int *r_h, const uint8_t **r_bits)
+{
+  (void)e;
+  (void)i;
+  (void)pen;
+  (void)r_x;
+  (void)r_y;
+  (void)r_w;
+  (void)r_h;
+  (void)r_bits;
+  return NULL;
+}
+int bui_text_glyph_outline(int face, int glyph, float **r_curves, int *r_n, float r_bbox[4])
+{
+  (void)face;
+  (void)glyph;
+  (void)r_bbox;
+  *r_curves = NULL;
+  *r_n = 0;
+  return 0;
+}
 
 static wchar_t *to_wide(const char *s, int len, int *r_n)
 {
@@ -2212,6 +2345,31 @@ static int face_load_file(const char *path)
   return g_face_count++;
 }
 
+#  ifndef BUI_NO_INTER
+#    include "../extern/font_inter.h"
+
+/* Inter, embedded: the default UI face (Blender's), so text looks the same
+ * on every platform. `bold`: 0 regular, 1 bold. -1 when it can't load. */
+static int face_inter(int bold)
+{
+  static int ids[2] = {-2, -2};
+  if (ids[bold] == -2) {
+    ids[bold] = -1;
+    if (g_face_count < MAX_FACES) {
+      Face *f = &g_faces[g_face_count];
+      memset(f, 0, sizeof(*f));
+      /* stb_truetype only reads the data */
+      unsigned char *data = (unsigned char *)(bold ? g_font_inter_bold : g_font_inter_regular);
+      if (face_init(f, data)) {
+        strcpy(f->key, bold ? "embed:inter-bold" : "embed:inter");
+        ids[bold] = g_face_count++;
+      }
+    }
+  }
+  return ids[bold];
+}
+#  endif
+
 int BUI_text_add_font(const char *family, int flags, const void *data, int len)
 {
   if (!data || len <= 0 || g_face_count == MAX_FACES || g_reg_count == MAX_FACES) {
@@ -2290,7 +2448,7 @@ typedef struct FamilyFiles {
 } FamilyFiles;
 
 static const FamilyFiles g_families[] = {
-    {"|sans|sans-serif|segoe ui|system-ui|helvetica|arial|dejavu sans|liberation sans|noto "
+    {"|sans|sans-serif|inter|segoe ui|system-ui|helvetica|arial|dejavu sans|liberation sans|noto "
      "sans|tkdefaultfont|tktextfont|tkheadingfont|tkcaptionfont|tkmenufont|",
      {"segoeui.ttf|DejaVuSans.ttf|LiberationSans-Regular.ttf|NotoSans-Regular.ttf|Arial.ttf|"
       "arial.ttf|Helvetica.ttc|SFNS.ttf",
@@ -2337,6 +2495,26 @@ static int family_index(const char *family)
     }
   }
   return -1;
+}
+
+/* The default face (empty, generic sans or Tk's named fonts), as opposed to
+ * a named system family. */
+static int family_generic(const char *family)
+{
+  static const char *names =
+      "|sans|sans-serif|inter|system-ui|ui-sans-serif|tkdefaultfont|tktextfont|tkheadingfont|"
+      "tkcaptionfont|tkmenufont|tksmallcaptionfont|tkiconfont|tktooltipfont|";
+  char probe[72];
+  if (!family[0]) {
+    return 1;
+  }
+  snprintf(probe, sizeof(probe), "|%s|", family);
+  for (int i = 0; probe[i]; i++) {
+    if (probe[i] >= 'A' && probe[i] <= 'Z') {
+      probe[i] = (char)(probe[i] + 32);
+    }
+  }
+  return strstr(names, probe) != NULL;
 }
 
 /* First '|'-separated file found in any font folder. */
@@ -2397,6 +2575,7 @@ static int face_find(const char *family, int style, int *r_have)
   }
   /* 4. a known generic family, then "<family>.ttf", then the default */
   int fam = family_index(family);
+  int generic = family_generic(family);
   if (fam < 0) {
     char files[200];
     char squashed[64];
@@ -2415,8 +2594,20 @@ static int face_find(const char *family, int style, int *r_have)
       return f;
     }
     fam = 0;
+    generic = 1; /* unknown family: the default face */
   }
   const int want = (style & BUI_FONT_BOLD ? 1 : 0) | (style & BUI_FONT_ITALIC ? 2 : 0);
+#  ifdef BUI_NO_INTER
+  (void)generic;
+#  else
+  if (fam == 0 && generic) { /* Inter (italic synthesized, like Blender) */
+    const int f = face_inter(want & 1);
+    if (f >= 0) {
+      *r_have = style & BUI_FONT_BOLD;
+      return f;
+    }
+  }
+#  endif
   int f = face_from_files(g_families[fam].files[want], dirs, nd);
   if (f >= 0) {
     *r_have = style;
@@ -2518,6 +2709,7 @@ static int g_glyph_count = 0;
 
 static void be_flush_glyphs(void)
 {
+  g_text_gen++; /* glyph bitmaps are GPU atlas keys */
   if (!g_glyphs) {
     return;
   }
@@ -2610,6 +2802,166 @@ static float glyph_walk(const FontSlot *s, const char *utf8, int len, GlyphFn fn
 static float be_measure(const FontSlot *s, const char *utf8, int len)
 {
   return floorf(glyph_walk(s, utf8, len, NULL, NULL) + 0.5f);
+}
+
+typedef struct GlyphList {
+  TextRun *e;
+  int cap;
+} GlyphList;
+
+static void list_glyph(void *user, int glyph, float pen)
+{
+  GlyphList *l = (GlyphList *)user;
+  TextRun *e = l->e;
+  if (e->ng == l->cap) {
+    l->cap = l->cap ? l->cap * 2 : 16;
+    uint16_t *g = (uint16_t *)realloc(e->gid, sizeof(uint16_t) * (size_t)l->cap);
+    float *x = (float *)realloc(e->gx, sizeof(float) * (size_t)l->cap);
+    if (!g || !x) {
+      e->gid = g ? g : e->gid;
+      e->gx = x ? x : e->gx;
+      return;
+    }
+    e->gid = g;
+    e->gx = x;
+  }
+  e->gid[e->ng] = (uint16_t)glyph;
+  e->gx[e->ng] = pen;
+  e->ng++;
+}
+
+/* The run's glyph ids and pen positions (built once). */
+static int run_glyphs(TextRun *e)
+{
+  if (e->ng < 0) {
+    e->ng = 0;
+    GlyphList l = {e, 0};
+    glyph_walk(&g_fonts[e->font], e->text, e->len, list_glyph, &l);
+  }
+  return 1;
+}
+
+static int glyph_draw_info(const TextRun *e, int i, int *r_face, float *r_scale, float *r_embolden,
+                           float *r_shear)
+{
+  (void)i;
+  const FontSlot *s = &g_fonts[e->font];
+  *r_face = s->face;
+  *r_scale = s->scale;
+  *r_embolden = s->embolden;
+  *r_shear = (s->synth & BUI_FONT_ITALIC) ? 0.2f : 0.0f;
+  return 1;
+}
+
+/* Glyph `i` of a run as a cached bitmap at its quarter-pixel phase: its
+ * offset from the run origin (baseline), size, and a stable key. */
+static const void *glyph_bitmap(const TextRun *e, int i, float pen, int *r_x, int *r_y, int *r_w,
+                                int *r_h, const uint8_t **r_bits)
+{
+  const FontSlot *s = &g_fonts[e->font];
+  const float px = floorf(pen * 4.0f + 0.5f) * 0.25f;
+  const int whole = (int)floorf(px);
+  const int phase = (int)((px - (float)whole) * 4.0f) & 3;
+  const GlyphBmp *g = glyph_get(e->font, s, e->gid[i], phase);
+  if (!g || !g->bits) {
+    return NULL;
+  }
+  *r_x = whole + g->xoff;
+  *r_y = g->yoff;
+  *r_w = g->w;
+  *r_h = g->h;
+  *r_bits = g->bits;
+  return g;
+}
+
+/* A glyph's outline as quadratic curves (x1 y1 x2 y2 x3 y3, font units,
+ * y up) and its box; lines are {p1, p2, p2}, cubics are split into
+ * quadratics. Returns 0 for empty glyphs. `*r_curves` is malloc'd. */
+int bui_text_glyph_outline(int face, int glyph, float **r_curves, int *r_n, float r_bbox[4])
+{
+  *r_curves = NULL;
+  *r_n = 0;
+  if (face < 0 || face >= g_face_count) {
+    return 0;
+  }
+  const stbtt_fontinfo *info = &g_faces[face].info;
+  stbtt_vertex *v = NULL;
+  const int nv = stbtt_GetGlyphShape(info, glyph, &v);
+  if (nv <= 0) {
+    return 0;
+  }
+  float *c = (float *)malloc(sizeof(float) * 6 * (size_t)nv * 2);
+  if (!c) {
+    stbtt_FreeShape(info, v);
+    return 0;
+  }
+  int n = 0;
+  float cx = 0, cy = 0, sx = 0, sy = 0;
+  for (int k = 0; k < nv; k++) {
+    const float x = v[k].x, y = v[k].y;
+    float *q;
+    switch (v[k].type) {
+      case STBTT_vmove:
+        if ((cx != sx || cy != sy) && n > 0) { /* close the previous contour */
+          q = c + 6 * n++;
+          q[0] = cx; q[1] = cy; q[2] = sx; q[3] = sy; q[4] = sx; q[5] = sy;
+        }
+        cx = sx = x;
+        cy = sy = y;
+        break;
+      case STBTT_vline:
+        q = c + 6 * n++;
+        q[0] = cx; q[1] = cy; q[2] = x; q[3] = y; q[4] = x; q[5] = y;
+        cx = x;
+        cy = y;
+        break;
+      case STBTT_vcurve:
+        q = c + 6 * n++;
+        q[0] = cx; q[1] = cy; q[2] = v[k].cx; q[3] = v[k].cy; q[4] = x; q[5] = y;
+        cx = x;
+        cy = y;
+        break;
+      case STBTT_vcubic: {
+        /* split at t = 1/2; each half approximated by one quadratic */
+        const float p0x = cx, p0y = cy, p1x = v[k].cx, p1y = v[k].cy, p2x = v[k].cx1, p2y = v[k].cy1;
+        const float m01x = (p0x + p1x) / 2, m01y = (p0y + p1y) / 2, m12x = (p1x + p2x) / 2,
+                    m12y = (p1y + p2y) / 2, m23x = (p2x + x) / 2, m23y = (p2y + y) / 2;
+        const float ax = (m01x + m12x) / 2, ay = (m01y + m12y) / 2, bx = (m12x + m23x) / 2,
+                    by = (m12y + m23y) / 2, mx = (ax + bx) / 2, my = (ay + by) / 2;
+        q = c + 6 * n++;
+        q[0] = p0x; q[1] = p0y;
+        q[2] = (3 * (m01x + ax) - p0x - mx) / 4; q[3] = (3 * (m01y + ay) - p0y - my) / 4;
+        q[4] = mx; q[5] = my;
+        q = c + 6 * n++;
+        q[0] = mx; q[1] = my;
+        q[2] = (3 * (bx + m23x) - mx - x) / 4; q[3] = (3 * (by + m23y) - my - y) / 4;
+        q[4] = x; q[5] = y;
+        cx = x;
+        cy = y;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  if ((cx != sx || cy != sy) && n > 0) {
+    float *q = c + 6 * n++;
+    q[0] = cx; q[1] = cy; q[2] = sx; q[3] = sy; q[4] = sx; q[5] = sy;
+  }
+  stbtt_FreeShape(info, v);
+  int x0, y0, x1, y1;
+  stbtt_GetGlyphBox(info, glyph, &x0, &y0, &x1, &y1);
+  r_bbox[0] = (float)x0;
+  r_bbox[1] = (float)y0;
+  r_bbox[2] = (float)x1;
+  r_bbox[3] = (float)y1;
+  if (n == 0) {
+    free(c);
+    return 0;
+  }
+  *r_curves = c;
+  *r_n = n;
+  return 1;
 }
 
 typedef struct BuildCtx {

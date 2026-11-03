@@ -109,20 +109,12 @@ static void ppm(const char *dir, const char *name, const uint32_t *px)
   fclose(f);
 }
 
-int main(void)
+/* Compares one GPU frame against the CPU frame. `text_tol`: Slug computes
+ * glyph coverage analytically instead of from stb's bitmaps, so text edges
+ * may differ by a few levels of AA; only gross differences count there. */
+static int compare(const uint32_t *a, const uint32_t *b, const char *label, int slug)
 {
-  BuiRaster *cpu = BUI_raster_create(W, H);
-  BuiRaster *gpu = BUI_raster_create(W, H);
-  if (!BUI_raster_gpu_attach(gpu, NULL, 1)) {
-    printf("gpu parity: no GPU device, skipped\n");
-    return 0;
-  }
-  scene(cpu, 0);
-  scene(gpu, 1);
-  const uint32_t *a = BUI_raster_pixels(cpu);
-  static uint32_t b[W * H];
-  memcpy(b, BUI_raster_pixels(gpu), sizeof(b));
-  int bad = 0, maxd = 0;
+  int bad = 0, gross = 0, maxd = 0;
   static uint32_t diff[W * H];
   for (int i = 0; i < W * H; i++) {
     int d = 0;
@@ -132,17 +124,59 @@ int main(void)
     }
     maxd = d > maxd ? d : maxd;
     bad += d > 3;
+    gross += d > 64;
     const unsigned v = d > 255 / 8 ? 255u : (unsigned)d * 8u;
     diff[i] = (v << 16) | (v << 8) | v;
   }
   const char *dir = getenv("BUI_PARITY_PPM");
   if (dir) {
-    ppm(dir, "parity_cpu", a);
-    ppm(dir, "parity_gpu", b);
-    ppm(dir, "parity_diff", diff);
+    char name[64];
+    snprintf(name, sizeof(name), "parity_gpu_%s", label);
+    ppm(dir, name, b);
+    snprintf(name, sizeof(name), "parity_diff_%s", label);
+    ppm(dir, name, diff);
   }
-  printf("gpu parity: %d of %d pixels differ by more than 3 (max %d)\n", bad, W * H, maxd);
+  printf("gpu parity (%s): %d of %d pixels differ by more than 3, %d by more than 64 (max %d)\n",
+         label, bad, W * H, gross, maxd);
+  if (slug) {
+    return bad < W * H / 100 && gross < W * H / 2000; /* AA differences on text only */
+  }
+  return bad <= W * H / 500; /* < 0.2% (edge rounding) */
+}
+
+static void set_slug(int on)
+{
+#ifdef _WIN32
+  _putenv(on ? "BUI_SLUG=1" : "BUI_SLUG=0");
+#else
+  setenv("BUI_SLUG", on ? "1" : "0", 1);
+#endif
+}
+
+int main(void)
+{
+  BuiRaster *cpu = BUI_raster_create(W, H);
+  scene(cpu, 0);
+  const uint32_t *a = BUI_raster_pixels(cpu);
+  if (getenv("BUI_PARITY_PPM")) {
+    ppm(getenv("BUI_PARITY_PPM"), "parity_cpu", a);
+  }
+  int ok = 1;
+  /* text from glyph bitmaps (exact), then from glyph outlines (Slug) */
+  for (int slug = 0; slug < 2; slug++) {
+    set_slug(slug);
+    BuiRaster *gpu = BUI_raster_create(W, H);
+    if (!BUI_raster_gpu_attach(gpu, NULL, 1)) {
+      printf("gpu parity: no GPU device, skipped\n");
+      BUI_raster_free(gpu);
+      break;
+    }
+    scene(gpu, 1);
+    static uint32_t b[W * H];
+    memcpy(b, BUI_raster_pixels(gpu), sizeof(b));
+    ok &= compare(a, b, slug ? "slug" : "atlas", slug);
+    BUI_raster_free(gpu);
+  }
   BUI_raster_free(cpu);
-  BUI_raster_free(gpu);
-  return bad > W * H / 500 ? 1 : 0; /* < 0.2% (edge rounding) */
+  return ok ? 0 : 1;
 }

@@ -31,7 +31,7 @@ cmake --build build
 | `BUI_BUILD_UI` | `OFF` | Compile Blender's original `ui/` sources as well (not needed for the kit) |
 | `BUI_BUILD_QT_BACKEND` | `OFF` | The C++ Qt/QPainter render-sink backend (needs Qt 5/6 Widgets) |
 | `BUI_WARNINGS_AS_ERRORS` | `OFF` | `-Werror` / `/WX` |
-| `BUI_TEXT_STB` | `OFF` | Use the portable stb_truetype text engine on Windows too (it is always used on Linux, macOS and wasm) |
+| `BUI_TEXT_GDI` | `OFF` | Use Windows' GDI text engine and system fonts instead of the portable engine (embedded Inter, Slug on the GPU) |
 
 ## 2. Use it from Python
 
@@ -82,7 +82,8 @@ shared (`bui.host`).
 | `BUI_UI_SCALE` | Fix the UI scale (for example `1.5`) instead of following the monitor's DPI |
 | `BUI_GPU=1` | Draw native windows on the GPU (Direct3D 11). `BUI_GPU=0` forces the software raster. Overrides `bui.set_gpu()` / `.gpu(true)` |
 | `BUI_GPU_DEBUG=1` | Print why the GPU renderer could not start |
-| `BUI_FONT`, `BUI_FONT_DIR` | Portable text engine: a font file for the UI font, and an extra font folder |
+| `BUI_FONT`, `BUI_FONT_DIR` | A font file to replace the embedded Inter UI font, and an extra font folder |
+| `BUI_SLUG` | `0` draws GPU text from a per-glyph bitmap atlas instead of glyph outlines (Slug) |
 | `BUI_PROFILE=1` | Print per-phase frame times (raster and present) |
 
 ## Window hosts
@@ -128,5 +129,5 @@ pending events once, and `bui.host.quit()` stops the loop.
 | Window doesn't appear | Call `mainloop()` / `app.exec()` / `App.run()`. Without a loop, windows only show during `update()`. |
 | Blurry or tiny UI | Set `BUI_UI_SCALE`. On Windows the native host is DPI-aware by default. |
 | `gpu=True` has no effect | Run with `BUI_GPU_DEBUG=1` to see why the device failed. Windows without Direct3D 11 stay on the software raster. |
-| No text on Linux/macOS | Install a TrueType font (DejaVu, Liberation or Noto), or point `BUI_FONT` at a `.ttf`. |
+| Monospace/serif text uses the UI font | Install a TrueType font family (DejaVu, Liberation or Noto). The UI font itself (Inter) is embedded. |
 | A tkinter feature behaves differently | See the behaviour notes in [tkinter.md](tkinter.md#behaviour). If stdlib tkinter does something else, that is a bug; `tests/test_tk_compat.py` shows how to write a side-by-side check. |

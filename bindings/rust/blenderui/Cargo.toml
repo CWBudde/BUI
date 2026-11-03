@@ -20,6 +20,8 @@ smallvec = { version = "1", features = ["union", "const_generics"] }
 png = "0.17"
 
 [features]
-# Draw text with the portable stb_truetype engine on Windows too (it's always
-# used on Linux, macOS and wasm).
+# Draw text with Windows' native GDI engine (system fonts) instead of the
+# default portable engine (embedded Inter, like Blender; Slug on the GPU).
+gdi-text = ["blenderui-sys/gdi-text"]
+# Deprecated no-op: the portable engine is the default everywhere.
 portable-text = ["blenderui-sys/portable-text"]

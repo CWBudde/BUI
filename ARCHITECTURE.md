@@ -64,8 +64,14 @@ defines `BuiGpuSink` — a function-pointer table (`triangles`, `lines`,
 The kit itself draws through `GPU_raster.h`:
 - **Software raster** (`gpu/intern/gpu_raster.c`): the default. It renders
   anti-aliased SDF primitives into a CPU frame buffer, in parallel bands.
-  Text is a glyph-run cache over GDI (Windows) or stb_truetype (everywhere
-  else; `BUI_TEXT_STB=ON` selects it on Windows too).
+  Text is a glyph-run cache over stb_truetype, with Inter (Blender's UI
+  font) embedded as the default face (`gpu/extern/font_inter.h`).
+  `BUI_TEXT_GDI=ON` switches Windows to GDI and system fonts.
+  The GPU renderer draws text one quad per glyph. Slug (`K_SLUG` in
+  `bui_ui.hlsl`) is the default: glyph outlines are uploaded once as
+  quadratic curves with horizontal and vertical bands, and the pixel shader
+  integrates exact coverage. With `BUI_SLUG=0`, it uses glyph bitmaps from
+  the shared glyph cache in the mask atlas instead.
 - **GPU renderer** (`gpu/intern/gpu_d3d11.c`, `gpu/shaders/bui_ui.hlsl`):
   opt-in with `BUI_GPU=1`, `BUI_gpu_set_default`, Rust `.gpu(true)` or
   tkinter `Tk(gpu=True)`.

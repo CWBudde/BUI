@@ -22,6 +22,7 @@
 #define K_GRADIENT 7
 #define K_HSV 8
 #define K_SPHERE 9
+#define K_SLUG 10
 
 #define W_SHADE_H 1
 #define W_CHECKER 2
@@ -36,6 +37,8 @@ cbuffer Frame : register(b0)
 
 Texture2D<float> mask_tex : register(t0);
 Texture2D<float4> rgba_tex : register(t1);
+Texture2D<float4> curve_tex : register(t2); // Slug: (p1, p2), (p3, -) per curve
+Texture2D<uint2> band_tex : register(t3);   // Slug: band headers (count, at), entries (curve)
 
 struct Inst {
   float4 rect : RECT;
@@ -108,6 +111,111 @@ float3 hsv_to_rgb(float h, float s, float v)
   const float h6 = h * 6.0;
   const float3 rgb = saturate(float3(abs(h6 - 3.0) - 1.0, 2.0 - abs(h6 - 2.0), 2.0 - abs(h6 - 4.0)));
   return ((rgb - 1.0) * s + 1.0) * v;
+}
+
+// ---------------------------------------------------------------------------
+// Slug glyph coverage. Ported from Eric Lengyel's reference shaders
+// (https://github.com/EricLengyel/Slug, MIT license):
+// "Slug shader code Copyright 2017 by Eric Lengyel."
+// Coordinates are font units (y up); data is addressed linearly over
+// 4096-wide textures.
+
+int2 slug_loc(uint i)
+{
+  return int2(i & 4095u, i >> 12);
+}
+
+uint slug_root_code(float y1, float y2, float y3)
+{
+  const uint i1 = asuint(y1) >> 31u;
+  const uint i2 = asuint(y2) >> 30u;
+  const uint i3 = asuint(y3) >> 29u;
+  uint shift = (i2 & 2u) | (i1 & ~2u);
+  shift = (i3 & 4u) | (shift & ~4u);
+  return (0x2E74u >> shift) & 0x0101u;
+}
+
+float2 slug_solve_h(float4 p12, float2 p3)
+{
+  const float2 a = p12.xy - p12.zw * 2.0 + p3;
+  const float2 b = p12.xy - p12.zw;
+  const float ra = 1.0 / a.y, rb = 0.5 / b.y;
+  const float d = sqrt(max(b.y * b.y - a.y * p12.y, 0.0));
+  float t1 = (b.y - d) * ra, t2 = (b.y + d) * ra;
+  if (abs(a.y) < 1.0 / 65536.0) {
+    t1 = t2 = p12.y * rb;
+  }
+  return float2((a.x * t1 - b.x * 2.0) * t1 + p12.x, (a.x * t2 - b.x * 2.0) * t2 + p12.x);
+}
+
+float2 slug_solve_v(float4 p12, float2 p3)
+{
+  const float2 a = p12.xy - p12.zw * 2.0 + p3;
+  const float2 b = p12.xy - p12.zw;
+  const float ra = 1.0 / a.x, rb = 0.5 / b.x;
+  const float d = sqrt(max(b.x * b.x - a.x * p12.x, 0.0));
+  float t1 = (b.x - d) * ra, t2 = (b.x + d) * ra;
+  if (abs(a.x) < 1.0 / 65536.0) {
+    t1 = t2 = p12.x * rb;
+  }
+  return float2((a.y * t1 - b.y * 2.0) * t1 + p12.y, (a.y * t2 - b.y * 2.0) * t2 + p12.y);
+}
+
+// rc: sample position (font units); ppu: pixels per font unit;
+// bt: band transform (y scale, y offset, x scale, x offset);
+// at: first band header; nh, nv: band counts.
+float slug_coverage(float2 rc, float ppu, float4 bt, uint at, int nh, int nv)
+{
+  const int2 bi = clamp(int2(rc.y * bt.x + bt.y, rc.x * bt.z + bt.w), int2(0, 0), int2(nh - 1, nv - 1));
+
+  float xcov = 0.0, xwgt = 0.0;
+  const uint2 hb = band_tex.Load(int3(slug_loc(at + (uint)bi.x), 0));
+  [loop] for (uint i = 0; i < hb.x; i++) {
+    const int2 cl = slug_loc(band_tex.Load(int3(slug_loc(hb.y + i), 0)).x);
+    const float4 p12 = curve_tex.Load(int3(cl, 0)) - rc.xyxy;
+    const float2 p3 = curve_tex.Load(int3(cl.x + 1, cl.y, 0)).xy - rc;
+    if (max(max(p12.x, p12.z), p3.x) * ppu < -0.5) {
+      break;
+    }
+    const uint code = slug_root_code(p12.y, p12.w, p3.y);
+    if (code != 0u) {
+      const float2 r = slug_solve_h(p12, p3) * ppu;
+      if (code & 1u) {
+        xcov += saturate(r.x + 0.5);
+        xwgt = max(xwgt, saturate(1.0 - abs(r.x) * 2.0));
+      }
+      if (code > 1u) {
+        xcov -= saturate(r.y + 0.5);
+        xwgt = max(xwgt, saturate(1.0 - abs(r.y) * 2.0));
+      }
+    }
+  }
+
+  float ycov = 0.0, ywgt = 0.0;
+  const uint2 vb = band_tex.Load(int3(slug_loc(at + (uint)nh + (uint)bi.y), 0));
+  [loop] for (uint j = 0; j < vb.x; j++) {
+    const int2 cl = slug_loc(band_tex.Load(int3(slug_loc(vb.y + j), 0)).x);
+    const float4 p12 = curve_tex.Load(int3(cl, 0)) - rc.xyxy;
+    const float2 p3 = curve_tex.Load(int3(cl.x + 1, cl.y, 0)).xy - rc;
+    if (max(max(p12.y, p12.w), p3.y) * ppu < -0.5) {
+      break;
+    }
+    const uint code = slug_root_code(p12.x, p12.z, p3.x);
+    if (code != 0u) {
+      const float2 r = slug_solve_v(p12, p3) * ppu;
+      if (code & 1u) {
+        ycov -= saturate(r.x + 0.5);
+        ywgt = max(ywgt, saturate(1.0 - abs(r.x) * 2.0));
+      }
+      if (code > 1u) {
+        ycov += saturate(r.y + 0.5);
+        ywgt = max(ywgt, saturate(1.0 - abs(r.y) * 2.0));
+      }
+    }
+  }
+  const float cov = max(abs(xcov * xwgt + ycov * ywgt) / max(xwgt + ywgt, 1.0 / 65536.0),
+                        min(abs(xcov), abs(ycov)));
+  return saturate(cov);
 }
 
 float4 ps_quad(VOut v) : SV_Target
@@ -194,6 +302,14 @@ float4 ps_quad(VOut v) : SV_Target
     const int2 texel = (int2)v.uv.xy + (int2)(floor(s) - R.xy);
     const float cov = mask_tex.Load(int3(texel, 0));
     return premul(v.c0, cov);
+  }
+  if (kind == K_SLUG) {
+    // rect: pen x, baseline y, pixels per font unit, italic shear
+    const float ey = (R.y - s.y) / R.z;
+    const float ex = (s.x - R.x) / R.z - R.w * ey;
+    const float cov = slug_coverage(float2(ex, ey), R.z, v.c1, (uint)v.uv.x, (int)v.uv.y, (int)v.uv.z);
+    // same lift as the CPU glyph cache (gamma 1/1.45, like GDI's grayscale AA)
+    return premul(v.c0, pow(cov, 1.0 / 1.45));
   }
   if (kind == K_IMAGE) {
     const float2 isz = v.uv.zw;
