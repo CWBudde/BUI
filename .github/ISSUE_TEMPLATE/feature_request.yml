@@ -1,0 +1,19 @@
+name: Feature request
+description: A missing API, CSS feature, widget or platform
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+      description: "For missing tkinter/Qt APIs or CSS properties, name them exactly (e.g. `Treeview.tag_bind`, `backdrop-filter`)."
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: What would you use it for?
+  - type: textarea
+    id: example
+    attributes:
+      label: Example code
+      render: rust

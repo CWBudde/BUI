@@ -98,6 +98,113 @@ contents, a checkbox you clicked, which `<details>` are open).
 to the display, `set_vsync(false)` lifts the cap).
 A `<title>` element sets the window title too.
 
+## Markup: `rsx!` / `view!`
+
+JSX-style markup, lowered at compile time to the same builder calls (no runtime parsing):
+
+```rust
+rsx! {
+    <div class="flex gap-2 p-4" onClick={|| println!("clicked")}>
+        <h1 style="color: red">"Hello, " {name}</h1>
+        <input type="checkbox" checked={done} />
+        <ul>{for it in items { <li>{it}</li> }}</ul>
+        {if done { <p>all done</p> }}
+        {match mode { Mode::A => <A/>, Mode::B => <span>b</span> }}
+        <Card title="Settings">{...rows}</Card>
+    </div>
+}
+```
+
+The lowering is uniform, so the whole API is reachable without special cases:
+- **Tags:** any tag becomes its function (`<my-el>` becomes `Div::new("my-el")`).
+- **Attributes:**
+  - `name="text"` sets an HTML attribute, except `class`, `style` and `id`, which call their methods.
+  - `name={expr}` calls the builder method of that name: `w={px(10.)}`, `hover={|s| s.bg(red())}`.
+  - `onClick` becomes `.on_click`, and closures may omit the `(event, window, cx)` parameters.
+- **Components:** an uppercase tag builds a struct, so `<Card title="x">..</Card>` becomes `Card { title: "x".into(), children: .. }`.
+- **Fragments:** `<>..</>` is a `display: contents` wrapper.
+
+Tailwind utilities can also be written as bare attributes (UnoCSS calls this "attributify"). They become classes at compile time:
+
+```rust
+rsx! { <div p-4 w-1/2 bg-[#4772b3] hover:bg-sky-500/50 md:flex -mt-2 text-sm/6 /> }
+```
+
+HTML boolean attributes (`disabled`, `checked`, `hidden`, `open` ...) stay attributes.
+Anything that looks like a utility but isn't one is a compile error with suggestions,
+in `rsx!` and in `tw!` alike:
+
+```text
+error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` or `bg-sky-50` or `bg-sky-100`?
+error: rsx!: `hovr:bg-red-500` is not a Tailwind utility; did you mean `hover:bg-red-500` or `odd:bg-red-500`?
+error: tw!: `roundd-lg` is not a Tailwind utility; did you mean `rounded-lg` or `rounded-s-lg` or `rounded-e-lg`?
+```
+
+Every Tailwind variant also works as an attribute prefix, chained as deep as you like:
+
+```rust
+rsx! {
+    <button class="px-3 py-1 bg-zinc-800"
+            hover:class="bg-sky-600 text-white"        // classes, prefixed
+            active:style="transform: scale(0.97)"      // any CSS, as arbitrary properties
+            focus-visible:outline="2px solid white"    // one CSS property
+            md:dark:hover:class="bg-sky-400"           // chained variants
+            hover:bg={rgb(0x4772b3)}>                  // typed value via .hover(|s| ..)
+        "Save"
+    </button>
+}
+```
+
+`group-hover:`, `peer-checked:`, `data-[state=open]:`, `aria-expanded:`, `@md:`, `2xl:`,
+`max-sm:`, `*:` and every other variant work the same way, because they all go through the
+Tailwind engine. Typed `{expr}` values are limited to `hover`, `active` and `focus`; use
+`variant:class` or `variant:style` with every other variant.
+
+## Components and hooks (zopra / React / Leptos style)
+
+```rust
+use blenderui::prelude::*;
+
+#[component]                                   // zopra style: lowercase, &str props
+fn profile(username: &str) {
+    let (likes, set_likes) = use_state(0);     // `likes()`, `set_likes(..)`: no cx
+    use_effect!(move || println!("{} likes", likes()), [likes()]);
+    let theme: Theme = use_context();
+    rsx! { <div class="p-2" onClick={move || set_likes(likes() + 1)}>{username} {likes()}</div> }
+}
+
+#[component]                                   // Leptos style
+fn Counter(start: i32) {
+    let (count, set_count) = signal(start);
+    let doubled = Memo::new(move || count.get() * 2);          // recomputed when `count` changes
+    Effect::new(move || println!("count is {}", count.get())); // re-runs when `count` changes
+    rsx! { <button onClick={move || set_count.update(|c| *c += 1)}>{doubled.get()}</button> }
+}
+
+// in a view: provide_context(Theme(..)); rsx! { <profile username="Ada" /> <Counter start={1} /> }
+```
+
+These are the hooks and their counterparts in other frameworks:
+
+| Hook | Also known as |
+|---|---|
+| `use_state(v)` | zopra / React `useState` (a getter and a setter closure) |
+| `use_signal(v)`, `Signal::new(v)` | zopra `use_signal`, Leptos `RwSignal` |
+| `signal(v)`, `create_signal(v)` | Leptos read and write halves |
+| `Memo::new(f)`, `Effect::new(f)` | Leptos, tracking the signals they read automatically |
+| `use_effect(f, deps)`, `use_effect!(f, [a, b])` | React / zopra |
+| `use_memo(f, deps)` | React `useMemo` |
+| `provide_context(v)`, `use_context()`, `try_use_context()` | Leptos / zopra context |
+
+How it behaves:
+- **Signals:** signals are `Copy` handles. They don't need `cx`, and writing one re-renders its window.
+- **Hook identity:** like React, a hook's state is tied to its call site and to the order in which components render. Removing a component from the middle of a list shifts the state of the components after it.
+- **Components:** `#[component]` turns `fn name(props)` into a props struct with that name. Uppercase and lowercase names both work in `rsx!`, as does a body that ends in markup.
+- **Lifetime:** a component's state is freed when it stops rendering.
+- **Implementation:** there is no `Rc` or `RefCell` anywhere in it.
+
+Not supported yet: optional props (pass every prop; use `Option<T>` for optional values), async resources (`use_resource`) and generic components.
+
 ## Elements
 
 There is **one element type, `Div`**, and a constructor for every element of

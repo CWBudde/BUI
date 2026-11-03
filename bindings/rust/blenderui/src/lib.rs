@@ -66,6 +66,30 @@ pub use blenderui_macros::css;
 /// ```
 pub use blenderui_macros::tw;
 
+/// JSX-style markup lowered to builder calls (no runtime parsing):
+///
+/// ```
+/// use blenderui::prelude::*;
+/// let name = "Ada";
+/// let items = vec!["a", "b"];
+/// let _ = rsx! {
+///     <div class="flex gap-2 p-4" onClick={|| println!("hi")}>
+///         <h1 style="color: red">"Hello, " {name}</h1>
+///         <input type="checkbox" checked={true} />
+///         <ul>{for it in items { <li>{it}</li> }}</ul>
+///         {if name.len() > 2 { <p>long name</p> }}
+///     </div>
+/// };
+/// ```
+///
+/// Attributes with `{expr}` call the builder method of that name, so any
+/// method works (`w={px(10.)}`, `hover={|s| s.bg(red())}`); text values
+/// become HTML attributes. Components: `<Card title="x">..</Card>` builds
+/// `Card { title: "x".into(), children: vec![..] }`.
+pub use blenderui_macros::rsx;
+/// [`rsx!`] under its zopra / Leptos name.
+pub use blenderui_macros::rsx as view;
+
 pub mod calc;
 pub mod color;
 mod color4;
@@ -78,6 +102,7 @@ pub(crate) mod layout;
 pub mod paint;
 pub(crate) mod prof;
 mod selector;
+pub mod hooks;
 pub mod style;
 pub use blenderui_tailwind as tailwind;
 mod tree;
@@ -118,7 +143,12 @@ pub fn add_font(family: &str, bold: bool, italic: bool, data: &[u8]) -> bool {
 
 /// Everything an app needs: `use blenderui::prelude::*;`
 pub mod prelude {
-    pub use crate::{css, tw};
+    pub use crate::{css, rsx, tw, view, use_effect};
+    pub use crate::hooks::{
+        create_signal, provide_context, signal, try_use_context, use_context, use_memo, use_signal, use_state,
+        Children, Effect, Memo, ReadSignal, RwSignal, Signal, WriteSignal,
+    };
+    pub use blenderui_macros::component;
     pub use crate::color::*;
     pub use crate::element::*;
     pub use crate::events::*;

@@ -1,0 +1,52 @@
+# Contributing to BUI
+
+Thanks for helping! Bug reports, missing tkinter/Qt behavior, CSS features,
+platform hosts, docs and examples are all welcome.
+
+## Before you start
+
+- **Bugs and features:** open an [issue](https://github.com/ppmpreetham/BUI/issues)
+  first, so we can agree on the approach.
+- **Security problems:** report them privately (see [SECURITY.md](SECURITY.md)).
+- Be kind: this project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Setting up
+
+```sh
+git clone https://github.com/ppmpreetham/BUI && cd BUI
+cmake -S . -B build && cmake --build build
+ctest --test-dir build --output-on-failure      # C and Python suites
+cd bindings/rust && cargo test                  # Rust crates
+```
+
+You need CMake ≥ 3.20, a C11 compiler (on Windows, MSYS2 MinGW is the tested
+toolchain for the Python build) and Python 3.11+. More detail:
+[docs/getting-started.md](docs/getting-started.md).
+
+## Where things live
+
+| You want to change | Look in |
+|---|---|
+| Widget drawing, input, layout, rendering | `kit/` (C), `gpu/` (raster, GPU, text) |
+| tkinter / Qt behavior | `bindings/python/bui/tksyntax/`, `bindings/python/bui/qtsyntax.py` |
+| Components | `bindings/python/bui/components/` |
+| Rust: CSS, layout, hooks | `bindings/rust/blenderui/src/` |
+| Rust: `rsx!`, `#[component]`, `tw!` | `bindings/rust/blenderui-macros/src/` |
+| Tailwind utilities and variants | `bindings/rust/blenderui-tailwind/src/lib.rs` |
+
+[ARCHITECTURE.md](ARCHITECTURE.md) explains the module boundaries.
+
+## Pull requests
+
+- Keep each PR focused on one change, and add a test for it:
+  - C: `ctest`.
+  - Python: `bindings/python/tests/`. For tkinter behavior, add to the side-by-side compat suite.
+  - Rust: `bindings/rust/blenderui/tests/`.
+- Don't let performance regress. The test suite enforces frame budgets. For
+  rendering or layout changes, run the benchmark in `bindings/rust/bench/`
+  and include before and after numbers.
+- Keep the SPDX header (`GPL-2.0-or-later`) in new files. Contributions are
+  accepted under that license.
+- Update `CHANGELOG.md` (the Unreleased section) and the relevant guide in `docs/`.
+- Code style: follow the surrounding code. C is formatted like Blender's
+  sources, and Rust with `rustfmt` defaults (max width 120).

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ppmpreetham/BUI/security/advisories/new
+    about: Please report security problems privately.
+  - name: Documentation
+    url: https://github.com/ppmpreetham/BUI/tree/main/docs
+    about: Guides for tkinter, Qt, components, Rust and the C API.

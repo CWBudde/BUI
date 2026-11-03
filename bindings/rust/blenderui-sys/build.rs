@@ -1,13 +1,17 @@
 //! Builds the C kit (kit + gpu + core) with the project's own CMake files and
-//! links it statically. Set `BUI_SOURCE_DIR` to build from another checkout.
+//! links it statically. Set `BUI_SOURCE_DIR` to build from another checkout;
+//! published crates carry the sources in `csrc/`.
 
 use std::path::PathBuf;
 
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let root = std::env::var("BUI_SOURCE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest.join("../../.."));
+    // BUI_SOURCE_DIR, else the repository around this crate, else the sources
+    // vendored into the published crate (`csrc/`, see scripts/vendor_c.py)
+    let root = std::env::var("BUI_SOURCE_DIR").map(PathBuf::from).unwrap_or_else(|_| {
+        let repo = manifest.join("../../..");
+        if repo.join("kit/include/BUI_kit.h").exists() { repo } else { manifest.join("csrc") }
+    });
     let root = root.canonicalize().expect("BUI source tree not found (set BUI_SOURCE_DIR)");
     // Windows canonical paths are \\?\C:\...; compilers' /FI and -include can't take them.
     let root = PathBuf::from(root.to_string_lossy().trim_start_matches(r"\\?\").to_string());

@@ -7,6 +7,20 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Components and hooks** (Rust, compatible with zopra, React and Leptos):
+  - `#[component]` turns a function into a component, with lowercase or uppercase names and `&str` props.
+  - `use_state` returns `count()` / `set_count(..)` closures that need no `cx`.
+  - Signals: `use_signal`, `Signal`/`RwSignal`, and `signal`/`create_signal` with read and write halves.
+  - Auto-tracked `Memo` and `Effect`; `use_effect` / `use_effect!` and `use_memo` with explicit dependencies.
+  - Context: `provide_context` / `use_context`.
+  - State is tied to the call site, like React, and freed when its component stops rendering. Setters re-render their window. No `Rc` or `RefCell`.
+- **`rsx!` / `view!` markup** (Rust): JSX syntax lowered to builder calls at compile time, in about 470 lines with no dependencies.
+  - **Syntax:** any tag or custom element; text, `{expr}` and `{...spread}` children; `for`, `if` and `match` in markup; fragments; and struct components with children.
+  - **Uniform lowering:** `{expr}` attributes call the builder method of the same name, so the whole API is reachable without per-attribute code.
+  - **Events:** listener closures may omit the `(event, window, cx)` parameters.
+  - **Attributify:** bare Tailwind utilities are attributes too: `<div p-4 bg-[#4772b3] hover:bg-sky-500/50>`. They compile to classes, while HTML boolean attributes stay attributes.
+  - **Did-you-mean errors:** a misspelled utility, variant, root or value is a compile error with suggestions, in `rsx!` and `tw!` (`blenderui_tailwind::suggest`).
+  - **Variant attributes:** every Tailwind variant works as an attribute prefix: `hover:class="..."`, `md:dark:hover:style="..."`, `group-hover:color="red"`, `active:bg={red()}`.
 - **Modern CSS in the Rust crate**:
   - **Layout:** [taffy](https://github.com/DioxusLabs/taffy) 0.6 → 0.15 behind a layout tree of our own. taffy's built-in tree resolves `calc()` to 0; ours evaluates it. That brings mixed-unit `calc()` everywhere (`calc(100% - 2rem)`, grid tracks, `fit-content(calc())`), floats and `clear`, `direction: rtl`, `grid-template-areas` with named lines and areas, the sizing keywords (`min-content`, `max-content`, `fit-content`, `stretch`), `display: flow-root`, real `position: static` / `fixed` with containing blocks, `contain`, `flex-wrap: balance`, and `safe` / `unsafe` alignment.
   - **Math:** `calc()`, `min()`, `max()`, `clamp()`, `round()` (all four strategies), `mod()`, `rem()`, `abs()`, `sign()`, trigonometry, `pow()`, `sqrt()`, `hypot()`, `log()`, `exp()`, the constants `e`/`pi`/`infinity`, and every length unit (`vmin`/`vmax`, `dvh`/`svh`/`lvh`, `ch`, `ex`, `lh`, `rlh`, `cap`, `cq*` ...) plus angles. Expressions are interned once.

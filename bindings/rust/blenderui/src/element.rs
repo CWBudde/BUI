@@ -98,7 +98,8 @@ impl IntoElement for Cow<'static, str> {
 }
 
 impl Div {
-    pub(crate) fn new(tag: &'static str) -> Div {
+    /// An element with any tag name (custom elements: `Div::new("my-widget")`).
+    pub fn new(tag: &'static str) -> Div {
         Div {
             tag,
             id: None,

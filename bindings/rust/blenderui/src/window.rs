@@ -443,6 +443,14 @@ impl App {
     /// Re-render dirty windows now (headless) or soon (native: next loop turn).
     fn flush(&mut self) {
         self.drain();
+        // windows whose signals were written (hooks)
+        for id in crate::hooks::take_dirty() {
+            if id == usize::MAX {
+                self.notify_all();
+            } else if let Some(w) = self.windows.get_mut(id).and_then(|w| w.as_deref_mut()) {
+                w.refresh();
+            }
+        }
         for id in 0..self.windows.len() {
             let Some(w) = self.windows[id].as_deref_mut() else { continue };
             if !w.dirty {
@@ -859,6 +867,7 @@ impl Window {
         self.dirty = false;
         let root = {
             let _s = span(Phase::Render);
+            crate::hooks::begin(self.id);
             view(self, app)
         };
         if self.view.is_none() {
@@ -903,6 +912,8 @@ impl Window {
         self.update_hover(app, false);
         drop(_rest);
         prof::frame_done();
+        // state of components that didn't render is freed; effects run now
+        crate::hooks::end();
     }
 
     // -- events ------------------------------------------------------------------------------

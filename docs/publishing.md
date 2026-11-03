@@ -94,3 +94,52 @@ No API tokens are stored anywhere.
 - The README's images use relative paths. PyPI shows them once
   `[project.urls]` points to the public repository and the paths are made
   absolute (or the images are hosted).
+
+# Publishing the Rust crates (crates.io)
+
+The four crates are published in dependency order:
+
+| Crate | What it is | Depends on |
+|---|---|---|
+| `blenderui-tailwind` | Tailwind v4 class compiler (std only) | none |
+| `blenderui-macros` | `rsx!` / `view!`, `#[component]`, `css!`, `tw!` | `blenderui-tailwind` |
+| `blenderui-sys` | FFI over the C kit; builds it with CMake | none (`cmake` at build time) |
+| `blenderui` | the framework | all three |
+
+`blenderui-sys` must carry the C sources, because a published crate can't
+reach `../../..`. Vendor them first. They're git-ignored and listed in the
+crate's `include`:
+
+```sh
+python bindings/rust/scripts/vendor_c.py          # copies ~7 MB into blenderui-sys/csrc/
+cd bindings/rust
+cargo package --workspace --allow-dirty           # builds each packaged crate in isolation
+```
+
+`build.rs` looks for the C sources in three places, in order:
+1. `BUI_SOURCE_DIR`, if set;
+2. the surrounding repository;
+3. `csrc/`, the vendored copy (what a downloaded crate has).
+
+## Release
+
+1. Bump `version` in `bindings/rust/Cargo.toml` (`[workspace.package]`). The
+   crates share one version. Then update the `version = "..."` of the path
+   dependencies in `blenderui/Cargo.toml` and `blenderui-macros/Cargo.toml`.
+2. `cargo login` once with a crates.io API token.
+3. Vendor, then publish in order. `cargo publish --workspace` does the
+   ordering itself on Cargo 1.90+:
+
+```sh
+python bindings/rust/scripts/vendor_c.py
+cd bindings/rust
+cargo publish --workspace --allow-dirty   # or, one by one:
+# cargo publish -p blenderui-tailwind
+# cargo publish -p blenderui-macros
+# cargo publish -p blenderui-sys --allow-dirty
+# cargo publish -p blenderui
+```
+
+`--allow-dirty` is needed because `csrc/` is untracked. Users need CMake and
+a C compiler (MSVC, MinGW, gcc or clang) to build `blenderui-sys`.
+`bench/` is excluded from the workspace and is never published.

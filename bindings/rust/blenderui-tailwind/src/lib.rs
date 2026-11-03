@@ -951,7 +951,8 @@ fn utility_decls(u: &str) -> Option<Out> {
             Out { decls: s.iter().map(|x| (format!("scroll-padding{x}"), val.clone())).collect(), child: None, keyframes: None }
         }
         "will-change" if !neg => one("will-change", free(v)?.1)?,
-        "touch" if !neg => one("touch-action", v.replace("pan-", "pan-"))?,
+        "touch" if !neg && matches!(v, "pan-x" | "pan-left" | "pan-right" | "pan-y" | "pan-up" | "pan-down"
+                                  | "pinch-zoom") => one("touch-action", v.into())?,
         "border-spacing" | "border-spacing-x" | "border-spacing-y" if !neg => one("border-spacing", spacing(v)?)?,
         "break-before" | "break-after" | "break-inside" if !neg => one(root, v.into())?,
         "mask" if !neg => one("mask-image", free(v)?.1)?,
@@ -961,34 +962,36 @@ fn utility_decls(u: &str) -> Option<Out> {
     Some(out)
 }
 
+const ROOTS: &[&str] = &[
+    "backdrop-hue-rotate", "backdrop-brightness", "backdrop-contrast", "backdrop-grayscale", "backdrop-saturate",
+    "backdrop-opacity", "backdrop-invert", "backdrop-sepia", "backdrop-blur", "perspective-origin",
+    "underline-offset", "outline-offset", "border-spacing-x", "border-spacing-y", "border-spacing", "inset-shadow",
+    "drop-shadow", "text-shadow", "justify-items", "justify-self", "place-content", "place-items", "place-self",
+    "ring-offset", "inset-ring", "will-change", "line-clamp", "list-image", "hue-rotate", "break-before",
+    "break-after", "break-inside", "min-inline", "max-inline", "min-block", "max-block", "translate-x",
+    "translate-y", "translate-z", "grid-cols", "grid-rows", "col-start", "row-start", "auto-cols", "auto-rows",
+    "brightness", "grayscale", "translate", "perspective", "col-span", "row-span", "col-end", "row-end",
+    "rounded-ss", "rounded-se", "rounded-ee", "rounded-es", "rounded-tl", "rounded-tr", "rounded-br",
+    "rounded-bl", "rounded-s", "rounded-e", "rounded-t", "rounded-r", "rounded-b", "rounded-l", "rounded",
+    "border-x", "border-y", "border-s", "border-e", "border-t", "border-r", "border-b", "border-l",
+    "border-bs", "border-be", "divide-x", "divide-y", "scroll-mx", "scroll-my", "scroll-ms", "scroll-me",
+    "scroll-mt", "scroll-mr", "scroll-mb", "scroll-ml", "scroll-px", "scroll-py", "scroll-ps", "scroll-pe",
+    "scroll-pt", "scroll-pr", "scroll-pb", "scroll-pl", "scroll-m", "scroll-p", "rotate-x", "rotate-y",
+    "rotate-z", "scale-x", "scale-y", "scale-z", "skew-x", "skew-y", "space-x", "space-y", "bg-blend",
+    "mix-blend", "contrast", "saturate", "duration", "tracking", "leading", "opacity", "content", "columns",
+    "inset-x", "inset-y", "transform", "transition", "animate", "decoration", "outline", "origin", "invert",
+    "sepia", "divide", "border", "shadow", "rotate", "scale", "skew", "basis", "order", "accent", "caret",
+    "cursor", "stroke", "aspect", "object", "indent", "gap-x", "gap-y", "min-w", "max-w", "min-h", "max-h",
+    "inline", "block", "inset", "start", "items", "justify", "self", "align", "delay", "ease", "blur", "ring",
+    "fill", "font", "text", "list", "mask", "touch", "size", "flex", "grow", "shrink", "from", "via", "top",
+    "right", "bottom", "left", "end", "col", "row", "gap", "pbs", "pbe", "mbs", "mbe", "bg", "to", "z",
+    "px", "py", "ps", "pe", "pt", "pr", "pb", "pl", "mx", "my", "ms", "me", "mt", "mr", "mb", "ml", "p", "m",
+    "w", "h",
+    ];
+
 /// Split `p-4` into (`p`, `4`) using the longest known root.
 fn split_root(u: &str) -> Option<(&str, &str)> {
-    const ROOTS: &[&str] = &[
-        "backdrop-hue-rotate", "backdrop-brightness", "backdrop-contrast", "backdrop-grayscale", "backdrop-saturate",
-        "backdrop-opacity", "backdrop-invert", "backdrop-sepia", "backdrop-blur", "perspective-origin",
-        "underline-offset", "outline-offset", "border-spacing-x", "border-spacing-y", "border-spacing", "inset-shadow",
-        "drop-shadow", "text-shadow", "justify-items", "justify-self", "place-content", "place-items", "place-self",
-        "ring-offset", "inset-ring", "will-change", "line-clamp", "list-image", "hue-rotate", "break-before",
-        "break-after", "break-inside", "min-inline", "max-inline", "min-block", "max-block", "translate-x",
-        "translate-y", "translate-z", "grid-cols", "grid-rows", "col-start", "row-start", "auto-cols", "auto-rows",
-        "brightness", "grayscale", "translate", "perspective", "col-span", "row-span", "col-end", "row-end",
-        "rounded-ss", "rounded-se", "rounded-ee", "rounded-es", "rounded-tl", "rounded-tr", "rounded-br",
-        "rounded-bl", "rounded-s", "rounded-e", "rounded-t", "rounded-r", "rounded-b", "rounded-l", "rounded",
-        "border-x", "border-y", "border-s", "border-e", "border-t", "border-r", "border-b", "border-l",
-        "border-bs", "border-be", "divide-x", "divide-y", "scroll-mx", "scroll-my", "scroll-ms", "scroll-me",
-        "scroll-mt", "scroll-mr", "scroll-mb", "scroll-ml", "scroll-px", "scroll-py", "scroll-ps", "scroll-pe",
-        "scroll-pt", "scroll-pr", "scroll-pb", "scroll-pl", "scroll-m", "scroll-p", "rotate-x", "rotate-y",
-        "rotate-z", "scale-x", "scale-y", "scale-z", "skew-x", "skew-y", "space-x", "space-y", "bg-blend",
-        "mix-blend", "contrast", "saturate", "duration", "tracking", "leading", "opacity", "content", "columns",
-        "inset-x", "inset-y", "transform", "transition", "animate", "decoration", "outline", "origin", "invert",
-        "sepia", "divide", "border", "shadow", "rotate", "scale", "skew", "basis", "order", "accent", "caret",
-        "cursor", "stroke", "aspect", "object", "indent", "gap-x", "gap-y", "min-w", "max-w", "min-h", "max-h",
-        "inline", "block", "inset", "start", "items", "justify", "self", "align", "delay", "ease", "blur", "ring",
-        "fill", "font", "text", "list", "mask", "touch", "size", "flex", "grow", "shrink", "from", "via", "top",
-        "right", "bottom", "left", "end", "col", "row", "gap", "pbs", "pbe", "mbs", "mbe", "bg", "to", "z",
-        "px", "py", "ps", "pe", "pt", "pr", "pb", "pl", "mx", "my", "ms", "me", "mt", "mr", "mb", "ml", "p", "m",
-        "w", "h",
-    ];
+
     for r in ROOTS {
         if let Some(rest) = u.strip_prefix(r) {
             if let Some(v) = rest.strip_prefix('-') {
@@ -1453,5 +1456,142 @@ mod tests {
         assert!(compile("lg:p-1").unwrap().sort > compile("md:p-1").unwrap().sort);
         assert!(compile("p-1").unwrap().sort < compile("hover:p-1").unwrap().sort);
         assert!(compile("p-1").unwrap().sort < compile("px-1").unwrap().sort);
+    }
+}
+
+// ==========================================================================
+// Suggestions ("did you mean ...?")
+
+/// Variant names for suggestions (functional ones by prefix).
+const VARIANTS: &[&str] = &[
+    "hover", "focus", "focus-visible", "focus-within", "active", "visited", "target", "first", "last", "only",
+    "odd", "even", "first-of-type", "last-of-type", "only-of-type", "empty", "disabled", "enabled", "checked",
+    "indeterminate", "default", "optional", "required", "valid", "invalid", "user-valid", "user-invalid",
+    "in-range", "out-of-range", "placeholder-shown", "autofill", "read-only", "read-write", "open", "inert",
+    "before", "after", "placeholder", "file", "marker", "selection", "first-line", "first-letter", "backdrop",
+    "sm", "md", "lg", "xl", "2xl", "max-sm", "max-md", "max-lg", "max-xl", "max-2xl", "@sm", "@md", "@lg",
+    "@xl", "@2xl", "dark", "motion-safe", "motion-reduce", "contrast-more", "contrast-less", "print",
+    "portrait", "landscape", "forced-colors", "rtl", "ltr", "starting", "*", "**", "group-hover", "group-focus",
+    "group-active", "peer-hover", "peer-focus", "peer-checked", "peer-invalid", "has-checked", "not-first",
+    "pointer-fine", "pointer-coarse",
+];
+
+fn distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut cur = vec![i; b.len() + 1];
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// Values worth trying after a root: theme keys and the common scales.
+fn value_candidates() -> Vec<String> {
+    let mut v: Vec<String> = THEME.iter().filter_map(|(k, _)| {
+        ["color-", "text-", "radius-", "shadow-", "blur-", "font-weight-", "tracking-", "leading-",
+         "breakpoint-", "container-", "drop-shadow-", "inset-shadow-", "text-shadow-", "perspective-"]
+            .iter().find_map(|p| k.strip_prefix(p)).filter(|r| !r.contains("--")).map(String::from)
+    }).collect();
+    for n in ["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "5", "6", "7", "8", "9", "10", "11", "12",
+              "14", "16", "20", "24", "28", "32", "36", "40", "44", "48", "52", "56", "60", "64", "72", "80",
+              "96", "px", "auto", "full", "screen", "min", "max", "fit", "none", "1/2", "1/3", "2/3", "1/4",
+              "3/4", "sans", "serif", "mono", "left", "center", "right", "start", "end", "between", "around",
+              "evenly", "stretch", "baseline", "row", "col", "wrap", "nowrap", "black", "white", "transparent",
+              "current", "inherit", "50", "75", "90", "95", "100", "105", "110", "125", "150", "45", "90", "180"] {
+        v.push(n.to_string());
+    }
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// Valid classes close to `class` (best first, at most 3): misspelled
+/// variants, roots, values or whole utilities.
+pub fn suggest(class: &str) -> Vec<String> {
+    let Some(parts) = split_variants(class) else { return Vec::new() };
+    let (vars, util) = parts.split_at(parts.len() - 1);
+    let util = util[0];
+    // each variant: itself when valid, else its nearest names
+    let mut var_options: Vec<Vec<String>> = Vec::new();
+    for v in vars {
+        if variant(v, ".x").is_some() {
+            var_options.push(vec![v.to_string()]);
+        } else {
+            let mut near: Vec<&str> = VARIANTS.to_vec();
+            near.sort_by_key(|n| distance(v, n));
+            var_options.push(near.into_iter().take(2).map(String::from).collect());
+        }
+    }
+    // the utility: itself when valid, else candidates
+    let utils: Vec<String> = if utility_decls(util.trim_matches('!')).is_some() {
+        vec![util.to_string()]
+    } else {
+        let (neg, body) = match util.strip_prefix('-') {
+            Some(b) => ("-", b),
+            None => ("", util),
+        };
+        let mut c: Vec<String> = STATIC.iter().map(|(n, _)| n.to_string()).collect();
+        let values = value_candidates();
+        let dashes: Vec<usize> = body.char_indices().filter(|(_, ch)| *ch == '-').map(|(k, _)| k).collect();
+        for &k in &dashes {
+            let (root, val) = (&body[..k], &body[k + 1..]);
+            for r in ROOTS {
+                c.push(format!("{neg}{r}-{val}")); // fix the root
+            }
+            for v in &values {
+                c.push(format!("{neg}{root}-{v}")); // fix the value
+            }
+        }
+        if dashes.is_empty() {
+            for r in ROOTS {
+                c.push(format!("{neg}{r}"));
+            }
+        }
+        c.retain(|x| utility_decls(x).is_some());
+        c.sort_by_key(|x| (distance(util, x), x.len().abs_diff(util.len())));
+        c.dedup();
+        c.into_iter().take(3).collect()
+    };
+    // combine (variants x utilities), keep what compiles, closest first
+    let mut out: Vec<String> = vec![String::new()];
+    for opts in var_options.iter().chain(std::iter::once(&utils)) {
+        out = out.iter().flat_map(|p| opts.iter().map(move |o| if p.is_empty() { o.clone() } else { format!("{p}:{o}") }))
+            .collect();
+    }
+    out.retain(|x| x != class && compile(x).is_some());
+    out.sort_by_key(|x| (distance(class, x), x.len().abs_diff(class.len())));
+    out.dedup();
+    out.truncate(3);
+    out
+}
+
+/// A compile-time error message for an unknown class.
+pub fn unknown_message(class: &str) -> String {
+    let s = suggest(class);
+    if s.is_empty() {
+        format!("`{class}` is not a Tailwind utility")
+    } else {
+        format!("`{class}` is not a Tailwind utility; did you mean {}?",
+                s.iter().map(|x| format!("`{x}`")).collect::<Vec<_>>().join(" or "))
+    }
+}
+
+#[cfg(test)]
+mod suggest_tests {
+    use super::*;
+
+    #[test]
+    fn did_you_mean() {
+        assert_eq!(suggest("bg-sky-50O").first().map(String::as_str), Some("bg-sky-500"));
+        assert_eq!(suggest("bgg-red-500").first().map(String::as_str), Some("bg-red-500"));
+        assert_eq!(suggest("hovr:p-4").first().map(String::as_str), Some("hover:p-4"));
+        assert_eq!(suggest("flx").first().map(String::as_str), Some("flex"));
+        assert_eq!(suggest("itms-center").first().map(String::as_str), Some("items-center"));
+        assert!(unknown_message("roundd-lg").contains("`rounded-lg`"));
     }
 }

@@ -11,6 +11,23 @@
 
 use proc_macro::{TokenStream, TokenTree};
 
+mod component;
+mod rsx;
+
+/// A function component (zopra / Leptos style): `#[component] fn card(title: &str) { rsx!{..} }`,
+/// used as `<card title="x"/>`. See `component.rs`.
+#[proc_macro_attribute]
+pub fn component(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    component::component(item)
+}
+
+/// JSX-style markup: `rsx! { <div class="p-4" onClick={|| ..}>"hi" {name}</div> }`.
+/// See `rsx.rs` for the (uniform) lowering to builder calls.
+#[proc_macro]
+pub fn rsx(input: TokenStream) -> TokenStream {
+    rsx::rsx(input)
+}
+
 #[proc_macro]
 pub fn css(input: TokenStream) -> TokenStream {
     match expand(input) {
@@ -33,9 +50,10 @@ pub fn tw(input: TokenStream) -> TokenStream {
     let Some(text) = unquote(&lit) else {
         return "::core::compile_error!(\"tw! takes one string literal\")".parse().unwrap();
     };
-    let unknown: Vec<&str> = text.split_whitespace().filter(|c| blenderui_tailwind::compile(c).is_none()).collect();
+    let unknown: Vec<String> = text.split_whitespace().filter(|c| blenderui_tailwind::compile(c).is_none())
+        .map(blenderui_tailwind::unknown_message).collect();
     if !unknown.is_empty() {
-        let msg = format!("tw!: not Tailwind utilities: {}", unknown.join(", "));
+        let msg = format!("tw!: {}", unknown.join("; "));
         return format!("::core::compile_error!({msg:?})").parse().unwrap();
     }
     format!("{text:?}").parse().unwrap()
