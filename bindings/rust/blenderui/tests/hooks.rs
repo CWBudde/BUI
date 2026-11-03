@@ -111,3 +111,67 @@ fn hooks_state_effects_context() {
         assert!(has(cx, "alice-liked"), "Alice kept hers");
     });
 }
+
+// optional props: `note` may be left out in markup
+#[component]
+fn Row(name: &str, note: Option<String>) {
+    let (n, set_n) = use_state(0usize);
+    let note = note.unwrap_or_default();
+    rsx! {
+        <div id={name.to_string()} class="h-2" onClick={move || set_n(n() + 1)} data-note={note}>
+            {if n() > 0 { <div id={format!("{name}-clicked-{}", n())} class="h-1" /> }}
+        </div>
+    }
+}
+
+struct List {
+    items: Vec<&'static str>,
+    keyed: bool,
+}
+
+impl Render for List {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let keyed = self.keyed;
+        rsx! {
+            <body style="margin: 0">
+                {for name in self.items.clone() {
+                    if keyed {
+                        rsx! { <Row key={name} name={name} /> }.into_any_element()
+                    } else {
+                        rsx! { <Row name={name} note={"plain".to_string()} /> }.into_any_element()
+                    }
+                }}
+            </body>
+        }
+    }
+}
+
+#[test]
+fn keys_and_optional_props() {
+    for keyed in [true, false] {
+        Application::headless().run(|cx| {
+            let win = cx.open_window(WindowOptions::default(), |_, cx| {
+                cx.new(|_| List { items: vec!["a", "b", "c"], keyed })
+            }).unwrap();
+            let id = win.id;
+            cx.draw(id);
+            let b = cx.element_bounds(id, "b").unwrap();
+            cx.simulate_click(id, b.origin.x + 2.0, b.origin.y + 1.0);
+            cx.draw(id);
+            assert!(cx.element_bounds(id, "b-clicked-1").is_some());
+            // remove "a": with keys, b keeps its state; without, state follows position
+            win.root().update(cx, |l, cx| {
+                l.items.remove(0);
+                cx.notify();
+            });
+            cx.draw(id);
+            let b_kept = cx.element_bounds(id, "b-clicked-1").is_some();
+            let c_got = cx.element_bounds(id, "c-clicked-1").is_some();
+            if keyed {
+                assert!(b_kept && !c_got, "keyed: state follows the key");
+            } else {
+                assert!(!b_kept && c_got, "unkeyed: state follows the position (React semantics)");
+            }
+        });
+    }
+}

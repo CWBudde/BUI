@@ -23,6 +23,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BUI_TEXT_GDI");
     let dst = cmake::Config::new(&root)
         .define("BUI_TEXT_GDI", if gdi { "ON" } else { "OFF" })
+        .define("BUI_SLUG", if std::env::var("CARGO_FEATURE_SLUG").is_ok() { "ON" } else { "OFF" })
         .define("BUI_BUILD_TESTS", "OFF")
         .define("BUI_BUILD_EXAMPLES", "OFF")
         .define("BUI_BUILD_PYTHON_BINDINGS", "OFF")

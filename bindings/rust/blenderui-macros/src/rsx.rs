@@ -6,7 +6,7 @@
 //! | markup                         | becomes                                   |
 //! |--------------------------------|-------------------------------------------|
 //! | `<div ...>`                    | `html::div()` (any tag; `<my-el>` -> `Div::new("my-el")`) |
-//! | `<Card a={x}>..</Card>`        | `Card { a: x, children: vec![..] }` (components) |
+//! | `<Card a={x}>..</Card>`        | `Card::__builder().a(x).children(vec![..])` (components; `Option` props may be left out) |
 //! | `name="lit"` / bare `name`     | `.attr("name", "lit")` (`class`, `style`, `id`: their methods) |
 //! | `name={expr}`                  | `.name(expr)`: any builder method (`checked`, `w`, `hover` ...) |
 //! | `onClick={|| ..}`              | `.on_click(|_, _, _| ..)` (missing listener params added) |
@@ -213,7 +213,8 @@ impl P<'_> {
         } else {
             ts(&format!("::blenderui::html::{tag}()"))
         };
-        let mut fields = TokenStream::new(); // component props
+        let mut fields = TokenStream::new(); // component props: `.name(value)` builder calls
+        let mut key: Option<TokenStream> = None; // `key=`: hook identity
         let mut classes: Vec<String> = Vec::new(); // bare utility attributes
         loop {
             match self.peek() {
@@ -226,7 +227,7 @@ impl P<'_> {
                     if !classes.is_empty() {
                         base.extend(ts(&format!(".class({:?})", classes.join(" "))));
                     }
-                    return Ok(if component { component_expr(&tag, fields, Vec::new()) } else { base });
+                    return Ok(if component { component_expr(&tag, fields, Vec::new(), key) } else { keyed(base, key) });
                 }
                 Some(TokenTree::Punct(p)) if p.as_char() == '>' => {
                     self.i += 1;
@@ -264,18 +265,19 @@ impl P<'_> {
                             None => {}
                         }
                     }
-                    if component {
-                        fields.extend(ts(&format!("{}:", name.replace('-', "_"))));
-                        fields.extend(match value {
+                    if name == "key" || component {
+                        // component setters take `impl Into<T>`: literals go in as they are
+                        let v = match value {
                             Some(TokenTree::Group(g)) => g.stream(),
-                            Some(t) => {
-                                let mut s = TokenStream::from(t);
-                                s.extend(ts(".into()"));
-                                s
-                            }
+                            Some(t) => TokenStream::from(t),
                             None => ts("true"),
-                        });
-                        fields.extend(ts(","));
+                        };
+                        if name == "key" {
+                            key = Some(v);
+                        } else {
+                            fields.extend(ts(&format!(".{}", name.replace('-', "_"))));
+                            fields.extend([TokenTree::Group(Group::new(Delimiter::Parenthesis, v))]);
+                        }
                     } else {
                         base.extend(attribute(&name, value)?);
                     }
@@ -287,12 +289,12 @@ impl P<'_> {
         }
         let kids = self.children_until(&tag)?;
         if component {
-            return Ok(component_expr(&tag, fields, kids));
+            return Ok(component_expr(&tag, fields, kids, key));
         }
         for k in kids {
             base.extend(k.call());
         }
-        Ok(base)
+        Ok(keyed(base, key))
     }
 
     /// Children up to `</tag>` (or `</>` for fragments).
@@ -334,8 +336,25 @@ fn join_words(words: &[String]) -> String {
     s
 }
 
-/// `<Card a={x}>kids</Card>` -> `Card { a: x, children: vec![..] }`
-fn component_expr(tag: &str, mut fields: TokenStream, kids: Vec<Child>) -> TokenStream {
+/// `key={k}`: hooks under this element are identified by `k`, not position.
+fn keyed(el: TokenStream, key: Option<TokenStream>) -> TokenStream {
+    match key {
+        None => el,
+        Some(k) => {
+            let mut args = k;
+            args.extend(ts(","));
+            args.extend(el);
+            let mut out = ts("::blenderui::hooks::keyed");
+            out.extend([TokenTree::Group(Group::new(Delimiter::Parenthesis, args))]);
+            out
+        }
+    }
+}
+
+/// `<Card a={x}>kids</Card>` -> `build(Card::__builder().a(x).children(vec![..]))`:
+/// `Option` props and `children` may be left out (`#[component]` and
+/// `#[derive(Props)]` generate the builder).
+fn component_expr(tag: &str, mut fields: TokenStream, kids: Vec<Child>, key: Option<TokenStream>) -> TokenStream {
     if !kids.is_empty() {
         // { let mut v = Vec::new(); v.push(..); v.extend(..); v }
         let mut body = ts("let mut __v: ::std::vec::Vec<::blenderui::element::AnyElement> = ::std::vec::Vec::new();");
@@ -356,13 +375,15 @@ fn component_expr(tag: &str, mut fields: TokenStream, kids: Vec<Child>) -> Token
             body.extend(ts(";"));
         }
         body.extend(ts("__v"));
-        fields.extend(ts("children:"));
-        fields.extend([TokenTree::Group(Group::new(Delimiter::Brace, body))]);
-        fields.extend(ts(","));
+        fields.extend(ts(".children"));
+        fields.extend([TokenTree::Group(Group::new(Delimiter::Parenthesis,
+            TokenStream::from(TokenTree::Group(Group::new(Delimiter::Brace, body)))))]);
     }
-    let mut out = ts(tag);
-    out.extend([TokenTree::Group(Group::new(Delimiter::Brace, fields))]);
-    out
+    let mut chain = ts(&format!("{tag}::__builder()"));
+    chain.extend(fields);
+    let mut out = ts("::blenderui::hooks::build");
+    out.extend([TokenTree::Group(Group::new(Delimiter::Parenthesis, chain))]);
+    keyed(out, key)
 }
 
 /// `hover:class="..."`, `md:dark:style="..."`, `hover:color="red"`,

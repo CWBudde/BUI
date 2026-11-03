@@ -41,10 +41,12 @@ type Job = Box<dyn FnOnce()>;
 struct Store {
     slots: Vec<Slot>,
     free: Vec<u32>,
-    /// (window, call site, occurrence) -> slot
-    keys: FnvMap<(usize, usize, u32), u32>,
-    /// occurrences of each call site in the current render
-    occ: FnvMap<usize, u32>,
+    /// (window, call site, key scope, occurrence) -> slot
+    keys: FnvMap<(usize, usize, u64, u32), u32>,
+    /// occurrences of each (call site, key scope) in the current render
+    occ: FnvMap<(usize, u64), u32>,
+    /// the keys of the keyed components being rendered, hashed together
+    scope: u64,
     window: Option<usize>,
     dirty: Vec<usize>,
     jobs: Vec<Job>,
@@ -90,8 +92,8 @@ impl Store {
     fn hook_slot(&mut self, site: &'static Location<'static>, init: impl FnOnce() -> Box<dyn Any>) -> (u32, u32) {
         let window = self.window.unwrap_or(usize::MAX);
         let site = site as *const Location as usize;
-        let n = self.occ.entry(site).or_insert(0);
-        let key = (window, site, *n);
+        let n = self.occ.entry((site, self.scope)).or_insert(0);
+        let key = (window, site, self.scope, *n);
         *n += 1;
         if let Some(&i) = self.keys.get(&key) {
             let s = &mut self.slots[i as usize];
@@ -112,6 +114,7 @@ pub(crate) fn begin(window: usize) {
         s.window = Some(window);
         s.occ.clear();
         s.ctx.clear();
+        s.scope = 0;
         for slot in s.slots.iter_mut().filter(|x| x.window == window && x.hook) {
             slot.seen = false;
         }
@@ -498,3 +501,56 @@ pub fn component<R>(body: impl FnOnce() -> R) -> R {
 
 /// Children of a component (`#[component] fn card(children: Children)`).
 pub type Children = Vec<crate::element::AnyElement>;
+
+/// `<Item key={id} ../>`: a component whose hook state follows its key, not
+/// its position among its siblings (React's `key`). Without keys, removing
+/// the first item of a list hands its state to the next one.
+pub struct Keyed<E> {
+    key: u64,
+    inner: E,
+}
+
+/// Wraps `inner` so the hooks it runs are identified by `key` (`rsx!` does
+/// this for `key=` attributes).
+pub fn keyed<K: std::hash::Hash, E>(key: K, inner: E) -> Keyed<E> {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::hash::BuildHasherDefault::<std::collections::hash_map::DefaultHasher>::default().build_hasher();
+    key.hash(&mut h);
+    Keyed { key: h.finish(), inner }
+}
+
+impl<E: crate::element::IntoElement> crate::element::IntoElement for Keyed<E> {
+    fn into_any_element(self) -> crate::element::AnyElement {
+        let outer = with(|s| {
+            let outer = s.scope;
+            // nested keys combine: a keyed row inside a keyed list
+            s.scope = (outer ^ self.key).wrapping_mul(0x9e37_79b9_7f4a_7c15).rotate_left(29) | 1;
+            outer
+        });
+        let el = self.inner.into_any_element();
+        with(|s| s.scope = outer);
+        el
+    }
+}
+
+/// A component's props, built field by field (`rsx!` calls the setters, then
+/// [`build`]). Implemented by `#[component]` and `#[derive(Props)]`
+/// builders once every required prop is set.
+#[diagnostic::on_unimplemented(
+    message = "a required prop is missing: `{Self}`",
+    label = "set the props named `missing_<prop>` in this builder's type",
+    note = "optional props are `Option<T>` (or `children`); every other prop must be given"
+)]
+pub trait Complete {
+    type Props;
+    fn finish(self) -> Self::Props;
+}
+
+/// A required prop that has been set (props builders' type state).
+#[doc(hidden)]
+pub struct Set;
+
+#[doc(hidden)]
+pub fn build<B: Complete>(builder: B) -> B::Props {
+    builder.finish()
+}

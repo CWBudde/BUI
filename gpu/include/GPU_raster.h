@@ -212,6 +212,12 @@ int BUI_raster_is_gpu(const BuiRaster *r);
  * BUI_GPU environment variable (1/0). Off by default. */
 void BUI_gpu_set_default(int on);
 int BUI_gpu_default(void);
+/* How the GPU renderer draws text: 1 = Slug (glyph outlines evaluated in the
+ * pixel shader; sharp at any size), 0 = per-glyph bitmap atlas (Blender's
+ * approach; less GPU work). Takes effect on the next frame. Default: the
+ * BUI_SLUG build option (ON), overridden by the BUI_SLUG variable (1/0). */
+void BUI_gpu_set_slug(int on);
+int BUI_gpu_slug(void);
 
 /* A BuiGpuSink that renders into `r` (user pointer is the raster). */
 const BuiGpuSink *BUI_raster_sink(BuiRaster *r);

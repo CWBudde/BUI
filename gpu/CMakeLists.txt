@@ -28,6 +28,10 @@ endif()
 # ClearType-style hinting, no Slug). BUI_TEXT_STB is kept as a no-op.
 option(BUI_TEXT_GDI "Use the native GDI text engine on Windows" OFF)
 option(BUI_TEXT_STB "Deprecated: the portable engine is the default" ON)
+# GPU text: Slug (glyph outlines in the pixel shader) or the per-glyph atlas.
+# Runtime: BUI_gpu_set_slug() / BUI_SLUG=1|0; this sets the default.
+option(BUI_SLUG "GPU renderer draws text with Slug by default (else a glyph atlas)" ON)
+target_compile_definitions(bui_gpu PRIVATE BUI_SLUG_DEFAULT=$<BOOL:${BUI_SLUG}>)
 if(BUI_TEXT_GDI)
   target_compile_definitions(bui_gpu PRIVATE BUI_TEXT_GDI=1)
 endif()

@@ -17,6 +17,10 @@ include = ["src/**", "build.rs", "Cargo.toml", "csrc/**"]
 # Windows' native GDI text engine (system fonts) instead of the portable
 # engine (embedded Inter, GPU Slug glyphs).
 gdi-text = []
+# GPU text drawn with Slug (glyph outlines in the pixel shader) by default;
+# without it, the per-glyph atlas. Switchable at runtime either way.
+slug = []
+default = ["slug"]
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = []
 

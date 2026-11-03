@@ -90,6 +90,10 @@ pub use blenderui_macros::rsx;
 /// [`rsx!`] under its zopra / Leptos name.
 pub use blenderui_macros::rsx as view;
 
+/// `#[derive(Props)]` on a struct component: `rsx!` may leave out its
+/// `Option<T>` fields and `children`, and names missing required ones.
+pub use blenderui_macros::Props;
+
 pub mod calc;
 pub mod color;
 mod color4;
@@ -135,10 +139,26 @@ pub fn set_tailwind(on: bool) {
 /// the data isn't a font.
 pub fn add_font(family: &str, bold: bool, italic: bool, data: &[u8]) -> bool {
     let fam = std::ffi::CString::new(family).unwrap_or_default();
+    text::register_family(family);
     let flags = if bold { 1 } else { 0 } | if italic { 2 } else { 0 };
     let len = data.len().min(i32::MAX as usize) as i32;
     // SAFETY: the kit copies the bytes; both pointers are valid for the call.
     unsafe { sys::BUI_text_add_font(fam.as_ptr(), flags, data.as_ptr().cast(), len) != 0 }
+}
+
+/// How the GPU renderer draws text. `true`: Slug, glyph outlines evaluated
+/// in the pixel shader (sharp at any size; the default with the `slug`
+/// feature). `false`: a per-glyph bitmap atlas like Blender's (less GPU
+/// work). Takes effect on the next frame; `BUI_SLUG=1`/`0` overrides.
+pub fn set_slug(on: bool) {
+    // SAFETY: sets a global flag.
+    unsafe { sys::BUI_gpu_set_slug(on as std::os::raw::c_int) }
+}
+
+/// Whether GPU text is drawn with Slug (see [`set_slug`]).
+pub fn slug() -> bool {
+    // SAFETY: reads a global flag.
+    unsafe { sys::BUI_gpu_slug() != 0 }
 }
 
 /// Everything an app needs: `use blenderui::prelude::*;`
@@ -148,7 +168,7 @@ pub mod prelude {
         create_signal, provide_context, signal, try_use_context, use_context, use_memo, use_signal, use_state,
         Children, Effect, Memo, ReadSignal, RwSignal, Signal, WriteSignal,
     };
-    pub use blenderui_macros::component;
+    pub use blenderui_macros::{component, Props};
     pub use crate::color::*;
     pub use crate::element::*;
     pub use crate::events::*;

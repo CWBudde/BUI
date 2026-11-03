@@ -23,6 +23,13 @@ pub fn component(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// JSX-style markup: `rsx! { <div class="p-4" onClick={|| ..}>"hi" {name}</div> }`.
 /// See `rsx.rs` for the (uniform) lowering to builder calls.
+/// `#[derive(Props)]`: a props builder for a struct component, so `rsx!`
+/// can leave out its `Option<T>` fields and `children`.
+#[proc_macro_derive(Props)]
+pub fn derive_props(item: TokenStream) -> TokenStream {
+    component::derive_props(item)
+}
+
 #[proc_macro]
 pub fn rsx(input: TokenStream) -> TokenStream {
     rsx::rsx(input)

@@ -11,7 +11,7 @@ categories = ["gui"]
 readme = "README.md"
 
 [dependencies]
-blenderui-sys = { path = "../blenderui-sys", version = "0.1.0" }
+blenderui-sys = { path = "../blenderui-sys", version = "0.1.0", default-features = false }
 blenderui-macros = { path = "../blenderui-macros", version = "0.1.0" }
 blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.1.0" }
 taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "flexbox_balance", "grid", "block_layout", "float_layout", "calc", "content_size"] }
@@ -23,5 +23,9 @@ png = "0.17"
 # Draw text with Windows' native GDI engine (system fonts) instead of the
 # default portable engine (embedded Inter, like Blender; Slug on the GPU).
 gdi-text = ["blenderui-sys/gdi-text"]
+# GPU text with Slug by default (else the per-glyph atlas); see
+# `Application::slug` / `blenderui::set_slug` to switch at runtime.
+slug = ["blenderui-sys/slug"]
+default = ["slug"]
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = ["blenderui-sys/portable-text"]

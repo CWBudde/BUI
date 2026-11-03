@@ -288,3 +288,100 @@ fn tailwind_classes() {
         assert_eq!(rect(cx, w, "f1").3, 4.0, "[&>*]: arbitrary variant");
     });
 }
+
+/// A page whose stylesheet is built at run time.
+struct DynPage {
+    css: String,
+    body: fn() -> Div,
+}
+
+impl Render for DynPage {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        (self.body)().child(style().child(self.css.clone()))
+    }
+}
+
+/// A 2x1 PNG: red, blue (for image placement checks).
+fn tile_png() -> String {
+    let path = std::env::temp_dir().join("bui_test_tile.png");
+    let f = std::fs::File::create(&path).unwrap();
+    let mut e = png::Encoder::new(f, 2, 1);
+    e.set_color(png::ColorType::Rgba);
+    e.set_depth(png::BitDepth::Eight);
+    e.write_header().unwrap().write_image_data(&[255, 0, 0, 255, 0, 0, 255, 255]).unwrap();
+    path.to_string_lossy().replace('\\', "/")
+}
+
+#[test]
+fn property_initial_logical_borders_container_queries() {
+    Application::headless().run(|cx| {
+        let w = page(cx, 600.0, 300.0, "
+            @property --size { syntax: '<length>'; inherits: false; initial-value: 40px }
+            body { margin: 0 }
+            #p { width: var(--size); height: 5px }
+            #lb { box-sizing: content-box; width: 10px; height: 10px;
+                  border-inline-style: solid; border-inline-width: 3px 5px;
+                  border-block-start-width: 2px; border-block-start-style: solid }
+            .wide { container-type: inline-size; width: 300px }
+            .narrow { container: side / inline-size; width: 100px }
+            .cq { width: 10px; height: 5px }
+            @container (min-width: 200px) { .cq { width: 50px } }
+            @container side (max-width: 150px) { .cq { width: 20px } }
+        ", || {
+            body()
+                .child(div().id("p"))
+                .child(div().id("lb"))
+                .child(div().class("wide").child(div().class("cq").id("cq1")))
+                .child(div().class("narrow").child(div().class("cq").id("cq2")))
+        });
+        assert_eq!(rect(cx, w, "p").2, 40.0, "@property initial-value");
+        let lb = rect(cx, w, "lb");
+        assert_eq!((lb.2, lb.3), (18.0, 12.0), "logical border longhands");
+        cx.draw(w);
+        assert_eq!(rect(cx, w, "cq1").2, 50.0, "@container (min-width: 200px)");
+        assert_eq!(rect(cx, w, "cq2").2, 20.0, "named @container");
+    });
+}
+
+#[test]
+fn object_fit_and_background_images() {
+    let png = tile_png();
+    Application::headless().run(|cx| {
+        let css = format!("
+            body {{ margin: 0; background: #000 }}
+            #img {{ width: 100px; height: 100px; object-fit: contain; display: block }}
+            #bg {{ width: 40px; height: 40px; background: url('{png}') no-repeat right bottom / 20px 10px }}
+            #rep {{ width: 40px; height: 4px; background-image: url('{png}'); background-size: 4px 4px }}
+        ");
+        fn body_fn() -> Div {
+            let png = std::env::temp_dir().join("bui_test_tile.png").to_string_lossy().replace('\\', "/");
+            body().child(img().id("img").src(png)).child(div().id("bg")).child(div().id("rep"))
+        }
+        let win = open(cx, 200.0, 200.0, DynPage { css, body: body_fn });
+        let (pw, _, px) = cx.draw(win.id);
+        let at = |x: usize, y: usize| px[y * pw + x] & 0xffffff;
+        // contain: a 2:1 image in 100x100 is 100x50, centred (rows 25..75)
+        assert_eq!(at(25, 10), 0x000000, "letterbox above");
+        assert_eq!(at(25, 50), 0xff0000, "left half red");
+        assert_eq!(at(75, 50), 0x0000ff, "right half blue");
+        // background: 20x10 at the bottom right of the 40x40 box (y 100..140)
+        assert_eq!(at(5, 105), 0x000000);
+        assert_eq!(at(25, 135), 0xff0000);
+        assert_eq!(at(35, 135), 0x0000ff);
+        // repeated 4px tiles across 40px: red, blue alternating every 2px
+        assert_eq!(at(1, 141), 0xff0000);
+        assert_eq!(at(3, 141), 0x0000ff);
+        assert_eq!(at(37, 141), 0xff0000, "tile 36..40: red half");
+        assert_eq!(at(39, 141), 0x0000ff, "tile 36..40: blue half");
+    });
+}
+
+#[test]
+fn css_aliases_parse() {
+    use blenderui::style::is_supported;
+    for p in ["text-wrap-mode", "white-space-collapse", "scale", "border-block-color", "overscroll-behavior-x",
+              "scroll-margin-top", "font-variant-numeric", "mask-image", "container-type", "background-position-x",
+              "all"] {
+        assert!(is_supported(p), "{p}");
+    }
+}

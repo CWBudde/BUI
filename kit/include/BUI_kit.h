@@ -215,6 +215,8 @@ typedef struct BKCanvasItem {
   int text_flags;  /* BUI_FONT_BOLD | ITALIC | UNDERLINE */
   int clip_on;     /* clip the item to `clip` (x, y, w, h in canvas space) */
   float clip[4];
+  const char *family; /* text font family; NULL = the UI font. Not copied:
+                         it must outlive the item (e.g. a static string) */
 } BKCanvasItem;
 void BK_canvas_set_item(BKNode *canvas, const BKCanvasItem *item); /* insert or replace by id */
 void BK_canvas_add_item(BKNode *canvas, const BKCanvasItem *item);

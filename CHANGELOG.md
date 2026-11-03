@@ -10,6 +10,15 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Text looks like Blender's:** Inter, Blender's UI font, is embedded and is the default face on every platform. The portable stb_truetype engine is now the default on Windows too. `-DBUI_TEXT_GDI=ON` (Rust: the `gdi-text` feature) restores GDI and system fonts. `BUI_TEXT_STB` and `portable-text` are now no-ops.
 
 ### Added
+- **Slug as a flag:** GPU text is Slug or the per-glyph atlas, chosen at build time (CMake `BUI_SLUG`, Rust feature `slug`, both on by default) or at run time (`BUI_gpu_set_slug`, `bui.set_slug`, `Application::slug` / `blenderui::set_slug`, `BUI_SLUG=1/0`).
+- **Optional props and keys** (Rust): `Option<T>` props and `children` may be left out in `rsx!`, and a missing required prop is a compile error that names it. `key={..}` ties a component's hook state to the key instead of its position. Struct components opt in with `#[derive(Props)]`.
+- **CSS** (Rust):
+  - **Applied at-rules:** `@container` size queries (`container-type`, `container-name`, `container`), `@font-face` (loads local font files) and `@property` initial values.
+  - **Images:** `background-image: url()` with `background-size`, `-position` (including `-x` / `-y`) and `-repeat`, plus the `background` shorthand; `object-fit` and `object-position` on `<img>`.
+  - **Font families:** `font-family` now selects the face (registered, installed, or generic `monospace` / `serif`).
+  - **Longhands and aliases:** logical border longhands, `text-wrap-mode`, `white-space-collapse`, `scale` and `all`.
+  - **Parsed (no effect yet):** about 100 more properties, including scroll margins and padding, overscroll, OpenType font features, masks and `contain-intrinsic-*`.
+  - **Coverage:** 207 of 745 W3C properties now render (was 176), 177 more parse (was 75), and CSS 2.1 is at 82 of 90.
 - **Slug GPU text:** with the GPU renderer, glyphs are drawn from their outlines with Eric Lengyel's Slug algorithm: one instance per glyph, exact coverage in the pixel shader, cached curve and band textures, no CPU rasterization. `BUI_SLUG=0` falls back to per-glyph bitmaps in the GPU atlas (Blender's approach).
 - **Components and hooks** (Rust, compatible with zopra, React and Leptos):
   - `#[component]` turns a function into a component, with lowercase or uppercase names and `&str` props.

@@ -1199,6 +1199,11 @@ struct Ctx {
 }
 
 impl Stylesheet {
+    /// Whether any rule sits under `@container`.
+    pub fn has_container_queries(&self) -> bool {
+        !self.containers.is_empty()
+    }
+
     /// Parse CSS text.
     pub fn parse(css: &str) -> Stylesheet {
         let mut sheet = Stylesheet::default();

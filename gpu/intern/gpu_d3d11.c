@@ -618,10 +618,8 @@ static int slug_tex(BuiGpu *g, DXGI_FORMAT fmt, ID3D11Texture2D **r_tex,
 int bui_gpu_slug_on(BuiGpu *g)
 {
   if (g->slug == 0) {
-    const char *env = getenv("BUI_SLUG");
     g->slug = -1;
-    if (!(env && env[0] == '0') &&
-        slug_tex(g, DXGI_FORMAT_R32G32B32A32_FLOAT, &g->curve_tex, &g->curve_srv) &&
+    if (slug_tex(g, DXGI_FORMAT_R32G32B32A32_FLOAT, &g->curve_tex, &g->curve_srv) &&
         slug_tex(g, DXGI_FORMAT_R32G32_UINT, &g->band_tex, &g->band_srv) &&
         (g->slug_map = (SlugGlyph *)calloc(SLUG_MAP, sizeof(SlugGlyph))) != NULL)
     {

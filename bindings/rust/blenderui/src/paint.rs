@@ -297,7 +297,7 @@ impl Painter {
                 Kind::Text { start, size, flags } => {
                     ci.type_ = sys::BK_ITEM_TEXT;
                     ci.size = size * scale;
-                    ci.text_flags = *flags;
+                    (ci.family, ci.text_flags) = crate::text::family(*flags);
                     ci.anchor = sys::BK_ANCHOR_N | sys::BK_ANCHOR_W;
                     ci.text = self.text[*start as usize..].as_ptr().cast();
                 }
@@ -384,7 +384,8 @@ pub(crate) fn paint_frame(frame: &Frame, styles: &StyleStore, tc: &mut TextCache
 /// only undecorated same-sized boxes in between (so nothing else can show).
 fn redundant_background(frame: &Frame, styles: &StyleStore, n: &BoxNode) -> bool {
     let c = &styles[n.style];
-    if c.background.a < 1.0 || c.gradient.is_some() || !c.shadows.is_empty() {
+    if c.background.a < 1.0 || c.gradient.is_some() || !c.shadows.is_empty()
+        || c.images.as_ref().is_some_and(|i| i.bg_url.is_some()) {
         return false;
     }
     let mut cur = n.parent;
@@ -467,7 +468,16 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
             if let Content::Replaced(r) = &n.content {
                 let inner = content_box(c, b);
                 match r {
-                    Replaced::Image(img) => p.image(inner, img),
+                    Replaced::Image(img) => match &c.images {
+                        Some(st) if st.object_fit != crate::style::ObjectFit::Fill
+                            || st.object_position != [crate::style::Pos::CENTER; 2] => {
+                            let (x, y, w, h) = st.object_rect(
+                                (inner.origin.x, inner.origin.y, inner.size.width, inner.size.height),
+                                (img.width as f32, img.height as f32));
+                            p.with_clip(inner, |p| p.image(rect(x, y, w, h), img));
+                        }
+                        _ => p.image(inner, img),
+                    },
                     Replaced::Painted(f) => p.with_clip(inner, |p| f(inner, p)),
                     Replaced::Placeholder(tag) => {
                         p.fill(inner, crate::color::rgb(0x282828));
@@ -485,7 +495,7 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
     }
 }
 
-fn content_box(c: &Computed, b: Bounds<f32>) -> Bounds<f32> {
+pub(crate) fn content_box(c: &Computed, b: Bounds<f32>) -> Bounds<f32> {
     let w = b.size.width;
     let bw = border_widths(c, w);
     let pd = c.layout.padding;
@@ -554,6 +564,9 @@ fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_ba
         Some(g) => p.with_clip(b, |p| paint_gradient(p, g, b)),
         None if skip_background => {}
         None => p.quad(b, r, c.background, Rgba::TRANSPARENT, 0.0),
+    }
+    if let Some(st) = c.images.as_deref().filter(|st| st.bg_url.is_some()) {
+        paint_background_image(p, c, st, b);
     }
     for s in c.shadows.iter().filter(|s| s.inset) {
         let w = s.blur.max(1.0) + s.spread;
@@ -674,4 +687,46 @@ fn paint_scrollbars(n: &BoxNode, p: &mut Painter) {
         p.quad(rect(tx + 1.0, b.origin.y + b.size.height - 6.0, tw - 2.0, 4.0), 2.0, thumb,
                Rgba::TRANSPARENT, 0.0);
     }
+}
+
+/// `background-image: url()` files (PNG), decoded once per process.
+fn background_file(url: &str) -> Option<Arc<Image>> {
+    static FILES: std::sync::Mutex<Option<HashMap<String, Option<Arc<Image>>>>> = std::sync::Mutex::new(None);
+    let mut files = FILES.lock().unwrap_or_else(|e| e.into_inner());
+    let files = files.get_or_insert_with(HashMap::new);
+    if let Some(i) = files.get(url) {
+        return i.clone();
+    }
+    let img = Image::from_png(url).map(Arc::new);
+    files.insert(url.to_owned(), img.clone());
+    img
+}
+
+/// A background image over the padding box: sized, positioned and tiled.
+fn paint_background_image(p: &mut Painter, c: &Computed, st: &crate::style::ImageStyle, b: Bounds<f32>) {
+    let Some(img) = st.bg_url.as_deref().and_then(background_file) else { return };
+    let bw = border_widths(c, b.size.width);
+    let (ax, ay) = (b.origin.x + bw[3], b.origin.y + bw[0]);
+    let (aw, ah) = (b.size.width - bw[1] - bw[3], b.size.height - bw[0] - bw[2]);
+    let (tw, th) = st.tile((aw, ah), (img.width as f32, img.height as f32));
+    if tw < 0.5 || th < 0.5 || aw <= 0.0 || ah <= 0.0 {
+        return;
+    }
+    let x0 = ax + st.bg_position[0].at(aw - tw);
+    let y0 = ay + st.bg_position[1].at(ah - th);
+    // first tile at or before the area's start, when repeating
+    let sx = if st.bg_repeat.0 { x0 - ((x0 - ax) / tw).ceil() * tw } else { x0 };
+    let sy = if st.bg_repeat.1 { y0 - ((y0 - ay) / th).ceil() * th } else { y0 };
+    let nx = if st.bg_repeat.0 { ((ax + aw - sx) / tw).ceil() as usize } else { 1 };
+    let ny = if st.bg_repeat.1 { ((ay + ah - sy) / th).ceil() as usize } else { 1 };
+    if nx.saturating_mul(ny) > 4096 {
+        return; // tiny tiles over a huge box: not worth thousands of quads
+    }
+    p.with_clip(rect(ax, ay, aw, ah), |p| {
+        for j in 0..ny {
+            for i in 0..nx {
+                p.image(rect(sx + i as f32 * tw, sy + j as f32 * th, tw, th), &img);
+            }
+        }
+    });
 }

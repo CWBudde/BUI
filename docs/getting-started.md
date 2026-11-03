@@ -31,6 +31,7 @@ cmake --build build
 | `BUI_BUILD_UI` | `OFF` | Compile Blender's original `ui/` sources as well (not needed for the kit) |
 | `BUI_BUILD_QT_BACKEND` | `OFF` | The C++ Qt/QPainter render-sink backend (needs Qt 5/6 Widgets) |
 | `BUI_WARNINGS_AS_ERRORS` | `OFF` | `-Werror` / `/WX` |
+| `BUI_SLUG` | `ON` | GPU text from glyph outlines (Slug) by default; `OFF` makes the glyph atlas the default (switchable at run time either way) |
 | `BUI_TEXT_GDI` | `OFF` | Use Windows' GDI text engine and system fonts instead of the portable engine (embedded Inter, Slug on the GPU) |
 
 ## 2. Use it from Python
@@ -83,7 +84,7 @@ shared (`bui.host`).
 | `BUI_GPU=1` | Draw native windows on the GPU (Direct3D 11). `BUI_GPU=0` forces the software raster. Overrides `bui.set_gpu()` / `.gpu(true)` |
 | `BUI_GPU_DEBUG=1` | Print why the GPU renderer could not start |
 | `BUI_FONT`, `BUI_FONT_DIR` | A font file to replace the embedded Inter UI font, and an extra font folder |
-| `BUI_SLUG` | `0` draws GPU text from a per-glyph bitmap atlas instead of glyph outlines (Slug) |
+| `BUI_SLUG` | `0` draws GPU text from a per-glyph bitmap atlas instead of glyph outlines (Slug); `1` forces Slug. Overrides `bui.set_slug()` / `.slug()` / `BUI_gpu_set_slug()` |
 | `BUI_PROFILE=1` | Print per-phase frame times (raster and present) |
 
 ## Window hosts
@@ -109,6 +110,16 @@ Native windows draw on the CPU by default. To draw them on the GPU
 | Rust | `Application::new().gpu(true)` or `WindowOptions { gpu: Some(true), .. }` |
 | C | `BUI_gpu_set_default(1)` or `BK_window_set_gpu(win, 1)` |
 | Any app, no code change | `BUI_GPU=1` |
+
+GPU text is drawn with Slug (from glyph outlines, sharp at any size) or from
+a per-glyph bitmap atlas like Blender's (about half the GPU work):
+
+| Where | Slug (default) / atlas |
+|---|---|
+| Python | `bui.set_slug(True)` / `bui.set_slug(False)` |
+| Rust | `Application::new().slug(..)`, `blenderui::set_slug(..)`, or build without the default `slug` feature |
+| C | `BUI_gpu_set_slug(1 / 0)`, or CMake `-DBUI_SLUG=OFF` for the atlas by default |
+| Any app | `BUI_SLUG=1` / `BUI_SLUG=0` |
 
 Both renderers draw the same pixels. The GPU uses far less CPU per frame
 (about 2-4x less in the

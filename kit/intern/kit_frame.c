@@ -917,7 +917,7 @@ static bool citem_bbox(const CItem *ci, float b[4])
     }
     const float size = it->size > 0 ? it->size : bk_font_size();
     float tw = 0;
-    BUI_text_measure("", it->text_flags, size, ci->text, (int)strlen(ci->text), &tw);
+    BUI_text_measure(it->family ? it->family : "", it->text_flags, size, ci->text, (int)strlen(ci->text), &tw);
     const float x = p[0] - anchor_off(it->anchor, (int)tw, BK_ANCHOR_W, BK_ANCHOR_E);
     const float asc = size * 0.72f;
     const float base = p[1] + asc - anchor_off(it->anchor, (int)asc, BK_ANCHOR_N, BK_ANCHOR_S);
@@ -1216,7 +1216,7 @@ static void canvas_item_draw(BuiRaster *r, const CItem *ci, float ox, float oy, 
       const int len = (int)strlen(ci->text);
       float tw = 0;
       if (!(it->anchor & BK_ANCHOR_W)) { /* the width only moves centred / right text */
-        BUI_text_measure("", it->text_flags, size, ci->text, len, &tw);
+        BUI_text_measure(it->family ? it->family : "", it->text_flags, size, ci->text, len, &tw);
       }
       float x = ox + p[0], y = oy + p[1];
       x -= anchor_off(it->anchor, (int)tw, BK_ANCHOR_W, BK_ANCHOR_E);
@@ -1228,7 +1228,7 @@ static void canvas_item_draw(BuiRaster *r, const CItem *ci, float ox, float oy, 
         BUI_raster_text_run(r, prep->tx, prep->ty, prep->run, c);
       }
       else {
-        BUI_raster_set_font(r, "", it->text_flags);
+        BUI_raster_set_font(r, it->family ? it->family : "", it->text_flags);
         BUI_raster_text(r, floorf(x + 0.5f), floorf(y + 0.5f), ci->text, len, size, c);
       }
       break;
@@ -1326,7 +1326,7 @@ static bool item_prepare(const CItem *ci, float ox, float oy, ItemPrep *pp)
   if (it->type == BK_ITEM_TEXT && ci->text && it->ncoords >= 2) {
     const float size = it->size > 0 ? it->size : bk_font_size();
     float tw = 0;
-    pp->run = BUI_text_prepare("", it->text_flags, size, ci->text, (int)strlen(ci->text), &tw);
+    pp->run = BUI_text_prepare(it->family ? it->family : "", it->text_flags, size, ci->text, (int)strlen(ci->text), &tw);
     float x = ox + p[0], y = oy + p[1];
     x -= anchor_off(it->anchor, (int)tw, BK_ANCHOR_W, BK_ANCHOR_E);
     const float asc = size * 0.72f;

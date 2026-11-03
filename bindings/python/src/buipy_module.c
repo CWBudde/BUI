@@ -1154,6 +1154,17 @@ static PyObject *buipy_set_gpu(PyObject *self, PyObject *on)
   Py_RETURN_NONE;
 }
 
+static PyObject *buipy_set_slug(PyObject *self, PyObject *on)
+{
+  (void)self;
+  const int v = PyObject_IsTrue(on);
+  if (v < 0) {
+    return NULL;
+  }
+  BUI_gpu_set_slug(v);
+  Py_RETURN_NONE;
+}
+
 static PyObject *buipy_gpu_default(PyObject *self, PyObject *noargs)
 {
   (void)self;
@@ -1253,6 +1264,8 @@ static PyMethodDef buipy_methods[] = {
     {"set_gpu", buipy_set_gpu, METH_O,
      "set_gpu(on): new native windows draw on the GPU (Direct3D 11). BUI_GPU=1/0 overrides."},
     {"gpu_default", buipy_gpu_default, METH_NOARGS, "Whether new native windows use the GPU."},
+    {"set_slug", buipy_set_slug, METH_O,
+     "set_slug(on): GPU text from glyph outlines (Slug) or a glyph atlas. BUI_SLUG=1/0 overrides."},
     {"draw_triangles", buipy_draw_triangles, METH_VARARGS, "draw_triangles([(x, y), ...], [(r, g, b, a), ...]): per-vertex colored triangles."},
     {"draw_gradient", buipy_draw_gradient, METH_VARARGS, "draw_gradient(x, y, w, h, tl, tr, br, bl): bilinear corner-color rectangle."},
     {"draw_hsv_circle", buipy_draw_hsv_circle, METH_VARARGS, "draw_hsv_circle(cx, cy, radius, value): Blender HSV color wheel."},

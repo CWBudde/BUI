@@ -3,6 +3,7 @@
 use blenderui::prelude::*;
 
 /// A component: a struct with props and children.
+#[derive(Props)]
 struct Card {
     title: SharedString,
     children: Vec<AnyElement>,

@@ -113,6 +113,113 @@ pub struct Shadow {
     pub inset: bool,
 }
 
+/// A position along one axis: `frac` of the free space plus `px`
+/// (`left` = 0, `center` = 0.5, `75%`, `10px`, `right 10px` ...).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pos {
+    pub frac: f32,
+    pub px: f32,
+}
+
+impl Pos {
+    pub const START: Pos = Pos { frac: 0.0, px: 0.0 };
+    pub const CENTER: Pos = Pos { frac: 0.5, px: 0.0 };
+
+    /// Offset into `free` pixels of room.
+    pub fn at(self, free: f32) -> f32 {
+        free * self.frac + self.px
+    }
+}
+
+/// `object-fit`.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum ObjectFit {
+    #[default]
+    Fill,
+    Contain,
+    Cover,
+    None,
+    ScaleDown,
+}
+
+/// `background-size`: a size is a fraction of the box plus pixels; `None` = auto.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum BgSize {
+    #[default]
+    Auto,
+    Cover,
+    Contain,
+    Size(Option<Pos>, Option<Pos>),
+}
+
+/// Image placement: `object-*` for replaced content, `background-*` images.
+/// Boxed in [`Computed::images`]: most elements have neither.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageStyle {
+    pub object_fit: ObjectFit,
+    pub object_position: [Pos; 2],
+    pub bg_url: Option<std::sync::Arc<str>>,
+    pub bg_size: BgSize,
+    pub bg_position: [Pos; 2],
+    /// repeat along x, y
+    pub bg_repeat: (bool, bool),
+}
+
+impl Default for ImageStyle {
+    fn default() -> Self {
+        ImageStyle {
+            object_fit: ObjectFit::Fill,
+            object_position: [Pos::CENTER; 2],
+            bg_url: None,
+            bg_size: BgSize::Auto,
+            bg_position: [Pos::START; 2],
+            bg_repeat: (true, true),
+        }
+    }
+}
+
+impl ImageStyle {
+    /// Where an image of `natural` size goes in `area` with `object-fit` /
+    /// `object-position` (it may overflow `area`; clip to it).
+    pub fn object_rect(&self, area: (f32, f32, f32, f32), natural: (f32, f32)) -> (f32, f32, f32, f32) {
+        let (x, y, w, h) = area;
+        let (nw, nh) = (natural.0.max(1.0), natural.1.max(1.0));
+        let (dw, dh) = match self.object_fit {
+            ObjectFit::Fill => (w, h),
+            ObjectFit::None => (nw, nh),
+            ObjectFit::Contain | ObjectFit::Cover | ObjectFit::ScaleDown => {
+                let s = if self.object_fit == ObjectFit::Cover { (w / nw).max(h / nh) } else { (w / nw).min(h / nh) };
+                let s = if self.object_fit == ObjectFit::ScaleDown { s.min(1.0) } else { s };
+                (nw * s, nh * s)
+            }
+        };
+        (x + self.object_position[0].at(w - dw), y + self.object_position[1].at(h - dh), dw, dh)
+    }
+
+    /// One background tile's size for an image of `natural` size in `area`.
+    pub fn tile(&self, area: (f32, f32), natural: (f32, f32)) -> (f32, f32) {
+        let (w, h) = area;
+        let (nw, nh) = (natural.0.max(1.0), natural.1.max(1.0));
+        match self.bg_size {
+            BgSize::Auto => (nw, nh),
+            BgSize::Cover => {
+                let s = (w / nw).max(h / nh);
+                (nw * s, nh * s)
+            }
+            BgSize::Contain => {
+                let s = (w / nw).min(h / nh);
+                (nw * s, nh * s)
+            }
+            BgSize::Size(sx, sy) => match (sx.map(|p| p.at(w)), sy.map(|p| p.at(h))) {
+                (Some(a), Some(b)) => (a, b),
+                (Some(a), None) => (a, a * nh / nw),
+                (None, Some(b)) => (b * nw / nh, b),
+                (None, None) => (nw, nh),
+            },
+        }
+    }
+}
+
 /// The style of one element after the cascade.
 #[derive(Clone, Debug)]
 pub struct Computed {
@@ -122,6 +229,12 @@ pub struct Computed {
     // paint (not inherited)
     pub background: Rgba,
     pub gradient: Option<Gradient>,
+    /// `object-*` / `background-image: url()` placement (None: defaults).
+    pub images: Option<Box<ImageStyle>>,
+    /// `container-type`: 0 normal, 1 inline-size, 2 size.
+    pub container_type: u8,
+    /// `container-name` (space-separated names).
+    pub container_name: Option<Box<str>>,
     pub border_color: [Rgba; 4],
     pub border_drawn: [bool; 4],
     pub radius: [Length; 4],
@@ -155,6 +268,8 @@ pub struct Computed {
     pub small_caps: bool,
     pub vertical_align: VAlign,
     pub font_family: String,
+    /// The font family's engine id (see `text::font_id`); 0 = the UI font.
+    pub font_id: u16,
     // tables, lists, quotes and text effects (inherited)
     pub border_spacing: (f32, f32),
     pub border_collapse: bool,
@@ -188,6 +303,9 @@ impl Default for Computed {
             order: 0,
             background: Rgba::TRANSPARENT,
             gradient: None,
+            images: None,
+            container_type: 0,
+            container_name: None,
             border_color: [Rgba::TRANSPARENT; 4],
             border_drawn: [true; 4],
             radius: [Length::Px(0.0); 4],
@@ -220,6 +338,7 @@ impl Default for Computed {
             small_caps: false,
             vertical_align: VAlign::Baseline,
             font_family: String::new(),
+            font_id: 0,
             border_spacing: (0.0, 0.0),
             border_collapse: false,
             caption_bottom: false,
@@ -255,6 +374,7 @@ impl Computed {
             list_style: parent.list_style,
             small_caps: parent.small_caps,
             font_family: parent.font_family.clone(),
+            font_id: parent.font_id,
             // text-decoration propagates to inline descendants in CSS
             underline: parent.underline,
             line_through: parent.line_through,
@@ -270,6 +390,10 @@ impl Computed {
             layout: Style { display: Display::Block, direction: parent.layout.direction, ..Default::default() },
             ..Computed::default()
         }
+    }
+
+    fn images_mut(&mut self) -> &mut ImageStyle {
+        self.images.get_or_insert_with(Default::default)
     }
 
     /// Line box height in pixels.
@@ -308,6 +432,17 @@ pub fn apply(c: &mut Computed, parent: &Computed, u: Units, d: &Decl) -> bool {
         return false;
     }
     if let [Tok::Ident(k)] = &*d.value {
+        if d.prop.name() == "all" {
+            let keep = (ctx.c.layout.direction, ctx.c.vars);
+            *ctx.c = match k.as_ref() {
+                "inherit" => ctx.parent.clone(),
+                "initial" => Computed::default(),
+                "unset" | "revert" | "revert-layer" => Computed::inherit(ctx.parent),
+                _ => return false,
+            };
+            (ctx.c.layout.direction, ctx.c.vars) = keep;
+            return true;
+        }
         if matches!(k.as_ref(), "inherit" | "initial" | "unset" | "revert" | "revert-layer") {
             return global_keyword(&mut ctx, d.prop.name(), k);
         }
@@ -349,11 +484,10 @@ pub(crate) fn prop_index(name: &str) -> Prop {
 /// Standard properties that parse and are accepted but have no effect in this
 /// renderer (floats, bidi, generated content, background images, animation ...).
 pub const ACCEPTED: &[&str] = &[
-    "background-attachment", "background-position", "background-repeat", "background-size",
-    "background-clip", "background-origin", "clip", "clip-path",
+    "background-attachment", "background-clip", "background-origin", "clip", "clip-path",
     "counter-increment", "counter-reset", "counter-set", "unicode-bidi",
     "writing-mode", "empty-cells", "list-style-image", "table-layout",
-    "object-fit", "object-position", "filter", "backdrop-filter", "mix-blend-mode", "isolation",
+    "filter", "backdrop-filter", "mix-blend-mode", "isolation",
     "transition", "transition-property", "transition-duration", "transition-timing-function",
     "transition-delay", "animation", "animation-name", "animation-duration", "animation-delay",
     "animation-iteration-count", "animation-direction", "animation-fill-mode",
@@ -367,6 +501,41 @@ pub const ACCEPTED: &[&str] = &[
     "column-rule", "rotate", "transform-origin", "perspective", "backface-visibility",
     "box-decoration-break", "image-rendering", "shape-outside", "text-underline-offset",
     "text-decoration-thickness", "text-decoration-style", "text-justify", "line-break",
+    "all",
+    // scrolling
+    "scroll-margin", "scroll-margin-top", "scroll-margin-right", "scroll-margin-bottom",
+    "scroll-margin-left", "scroll-margin-block", "scroll-margin-block-start", "scroll-margin-block-end",
+    "scroll-margin-inline", "scroll-margin-inline-start", "scroll-margin-inline-end",
+    "scroll-padding", "scroll-padding-top", "scroll-padding-right", "scroll-padding-bottom",
+    "scroll-padding-left", "scroll-padding-block", "scroll-padding-block-start",
+    "scroll-padding-block-end", "scroll-padding-inline", "scroll-padding-inline-start",
+    "scroll-padding-inline-end", "scroll-snap-stop", "overscroll-behavior-x", "overscroll-behavior-y",
+    "overscroll-behavior-block", "overscroll-behavior-inline", "overflow-anchor", "scrollbar-color",
+    "scrollbar-gutter", "overflow-clip-margin",
+    // fonts: OpenType features and synthesis
+    "font-variant-ligatures", "font-variant-numeric", "font-variant-east-asian",
+    "font-variant-alternates", "font-variant-position", "font-variant-emoji", "font-synthesis",
+    "font-synthesis-weight", "font-synthesis-style", "font-synthesis-small-caps",
+    "font-synthesis-position", "font-optical-sizing", "font-size-adjust", "font-variation-settings",
+    "font-palette", "font-language-override", "font-width",
+    // text details
+    "text-wrap-style", "text-align-last", "text-underline-position", "text-decoration-skip-ink",
+    "text-emphasis", "text-emphasis-color", "text-emphasis-style", "text-emphasis-position",
+    "text-orientation", "text-combine-upright", "hanging-punctuation", "hyphenate-character",
+    "line-clamp", "-webkit-line-clamp", "text-size-adjust", "-webkit-text-size-adjust",
+    // sizing / containment / rendering hints
+    "contain-intrinsic-size", "contain-intrinsic-width", "contain-intrinsic-height",
+    "contain-intrinsic-block-size", "contain-intrinsic-inline-size", "content-visibility",
+    "field-sizing", "interpolate-size", "transition-behavior", "color-scheme", "forced-color-adjust",
+    "print-color-adjust", "color-adjust", "image-orientation", "image-resolution",
+    "transform-box", "transform-style", "perspective-origin", "zoom", "caret", "caret-shape",
+    "background-blend-mode", "column-span", "column-fill", "column-rule-color", "column-rule-style",
+    "column-rule-width",
+    // masking
+    "mask", "mask-image", "mask-mode", "mask-repeat", "mask-position", "mask-clip", "mask-origin",
+    "mask-size", "mask-composite", "mask-type", "mask-border", "mask-border-source",
+    "mask-border-slice", "mask-border-width", "mask-border-outset", "mask-border-repeat",
+    "mask-border-mode",
 ];
 
 /// Implemented or accepted.
@@ -375,6 +544,9 @@ pub fn is_supported(name: &str) -> bool {
 }
 
 fn global_keyword(ctx: &mut Ctx, name: &str, keyword: &str) -> bool {
+    if name == "font-family" {
+        global_keyword(ctx, "-bui-font-id", keyword);
+    }
     let src = if keyword == "inherit" || (keyword == "unset" && is_inherited(name)) {
         ctx.parent.clone()
     } else {
@@ -397,6 +569,7 @@ fn global_keyword(ctx: &mut Ctx, name: &str, keyword: &str) -> bool {
         "background-color" => background, "opacity" => opacity, "display" => display,
         "width" => layout.size.width, "height" => layout.size.height,
         "font-family" => font_family, "accent-color" => accent,
+        "-bui-font-id" => font_id,
     }
 }
 
@@ -1233,15 +1406,6 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             c.c.layout.contain = bits;
             true
         }),
-        h("scrollbar-width", |c, v| {
-            c.c.layout.scrollbar_width = match kw(v) {
-                Some("auto") => 0.0, // overlay scrollbars, like the kit's
-                Some("thin") => 0.0,
-                Some("none") => 0.0,
-                _ => return false,
-            };
-            true
-        }),
         h("box-sizing", |c, v| {
             c.c.layout.box_sizing = match kw(v) {
                 Some("content-box") => BoxSizing::ContentBox,
@@ -1564,13 +1728,141 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         h("background-image", |c, v| match kw(v) {
             Some("none") => {
                 c.c.gradient = None;
+                if let Some(i) = c.c.images.as_mut() {
+                    i.bg_url = None;
+                }
                 true
             }
-            _ => v.first().and_then(|t| gradient(c, t)).map(|g| c.c.gradient = Some(g)).is_some(),
+            _ => {
+                // the first url() and the first gradient of the layer list
+                let mut ok = false;
+                for t in v {
+                    match t {
+                        Tok::Func(fx) if fx.name == "url" => {
+                            if let Some(Tok::Str(u)) = fx.args.first().and_then(|a| a.first()) {
+                                if c.c.images.as_ref().is_none_or(|i| i.bg_url.is_none()) || !ok {
+                                    c.c.images_mut().bg_url = Some(u.as_ref().into());
+                                }
+                                ok = true;
+                            }
+                        }
+                        _ => {
+                            if let Some(g) = gradient(c, t) {
+                                c.c.gradient.get_or_insert(g);
+                                ok = true;
+                            }
+                        }
+                    }
+                }
+                ok
+            }
         }),
+        h("background-size", |c, v| {
+            let first = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            let size = match (kw(first), first) {
+                (Some("cover"), _) => BgSize::Cover,
+                (Some("contain"), _) => BgSize::Contain,
+                (_, [a]) => BgSize::Size(size_pos(c, a), None),
+                (_, [a, b]) => BgSize::Size(size_pos(c, a), size_pos(c, b)),
+                _ => return false,
+            };
+            let size = match size {
+                BgSize::Size(None, None) => BgSize::Auto,
+                s => s,
+            };
+            c.c.images_mut().bg_size = size;
+            true
+        }),
+        h("background-position", |c, v| {
+            let first = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            position(c, first).map(|p| c.c.images_mut().bg_position = p).is_some()
+        }),
+        h("background-position-x", |c, v| axis_pos(c, v, 0).map(|p| c.c.images_mut().bg_position[0] = p).is_some()),
+        h("background-position-y", |c, v| axis_pos(c, v, 1).map(|p| c.c.images_mut().bg_position[1] = p).is_some()),
+        h("background-repeat", |c, v| {
+            let words: Vec<&str> = v.iter().take_while(|t| !matches!(t, Tok::Comma)).filter_map(Tok::ident).collect();
+            let rep = |w: &str| matches!(w, "repeat" | "space" | "round");
+            let r = match words.as_slice() {
+                ["repeat-x"] => (true, false),
+                ["repeat-y"] => (false, true),
+                [a] => (rep(a), rep(a)),
+                [a, b] => (rep(a), rep(b)),
+                _ => return false,
+            };
+            c.c.images_mut().bg_repeat = r;
+            true
+        }),
+        h("object-fit", |c, v| {
+            c.c.images_mut().object_fit = match kw(v) {
+                Some("fill") => ObjectFit::Fill,
+                Some("contain") => ObjectFit::Contain,
+                Some("cover") => ObjectFit::Cover,
+                Some("none") => ObjectFit::None,
+                Some("scale-down") => ObjectFit::ScaleDown,
+                _ => return false,
+            };
+            true
+        }),
+        h("container-type", |c, v| {
+            c.c.container_type = match kw(v) {
+                Some("normal") | Some("scroll-state") => 0,
+                Some("inline-size") => 1,
+                Some("size") => 2,
+                _ => return false,
+            };
+            true
+        }),
+        h("container-name", |c, v| {
+            let names: Vec<&str> = v.iter().filter_map(Tok::ident).collect();
+            c.c.container_name = match names.as_slice() {
+                [] => return false,
+                ["none"] => None,
+                n => Some(n.join(" ").into()),
+            };
+            true
+        }),
+        h("container", |c, v| {
+            // <name>+ [/ <type>]
+            let mut parts = v.split(|t| matches!(t, Tok::Slash));
+            let names = parts.next().unwrap_or(&[]);
+            let ok = delegate(c, "container-name", names);
+            match parts.next() {
+                Some(ty) => ok && delegate(c, "container-type", ty),
+                None => ok,
+            }
+        }),
+        h("object-position", |c, v| position(c, v).map(|p| c.c.images_mut().object_position = p).is_some()),
         h("background", |c, v| {
-            let mut ok = false;
+            // the first layer's image, position / size and repeat, then the colour
+            let layer = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            if let Some(k) = layer.iter().position(|t| matches!(t, Tok::Slash)) {
+                let size: Vec<Tok> = layer[k + 1..].iter().take_while(|t| length(t).is_some()
+                    || matches!(t.ident(), Some("auto" | "cover" | "contain"))).cloned().take(2).collect();
+                delegate(c, "background-size", &size);
+            }
+            let pos: Vec<Tok> = layer.iter().take_while(|t| !matches!(t, Tok::Slash))
+                .filter(|t| length(t).is_some() && !matches!(t, Tok::Num(_))
+                    || matches!(t.ident(), Some("left" | "right" | "top" | "bottom" | "center")))
+                .cloned().collect();
+            if !pos.is_empty() {
+                delegate(c, "background-position", &pos);
+            }
+            let reps: Vec<Tok> = layer.iter().filter(|t| matches!(t.ident(),
+                Some("repeat" | "no-repeat" | "repeat-x" | "repeat-y" | "space" | "round"))).cloned().collect();
+            if !reps.is_empty() {
+                delegate(c, "background-repeat", &reps);
+            }
+            let mut ok = !pos.is_empty() || !reps.is_empty();
             for t in v {
+                if let Tok::Func(fx) = t {
+                    if fx.name == "url" {
+                        if let Some(Tok::Str(u)) = fx.args.first().and_then(|a| a.first()) {
+                            c.c.images_mut().bg_url = Some(u.as_ref().into());
+                            ok = true;
+                        }
+                        continue;
+                    }
+                }
                 if let Some(g) = gradient(c, t) {
                     c.c.gradient = Some(g);
                     ok = true;
@@ -1597,6 +1889,25 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         h("border-inline-end", |c, v| border_sides(c, v, &[1])),
         h("border-block-start", |c, v| border_sides(c, v, &[0])),
         h("border-block-end", |c, v| border_sides(c, v, &[2])),
+        // logical longhands (horizontal-tb: block = top/bottom, inline = left/right)
+        h("border-block-color", |c, v| pair(c, v, "border-top-color", "border-bottom-color")),
+        h("border-block-style", |c, v| pair(c, v, "border-top-style", "border-bottom-style")),
+        h("border-block-width", |c, v| pair(c, v, "border-top-width", "border-bottom-width")),
+        h("border-inline-color", |c, v| pair(c, v, "border-left-color", "border-right-color")),
+        h("border-inline-style", |c, v| pair(c, v, "border-left-style", "border-right-style")),
+        h("border-inline-width", |c, v| pair(c, v, "border-left-width", "border-right-width")),
+        h("border-block-start-color", |c, v| delegate(c, "border-top-color", v)),
+        h("border-block-start-style", |c, v| delegate(c, "border-top-style", v)),
+        h("border-block-start-width", |c, v| delegate(c, "border-top-width", v)),
+        h("border-block-end-color", |c, v| delegate(c, "border-bottom-color", v)),
+        h("border-block-end-style", |c, v| delegate(c, "border-bottom-style", v)),
+        h("border-block-end-width", |c, v| delegate(c, "border-bottom-width", v)),
+        h("border-inline-start-color", |c, v| delegate(c, "border-left-color", v)),
+        h("border-inline-start-style", |c, v| delegate(c, "border-left-style", v)),
+        h("border-inline-start-width", |c, v| delegate(c, "border-left-width", v)),
+        h("border-inline-end-color", |c, v| delegate(c, "border-right-color", v)),
+        h("border-inline-end-style", |c, v| delegate(c, "border-right-style", v)),
+        h("border-inline-end-width", |c, v| delegate(c, "border-right-width", v)),
         h("border-width", |c, v| per_side(v, |i, t| border_width_tok(c, t).map(|w| set_border_width(c, i, w)).is_some())),
         h("border-top-width", |c, v| v.first().and_then(|t| border_width_tok(c, t)).map(|w| set_border_width(c, 0, w)).is_some()),
         h("border-right-width", |c, v| v.first().and_then(|t| border_width_tok(c, t)).map(|w| set_border_width(c, 1, w)).is_some()),
@@ -1690,6 +2001,15 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             }
             ok
         }),
+        h("scale", |c, v| {
+            c.c.scale = match (kw(v), v.first()) {
+                (Some("none"), _) => 1.0,
+                (_, Some(Tok::Num(n))) => *n,
+                (_, Some(Tok::Pct(p))) => *p / 100.0,
+                _ => return false,
+            };
+            true
+        }),
         h("translate", |c, v| {
             let l = lengths(v).unwrap_or_default();
             c.c.translate = (*l.first().unwrap_or(&Length::Px(0.0)), *l.get(1).unwrap_or(&Length::Px(0.0)));
@@ -1705,6 +2025,7 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         }),
         h("font-family", |c, v| {
             c.c.font_family = v.iter().map(tok_text).collect::<Vec<_>>().join(" ");
+            c.c.font_id = crate::text::font_id(&c.c.font_family);
             true
         }),
         h("font-variant", |c, v| {
@@ -1737,6 +2058,7 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
                     }
                     i += 1;
                     c.c.font_family = v[i..].iter().map(tok_text).collect::<Vec<_>>().join(" ");
+                    c.c.font_id = crate::text::font_id(&c.c.font_family);
                     return true;
                 } else {
                     return false;
@@ -1779,6 +2101,31 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             if kw(v) == Some("nowrap") {
                 c.c.white_space = WhiteSpace::NoWrap;
             }
+            true
+        }),
+        // CSS Text 4 longhands of white-space: wrapping and collapsing
+        h("text-wrap-mode", |c, v| {
+            use WhiteSpace::*;
+            c.c.white_space = match (kw(v), c.c.white_space) {
+                (Some("wrap"), NoWrap) => Normal,
+                (Some("wrap"), Pre) => PreWrap,
+                (Some("wrap"), w) => w,
+                (Some("nowrap"), Normal | PreLine) => NoWrap,
+                (Some("nowrap"), PreWrap) => Pre,
+                (Some("nowrap"), w) => w,
+                _ => return false,
+            };
+            true
+        }),
+        h("white-space-collapse", |c, v| {
+            use WhiteSpace::*;
+            let wraps = !matches!(c.c.white_space, NoWrap | Pre);
+            c.c.white_space = match kw(v) {
+                Some("collapse" | "discard") => if wraps { Normal } else { NoWrap },
+                Some("preserve" | "break-spaces" | "preserve-spaces") => if wraps { PreWrap } else { Pre },
+                Some("preserve-breaks") => if wraps { PreLine } else { Pre },
+                _ => return false,
+            };
             true
         }),
         h("text-transform", |c, v| {
@@ -1934,6 +2281,82 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         }),
     ]
 };
+
+/// A `<position>` (`center`, `left 10px top`, `25% 75%`, `right 8px bottom 4px` ...)
+/// as x and y.
+fn position(c: &Ctx, v: &[Tok]) -> Option<[Pos; 2]> {
+    let kwp = |s: &str| match s {
+        "left" | "top" => Some(0.0),
+        "center" => Some(0.5),
+        "right" | "bottom" => Some(1.0),
+        _ => None,
+    };
+    let val = |t: &Tok| -> Option<Pos> {
+        match length(t)? {
+            Length::Percent(p) => Some(Pos { frac: p / 100.0, px: 0.0 }),
+            l => l.to_px(&c.u).map(|px| Pos { frac: 0.0, px }),
+        }
+    };
+    let mut x: Option<Pos> = None;
+    let mut y: Option<Pos> = None;
+    let mut i = 0;
+    let mut pending_center = 0;
+    while i < v.len() {
+        let t = &v[i];
+        if let Some(word) = t.ident() {
+            let f = kwp(word)?;
+            // `right 10px`: an offset from that edge
+            let off = v.get(i + 1).filter(|n| n.ident().is_none()).and_then(val);
+            let p = match off {
+                Some(o) => {
+                    i += 1;
+                    if f == 1.0 { Pos { frac: 1.0 - o.frac, px: -o.px } } else { o }
+                }
+                None => Pos { frac: f, px: 0.0 },
+            };
+            match word {
+                "left" | "right" => x = Some(p),
+                "top" | "bottom" => y = Some(p),
+                _ => pending_center += 1,
+            }
+        } else {
+            let p = val(t)?;
+            if x.is_none() && pending_center == 0 {
+                x = Some(p);
+            } else {
+                y = Some(p);
+            }
+        }
+        i += 1;
+    }
+    for _ in 0..pending_center {
+        if x.is_none() {
+            x = Some(Pos::CENTER);
+        } else if y.is_none() {
+            y = Some(Pos::CENTER);
+        }
+    }
+    if x.is_none() && y.is_none() {
+        return None;
+    }
+    Some([x.unwrap_or(Pos::CENTER), y.unwrap_or(Pos::CENTER)])
+}
+
+/// `background-position-x` / `-y`.
+fn axis_pos(c: &Ctx, v: &[Tok], axis: usize) -> Option<Pos> {
+    let first: Vec<Tok> = v.iter().take_while(|t| !matches!(t, Tok::Comma)).cloned().collect();
+    let p = position(c, &first)?;
+    // a lone keyword/length lands on x; for -y take it from whichever axis it went to
+    Some(if axis == 0 || matches!(first.first().and_then(Tok::ident), Some("top" | "bottom")) { p[axis] } else { p[0] })
+}
+
+/// One `background-size` component: `auto` is None.
+fn size_pos(c: &Ctx, t: &Tok) -> Option<Pos> {
+    match length(t)? {
+        Length::Percent(p) => Some(Pos { frac: p / 100.0, px: 0.0 }),
+        l => l.to_px(&c.u).map(|px| Pos { frac: 0.0, px }),
+    }
+}
 
 fn pair(c: &mut Ctx, v: &[Tok], a: &str, b: &str) -> bool {
     let (x, y) = match v {

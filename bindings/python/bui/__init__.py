@@ -131,3 +131,11 @@ def set_gpu(on: bool = True) -> None:
     software raster where no device exists. ``BUI_GPU=1``/``0`` overrides.
     Per window: ``Tk(gpu=True)``."""
     buipy.set_gpu(bool(on))
+
+
+def set_slug(on: bool = True) -> None:
+    """How the GPU renderer draws text. ``True`` (the default): Slug, glyph
+    outlines evaluated in the pixel shader, sharp at any size. ``False``: a
+    per-glyph bitmap atlas like Blender's, with less GPU work. Takes effect
+    on the next frame. ``BUI_SLUG=1``/``0`` overrides."""
+    buipy.set_slug(bool(on))

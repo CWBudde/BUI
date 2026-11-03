@@ -239,6 +239,25 @@ int BUI_gpu_default(void)
   return g_gpu_default > 0;
 }
 
+#ifndef BUI_SLUG_DEFAULT
+#  define BUI_SLUG_DEFAULT 1
+#endif
+static int g_slug = -1;
+
+void BUI_gpu_set_slug(int on)
+{
+  g_slug = on ? 1 : 0;
+}
+
+int BUI_gpu_slug(void)
+{
+  const char *env = getenv("BUI_SLUG");
+  if (env && env[0]) {
+    return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' || env[0] == 'T';
+  }
+  return g_slug >= 0 ? g_slug : BUI_SLUG_DEFAULT;
+}
+
 int BUI_raster_gpu_attach(BuiRaster *r, void *window_handle, int wait)
 {
   if (r->gpu || r->gpu_pending) {
@@ -1962,7 +1981,7 @@ static int gpu_text_glyphs(BuiRaster *r, TextRun *e, float x, float y, const flo
   }
   const FontSlot *fs = &g_fonts[e->font];
   const float ox = floorf(x + 0.5f), base = floorf(y + 0.5f);
-  const int slug = bui_gpu_slug_on(r->gpu);
+  const int slug = BUI_gpu_slug() && bui_gpu_slug_on(r->gpu);
   const int passes = embolden > 0.0f ? 1 + (int)(embolden + 0.5f) : 1; /* synthetic bold */
   for (int i = 0; i < e->ng; i++) {
     const float pen = ox + e->gx[i];
@@ -2543,7 +2562,12 @@ static int face_find(const char *family, int style, int *r_have)
   /* 1. registered fonts: exact style, then any style of the family */
   for (int pass = 0; pass < 2; pass++) {
     for (int i = 0; i < g_reg_count; i++) {
-      if ((ieq(g_regs[i].family, family) || (!family[0] && i == 0)) &&
+#    ifdef BUI_NO_INTER
+      const int default_face = !family[0] && i == 0; /* no embedded UI font */
+#    else
+      const int default_face = 0;
+#    endif
+      if ((ieq(g_regs[i].family, family) || default_face) &&
           (pass == 1 || g_regs[i].style == style))
       {
         *r_have = g_regs[i].style;

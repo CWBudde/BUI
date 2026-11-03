@@ -101,11 +101,14 @@ pub(crate) struct StyleStore {
     cache: FnvMap<u64, Vec<(StyleKey, StyleId)>>,
     /// Custom property maps the styles point into (`Computed::vars`).
     vars: crate::vars::Vars,
+    /// The author sheet whose `@property` initial values seed the root
+    /// style's variables.
+    seeded: u64,
 }
 
 impl Default for StyleStore {
     fn default() -> Self {
-        StyleStore { styles: vec![Computed::default()], cache: Default::default(), vars: Default::default() }
+        StyleStore { styles: vec![Computed::default()], cache: Default::default(), vars: Default::default(), seeded: 0 }
     }
 }
 
@@ -124,7 +127,29 @@ impl StyleStore {
             self.styles.truncate(1);
             self.cache.clear();
             self.vars.clear();
+            self.seeded = 0;
         }
+    }
+
+    /// `@property --x { initial-value: .. }`: registered properties hold
+    /// their initial value until something sets them (`var(--x)` finds it
+    /// without a fallback). Seeded into the root style once per sheet.
+    fn seed_properties(&mut self, sheet: &Stylesheet, hash: u64) {
+        if self.seeded == hash {
+            return;
+        }
+        self.seeded = hash;
+        let mut map: Vec<(Prop, Box<[crate::css::Tok]>)> = sheet.properties.iter()
+            .filter(|p| p.name.starts_with("--"))
+            .filter_map(|p| Some((Prop::custom(&p.name), crate::css::tokenize(p.initial.as_deref()?).into_boxed_slice())))
+            .collect();
+        map.sort_by_key(|e| e.0);
+        map.dedup_by_key(|e| e.0);
+        // styles computed against the old root variables are stale
+        self.styles.truncate(1);
+        self.cache.clear();
+        self.vars.clear();
+        self.styles[0].vars = if map.is_empty() { 0 } else { self.vars.add(map.into_boxed_slice()) };
     }
 
     fn add(&mut self, c: Computed) -> StyleId {
@@ -309,6 +334,62 @@ pub(crate) struct LayoutCaches {
     /// Measured text leaves: key -> box index, this frame.
     text_box: FnvMap<Key, usize>,
     tw: TwJit,
+    /// `@container`: query containers' content sizes from the last layout.
+    containers: Containers,
+}
+
+impl LayoutCaches {
+    /// After a layout: record query containers' sizes. True when the
+    /// window must render again (an `@container` query may match differently).
+    pub(crate) fn after_layout(&mut self, frame: &Frame) -> bool {
+        let queried = self.author.sheet.has_container_queries();
+        self.containers.update(frame, &self.styles, queried)
+    }
+}
+
+/// Query containers by element key: content-box size, `container-type`
+/// and names, from the previous layout (queries see last frame's sizes;
+/// a change re-renders once more).
+#[derive(Default)]
+pub(crate) struct Containers {
+    map: FnvMap<Key, (f32, f32, u8, Option<Box<str>>)>,
+    /// Hash of `map`, part of the selector-match memo.
+    generation: u64,
+    /// Consecutive re-renders caused by container size changes.
+    chain: u8,
+}
+
+impl Containers {
+    /// After a layout: record the containers; true when a re-render is needed.
+    fn update(&mut self, frame: &Frame, styles: &StyleStore, queried: bool) -> bool {
+        let mut map: FnvMap<Key, (f32, f32, u8, Option<Box<str>>)> = FnvMap::default();
+        for n in &frame.nodes {
+            let c = &styles[n.style];
+            if c.container_type != 0 && n.taffy.is_some() {
+                let b = crate::paint::content_box(c, n.bounds);
+                map.insert(n.key, (b.size.width, b.size.height, c.container_type, c.container_name.clone()));
+            }
+        }
+        let mut h = Fnv::default();
+        let mut keys: Vec<&Key> = map.keys().collect();
+        keys.sort_unstable();
+        for k in keys {
+            let (w, hh, t, _) = &map[k];
+            (k, w.to_bits(), hh.to_bits(), t).hash(&mut h);
+        }
+        let generation = h.finish();
+        let changed = generation != self.generation;
+        self.map = map;
+        self.generation = generation;
+        // a query may now match differently: render again (bounded, in case
+        // the result feeds back into the container's own size)
+        if changed && queried && self.chain < 3 {
+            self.chain += 1;
+            return true;
+        }
+        self.chain = 0;
+        false
+    }
 }
 
 /// Rule indices (`Rule::order`) in the UA and author sheets.
@@ -334,6 +415,7 @@ impl Default for LayoutCaches {
             recon: Recon::default(),
             text_box: FnvMap::default(),
             tw: TwJit::default(),
+            containers: Containers::default(),
         }
     }
 }
@@ -354,6 +436,7 @@ struct Builder<'a> {
     next_tpos: (u32, u32),
     author: &'a Stylesheet,
     author_hash: u64,
+    containers: &'a Containers,
     /// Media query results of the UA and author sheets this frame.
     ua_media: Vec<bool>,
     au_media: Vec<bool>,
@@ -399,6 +482,7 @@ struct NodeRef<'b> {
     nodes: &'b [BoxNode],
     els: &'b [ElData],
     state: &'b UiState,
+    containers: &'b Containers,
     i: usize,
 }
 
@@ -418,6 +502,20 @@ impl NodeRef<'_> {
 }
 
 impl Subject for NodeRef<'_> {
+    fn container(&self, name: Option<&str>) -> Option<(f32, f32)> {
+        let mut cur = self.nodes[self.i].parent;
+        while let Some(p) = cur {
+            if let Some((w, h, ty, names)) = self.containers.map.get(&self.nodes[p].key) {
+                let named = name.is_none_or(|n| names.as_deref().is_some_and(|s| s.split(' ').any(|x| x == n)));
+                if named {
+                    // an inline-size container has no queryable height
+                    return Some((*w, if *ty == 2 { *h } else { f32::NAN }));
+                }
+            }
+            cur = self.nodes[p].parent;
+        }
+        None
+    }
     fn tag(&self) -> &str {
         self.el().map(|e| e.tag).unwrap_or("")
     }
@@ -653,7 +751,7 @@ fn collect_styles(el: &AnyElement, css: &mut String, title: &mut Option<String>,
 
 impl<'a> Builder<'a> {
     fn subject(&self, i: usize) -> NodeRef<'_> {
-        NodeRef { nodes: &self.nodes, els: &self.els, state: self.state, i }
+        NodeRef { nodes: &self.nodes, els: &self.els, state: self.state, containers: self.containers, i }
     }
 
     fn st(&self, i: usize) -> &Computed {
@@ -729,6 +827,7 @@ impl<'a> Builder<'a> {
         let memo = {
             let mut h = Fnv::default();
             self.nodes[i].fp.hash(&mut h);
+            self.containers.generation.hash(&mut h);
             self.viewport.0.to_bits().hash(&mut h);
             self.viewport.1.to_bits().hash(&mut h);
             h.finish()
@@ -1680,8 +1779,10 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
     let css_hash = fnv(&[css.as_bytes()]);
     if css_hash != caches.author.hash {
         caches.author = AuthorSheet { hash: css_hash, sheet: Stylesheet::parse(&css) };
+        load_font_faces(&caches.author.sheet);
     }
     caches.styles.begin_frame();
+    caches.styles.seed_properties(&caches.author.sheet, caches.author.hash);
     // the taffy tree persists: drop last frame's duplicates, start a new stamp
     for id in caches.recon.extra.drain(..) {
         caches.taffy.remove(id);
@@ -1695,7 +1796,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         caches.matched.map.clear();
         caches.matched.author = caches.author.hash;
     }
-    let LayoutCaches { styles, text, images, author, taffy, box_of, acc, matched, recon, text_box, .. } = caches;
+    let LayoutCaches { styles, text, images, author, taffy, box_of, acc, matched, recon, text_box, containers, .. } = caches;
     let mut b = Builder {
         nodes,
         els,
@@ -1706,6 +1807,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         matched,
         recon,
         text_box,
+        containers,
         changed: false,
         next_tpos: (1, 1),
         author: &author.sheet,
@@ -2036,6 +2138,25 @@ impl Frame {
                 Some(p) => i = p,
                 None => return 0,
             }
+        }
+    }
+}
+
+/// `@font-face`: registers each face's first `url()` that loads (paths are
+/// relative to the working directory), once per process. Styles computed
+/// before a face loaded are recomputed because the sheet changed.
+fn load_font_faces(sheet: &Stylesheet) {
+    static LOADED: std::sync::Mutex<Vec<(String, bool, bool)>> = std::sync::Mutex::new(Vec::new());
+    for face in &sheet.font_faces {
+        let key = (face.family.to_ascii_lowercase(), face.bold, face.italic);
+        if LOADED.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
+            continue;
+        }
+        let loaded = face.src.iter().any(|path| {
+            std::fs::read(path).is_ok_and(|bytes| crate::add_font(&face.family, face.bold, face.italic, &bytes))
+        });
+        if loaded {
+            LOADED.lock().unwrap_or_else(|e| e.into_inner()).push(key);
         }
     }
 }

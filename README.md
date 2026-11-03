@@ -239,7 +239,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | Windows | A native Win32 window in C: DPI-aware, vsync-paced animation, clipboard, cursors, window-manager features |
 | tkinter syntax | **Complete**: every public tkinter and ttk name (7,846 of 7,846) |
 | Components | 45 Blender components, including the color ramp and curve editors |
-| Rust | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 80/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`, Tailwind v4, `rsx!`, `#[component]`, hooks, headless testing |
+| Rust | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 82/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`/`@container`/`@font-face`/`@property`, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, headless testing |
 | Rendering | Software raster (parallel, damage-tracked), GPU renderer (Direct3D 11), portable text engine |
 | Packaging | [`blenderui` on PyPI](https://pypi.org/project/blenderui/), with a CI workflow for wheels on all platforms |
 
@@ -248,9 +248,9 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | Area | What's missing |
 |---|---|
 | Qt syntax (~25%) | Model/view classes, docks, toolbars, splitters, Qt stylesheets ([details](docs/qt.md#coverage)) |
-| CSS (176 of 745 W3C properties render) | Rendering effects: `rotate`/`skew` transforms, `filter`/`backdrop-filter`, blend modes, `clip-path`, masks, `border-image`, non-solid borders. Also animations and transitions, background images, applying `@container`, `@font-face`. Most of the remaining W3C list is drafts, speech, print and SVG ([breakdown](docs/rust.md#coverage)) |
+| CSS (207 of 745 W3C properties render, 177 more parse) | Rendering effects: `rotate`/`skew` transforms, `filter`/`backdrop-filter`, blend modes, `clip-path`, masks, `border-image`, non-solid borders. Also animations and transitions. Most of the remaining W3C list is drafts, speech, print and SVG ([breakdown](docs/rust.md#coverage)) |
 | Text | No text wrapping around floats; no right-to-left shaping |
-| Rust components | No optional props; no async resources (`use_resource`); no generic components |
+| Rust components | No async resources (`use_resource`); no generic components |
 | Linux / macOS | They work through a fallback window (the stdlib Tk window shows BUI's frame), but they're less tested. No native window host and no GPU renderer yet |
 | crates.io | The crates are ready to publish but not published yet; use the git dependency for now |
 

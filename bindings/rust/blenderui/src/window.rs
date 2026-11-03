@@ -220,6 +220,7 @@ pub struct WindowOptions {
 pub struct Application {
     headless: bool,
     gpu: Option<bool>,
+    slug: Option<bool>,
 }
 
 impl Default for Application {
@@ -231,7 +232,7 @@ impl Default for Application {
 impl Application {
     /// Native windows.
     pub fn new() -> Application {
-        Application { headless: false, gpu: None }
+        Application { headless: false, gpu: None, slug: None }
     }
 
     /// Draw every window on the GPU (Direct3D 11 on Windows): the same
@@ -243,10 +244,19 @@ impl Application {
         self
     }
 
+    /// How the GPU renderer draws text: `true` for Slug (glyph outlines in
+    /// the pixel shader, sharp at any size), `false` for a per-glyph bitmap
+    /// atlas like Blender's (less GPU work). Defaults to the `slug` feature;
+    /// `BUI_SLUG=1`/`0` overrides. See also [`crate::set_slug`].
+    pub fn slug(mut self, on: bool) -> Application {
+        self.slug = Some(on);
+        self
+    }
+
     /// Off-screen windows (tests, screenshots, CI): nothing is shown, the
     /// `simulate_*` and `draw` methods drive it.
     pub fn headless() -> Application {
-        Application { headless: true, gpu: None }
+        Application { headless: true, gpu: None, slug: None }
     }
 
     /// Run `f`, then the event loop until every window is closed.
@@ -257,6 +267,9 @@ impl Application {
         let headless = self.headless || unsafe { sys::BK_window_supported() } == 0;
         if let Some(on) = self.gpu {
             unsafe { sys::BUI_gpu_set_default(on as c_int) };
+        }
+        if let Some(on) = self.slug {
+            crate::set_slug(on);
         }
         let mut app = App::create(headless);
         f(&mut app);
@@ -879,6 +892,8 @@ impl Window {
         let recycle = self.frame.take().unwrap_or_default();
         let frame = layout(root, vp, &self.state, &mut self.caches, recycle,
                            &mut |key, spec| widgets.ensure(canvas, key, spec, scale));
+        // `@container`: sizes changed under a query: render once more
+        let container_changed = self.caches.after_layout(&frame);
         let p = &mut self.painter;
         p.reset();
         {
@@ -914,6 +929,9 @@ impl Window {
         prof::frame_done();
         // state of components that didn't render is freed; effects run now
         crate::hooks::end();
+        if container_changed {
+            self.dirty = true;
+        }
     }
 
     // -- events ------------------------------------------------------------------------------

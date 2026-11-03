@@ -56,8 +56,9 @@ BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1);
  * Returns 0 when it can't be placed. */
 int bui_gpu_mask(BuiGpu *g, const void *key, unsigned gen, const uint8_t *mask, int w, int h,
                  int *r_x, int *r_y);
-/* Slug text (Eric Lengyel's algorithm): 1 when glyph outlines are
- * rendered on the GPU (default; BUI_SLUG=0 turns it off). */
+/* Slug text (Eric Lengyel's algorithm): 1 when this device can render
+ * glyph outlines (creates the curve/band textures on first call). Whether
+ * it is used is BUI_gpu_slug(). */
 int bui_gpu_slug_on(BuiGpu *g);
 /* Curve/band data for glyph `glyph` of font face `face` (uploaded on first
  * use): its box in font units, the band transform (instance c1) and its

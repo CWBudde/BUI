@@ -4,9 +4,74 @@
 use crate::style::Computed;
 use blenderui_sys as sys;
 
-/// Font flags for a style (bold / italic; decorations are painted as lines).
+/// Font flags for a style (bold / italic; decorations are painted as lines),
+/// with the font family's id above [`FAMILY_SHIFT`].
 pub(crate) fn flags(c: &Computed) -> i32 {
     (if c.bold() { sys::BUI_FONT_BOLD } else { 0 }) | (if c.italic { sys::BUI_FONT_ITALIC } else { 0 })
+        | ((c.font_id as i32) << FAMILY_SHIFT)
+}
+
+/// Font flags live in the low byte; the family id above it.
+pub(crate) const FAMILY_SHIFT: i32 = 8;
+
+/// Families by id (0 = the UI font, ""), leaked: canvas items point at them.
+static FAMILIES: std::sync::Mutex<Vec<&'static std::ffi::CStr>> = std::sync::Mutex::new(Vec::new());
+/// Families registered with `add_font` / `@font-face` (lowercase).
+static REGISTERED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub(crate) fn register_family(name: &str) {
+    let mut r = REGISTERED.lock().unwrap_or_else(|e| e.into_inner());
+    let n = name.to_ascii_lowercase();
+    if !r.contains(&n) {
+        r.push(n);
+    }
+}
+
+/// The id of a `font-family` list: its first registered family, else its
+/// first generic one, else its first entry (the engine finds installed
+/// fonts by name, and falls back to the UI font). 0 = the UI font.
+pub(crate) fn font_id(list: &str) -> u16 {
+    let names: Vec<String> = list.split(',').map(|n| n.trim().trim_matches(['"', '\'']).trim().to_string())
+        .filter(|n| !n.is_empty()).collect();
+    let registered = REGISTERED.lock().unwrap_or_else(|e| e.into_inner());
+    let generic = |n: &str| match n.to_ascii_lowercase().as_str() {
+        "sans-serif" | "system-ui" | "ui-sans-serif" | "-apple-system" | "blinkmacsystemfont" | "inter" => Some(""),
+        "monospace" | "ui-monospace" => Some("monospace"),
+        "serif" | "ui-serif" => Some("serif"),
+        _ => None,
+    };
+    let pick = names.iter().find(|n| registered.contains(&n.to_ascii_lowercase())).cloned()
+        .or_else(|| names.iter().find_map(|n| generic(n)).map(str::to_string))
+        .or_else(|| names.first().cloned())
+        .unwrap_or_default();
+    drop(registered);
+    if pick.is_empty() {
+        return 0;
+    }
+    let mut f = FAMILIES.lock().unwrap_or_else(|e| e.into_inner());
+    if f.is_empty() {
+        f.push(c"");
+    }
+    if let Some(i) = f.iter().position(|c| c.to_bytes().eq_ignore_ascii_case(pick.as_bytes())) {
+        return i as u16;
+    }
+    if f.len() >= 0x7fff {
+        return 0;
+    }
+    let c = std::ffi::CString::new(pick).unwrap_or_default();
+    f.push(Box::leak(c.into_boxed_c_str()));
+    (f.len() - 1) as u16
+}
+
+/// The family name for `flags` (a static C string) and the engine's flags.
+pub(crate) fn family(flags: i32) -> (*const std::os::raw::c_char, i32) {
+    let id = (flags >> FAMILY_SHIFT) as usize;
+    let low = flags & ((1 << FAMILY_SHIFT) - 1);
+    if id == 0 {
+        return (c"".as_ptr(), low);
+    }
+    let f = FAMILIES.lock().unwrap_or_else(|e| e.into_inner());
+    (f.get(id).map_or(c"".as_ptr(), |c| c.as_ptr()), low)
 }
 
 type Widths = crate::style::FnvMap<Box<str>, f32>;
@@ -29,9 +94,10 @@ impl TextCache {
             return w;
         }
         let mut w = 0.0f32;
-        // SAFETY: pointers are valid for the call; "" selects the UI font.
+        let (fam, low) = family(flags);
+        // SAFETY: pointers are valid for the call (families are 'static).
         let ok = unsafe {
-            sys::BUI_text_measure(c"".as_ptr(), flags, size, s.as_ptr().cast(), s.len() as i32, &mut w)
+            sys::BUI_text_measure(fam, low, size, s.as_ptr().cast(), s.len() as i32, &mut w)
         };
         if ok == 0 {
             w = s.chars().count() as f32 * size * 0.55; // no native text engine

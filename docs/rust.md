@@ -121,7 +121,7 @@ The lowering is uniform, so the whole API is reachable without special cases:
   - `name="text"` sets an HTML attribute, except `class`, `style` and `id`, which call their methods.
   - `name={expr}` calls the builder method of that name: `w={px(10.)}`, `hover={|s| s.bg(red())}`.
   - `onClick` becomes `.on_click`, and closures may omit the `(event, window, cx)` parameters.
-- **Components:** an uppercase tag builds a struct, so `<Card title="x">..</Card>` becomes `Card { title: "x".into(), children: .. }`.
+- **Components:** a component tag builds its props through a builder, so `<Card title="x">..</Card>` becomes `Card::__builder().title("x").children(..)`. `#[component]` generates the builder; a hand-written struct component needs `#[derive(Props)]`. `key={..}` on any component ties its hook state to the key.
 - **Fragments:** `<>..</>` is a `display: contents` wrapper.
 
 Tailwind utilities can also be written as bare attributes (UnoCSS calls this "attributify"). They become classes at compile time:
@@ -198,12 +198,13 @@ These are the hooks and their counterparts in other frameworks:
 
 How it behaves:
 - **Signals:** signals are `Copy` handles. They don't need `cx`, and writing one re-renders its window.
-- **Hook identity:** like React, a hook's state is tied to its call site and to the order in which components render. Removing a component from the middle of a list shifts the state of the components after it.
+- **Hook identity:** like React, a hook's state is tied to its call site and to the order in which components render. In lists, give components a `key` (`<Row key={item.id} ../>`) so their state follows the item: without keys, removing an item from the middle shifts the state of the ones after it.
 - **Components:** `#[component]` turns `fn name(props)` into a props struct with that name. Uppercase and lowercase names both work in `rsx!`, as does a body that ends in markup.
+- **Optional props:** `Option<T>` props (and `children`) may be left out in `rsx!`; they are `None`. Leaving out any other prop is a compile error naming it (`a required prop is missing: ... Row_missing_name`). Struct components get the same with `#[derive(Props)]`.
 - **Lifetime:** a component's state is freed when it stops rendering.
 - **Implementation:** there is no `Rc` or `RefCell` anywhere in it.
 
-Not supported yet: optional props (pass every prop; use `Option<T>` for optional values), async resources (`use_resource`) and generic components.
+Not supported yet: async resources (`use_resource`) and generic components.
 
 ## Elements
 
@@ -410,9 +411,9 @@ From `cargo test --test parity -- --nocapture`:
 | Area                                  | Coverage                                                                         |
 | ------------------------------------- | -------------------------------------------------------------------------------- |
 | HTML elements (WHATWG index)          | **113 / 113** constructible, plus `svg` / `math` roots; 9 are Blender widgets     |
-| CSS properties                        | **180** change layout or rendering; **81** more parse but have no effect          |
-| W3C property index (745 properties)   | **176** rendered (24%), **75** parsed without effect (10%), **494** not recognized (66%): most of these are drafts, speech, paged media and SVG |
-| CSS 2.1, screen properties            | **80 / 90** rendered, 90 / 90 parsed                                              |
+| CSS properties                        | **210** change layout or rendering; **185** more parse but have no effect         |
+| W3C property index (745 properties)   | **207** rendered (28%), **177** parsed without effect (24%), **361** not recognized (48%): most of these are drafts, speech, paged media and SVG |
+| CSS 2.1, screen properties            | **82 / 90** rendered, 90 / 90 parsed                                              |
 | Flexbox                               | **12 / 12**                                                                       |
 | Grid                                  | **23 / 23** (including `grid-template-areas` and named lines)                     |
 | Tailwind CSS v4                       | Classes compile on first use (v4 theme, variants, arbitrary values); `tw!` checks them at compile time |
@@ -428,18 +429,20 @@ div().class(tw!("grid grid-cols-3 gap-4 md:grid-cols-6 hover:bg-sky-500/50"))
 div().style("width: calc(100% - 2 * var(--gap)); background: color-mix(in oklch, var(--brand) 60%, white)")
 ```
 
-The CSS 2.1 properties that parse without effect: `clip`, `counter-increment`, `counter-reset`, `empty-cells`, `table-layout`, `unicode-bidi`, `list-style-image` and `background-attachment` / `-position` / `-repeat` (there are no background images; gradients are supported).
+The CSS 2.1 properties that parse without effect: `clip`, `counter-increment`, `counter-reset`, `empty-cells`, `table-layout`, `unicode-bidi`, `list-style-image` and `background-attachment`.
+
+Also supported: `background-image: url()` (PNG) with `background-size` / `-position` (`-x` / `-y`) / `-repeat`, `object-fit` / `object-position`, logical border longhands (`border-inline-width` ...), `text-wrap-mode`, `white-space-collapse`, `scale`, `all`, `@container` size queries (`container-type`, `container-name`), `@font-face` (local font files) and `@property` initial values.
 
 How much is left, against all 745 properties in the
 [W3C index](https://www.w3.org/Style/CSS/all-properties.en.html):
 
 | | Properties | Share |
 |---|---:|---:|
-| Change layout or rendering | 176 | 24% |
-| Parsed, no effect yet | 75 | 10% |
-| Not recognized | 494 | 66% |
+| Change layout or rendering | 207 | 28% |
+| Parsed, no effect yet | 177 | 24% |
+| Not recognized | 361 | 48% |
 
-The 494 unrecognized properties break down as:
+The 361 unrecognized properties break down as:
 
 | Group | Properties |
 |---|---:|
@@ -449,19 +452,18 @@ The 494 unrecognized properties break down as:
 | Speech and aural | 31 |
 | Animation triggers and scroll-driven animation | 26 |
 | Paged media, regions, rhythm and others | ~25 |
-| Scroll snap margins and padding | 23 |
-| Masking | 18 |
-| Everything else | ~215 |
+| Everything else | ~100 |
 
 The everyday screen CSS is much further along: Flexbox 12/12, Grid 23/23 and
-CSS 2.1 80/90. The largest remaining gaps among common properties are visual
-effects (transforms, filters, blend modes, `clip-path`), animations and
-transitions, and background images.
+CSS 2.1 82/90. The largest remaining gaps among common properties are visual
+effects (transforms, filters, blend modes, `clip-path`, masks) and
+animations and transitions.
 
 Not done yet:
-- **Parsed, not applied:** `@container` (queries parse, no container sizes yet), `@font-face`, `@keyframes`, transitions and animations.
+- **Parsed, not applied:** `@keyframes`, transitions and animations; scroll snapping and OpenType font features.
+- **`@container` timing:** queries use the container's size from the previous layout; when it changes, the window renders once more.
 - **Rendering effects:** 2D/3D `rotate` / `skew` transforms, `filter` / `backdrop-filter`, blend modes, `clip-path`, masks, `border-image` and border styles other than solid.
-- **The rest of the W3C property index:** about 490 entries this engine doesn't know, mostly drafts, speech and paged media.
+- **The rest of the W3C property index:** about 360 entries this engine doesn't know, mostly drafts, speech, paged media and SVG.
 - **Box sizing:** the default is `border-box` (like Tailwind's preflight), not CSS's `content-box`.
 
 ## Performance vs gpui
@@ -516,16 +518,24 @@ blenderui::add_font("Brand", false, false, include_bytes!("Brand-Regular.ttf"));
 With `.gpu(true)`, glyphs are drawn straight from their outlines using
 Eric Lengyel's [Slug](https://github.com/EricLengyel/Slug) algorithm: one
 quad per glyph, exact coverage computed in the pixel shader, and no glyph
-bitmaps. `BUI_SLUG=0` switches to a per-glyph bitmap atlas (Blender's
-approach) instead. The `gdi-text` feature uses Windows' GDI engine and
-system fonts.
+bitmaps. The alternative is a per-glyph bitmap atlas (Blender's approach):
+about half the GPU work, but bitmaps per size. Choose with:
+
+| | Slug (default) | Glyph atlas |
+|---|---|---|
+| Build time | `slug` feature (default) | `default-features = false` |
+| Run time | `Application::new().slug(true)` / `blenderui::set_slug(true)` | `.slug(false)` / `set_slug(false)` |
+| Environment (overrides) | `BUI_SLUG=1` | `BUI_SLUG=0` |
+
+The `gdi-text` feature uses Windows' GDI engine and system fonts.
 
 ## Limitations
 
 - **Floats** place block boxes, but text does not wrap around them; `direction: rtl`
   lays boxes out right to left, but text itself is not shaped right to left.
-- **One font face**: the UI font in regular, bold and italic. `font-family`
-  is parsed but `monospace` text uses the UI font.
+- **Fonts**: `font-family` picks a face per element (registered, `@font-face`,
+  installed or generic `monospace` / `serif`); there is no per-glyph fallback
+  between faces of a list.
 - **Effects and animation**: see "Not done yet" under [Coverage](#coverage).
 - **Transforms**: `translate` only; `scale()` and `rotate()` are ignored.
 - **Inline boxes** paint their background per word; borders and padding on

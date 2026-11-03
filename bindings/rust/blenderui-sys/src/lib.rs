@@ -105,6 +105,7 @@ pub struct BKCanvasItem {
     pub text_flags: c_int,
     pub clip_on: c_int,
     pub clip: [c_float; 4],
+    pub family: *const c_char,
 }
 
 impl Default for BKCanvasItem {
@@ -249,6 +250,8 @@ unsafe extern "C" {
     /// GPU rendering: default for new windows (BUI_GPU overrides).
     pub fn BUI_gpu_set_default(on: c_int);
     pub fn BUI_gpu_default() -> c_int;
+    pub fn BUI_gpu_set_slug(on: c_int);
+    pub fn BUI_gpu_slug() -> c_int;
     pub fn BK_window_set_gpu(win: *mut BKWindow, on: c_int);
     pub fn BK_window_gpu(win: *mut BKWindow) -> c_int;
     pub fn BUI_text_add_font(family: *const c_char, flags: c_int, data: *const c_void,
