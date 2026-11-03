@@ -45,7 +45,7 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
   - [Blender components](#blender-components)
   - [Rust (gpui syntax, HTML and CSS)](#rust-gpui-syntax-html-and-css)
 - [How it works](#how-it-works)
-- [Performance](#performance)
+- [Performance](#performance) (including [blenderui vs gpui](#rust-blenderui-vs-gpui))
 - [Roadmap: more languages and platforms](#roadmap-more-languages-and-platforms)
 - [Packaging](#packaging)
 - [Documentation](#documentation)
@@ -77,7 +77,7 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
 | Component library (`bui.components`) | ✅ Working            | 45 Blender components, including editors (color ramp, curves) and templates                                                                                                        |
 | C++ / Qt render-sink backends        | ✅ Working            | For embedding BUI drawing into your own renderer ([INTEGRATION.md](INTEGRATION.md))                                                                                                |
 | Packaging (`pip install blenderui`)  | ✅ Published          | [`blenderui` 0.1.0 on PyPI](https://pypi.org/project/blenderui/): a prebuilt wheel for Windows / CPython 3.12, and a source package that other platforms compile on install (needs CMake and a C compiler). Prebuilt wheels for all platforms come from CI on the next tagged release ([docs/publishing.md](docs/publishing.md)) |
-| **Rust** (`blenderui` crate)         | ✅ **Working**        | gpui syntax (`Render`, `Context`, `Entity`, `cx.listener`, ~1,300 `Styled` methods) over **113/113 HTML elements** and CSS: **173 properties rendered** (+87 parsed without effect), CSS 2.1 screen properties 76/90 rendered (90/90 parsed), Flexbox 12/12, Grid 22/23. Layout by [taffy](https://github.com/DioxusLabs/taffy). Native window on Windows, headless rendering everywhere. Fastest in a 3000-element full-animation benchmark: 32.6 fps vs gpui-fast 29.7 and gpui 22.8, with about half their memory ([benchmark](bindings/rust/bench/README.md)). [docs/rust.md](docs/rust.md) |
+| **Rust** (`blenderui` crate)         | ✅ **Working**        | gpui syntax (`Render`, `Context`, `Entity`, `cx.listener`, ~1,300 `Styled` methods) over **113/113 HTML elements** and CSS: **173 properties rendered** (+87 parsed without effect), CSS 2.1 screen properties 76/90 rendered (90/90 parsed), Flexbox 12/12, Grid 22/23. Layout by [taffy](https://github.com/DioxusLabs/taffy). Native window on Windows, headless rendering everywhere. Animating 3000 elements: 57.5 fps on 27 ms CPU per frame (same session: gpui-fast 50.5 fps, gpui 18.9 fps), with about half their memory and a 6 ms first frame ([benchmark](bindings/rust/bench/README.md)). [docs/rust.md](docs/rust.md) |
 | **egui integration**                 | 🗺️ Planned             | BUI panels drawn inside egui (raster → `egui::TextureHandle`, input forwarded) and a Blender-styled `egui::Visuals` theme. Builds on the Rust crate |
 | **WebAssembly build**                | 🗺️ Planned             | The kit compiled with Emscripten: the raster blits to `<canvas>` (damage rectangles only), DOM events feed `BK_press` / `BK_key` |
 | **React** (`@blenderui/react`)       | 🗺️ Planned             | A JSX reconciler over the WASM build (`<Panel>`, `<NumberSlider>` ...); `@blenderui/web` for plain JS/TS, N-API for Node |
@@ -314,6 +314,45 @@ Measured on the full component demo (520×900) on a desktop CPU:
 
 The test suite enforces a 120 Hz budget: full frames under 8.3 ms, and
 interaction frames under 1 ms.
+
+### Rust: blenderui vs gpui
+
+The same UI built with the `blenderui` crate and with
+[gpui](https://crates.io/crates/gpui) 0.2.2 (Zed's GPU-rendered framework): a
+1000×800 window of N rounded, labelled cells that all change every frame.
+Ryzen 7 5800U laptop on mains power, 60 Hz display, release builds, both apps
+in the same session, median of 3 runs
+([method and full data](bindings/rust/bench/README.md)).
+
+| | blenderui | gpui |
+|---|---:|---:|
+| FPS, 3000 animated cells | **57.5** | 18.9 |
+| FPS, 1000 / 100 animated cells | 60 / 60 (display cap; 157 / 529 uncapped) | 60 / 60 |
+| CPU per frame, 3000 cells | **27.3 ms** | 53.1 ms + GPU |
+| CPU per frame, 1000 cells | **13.7 ms** | 14.7 ms + GPU |
+| CPU per frame, 100 cells | 5.1 ms | **3.4 ms** + GPU |
+| RAM (working set), 3000 / 1000 / 100 cells | **31 / 23 / 20 MB** | 76 / 46 / 32 MB, plus 16-21 MB GPU memory |
+| First frame after launch | **~6 ms** | ~250 ms |
+| Idle CPU | **0 %** | 0.7-1.4 % |
+
+blenderui wins everything except CPU per frame on very small scenes, where
+gpui's GPU does the drawing. With only one of 3000 cells changing per frame
+(a later, power-limited session for both apps), blenderui ran at 54 fps and
+gpui at 11 fps. Against [gpui-fast](https://github.com/longbridge/gpui-fast),
+a faster gpui fork, blenderui leads on frame rate in the heavy scene, memory
+and startup, while gpui-fast uses less CPU per frame; see the
+[benchmark](bindings/rust/bench/README.md).
+
+### tkinter canvas
+
+[`bindings/python/bench/tk_canvas_bench.py`](bindings/python/bench/tk_canvas_bench.py) (2000 rectangles, ovals, lines, polygons, arcs and
+labels on one tkinter-syntax `Canvas`, rendered headless):
+
+| Per frame | before | now |
+|---|---:|---:|
+| Render, every item moved | 11.1 ms | **3.6 ms** (parallel raster for all item types) |
+| Render, one item moved | 9.4 ms | **0.08 ms** (only the item's old and new boxes redraw) |
+| Python, 2000 `Canvas.move` calls | 22.5 ms | **15.0 ms** (cached colors, O(1) item lookup) |
 
 ## Roadmap: more languages and platforms
 

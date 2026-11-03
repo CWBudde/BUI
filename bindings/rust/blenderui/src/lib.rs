@@ -42,6 +42,19 @@
 //! * **Rendering**: Blender's widget drawing; form controls are Blender's own
 //!   widgets (number fields, sliders, dropdowns, text fields ...).
 
+// lets `css!` (which names `::blenderui::...`) work inside this crate too
+extern crate self as blenderui;
+
+/// A CSS declaration block checked and resolved at compile time:
+/// `div().style(css!("display: flex; gap: 4px"))`. An unknown property is a
+/// compile error:
+///
+/// ```compile_fail
+/// use blenderui::prelude::*;
+/// let _ = div().style(css!("colr: red"));
+/// ```
+pub use blenderui_macros::css;
+
 pub mod color;
 pub mod css;
 pub mod element;
@@ -64,17 +77,18 @@ pub use element::*;
 pub use events::*;
 pub use geometry::{point, px, relative, rems, size, Bounds, Length, Pixels, Point, Rems, Size};
 pub use paint::{Image, Painter};
-pub use styled::{FontWeight, Styled};
+pub use styled::{FontWeight, StyleBlock, Styled};
 pub use window::*;
 
 /// Everything an app needs: `use blenderui::prelude::*;`
 pub mod prelude {
+    pub use crate::css;
     pub use crate::color::*;
     pub use crate::element::*;
     pub use crate::events::*;
     pub use crate::geometry::{point, px, relative, rems, size, Bounds, Length, Pixels, Point, Rems, Size};
     pub use crate::html::*;
     pub use crate::paint::{Image, Painter};
-    pub use crate::styled::{FontWeight, Styled};
+    pub use crate::styled::{FontWeight, StyleBlock, Styled};
     pub use crate::window::*;
 }

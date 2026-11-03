@@ -12,6 +12,8 @@ readme = "README.md"
 
 [dependencies]
 blenderui-sys = { path = "../blenderui-sys", version = "0.1.0" }
+blenderui-macros = { path = "../blenderui-macros", version = "0.1.0" }
 taffy = { version = "0.6", default-features = false, features = ["std", "flexbox", "grid", "block_layout", "taffy_tree", "content_size"] }
 paste = "1"
+smallvec = { version = "1", features = ["union", "const_generics"] }
 png = "0.17"

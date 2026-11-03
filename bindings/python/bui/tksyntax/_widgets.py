@@ -1324,10 +1324,11 @@ _SUB = 1 << 24  # kit ids of an item's parts (line arrows)
 
 
 class _Item:
-    __slots__ = ("id", "type", "coords", "tags", "opts")
+    __slots__ = ("id", "type", "coords", "tags", "opts", "arrows")
 
     def __init__(self, iid, kind, coords, tags, opts):
         self.id, self.type, self.coords, self.tags, self.opts = iid, kind, coords, tags, opts
+        self.arrows = 0  # bit k: arrowhead sub-item k exists in the kit
 
 
 def _flat(coords):
@@ -1502,8 +1503,10 @@ class Canvas(Widget, XView, YView):
                 poly = [tip[0], tip[1], bx - uy * wing, by + ux * wing,
                         tip[0] - ux * a, tip[1] - uy * a, bx + uy * wing, by - ux * wing]
                 self._node.canvas_set(kid, 3, poly, fill=ink, hidden=hidden)
-            else:
+                item.arrows |= 1 << k
+            elif item.arrows & (1 << k):  # only delete what was created
                 self._node.canvas_delete(kid)
+                item.arrows &= ~(1 << k)
 
     def _place_window(self, item):
         w = item.opts.get("window")

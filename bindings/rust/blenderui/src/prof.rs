@@ -1,41 +1,59 @@
 //! `BUI_PROFILE=1`: per-phase frame timings, averaged and printed to stderr
 //! every 60 frames. Costs one thread-local bool check when off.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::time::Instant;
+
+/// The timed phases of a frame.
+#[derive(Clone, Copy)]
+pub(crate) enum Phase {
+    FrameInterval,
+    Render,
+    Cascade,
+    Build,
+    Boxes,
+    Taffy,
+    Place,
+    Paint,
+    Flush,
+    Widgets,
+}
+
+const NAMES: [&str; 10] = [
+    "frame interval", "render", "  cascade", "build", "boxes", "taffy", "place", "paint", "flush",
+    "widgets+hover",
+];
 
 thread_local! {
     static ON: bool = std::env::var_os("BUI_PROFILE").is_some();
-    static ACC: RefCell<(Vec<(&'static str, f64)>, u32)> = const { RefCell::new((Vec::new(), 0)) };
+    static ACC: [Cell<f64>; 10] = const { [const { Cell::new(0.0) }; 10] };
+    static FRAMES: Cell<u32> = const { Cell::new(0) };
 }
 
 pub(crate) fn on() -> bool {
     ON.with(|o| *o)
 }
 
-/// Times its scope into the phase `name`.
-pub(crate) struct Span(Option<(&'static str, Instant)>);
+/// Times its scope into a phase.
+pub(crate) struct Span(Option<(Phase, Instant)>);
 
-pub(crate) fn span(name: &'static str) -> Span {
-    Span(on().then(|| (name, Instant::now())))
+pub(crate) fn span(phase: Phase) -> Span {
+    Span(on().then(|| (phase, Instant::now())))
 }
 
 impl Drop for Span {
     fn drop(&mut self) {
-        if let Some((name, t)) = self.0 {
-            add(name, t.elapsed().as_secs_f64() * 1000.0);
+        if let Some((phase, t)) = self.0 {
+            add(phase, t.elapsed().as_secs_f64() * 1000.0);
         }
     }
 }
 
-/// Add `ms` to phase `name`.
-pub(crate) fn add(name: &'static str, ms: f64) {
+/// Add `ms` to a phase.
+pub(crate) fn add(phase: Phase, ms: f64) {
     ACC.with(|a| {
-        let mut a = a.borrow_mut();
-        match a.0.iter_mut().find(|(n, _)| *n == name) {
-            Some(e) => e.1 += ms,
-            None => a.0.push((name, ms)),
-        }
+        let c = &a[phase as usize];
+        c.set(c.get() + ms);
     });
 }
 
@@ -44,14 +62,19 @@ pub(crate) fn frame_done() {
     if !on() {
         return;
     }
-    ACC.with(|a| {
-        let mut a = a.borrow_mut();
-        a.1 += 1;
-        if a.1 == 60 {
-            let line: Vec<String> = a.0.iter().map(|(n, ms)| format!("{n} {:.2}", ms / 60.0)).collect();
-            eprintln!("frame ms: {}", line.join("  "));
-            a.0.clear();
-            a.1 = 0;
-        }
+    let n = FRAMES.with(|f| {
+        f.set(f.get() + 1);
+        f.get()
     });
+    if n < 60 {
+        return;
+    }
+    FRAMES.with(|f| f.set(0));
+    let line: Vec<String> = ACC.with(|a| {
+        NAMES.iter().zip(a.iter())
+            .filter(|(_, c)| c.get() > 0.0)
+            .map(|(name, c)| format!("{name} {:.2}", c.replace(0.0) / 60.0))
+            .collect()
+    });
+    eprintln!("frame ms: {}", line.join("  "));
 }

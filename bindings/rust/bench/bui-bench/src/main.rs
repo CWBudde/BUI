@@ -34,14 +34,14 @@ impl Render for Scene {
                 div()
                     .w(px(w))
                     .h(px(h))
-                    .bg(rgb(measure::cell_color(i, t)))
+                    .bg(rgb(measure::cell_color(i, cfg.t_for(i, t))))
                     .rounded(px(3.0))
                     .flex()
                     .items_center()
                     .justify_center()
                     .text_size(px(font))
                     .text_color(rgb(0xffffff))
-                    .child(measure::cell_label(i, t))
+                    .child(measure::cell_label(i, cfg.t_for(i, t)))
             })))
     }
 }

@@ -79,7 +79,7 @@ def main():
     a = ap.parse_args()
     configs = []
     for cells in map(int, a.cells.split(",")):
-        for mode in ("anim", "idle"):
+        for mode in ("anim", "one", "idle"):
             for app in a.apps.split(","):
                 configs.append((app, cells, mode, ()))
         if "blenderui" in a.apps.split(","):
@@ -107,7 +107,7 @@ def main():
     print("|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for label, cells, mode, v in results:
         print(f"| {label} | {cells} | {mode} | {f(v['fps'])} | {f(v['cpu_pct'])} | "
-              f"{f(v['cpu_ms_per_frame'], 2) if mode == 'anim' else '-'} | {f(v['gpu_pct'])} | "
+              f"{f(v['cpu_ms_per_frame'], 2) if mode != 'idle' else '-'} | {f(v['gpu_pct'])} | "
               f"{f(v['ws_mb'])} | {f(v['private_mb'])} | {f(v['gpu_mem_mb'])} | {f(v['first_frame_ms'], 0)} |")
 
 

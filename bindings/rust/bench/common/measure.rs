@@ -15,6 +15,8 @@ pub static FRAMES: AtomicU64 = AtomicU64::new(0);
 pub struct Config {
     pub cells: usize,
     pub animate: bool,
+    /// `--mode one`: every frame re-renders, but only cell 0 changes.
+    pub one: bool,
     pub warmup: f64,
     pub seconds: f64,
     pub width: f32,
@@ -30,7 +32,8 @@ impl Config {
         };
         Config {
             cells: get("--cells", "100").parse().unwrap(),
-            animate: get("--mode", "anim") == "anim",
+            animate: matches!(get("--mode", "anim").as_str(), "anim" | "one"),
+            one: get("--mode", "anim") == "one",
             warmup: get("--warmup", "3").parse().unwrap(),
             seconds: get("--seconds", "10").parse().unwrap(),
             width: 1000.0,
@@ -71,6 +74,13 @@ pub fn cell_color(i: usize, t: u64) -> u32 {
 /// The label of cell `i` at frame `t`.
 pub fn cell_label(i: usize, t: u64) -> String {
     format!("{}", (i as u64 * 13 + t) % 1000)
+}
+
+impl Config {
+    /// The frame number cell `i` shows: all cells follow `t`, or only cell 0 (`--mode one`).
+    pub fn t_for(&self, i: usize, t: u64) -> u64 {
+        if self.one && i != 0 { 0 } else { t }
+    }
 }
 
 pub fn frame() -> u64 {
@@ -142,6 +152,7 @@ fn memory() -> MemCounters {
 /// Start the measuring thread. `name` labels the JSON line.
 pub fn start(name: &'static str, cfg: &Config) {
     let (warmup, secs, cells, animate) = (cfg.warmup, cfg.seconds, cfg.cells, cfg.animate);
+    let mode = if cfg.one { "one" } else if animate { "anim" } else { "idle" };
     let launched = Instant::now();
     std::thread::spawn(move || {
         // time to first frame
@@ -176,7 +187,7 @@ pub fn start(name: &'static str, cfg: &Config) {
             "{{\"app\":\"{name}\",\"cells\":{cells},\"mode\":\"{}\",\"fps\":{:.1},\"cpu_pct\":{:.1},\
              \"cpu_ms_per_frame\":{:.3},\"ws_mb\":{:.1},\"peak_ws_mb\":{:.1},\"private_mb\":{:.1},\
              \"first_frame_ms\":{:.0}}}",
-            if animate { "anim" } else { "idle" },
+            mode,
             frames as f64 / wall.as_secs_f64(),
             cpu.as_secs_f64() / wall.as_secs_f64() * 100.0,
             if frames > 0 { cpu.as_secs_f64() * 1000.0 / frames as f64 } else { 0.0 },

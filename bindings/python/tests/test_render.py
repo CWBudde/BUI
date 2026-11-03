@@ -250,6 +250,68 @@ def test_after_cancel():
     root.destroy()
 
 
+def test_canvas_damage_matches_full_redraw():
+    """Canvas edits redraw only the items' old and new boxes; the result must
+    equal redrawing everything, for every item type and kind of edit."""
+    import random
+    from bui.tksyntax import Canvas, Tk
+
+    W, H = 320, 220
+    root = Tk()
+    cv = Canvas(root, width=W, height=H, bg="#303030", highlightthickness=0)
+    cv.pack()
+    rnd = random.Random(7)
+
+    def make(k):
+        x, y = rnd.randrange(0, W - 40), rnd.randrange(0, H - 30)
+        kind = k % 7
+        if kind == 0:
+            return cv.create_rectangle(x, y, x + 30, y + 20, fill="#4772b3", outline="#e6e6e6", width=2)
+        if kind == 1:
+            return cv.create_oval(x, y, x + 24, y + 24, fill="#e6a23c")
+        if kind == 2:
+            return cv.create_line(x, y, x + 30, y + 18, x + 10, y + 25, fill="#78aef0", width=3)
+        if kind == 3:
+            return cv.create_polygon(x, y + 20, x + 12, y, x + 24, y + 20, fill="#6aa84f", outline="#ffffff")
+        if kind == 4:
+            return cv.create_arc(x, y, x + 26, y + 26, start=30, extent=240, fill="#c27ba0", outline="#ffffff")
+        if kind == 5:
+            return cv.create_text(x + 10, y + 10, text="label %d" % k, fill="#ffffff", anchor="nw")
+        return cv.create_text(x + 15, y + 10, text="ctr", fill="#ffff00")
+
+    items = [make(k) for k in range(40)]
+    ctx = root._ctx
+    live = buipy.Raster(W, H)
+    ctx.render(W, H, live, True)
+    for step in range(80):
+        i = rnd.choice(items)
+        op = step % 6
+        if op == 0:
+            cv.move(i, rnd.randint(-15, 15), rnd.randint(-15, 15))
+        elif op == 1:
+            if cv.type(i) in ("text",):
+                cv.itemconfigure(i, text="changed text %d" % step)
+            else:
+                cv.itemconfigure(i, fill=rnd.choice(["#ff0000", "#00ff00", "#2020ff"]))
+        elif op == 2:
+            cv.delete(i)
+            items.remove(i)
+            items.append(make(step))
+        elif op == 3:
+            cv.tag_raise(i)
+        elif op == 4:
+            cv.tag_lower(i)
+        else:
+            x, y = rnd.randrange(0, W - 40), rnd.randrange(0, H - 30)
+            n = len(cv.coords(i))
+            cv.coords(i, *([x, y, x + 20, y + 14, x + 5, y + 20][:n] if n <= 6 else cv.coords(i)))
+        ctx.render(W, H, live, False)  # damage only
+        full = buipy.Raster(W, H)
+        ctx.render(W, H, full, True)  # everything
+        assert live.ppm(0, 0, W, H) == full.ppm(0, 0, W, H), "step %d (op %d): damage redraw differs" % (step, op)
+    root.destroy()
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

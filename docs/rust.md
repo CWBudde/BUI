@@ -57,7 +57,7 @@ It follows gpui closely:
 | `Application::new().run(\|cx\| ...)`      | the same; `Application::headless()` renders off-screen        |
 | `cx.open_window(options, \|window, cx\| cx.new(\|cx\| View))` | the same; returns `WindowHandle<View>`   |
 | `impl Render for View`                    | the same: `fn render(&mut self, window, cx) -> impl IntoElement` |
-| `Entity<T>`, `WeakEntity<T>`, `cx.new`    | the same: `read`, `update`, `downgrade`, `upgrade`            |
+| `Entity<T>`, `WeakEntity<T>`, `cx.new`    | `Copy` handles into the app's entity slots: `read` (returns `&T`), `update`, `downgrade`; `cx.release(e)` drops a value |
 | `Context<T>`: `notify`, `listener`, `entity` | the same; it derefs to `App`                              |
 | `WindowOptions { window_bounds, titlebar, .. }`, `WindowBounds::Windowed(..)` | the same, plus `is_resizable`, `window_min_size` |
 | `cx.set_global`, `cx.global`              | the same                                                       |
@@ -141,11 +141,14 @@ Three ways, one cascade:
 div().flex().items_center().gap_2().px_3().py_1().rounded_md().bg(rgb(0x3a3a3a))
     .text_color(white()).shadow_md().hover(|s| s.bg(rgb(0x4772b3)))
 
-// 2. any CSS property
-div().css("grid-template-columns", "repeat(3, 1fr)")
-     .style("border-left: 3px solid #4772b3; padding: 4px 8px")
+// 2. CSS blocks, checked at compile time (a misspelled property doesn't compile)
+div().style(css!("border-left: 3px solid #4772b3; padding: 4px 8px"))
 
-// 3. stylesheets, anywhere in the tree
+// 3. CSS built at run time
+div().css("grid-template-columns", format!("repeat({n}, 1fr)"))
+     .style(format!("width: {w}px"))
+
+// 4. stylesheets, anywhere in the tree
 style().child(".card:hover > h4 { color: #e6a23c } @media (max-width: 600px) { nav { display: none } }")
 ```
 
@@ -322,14 +325,16 @@ how to re-run it.
 
 | | blenderui | gpui-fast | gpui |
 |---|---|---|---|
-| 100 / 1000 animated cells | 60 / 60 fps (display cap; 500 / 97 uncapped) | 60 / 60 fps | 60 / 60 fps |
-| 3000 animated cells | **32.6 fps** | 29.7 fps | 22.8 fps |
-| CPU per frame at 3000 cells | 39.7 ms (all threads) | **18.4 ms** + GPU | 44.1 ms + GPU |
-| RAM (working set) | **20-36 MB** | 34-65 MB + 19-24 MB GPU | 33-78 MB + 16-21 MB GPU |
-| First frame after launch | **~6 ms** | ~205 ms | ~220 ms |
+| 100 / 1000 animated cells | 60 / 60 fps (display cap; 529 / 157 uncapped) | 60 / 60 fps | 60 / 60 fps |
+| 3000 animated cells | **57.5 fps** | 50.5 fps | 18.9 fps |
+| CPU per frame, 1000 / 3000 cells | 13.7 / 27.3 ms (all threads) | **6.7 / 20.1 ms** + GPU | 14.7 / 53.1 ms + GPU |
+| RAM (working set) | **18-31 MB** | 33-64 MB + 19-24 MB GPU | 31-76 MB + 16-21 MB GPU |
+| First frame after launch | **~6 ms** | ~250 ms | ~260 ms |
+| Idle CPU | **0 %** | 0-0.1 % | 0.7-1.4 % |
 
-blenderui leads on frame rate in the heavy scene, memory and startup.
-gpui-fast does the least CPU work per frame. blenderui rasterises on the CPU
+blenderui leads on memory and startup, and in this session on the 3000-cell
+frame rate. gpui-fast does the least CPU work per frame; its heavy-scene frame
+rate varies between sessions on this laptop (29.7-59.8 fps). blenderui rasterises on the CPU
 in parallel bands (`BUI_RASTER_THREADS=1` forces one thread). `BUI_PROFILE=1`
 prints its per-phase frame times.
 
@@ -371,8 +376,29 @@ prints its per-phase frame times.
 
 - `blenderui-sys` is the raw FFI over `kit/include/BUI_kit.h`; its build script
   builds the C kit with CMake and links it statically.
-- Every style source (methods, `.css`, `.style`, sheets, the user-agent sheet,
-  state refinements) becomes CSS declarations applied by one table of property
-  handlers, so a property has exactly one implementation.
-- Each render rebuilds the display list and reconciles widget nodes by key,
-  re-rendering after events (on the next turn of the native message loop).
+- Every style source (methods, `css!`, `.css`, `.style`, sheets, the
+  user-agent sheet, state refinements) becomes CSS declarations applied by
+  one table of property handlers, so a property has exactly one
+  implementation.
+- **Compile time**: the property table is a `const`. Style methods and
+  `css!` resolve property names to indices when the program compiles (a
+  typo is a compile error), typed methods (`.w(px(40.0))`, `.bg(rgb(..))`)
+  build their value token directly, and fixed values (`.flex()`,
+  `.shadow_md()`, `css!` values) are tokenized once per program.
+- **No `Rc` / `RefCell`**: a frame is a set of flat arenas (boxes, element
+  data, taffy nodes) linked by index, owned by the window and reused every
+  frame. Computed styles live in a per-window store, shared by every element
+  with the same inputs. Listeners are owned `Box`es; while one runs, the
+  frame is moved out of the window so it can take `&mut Window`. Entities
+  are `Copy` handles into an app-owned slot map; the app itself lives on
+  `Application::run`'s stack. Small per-element lists (matched rules,
+  declarations) stay on the stack. The only shared ownership left is
+  `Arc<Image>` for image pixels.
+- **Reuse across frames**: `render()` builds a fresh element tree each frame,
+  but the work behind it is reused. Matched selectors are memoized by an
+  element fingerprint (what selectors can see: tag, id, attributes, position,
+  state, ancestors, previous siblings). Computed styles are shared by input.
+  The taffy tree persists and is reconciled by key, so only changed subtrees
+  are laid out again. Widget nodes are reconciled by key too.
+- Rendering happens on the next turn of the native message loop after
+  events.

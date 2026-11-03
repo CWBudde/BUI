@@ -78,6 +78,11 @@ typedef struct BKDraw {
 
 extern BKDraw bk_draw; /* active frame */
 
+/* Animation pacing, set by the window host: the last animation frame's
+ * duration and the display's refresh interval, in ms (0 = not animating or
+ * no vsync). Lets the canvas draw on one thread when the frame has slack. */
+extern double bk_frame_ms, bk_frame_budget_ms;
+
 void bk_clip_push(int x, int y, int w, int h);
 void bk_clip_pop(void);
 void bk_clip_reset(int w, int h);

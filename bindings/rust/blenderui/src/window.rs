@@ -7,17 +7,17 @@
 //! ```
 
 use std::any::{Any, TypeId};
-use std::cell::{Ref, RefCell};
+use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{c_char, c_double, c_int, c_void, CStr, CString};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
 
 use crate::element::{AnyElement, IntoElement, Listener, Listeners, SharedString};
 use crate::events::*;
 use crate::geometry::{point, px, size, Bounds, Pixels, Size};
-use crate::layout::{layout, Content, Frame, UiState};
+use crate::layout::{id_key, layout, Content, Frame, Key, LayoutCaches, UiState};
+use crate::prof::{self, span, Phase};
 use crate::paint::{paint_frame, Painter};
 use crate::widgets::{WKind, Widgets};
 use blenderui_sys as sys;
@@ -25,60 +25,84 @@ use blenderui_sys as sys;
 // ==========================================================================
 // Entities
 
-/// Shared state owned by the app (gpui's `Entity<T>`).
+/// State owned by the app (gpui's `Entity<T>`): a `Copy` handle (slot index
+/// and generation) into the app's entity slots. No reference counting.
 pub struct Entity<T> {
-    inner: Rc<RefCell<Option<T>>>,
+    id: u32,
+    generation: u32,
+    _t: PhantomData<fn() -> T>,
 }
 
 impl<T> Clone for Entity<T> {
     fn clone(&self) -> Self {
-        Entity { inner: self.inner.clone() }
+        *self
     }
+}
+impl<T> Copy for Entity<T> {}
+
+/// One entity's storage. The value is moved out while it is being updated.
+struct Slot {
+    generation: u32,
+    value: Option<Box<dyn Any>>,
 }
 
 impl<T: 'static> Entity<T> {
     /// Read the value.
-    pub fn read<'a>(&'a self, _cx: &'a App) -> Ref<'a, T> {
-        Ref::map(self.inner.borrow(), |v| v.as_ref().expect("entity is being built"))
+    pub fn read<'a>(&self, cx: &'a App) -> &'a T {
+        let slot = &cx.entities[self.id as usize];
+        assert!(slot.generation == self.generation, "entity was released");
+        slot.value.as_ref().expect("entity is being built or updated")
+            .downcast_ref::<T>().expect("entity type")
     }
 
-    /// Mutate the value with a [`Context`] for it.
+    /// Mutate the value with a [`Context`] for it. The value is taken out of
+    /// its slot meanwhile, so `cx` stays fully usable (except for updating
+    /// this same entity again, which panics).
     pub fn update<R>(&self, cx: &mut App, f: impl FnOnce(&mut T, &mut Context<T>) -> R) -> R {
-        let mut slot = self.inner.borrow_mut();
-        let value = slot.as_mut().expect("entity is being built");
-        let mut ctx = Context { app: cx, entity: self.clone() };
-        f(value, &mut ctx)
+        let slot = &mut cx.entities[self.id as usize];
+        assert!(slot.generation == self.generation, "entity was released");
+        let mut value = slot.value.take().expect("entity is being built or already being updated");
+        let r = {
+            let v = value.downcast_mut::<T>().expect("entity type");
+            let mut ctx = Context { app: cx, entity: *self };
+            f(v, &mut ctx)
+        };
+        cx.entities[self.id as usize].value = Some(value);
+        r
     }
 
     /// Same entity?
     pub fn entity_id(&self) -> usize {
-        Rc::as_ptr(&self.inner) as *const () as usize
+        self.id as usize
     }
 
     pub fn downgrade(&self) -> WeakEntity<T> {
-        WeakEntity { inner: Rc::downgrade(&self.inner) }
+        WeakEntity { entity: *self }
     }
 }
 
-/// A weak handle (gpui's `WeakEntity<T>`).
+/// A handle that may outlive its entity (gpui's `WeakEntity<T>`).
 pub struct WeakEntity<T> {
-    inner: std::rc::Weak<RefCell<Option<T>>>,
+    entity: Entity<T>,
 }
 
 impl<T> Clone for WeakEntity<T> {
     fn clone(&self) -> Self {
-        WeakEntity { inner: self.inner.clone() }
+        *self
     }
 }
+impl<T> Copy for WeakEntity<T> {}
 
 impl<T: 'static> WeakEntity<T> {
-    pub fn upgrade(&self) -> Option<Entity<T>> {
-        self.inner.upgrade().map(|inner| Entity { inner })
+    /// The entity, if it hasn't been released.
+    pub fn upgrade_in(&self, cx: &App) -> Option<Entity<T>> {
+        let slot = cx.entities.get(self.entity.id as usize)?;
+        (slot.generation == self.entity.generation).then_some(self.entity)
     }
 
     /// Update if still alive.
     pub fn update<R>(&self, cx: &mut App, f: impl FnOnce(&mut T, &mut Context<T>) -> R) -> Option<R> {
-        self.upgrade().map(|e| e.update(cx, f))
+        self.upgrade_in(cx).map(|e| e.update(cx, f))
     }
 }
 
@@ -103,7 +127,7 @@ impl<T> DerefMut for Context<'_, T> {
 impl<T: 'static> Context<'_, T> {
     /// This entity.
     pub fn entity(&self) -> Entity<T> {
-        self.entity.clone()
+        self.entity
     }
 
     pub fn weak_entity(&self) -> WeakEntity<T> {
@@ -122,9 +146,7 @@ impl<T: 'static> Context<'_, T> {
     ) -> impl Fn(&E, &mut Window, &mut App) + 'static {
         let weak = self.entity.downgrade();
         move |e: &E, window: &mut Window, cx: &mut App| {
-            if let Some(entity) = weak.upgrade() {
-                entity.update(cx, |this, cx| f(this, e, window, cx));
-            }
+            weak.update(cx, |this, cx| f(this, e, window, cx));
         }
     }
 }
@@ -149,14 +171,14 @@ pub struct WindowHandle<V> {
 
 impl<V> Clone for WindowHandle<V> {
     fn clone(&self) -> Self {
-        WindowHandle { id: self.id, entity: self.entity.clone() }
+        WindowHandle { id: self.id, entity: self.entity }
     }
 }
 
 impl<V: 'static> WindowHandle<V> {
     /// The root view of the window.
     pub fn root(&self) -> Entity<V> {
-        self.entity.clone()
+        self.entity
     }
 
     /// Update the root view with its window.
@@ -227,20 +249,39 @@ impl Application {
             app.shutdown();
             return;
         }
-        APP.with(|a| *a.borrow_mut() = Some(app));
-        // SAFETY: plain message loop; callbacks re-enter through APP.
+        // the app stays on this stack frame; kit callbacks reach it through APP
+        APP.with(|a| a.set(&mut app as *mut App));
+        // SAFETY: plain message loop; `app` isn't touched here until it returns.
         unsafe { sys::BK_window_run() };
-        if let Some(mut app) = APP.with(|a| a.borrow_mut().take()) {
-            app.shutdown();
-        }
+        APP.with(|a| a.set(std::ptr::null_mut()));
+        app.shutdown();
     }
 }
 
 thread_local! {
-    /// The running app while the native loop runs (callbacks borrow it).
-    static APP: RefCell<Option<App>> = const { RefCell::new(None) };
-    /// Kit events that arrived while the app was busy.
-    static QUEUE: RefCell<VecDeque<RawEvent>> = const { RefCell::new(VecDeque::new()) };
+    /// The app while the native loop runs (it lives on `Application::run`'s stack).
+    static APP: Cell<*mut App> = const { Cell::new(std::ptr::null_mut()) };
+    /// Set while a callback holds the app (a re-entrant callback must not).
+    static BUSY: Cell<bool> = const { Cell::new(false) };
+    /// Kit events, handled in order once the app is free.
+    static QUEUE: Cell<VecDeque<RawEvent>> = const { Cell::new(VecDeque::new()) };
+}
+
+fn queue_push(ev: RawEvent) {
+    QUEUE.with(|q| {
+        let mut v = q.take();
+        v.push_back(ev);
+        q.set(v);
+    });
+}
+
+fn queue_pop() -> Option<RawEvent> {
+    QUEUE.with(|q| {
+        let mut v = q.take();
+        let ev = v.pop_front();
+        q.set(v);
+        ev
+    })
 }
 
 struct RawEvent {
@@ -255,6 +296,7 @@ struct RawEvent {
 /// The application state (gpui's `App`).
 pub struct App {
     windows: Vec<Option<Box<Window>>>,
+    entities: Vec<Slot>,
     headless: bool,
     globals: HashMap<TypeId, Box<dyn Any>>,
     propagate: bool,
@@ -262,16 +304,26 @@ pub struct App {
 
 impl App {
     fn create(headless: bool) -> App {
-        App { windows: Vec::new(), headless, globals: HashMap::new(), propagate: true }
+        App { windows: Vec::new(), entities: Vec::new(), headless, globals: HashMap::new(), propagate: true }
     }
 
     /// Create an entity (gpui's `cx.new`).
     pub fn new<T: 'static>(&mut self, build: impl FnOnce(&mut Context<T>) -> T) -> Entity<T> {
-        let entity = Entity { inner: Rc::new(RefCell::new(None)) };
-        let mut ctx = Context { app: self, entity: entity.clone() };
-        let v = build(&mut ctx);
-        *entity.inner.borrow_mut() = Some(v);
+        let id = self.entities.len() as u32;
+        self.entities.push(Slot { generation: 0, value: None });
+        let entity = Entity { id, generation: 0, _t: PhantomData };
+        let v = build(&mut Context { app: self, entity });
+        self.entities[id as usize].value = Some(Box::new(v));
         entity
+    }
+
+    /// Drop an entity's value. Its handles become dead: `WeakEntity::update`
+    /// skips them, `Entity::read` / `update` panic.
+    pub fn release<T: 'static>(&mut self, entity: Entity<T>) {
+        if let Some(slot) = self.entities.get_mut(entity.id as usize).filter(|s| s.generation == entity.generation) {
+            slot.value = None;
+            slot.generation += 1;
+        }
     }
 
     /// Open a window whose root view is built by `build`.
@@ -303,8 +355,8 @@ impl App {
             }
         }
         let entity = build(&mut w, self);
-        let view = entity.clone();
-        w.view = Some(Rc::new(move |window: &mut Window, cx: &mut App| {
+        let view = entity;
+        w.view = Some(Box::new(move |window: &mut Window, cx: &mut App| {
             view.update(cx, |v, cx| v.render(window, cx).into_any_element())
         }));
         w.dirty = true;
@@ -364,7 +416,7 @@ impl App {
 
     /// Handle queued kit events, then re-render what changed.
     fn drain(&mut self) {
-        while let Some(ev) = QUEUE.with(|q| q.borrow_mut().pop_front()) {
+        while let Some(ev) = queue_pop() {
             self.with_window(ev.window, |w, app| w.dispatch(ev, app));
         }
     }
@@ -416,7 +468,7 @@ impl App {
             if w.raster.is_null() {
                 w.raster = sys::BUI_raster_create(pw, ph);
             }
-            let _s = crate::prof::span("kit render");
+            let _s = span(Phase::Widgets);
             sys::BK_render(w.ctx, w.raster, pw, ph, 1);
             let p = sys::BUI_raster_pixels(w.raster);
             std::slice::from_raw_parts(p, (pw * ph) as usize).to_vec()
@@ -430,7 +482,7 @@ impl App {
         self.flush();
         let w = self.window(window)?;
         let f = w.frame.as_ref()?;
-        f.by_key().get(&format!("#{id}")).map(|&i| f.nodes[i].bounds)
+        f.by_key().get(&id_key(id)).map(|&i| f.nodes[i].bounds)
     }
 
     fn input(&mut self, window: WindowId, f: impl FnOnce(*mut sys::BKContext, f32)) {
@@ -490,7 +542,7 @@ unsafe extern "C" fn on_emit(data: *mut c_void, node: *mut sys::BKNode, kind: c_
         // SAFETY: raw events carry a C string in `ref`.
         unsafe { CStr::from_ptr(ref_ as *const c_char) }.to_string_lossy().into_owned()
     };
-    QUEUE.with(|q| q.borrow_mut().push_back(RawEvent { window: data as usize, node, kind, text, a, b }));
+    queue_push(RawEvent { window: data as usize, node, kind, text, a, b });
     with_running_app(|app| app.flush());
 }
 
@@ -515,10 +567,10 @@ unsafe extern "C" fn on_timer(data: *mut c_void, _win: *mut sys::BKWindow, _id: 
 unsafe extern "C" fn on_frame(data: *mut c_void, _win: *mut sys::BKWindow) {
     // BUI_PROFILE: wall time between frames, i.e. rebuild + kit render + present
     thread_local! { static LAST: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) }; }
-    if crate::prof::on() {
+    if prof::on() {
         let now = std::time::Instant::now();
         if let Some(t) = LAST.with(|l| l.replace(Some(now))) {
-            crate::prof::add("frame interval", (now - t).as_secs_f64() * 1000.0);
+            prof::add(Phase::FrameInterval, (now - t).as_secs_f64() * 1000.0);
         }
     }
     let id = data as usize;
@@ -543,12 +595,18 @@ unsafe extern "C" fn on_close(data: *mut c_void, _win: *mut sys::BKWindow) -> c_
     1
 }
 
+/// Run `f` with the app, unless there is none (before the loop, headless)
+/// or a callback further up the stack already holds it.
 fn with_running_app(f: impl FnOnce(&mut App)) -> bool {
-    let Some(mut app) = APP.with(|a| a.try_borrow_mut().ok().and_then(|mut a| a.take())) else {
+    let app = APP.with(Cell::get);
+    if app.is_null() || BUSY.with(Cell::get) {
         return false;
-    };
-    f(&mut app);
-    APP.with(|a| *a.borrow_mut() = Some(app));
+    }
+    BUSY.with(|b| b.set(true));
+    // SAFETY: `app` points at the live App on `Application::run`'s stack,
+    // which isn't touched while the loop runs; BUSY keeps this `&mut` unique.
+    f(unsafe { &mut *app });
+    BUSY.with(|b| b.set(false));
     true
 }
 
@@ -557,7 +615,7 @@ unsafe extern "C" fn noop(_: *mut c_void) {}
 // ==========================================================================
 // Windows
 
-type ViewFn = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+type ViewFn = Box<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 /// A window (gpui's `Window`): its kit context, layout and interaction state.
 pub struct Window {
@@ -572,6 +630,11 @@ pub struct Window {
     scale: f32,
     view: Option<ViewFn>,
     frame: Option<Frame>,
+    /// Styles, text widths, images, the author sheet and the taffy tree:
+    /// kept across frames.
+    caches: LayoutCaches,
+    /// The display list, reused every frame.
+    painter: Painter,
     state: UiState,
     widgets: Widgets,
     dirty: bool,
@@ -582,7 +645,7 @@ pub struct Window {
     title: String,
     cursor: i32,
     pointer: (f32, f32),
-    pressed: Vec<String>,
+    pressed: Vec<Key>,
     press_button: MouseButton,
 }
 
@@ -624,6 +687,8 @@ impl Window {
                 scale: 1.0,
                 view: None,
                 frame: None,
+                caches: LayoutCaches::default(),
+                painter: Painter::new(),
                 state: UiState::default(),
                 widgets: Widgets::new(),
                 dirty: true,
@@ -729,27 +794,30 @@ impl Window {
 
     /// The `.id()` of the focused element, if any.
     pub fn focused_id(&self) -> Option<&str> {
-        self.state.focused.as_deref().and_then(|k| k.strip_prefix('#'))
+        self.state.focused_id.as_deref()
     }
 
     /// Focus the element with `.id(id)` (keyboard events go to it).
     pub fn focus_id(&mut self, id: &str) {
-        self.state.focused = Some(format!("#{id}"));
+        let key = id_key(id);
+        self.state.focused = Some(key);
+        self.state.focus_path = [key].into_iter().collect();
+        self.state.focused_id = Some(id.to_owned());
         self.dirty = true;
     }
 
     /// Is the element with `.id(id)` hovered?
     pub fn is_hovered(&self, id: &str) -> bool {
-        self.state.hovered.contains(&format!("#{id}"))
+        self.state.hovered.contains(&id_key(id))
     }
 
     /// Scroll offset of a scroll container with `.id(id)`.
     pub fn scroll_offset(&self, id: &str) -> (f32, f32) {
-        self.state.scroll.get(&format!("#{id}")).copied().unwrap_or((0.0, 0.0))
+        self.state.scroll.get(&id_key(id)).copied().unwrap_or((0.0, 0.0))
     }
 
     pub fn set_scroll_offset(&mut self, id: &str, x: f32, y: f32) {
-        self.state.scroll.insert(format!("#{id}"), (x, y));
+        self.state.scroll.insert(id_key(id), (x, y));
         self.dirty = true;
     }
 
@@ -760,35 +828,44 @@ impl Window {
     // -- render -----------------------------------------------------------------------------
 
     fn rebuild(&mut self, app: &mut App) {
-        let Some(view) = self.view.clone() else { return };
+        // the view is moved out while it renders (it gets `&mut Window`)
+        let Some(view) = self.view.take() else { return };
         self.dirty = false;
         let root = {
-            let _s = crate::prof::span("render");
+            let _s = span(Phase::Render);
             view(self, app)
         };
+        if self.view.is_none() {
+            self.view = Some(view);
+        }
         let vp = self.viewport();
         let (canvas, scale) = (self.canvas, self.scale);
         let widgets = &mut self.widgets;
-        let frame = layout(root, vp, &self.state, &mut |key, spec| widgets.ensure(canvas, key, spec, scale));
-        let mut p = Painter::new();
+        let recycle = self.frame.take().unwrap_or_default();
+        let frame = layout(root, vp, &self.state, &mut self.caches, recycle,
+                           &mut |key, spec| widgets.ensure(canvas, key, spec, scale));
+        let p = &mut self.painter;
+        p.reset();
         {
-            let _s = crate::prof::span("paint");
-            paint_frame(&frame, &mut p, vp);
+            let _s = span(Phase::Paint);
+            paint_frame(&frame, &self.caches.styles, &mut self.caches.text, p, vp);
         }
         {
-            let _s = crate::prof::span("flush");
+            let _s = span(Phase::Flush);
             p.flush(canvas, scale);
         }
-        let _rest = crate::prof::span("widgets+hover");
-        let mut at = HashMap::new();
+        let _rest = span(Phase::Widgets);
+        let mut at = HashMap::new(); // empty (no allocation) without form widgets
         for n in &frame.nodes {
             if matches!(n.content, Content::Widget(_)) {
-                at.insert(n.key.clone(), (n.bounds, n.clip, n.visible));
+                at.insert(n.key, (n.bounds, n.clip, n.visible));
             }
         }
         self.widgets.place(&at, scale);
         // an opaque <html> background covers the window: the kit can skip its clear
-        let opaque = frame.nodes.first().is_some_and(|h| h.style.background.a >= 1.0 && h.style.opacity >= 1.0);
+        let styles = &self.caches.styles;
+        let opaque = frame.nodes.first()
+            .is_some_and(|h| styles[h.style].background.a >= 1.0 && styles[h.style].opacity >= 1.0);
         if opaque != self.opaque {
             self.opaque = opaque;
             unsafe { sys::BK_set_num(self.root, c"opaque".as_ptr(), opaque as i32 as f64) };
@@ -799,51 +876,50 @@ impl Window {
         self.frame = Some(frame);
         self.update_hover(app, false);
         drop(_rest);
-        crate::prof::frame_done();
+        prof::frame_done();
     }
 
     // -- events ------------------------------------------------------------------------------
 
     /// Element keys from the root to the deepest element under the pointer.
-    fn path_at(&self, x: f32, y: f32) -> Vec<String> {
+    fn path_at(&self, x: f32, y: f32) -> Vec<Key> {
         let Some(f) = &self.frame else { return Vec::new() };
-        f.hit_path(x, y).into_iter().map(|i| f.nodes[i].key.clone()).collect()
+        f.hit_path(x, y, &self.caches.styles).into_iter().map(|i| f.nodes[i].key).collect()
     }
 
-    /// Listeners of `pick` from `key` up to the root (bubbling order).
-    fn bubble<E: 'static>(&self, key: &str, pick: impl Fn(&Listeners) -> Vec<Listener<E>>)
-        -> Vec<Listener<E>> {
-        let Some(f) = &self.frame else { return Vec::new() };
-        let mut out = Vec::new();
-        let mut cur = f.by_key().get(key).copied();
-        while let Some(i) = cur {
-            if let Some(el) = &f.nodes[i].el {
-                out.extend(pick(&el.listeners));
-            }
-            cur = f.nodes[i].parent;
-        }
-        out
-    }
-
-    fn fire<E: 'static>(&mut self, app: &mut App, listeners: Vec<Listener<E>>, e: &E) {
+    /// Call the listeners `pick` selects, from element `key` up to the root.
+    /// The frame is moved out of the window meanwhile, so listeners can take
+    /// `&mut Window` while the frame lends them out: no copies, no `Rc`.
+    fn emit<E: 'static>(&mut self, app: &mut App, key: Key, e: &E,
+                        pick: impl Fn(&Listeners) -> Vec<&Listener<E>>) {
+        let Some(frame) = self.frame.take() else { return };
         app.propagate = true;
-        for l in listeners {
-            l(e, self, app);
-            if !app.propagate {
-                break;
+        let mut cur = frame.by_key().get(&key).copied();
+        'up: while let Some(i) = cur {
+            if let Some(ls) = frame.el(i).and_then(|e| e.listeners.as_deref()) {
+                for l in pick(ls) {
+                    l(e, self, app);
+                    if !app.propagate {
+                        break 'up;
+                    }
+                }
             }
+            cur = frame.nodes[i].parent;
         }
         app.propagate = true;
+        if self.frame.is_none() {
+            self.frame = Some(frame);
+        }
     }
 
     fn update_hover(&mut self, app: &mut App, fire: bool) {
         let path = self.path_at(self.pointer.0, self.pointer.1);
-        let now: std::collections::HashSet<String> = path.iter().cloned().collect();
+        let now: std::collections::HashSet<Key> = path.iter().copied().collect();
         if now == self.state.hovered {
             return;
         }
-        let entered: Vec<String> = now.difference(&self.state.hovered).cloned().collect();
-        let left: Vec<String> = self.state.hovered.difference(&now).cloned().collect();
+        let entered: Vec<Key> = now.difference(&self.state.hovered).copied().collect();
+        let left: Vec<Key> = self.state.hovered.difference(&now).copied().collect();
         let restyle = self.frame.as_ref().is_some_and(|f| {
             entered.iter().chain(&left).any(|k| f.by_key().get(k).is_some())
         });
@@ -851,18 +927,26 @@ impl Window {
         // cursor of the deepest element that sets one
         if let Some(f) = &self.frame {
             let cursor = path.iter().rev()
-                .find_map(|k| f.by_key().get(k).and_then(|&i| f.nodes[i].style.cursor)).unwrap_or(0);
+                .find_map(|k| f.by_key().get(k).and_then(|&i| self.caches.styles[f.nodes[i].style].cursor)).unwrap_or(0);
             if cursor != self.cursor {
                 self.cursor = cursor;
                 unsafe { sys::BK_set_num(self.canvas, c"cursor".as_ptr(), cursor as f64) };
             }
         }
         if fire {
+            // hover listeners don't bubble: each element hears its own enter / leave
             for (keys, on) in [(left, false), (entered, true)] {
                 for k in keys {
-                    let ls = self.frame.as_ref().and_then(|f| f.by_key().get(&k).map(|&i| f.nodes[i].clone_hover()))
-                        .unwrap_or_default();
-                    self.fire(app, ls, &on);
+                    let Some(frame) = self.frame.take() else { return };
+                    let el = frame.by_key().get(&k).and_then(|&i| frame.el(i));
+                    if let Some(ls) = el.and_then(|e| e.listeners.as_deref()) {
+                        for l in &ls.hover {
+                            l(&on, self, app);
+                        }
+                    }
+                    if self.frame.is_none() {
+                        self.frame = Some(frame);
+                    }
                 }
             }
         }
@@ -880,6 +964,16 @@ impl Window {
             _ => MouseButton::Left,
         };
         (Modifiers::from_kit(mods), button)
+    }
+
+    /// Focus the element `key` (path: its ancestors, for `:focus-within`).
+    fn set_focus(&mut self, path: &[Key]) {
+        self.state.focused = path.last().copied();
+        self.state.focus_path = path.iter().copied().collect();
+        self.state.focused_id = self.frame.as_ref().and_then(|f| {
+            let i = *f.by_key().get(path.last()?)?;
+            f.el(i)?.id.as_ref().map(|s| s.to_string())
+        });
     }
 
     fn dispatch(&mut self, ev: RawEvent, app: &mut App) {
@@ -903,8 +997,7 @@ impl Window {
                 let pressed = (!self.pressed.is_empty()).then_some(self.press_button);
                 let e = MouseMoveEvent { position: point(px(x), px(y)), pressed_button: pressed, modifiers };
                 if let Some(deepest) = self.state_deepest() {
-                    let ls = self.bubble(&deepest, |l| l.mouse_move.clone());
-                    self.fire(app, ls, &e);
+                    self.emit(app, deepest, &e, |l| l.mouse_move.iter().collect());
                 }
             }
             sys::BK_EV_LEAVE => {
@@ -916,39 +1009,36 @@ impl Window {
                 let (modifiers, button) = self.pointer_event(&ev.text);
                 let path = self.path_at(x, y);
                 self.press_button = button;
-                self.state.active = path.iter().cloned().collect();
-                self.state.focused = path.last().cloned();
+                self.state.active = path.iter().copied().collect();
+                self.set_focus(&path);
                 self.pressed = path.clone();
                 self.dirty = true;
                 let e = MouseDownEvent { button, position: point(px(x), px(y)), modifiers,
                                          click_count: if ev.kind == sys::BK_EV_DOUBLE { 2 } else { 1 } };
-                if let Some(deepest) = path.last() {
-                    let ls = self.bubble(deepest, |l| l.mouse_down.iter()
-                        .filter(|(b, _)| b.is_none_or(|b| b == button)).map(|(_, f)| f.clone()).collect());
-                    self.fire(app, ls, &e);
+                if let Some(&deepest) = path.last() {
+                    self.emit(app, deepest, &e, |l| l.mouse_down.iter()
+                        .filter(|(b, _)| b.is_none_or(|b| b == button)).map(|(_, f)| f).collect());
                 }
             }
             sys::BK_EV_RELEASE => {
                 let (modifiers, button) = self.pointer_event(&ev.text);
                 let path = self.path_at(x, y);
                 let up = MouseUpEvent { button, position: point(px(x), px(y)), modifiers };
-                if let Some(deepest) = path.last() {
-                    let ls = self.bubble(deepest, |l| l.mouse_up.iter()
-                        .filter(|(b, _)| b.is_none_or(|b| b == button)).map(|(_, f)| f.clone()).collect());
-                    self.fire(app, ls, &up);
+                if let Some(&deepest) = path.last() {
+                    self.emit(app, deepest, &up, |l| l.mouse_up.iter()
+                        .filter(|(b, _)| b.is_none_or(|b| b == button)).map(|(_, f)| f).collect());
                 }
                 // click: the deepest element under both press and release
                 let common = self.pressed.iter().zip(&path).take_while(|(a, b)| a == b)
-                    .map(|(a, _)| a.clone()).last();
+                    .map(|(a, _)| *a).last();
                 self.pressed.clear();
                 self.state.active.clear();
                 self.dirty = true;
                 if let (Some(target), MouseButton::Left) = (common, button) {
-                    self.toggle_details(&target);
+                    self.toggle_details(target);
                     let down = MouseDownEvent { button, position: point(px(x), px(y)), modifiers, click_count: 1 };
                     let e = ClickEvent { down, up };
-                    let ls = self.bubble(&target, |l| l.click.clone());
-                    self.fire(app, ls, &e);
+                    self.emit(app, target, &e, |l| l.click.iter().collect());
                 }
             }
             sys::BK_EV_WHEEL => {
@@ -956,9 +1046,8 @@ impl Window {
                 let (px_, py_) = self.pointer;
                 let e = ScrollWheelEvent { position: point(px(px_), px(py_)), delta: ev.a as f32, modifiers };
                 let path = self.path_at(px_, py_);
-                if let Some(deepest) = path.last() {
-                    let ls = self.bubble(deepest, |l| l.scroll.clone());
-                    self.fire(app, ls, &e);
+                if let Some(&deepest) = path.last() {
+                    self.emit(app, deepest, &e, |l| l.scroll.iter().collect());
                 }
                 self.scroll_by(&path, -(ev.a as f32) * 40.0, modifiers.shift);
             }
@@ -968,47 +1057,44 @@ impl Window {
                 let key = parts.next().unwrap_or("").to_owned();
                 let ks = Keystroke { key, key_char: (!ch.is_empty()).then_some(ch),
                                      modifiers: Modifiers::from_kit(ev.a as i32) };
-                let target = self.state.focused.clone().or_else(|| self.state_deepest())
-                    .unwrap_or_else(|| "html".into());
+                let target = self.state.focused.or_else(|| self.state_deepest())
+                    .unwrap_or(crate::layout::ROOT_KEY);
                 if ev.kind == sys::BK_EV_KEY {
-                    let ls = self.bubble(&target, |l| l.key_down.clone());
-                    self.fire(app, ls, &KeyDownEvent { keystroke: ks });
+                    self.emit(app, target, &KeyDownEvent { keystroke: ks }, |l| l.key_down.iter().collect());
                 } else {
-                    let ls = self.bubble(&target, |l| l.key_up.clone());
-                    self.fire(app, ls, &KeyUpEvent { keystroke: ks });
+                    self.emit(app, target, &KeyUpEvent { keystroke: ks }, |l| l.key_up.iter().collect());
                 }
             }
             _ => {}
         }
     }
 
-    fn state_deepest(&self) -> Option<String> {
-        let path = self.path_at(self.pointer.0, self.pointer.1);
-        path.last().cloned()
+    fn state_deepest(&self) -> Option<Key> {
+        self.path_at(self.pointer.0, self.pointer.1).last().copied()
     }
 
     /// `<summary>` clicks open and close their `<details>`.
-    fn toggle_details(&mut self, target: &str) {
+    fn toggle_details(&mut self, target: Key) {
         let Some(f) = &self.frame else { return };
-        let mut cur = f.by_key().get(target).copied();
+        let mut cur = f.by_key().get(&target).copied();
         while let Some(i) = cur {
-            let n = &f.nodes[i];
-            if n.el.as_ref().is_some_and(|e| e.tag == "summary") {
-                if let Some(p) = n.parent.filter(|&p| f.nodes[p].el.as_ref().is_some_and(|e| e.tag == "details")) {
-                    let key = f.nodes[p].key.clone();
+            if f.el(i).is_some_and(|e| e.tag == "summary") {
+                let details = f.nodes[i].parent.filter(|&p| f.el(p).is_some_and(|e| e.tag == "details"));
+                if let Some(p) = details {
+                    let key = f.nodes[p].key;
                     let open = self.state.details_open.get(&key).copied()
-                        .unwrap_or(f.nodes[p].attr("open").is_some());
+                        .unwrap_or(f.attr(p, "open").is_some());
                     self.state.details_open.insert(key, !open);
                     self.dirty = true;
                 }
                 return;
             }
-            cur = n.parent;
+            cur = f.nodes[i].parent;
         }
     }
 
     /// Scroll the innermost scroll container along `path` that can move.
-    fn scroll_by(&mut self, path: &[String], dy: f32, horizontal: bool) {
+    fn scroll_by(&mut self, path: &[Key], dy: f32, horizontal: bool) {
         let Some(f) = &self.frame else { return };
         for key in path.iter().rev() {
             let Some(&i) = f.by_key().get(key) else { continue };
@@ -1021,7 +1107,7 @@ impl Window {
                 (sx, (sy + dy).clamp(0.0, ry))
             };
             if (nx, ny) != (sx, sy) {
-                self.state.scroll.insert(key.clone(), (nx, ny));
+                self.state.scroll.insert(*key, (nx, ny));
                 self.dirty = true;
                 return;
             }
@@ -1035,25 +1121,23 @@ impl Window {
         let Some(key) = self.widgets.key_of(ev.node) else { return };
         match ev.kind {
             sys::BK_EV_CHANGE => {
-                let e = self.widgets.read(&key);
+                let e = self.widgets.read(key);
                 let kind = self.widgets.nodes.get(&key).map(|w| w.spec.kind);
                 match kind {
                     Some(WKind::Checkbox) => {
-                        self.state.checked.insert(key.clone(), e.checked);
+                        self.state.checked.insert(key, e.checked);
                     }
                     Some(WKind::Radio) if e.checked => {
-                        self.state.checked.insert(key.clone(), true);
-                        for other in self.widgets.radio_group(&key) {
-                            self.state.checked.insert(other.clone(), false);
-                            self.widgets.set_value(&other, 0.0);
+                        self.state.checked.insert(key, true);
+                        for other in self.widgets.radio_group(key) {
+                            self.state.checked.insert(other, false);
+                            self.widgets.set_value(other, 0.0);
                         }
                     }
                     _ => {}
                 }
-                let ls = self.bubble(&key, |l| l.input.clone());
-                self.fire(app, ls, &e);
-                let ls = self.bubble(&key, |l| l.change.clone());
-                self.fire(app, ls, &e);
+                self.emit(app, key, &e, |l| l.input.iter().collect());
+                self.emit(app, key, &e, |l| l.change.iter().collect());
                 self.dirty = true;
             }
             sys::BK_EV_CLICK => {
@@ -1062,18 +1146,11 @@ impl Window {
                                             modifiers: Modifiers::default(), click_count: 1 };
                 let up = MouseUpEvent { button: MouseButton::Left, position: point(px(x), px(y)),
                                         modifiers: Modifiers::default() };
-                let ls = self.bubble(&key, |l| l.click.clone());
-                self.fire(app, ls, &ClickEvent { down, up });
+                self.emit(app, key, &ClickEvent { down, up }, |l| l.click.iter().collect());
                 self.dirty = true;
             }
             _ => {}
         }
-    }
-}
-
-impl crate::layout::BoxNode {
-    fn clone_hover(&self) -> Vec<Listener<bool>> {
-        self.el.as_ref().map(|e| e.listeners.hover.clone()).unwrap_or_default()
     }
 }
 

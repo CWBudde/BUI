@@ -77,11 +77,27 @@ _NAMED_COLORS = {
 }
 
 
+_COLOR_CACHE = {}
+
+
 def color(value):
     """A Tk color (``#rgb``, ``#rrggbb``, ``#rrrrggggbbbb``, a name, or an
-    RGB(A) tuple) as RGBA floats; None for "" / None."""
+    RGB(A) tuple) as RGBA floats; None for "" / None. Color strings are
+    parsed once (canvases re-send their items' colors on every change)."""
     if value is None or value == "":
         return None
+    if isinstance(value, str):
+        hit = _COLOR_CACHE.get(value)
+        if hit is None:
+            hit = _parse_color(value)
+            if len(_COLOR_CACHE) > 4096:
+                _COLOR_CACHE.clear()
+            _COLOR_CACHE[value] = hit
+        return hit
+    return _parse_color(value)
+
+
+def _parse_color(value):
     if isinstance(value, (tuple, list)):
         v = tuple(float(c) / (255.0 if max(value) > 1 else 1.0) for c in value)
         return v + (1.0,) if len(v) == 3 else v

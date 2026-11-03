@@ -9,7 +9,8 @@ use crate::color::{parse_color, Rgba};
 use crate::element::{AnyElement, Div};
 use crate::events::ChangeEvent;
 use crate::geometry::Bounds;
-use crate::layout::UiState;
+use crate::element::SharedString;
+use crate::layout::{Key, UiState};
 use blenderui_sys as sys;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,8 +89,8 @@ fn text_of(children: &[AnyElement]) -> Option<String> {
 }
 
 impl WidgetSpec {
-    fn new(kind: WKind, d: &Div) -> WidgetSpec {
-        let num = |k: &str| d.get_attr(k).and_then(|v| v.trim().parse::<f64>().ok());
+    fn new(kind: WKind, attrs: &Attrs) -> WidgetSpec {
+        let num = |k: &str| attr(attrs, k).and_then(|v| v.trim().parse::<f64>().ok());
         WidgetSpec {
             kind,
             label: String::new(),
@@ -100,31 +101,32 @@ impl WidgetSpec {
             step: num("step").unwrap_or(1.0),
             items: Vec::new(),
             color: None,
-            placeholder: d.get_attr("placeholder").unwrap_or("").to_owned(),
-            disabled: d.get_attr("disabled").is_some(),
-            name: d.get_attr("name").map(str::to_owned),
+            placeholder: attr(attrs, "placeholder").unwrap_or("").to_owned(),
+            disabled: attr(attrs, "disabled").is_some(),
+            name: attr(attrs, "name").map(str::to_owned),
         }
     }
 
     /// The widget for a form element, or None to lay it out as a box
     /// (a `<button>` holding elements, `<option>` outside a select ...).
-    pub(crate) fn from_element(d: &Div, key: &str, state: &UiState) -> Option<WidgetSpec> {
-        let num = |k: &str| d.get_attr(k).and_then(|v| v.trim().parse::<f64>().ok());
+    /// `attrs`: the element's attributes (already moved out of `d`).
+    pub(crate) fn from_element(d: &Div, attrs: &Attrs, key: Key, state: &UiState) -> Option<WidgetSpec> {
+        let num = |k: &str| attr(attrs, k).and_then(|v| v.trim().parse::<f64>().ok());
         let checked = || {
-            state.checked.get(key).copied().unwrap_or(d.get_attr("checked").is_some())
+            state.checked.get(&key).copied().unwrap_or(attr(attrs, "checked").is_some())
         };
         let mut s;
         match d.tag {
             "button" => {
-                s = WidgetSpec::new(WKind::Button, d);
+                s = WidgetSpec::new(WKind::Button, attrs);
                 s.label = text_of(&d.children)?;
             }
             "input" => {
-                let ty = d.get_attr("type").unwrap_or("text").to_ascii_lowercase();
-                let value = d.get_attr("value").map(str::to_owned);
+                let ty = attr(attrs, "type").unwrap_or("text").to_ascii_lowercase();
+                let value = attr(attrs, "value").map(str::to_owned);
                 match ty.as_str() {
                     "button" | "submit" | "reset" => {
-                        s = WidgetSpec::new(WKind::Button, d);
+                        s = WidgetSpec::new(WKind::Button, attrs);
                         s.label = value.unwrap_or_else(|| match ty.as_str() {
                             "submit" => "Submit".into(),
                             "reset" => "Reset".into(),
@@ -132,23 +134,23 @@ impl WidgetSpec {
                         });
                     }
                     "file" => {
-                        s = WidgetSpec::new(WKind::Button, d);
+                        s = WidgetSpec::new(WKind::Button, attrs);
                         s.label = "Browse\u{2026}".into();
                     }
                     "checkbox" => {
-                        s = WidgetSpec::new(WKind::Checkbox, d);
+                        s = WidgetSpec::new(WKind::Checkbox, attrs);
                         s.value = Some(checked() as i32 as f64);
                     }
                     "radio" => {
-                        s = WidgetSpec::new(WKind::Radio, d);
+                        s = WidgetSpec::new(WKind::Radio, attrs);
                         s.value = Some(checked() as i32 as f64);
                     }
                     "number" => {
-                        s = WidgetSpec::new(WKind::Number, d);
+                        s = WidgetSpec::new(WKind::Number, attrs);
                         s.value = num("value");
                     }
                     "range" => {
-                        s = WidgetSpec::new(WKind::Slider, d);
+                        s = WidgetSpec::new(WKind::Slider, attrs);
                         if s.min.is_infinite() {
                             s.min = 0.0;
                         }
@@ -158,22 +160,22 @@ impl WidgetSpec {
                         s.value = Some(num("value").unwrap_or((s.min + s.max) / 2.0));
                     }
                     "color" => {
-                        s = WidgetSpec::new(WKind::Color, d);
+                        s = WidgetSpec::new(WKind::Color, attrs);
                         s.color = Some(value.as_deref().and_then(parse_color)
                             .unwrap_or(crate::color::black()));
                     }
                     "image" | "hidden" => return None,
                     _ => {
                         // text, password, email, url, search, tel, date, time ...
-                        s = WidgetSpec::new(WKind::Text { mask: ty == "password" }, d);
+                        s = WidgetSpec::new(WKind::Text { mask: ty == "password" }, attrs);
                         s.text = value;
                     }
                 }
             }
             "select" => {
-                s = WidgetSpec::new(WKind::Select, d);
+                s = WidgetSpec::new(WKind::Select, attrs);
                 let mut selected = None;
-                let want = d.get_attr("value");
+                let want = attr(attrs, "value");
                 fn options<'a>(c: &'a [AnyElement], out: &mut Vec<&'a Div>) {
                     for e in c {
                         if let AnyElement::Element(d) = e {
@@ -198,15 +200,15 @@ impl WidgetSpec {
                 s.value = Some(selected.unwrap_or(0) as f64);
             }
             "textarea" => {
-                s = WidgetSpec::new(WKind::TextArea, d);
-                s.text = Some(d.get_attr("value").map(str::to_owned)
+                s = WidgetSpec::new(WKind::TextArea, attrs);
+                s.text = Some(attr(attrs, "value").map(str::to_owned)
                     .unwrap_or_else(|| d.children.iter().filter_map(|c| match c {
                         AnyElement::Text(t) => Some(t.as_ref()),
                         _ => None,
                     }).collect()));
             }
             "progress" | "meter" => {
-                s = WidgetSpec::new(WKind::Progress, d);
+                s = WidgetSpec::new(WKind::Progress, attrs);
                 let min = if d.tag == "meter" { num("min").unwrap_or(0.0) } else { 0.0 };
                 let max = num("max").unwrap_or(1.0);
                 let v = num("value").unwrap_or(0.0);
@@ -217,6 +219,12 @@ impl WidgetSpec {
         }
         Some(s)
     }
+}
+
+type Attrs = [(SharedString, SharedString)];
+
+fn attr<'a>(attrs: &'a Attrs, name: &str) -> Option<&'a str> {
+    attrs.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v.as_ref())
 }
 
 fn cstr(s: &str) -> CString {
@@ -231,7 +239,7 @@ pub(crate) struct WidgetNode {
 
 /// The kit widgets of one window, keyed by element key.
 pub(crate) struct Widgets {
-    pub nodes: HashMap<String, WidgetNode>,
+    pub nodes: HashMap<Key, WidgetNode>,
     /// Set while Rust writes values, so the kit's change echoes are ignored.
     pub syncing: bool,
 }
@@ -243,15 +251,15 @@ impl Widgets {
 
     /// Ensure the kit node for `key` exists and matches `spec`; returns its
     /// natural size in logical pixels.
-    pub(crate) fn ensure(&mut self, parent: *mut sys::BKNode, key: &str, spec: &WidgetSpec, scale: f32)
+    pub(crate) fn ensure(&mut self, parent: *mut sys::BKNode, key: Key, spec: &WidgetSpec, scale: f32)
         -> (f32, f32) {
-        if self.nodes.get(key).is_some_and(|w| w.spec.kind != spec.kind) {
-            let w = self.nodes.remove(key).unwrap();
+        if self.nodes.get(&key).is_some_and(|w| w.spec.kind != spec.kind) {
+            let w = self.nodes.remove(&key).unwrap();
             // SAFETY: the node is ours and attached to `parent`.
             unsafe { sys::BK_node_free(w.node) };
         }
         self.syncing = true;
-        let entry = self.nodes.entry(key.to_owned()).or_insert_with(|| {
+        let entry = self.nodes.entry(key).or_insert_with(|| {
             // SAFETY: plain constructor calls on a fresh node.
             let node = unsafe { sys::BK_node_new(spec.kind.class().as_ptr()) };
             unsafe {
@@ -276,7 +284,7 @@ impl Widgets {
     }
 
     /// Place every widget at its laid-out bounds; free those not rendered.
-    pub(crate) fn place(&mut self, at: &HashMap<String, (Bounds<f32>, Option<Bounds<f32>>, bool)>,
+    pub(crate) fn place(&mut self, at: &HashMap<Key, (Bounds<f32>, Option<Bounds<f32>>, bool)>,
                         scale: f32) {
         self.nodes.retain(|key, w| {
             if !w.seen || !at.contains_key(key) {
@@ -301,13 +309,13 @@ impl Widgets {
         });
     }
 
-    pub(crate) fn key_of(&self, node: *mut sys::BKNode) -> Option<String> {
-        self.nodes.iter().find(|(_, w)| w.node == node).map(|(k, _)| k.clone())
+    pub(crate) fn key_of(&self, node: *mut sys::BKNode) -> Option<Key> {
+        self.nodes.iter().find(|(_, w)| w.node == node).map(|(k, _)| *k)
     }
 
     /// The control's current value, as an HTML `change` event sees it.
-    pub(crate) fn read(&self, key: &str) -> ChangeEvent {
-        let Some(w) = self.nodes.get(key) else { return ChangeEvent::default() };
+    pub(crate) fn read(&self, key: Key) -> ChangeEvent {
+        let Some(w) = self.nodes.get(&key) else { return ChangeEvent::default() };
         let n = w.node;
         // SAFETY: live node; returned strings are copied immediately.
         unsafe {
@@ -338,16 +346,16 @@ impl Widgets {
     }
 
     /// Radio groups: turning one on turns the others with its name off.
-    pub(crate) fn radio_group(&self, key: &str) -> Vec<String> {
-        let Some(name) = self.nodes.get(key).and_then(|w| w.spec.name.clone()) else { return vec![] };
+    pub(crate) fn radio_group(&self, key: Key) -> Vec<Key> {
+        let Some(name) = self.nodes.get(&key).and_then(|w| w.spec.name.clone()) else { return vec![] };
         self.nodes.iter()
-            .filter(|(k, w)| *k != key && w.spec.kind == WKind::Radio && w.spec.name.as_ref() == Some(&name))
-            .map(|(k, _)| k.clone())
+            .filter(|(k, w)| **k != key && w.spec.kind == WKind::Radio && w.spec.name.as_ref() == Some(&name))
+            .map(|(k, _)| *k)
             .collect()
     }
 
-    pub(crate) fn set_value(&mut self, key: &str, v: f64) {
-        if let Some(w) = self.nodes.get(key) {
+    pub(crate) fn set_value(&mut self, key: Key, v: f64) {
+        if let Some(w) = self.nodes.get(&key) {
             self.syncing = true;
             unsafe { sys::BK_set_num(w.node, c"value".as_ptr(), v) };
             self.syncing = false;

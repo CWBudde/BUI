@@ -68,3 +68,10 @@ fn report() {
     assert!(css21 * 100 / CSS21_VISUAL.len() >= 80, "CSS 2.1 coverage fell");
     assert!(grid + 1 >= GRID.len(), "grid coverage fell");
 }
+
+#[test]
+fn ua_stylesheet_parse_cost() {
+    let t = std::time::Instant::now();
+    let sheet = blenderui::css::Stylesheet::parse(blenderui::html::UA_CSS);
+    println!("UA stylesheet: {} rules parsed in {:.3} ms", sheet.rules.len(), t.elapsed().as_secs_f64() * 1e3);
+}

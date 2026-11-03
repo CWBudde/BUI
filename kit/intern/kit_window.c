@@ -237,6 +237,20 @@ static void vsync(void)
   }
 }
 
+/* The primary display's refresh interval in ms. */
+static double refresh_ms(void)
+{
+  static double ms = 0.0;
+  if (ms <= 0.0) {
+    DEVMODEW dm;
+    memset(&dm, 0, sizeof(dm));
+    dm.dmSize = sizeof(dm);
+    const int hz = EnumDisplaySettingsW(NULL, ENUM_CURRENT_SETTINGS, &dm) ? (int)dm.dmDisplayFrequency : 0;
+    ms = 1000.0 / (hz > 1 ? hz : 60);
+  }
+  return ms;
+}
+
 /* Milliseconds since the current animation frame began. */
 static double frame_ms(const BKWindow *win)
 {
@@ -360,10 +374,15 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       win->render_pending = 0;
       do_render(win);
       if (win->want_frame) { /* the host asked for the next frame */
-        if (win->frame_vsync && frame_ms(win) < 15.0) {
+        bk_frame_ms = frame_ms(win);
+        bk_frame_budget_ms = win->frame_vsync ? refresh_ms() : 0.0;
+        if (win->frame_vsync && bk_frame_ms < refresh_ms() - 1.5) {
           vsync(); /* early: wait for the next refresh; late: start right away */
         }
         host_request(win);
+      }
+      else {
+        bk_frame_ms = 0.0; /* the animation ended */
       }
       return 0;
     case WM_PAINT: {

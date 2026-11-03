@@ -213,3 +213,91 @@ fn canvas_painter() {
         assert_ne!(at(100.0, 80.0), 0x303030, "filled");
     });
 }
+
+#[test]
+fn css_macro_matches_runtime_css() {
+    use blenderui::css::Prop;
+    let compiled = css!("display: flex; padding: 4px 8px; color: #e6a23c !important; --x: 1");
+    assert_eq!(compiled.len(), 4);
+    assert_eq!(compiled[0].prop, Prop::named("display"));
+    assert_eq!(compiled[2].prop, Prop::named("color"));
+    assert!(compiled[2].important);
+    assert_eq!(compiled[3].prop, Prop::CUSTOM);
+    let parsed = blenderui::css::parse_declarations("display: flex; padding: 4px 8px; color: #e6a23c !important; --x: 1");
+    for (a, b) in compiled.iter().zip(&parsed) {
+        assert_eq!(a, b); // same tokens, whether parsed at compile time or run time
+    }
+}
+
+struct SheetHover;
+
+impl Render for SheetHover {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        body().m_0()
+            .child(style().child(".b { background: #ff0000 } .b:hover { background: #00ff00 } .b:hover + .b { background: #0000ff }"))
+            .child(div().class("b").id("one").w(px(40.0)).h(px(20.0)))
+            .child(div().class("b").id("two").w(px(40.0)).h(px(20.0)))
+    }
+}
+
+#[test]
+fn stylesheet_hover_restyles_across_frames() {
+    Application::headless().run(|cx| {
+        let win = open(cx, 100.0, 60.0, SheetHover);
+        let at = |cx: &mut App, x: f32, y: f32| {
+            let img = cx.draw(win.id);
+            let s = img.0 as f32 / 100.0;
+            pixel(&img, (x * s) as usize, (y * s) as usize)
+        };
+        assert_eq!(at(cx, 10.0, 10.0), 0xff0000);
+        assert_eq!(at(cx, 10.0, 30.0), 0xff0000);
+        cx.simulate_mouse_move(win.id, 10.0, 10.0); // hover the first box
+        assert_eq!(at(cx, 10.0, 10.0), 0x00ff00);
+        assert_eq!(at(cx, 10.0, 30.0), 0x0000ff, "sibling selector sees the hover");
+        cx.simulate_mouse_move(win.id, 90.0, 55.0); // leave
+        assert_eq!(at(cx, 10.0, 10.0), 0xff0000);
+        assert_eq!(at(cx, 10.0, 30.0), 0xff0000);
+    });
+}
+
+/// A view whose layout changes from state to state.
+struct Morph {
+    step: usize,
+}
+
+impl Render for Morph {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let s = self.step;
+        let labels: Vec<String> = match s % 5 {
+            0 => vec!["a".into(), "bbbbbbbb".into(), "c".into()],
+            1 => vec!["a".into(), "b".into(), "c".into()],
+            2 => vec!["a".into(), "c".into()],
+            3 => vec!["c".into(), "a".into(), "b b b b b b b b b b b b b".into(), "d".into()],
+            _ => vec![format!("{s}"); 6],
+        };
+        body().m_0()
+            .child(div().flex().gap(px(4.0)).p(px(4.0)).bg(rgb(0x202020))
+                .children(labels.into_iter().enumerate().map(|(k, t)| {
+                    div().id(format!("item{k}")).px(px(6.0)).py(px(2.0)).bg(rgb(0x4772b3 + k as u32 * 0x101010))
+                        .rounded(px(3.0)).child(t)
+                })))
+            .child(div().w(px(if s % 2 == 0 { 120.0 } else { 220.0 })).h(px(20.0)).bg(rgb(0xe6a23c)))
+            .child(p().w(px(150.0)).child(if s % 3 == 0 { "short" } else { "a much longer paragraph that wraps over several lines" }))
+    }
+}
+
+#[test]
+fn incremental_frames_match_fresh_renders() {
+    Application::headless().run(|cx| {
+        let live = open(cx, 400.0, 200.0, Morph { step: 0 });
+        cx.draw(live.id);
+        for step in 1..12 {
+            live.root().update(cx, |m, _| m.step = step);
+            cx.notify_all();
+            let incremental = cx.draw(live.id);
+            let fresh = open(cx, 400.0, 200.0, Morph { step });
+            let reference = cx.draw(fresh.id);
+            assert!(incremental.2 == reference.2, "step {step}: incremental frame differs from a fresh render");
+        }
+    });
+}

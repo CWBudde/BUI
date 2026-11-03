@@ -715,11 +715,17 @@ dependencies = [
 name = "blenderui"
 version = "0.1.0"
 dependencies = [
+ "blenderui-macros",
  "blenderui-sys",
  "paste",
  "png 0.17.16",
+ "smallvec",
  "taffy 0.6.3",
 ]
+
+[[package]]
+name = "blenderui-macros"
+version = "0.1.0"
 
 [[package]]
 name = "blenderui-sys"

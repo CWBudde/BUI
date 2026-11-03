@@ -9,20 +9,34 @@ use std::borrow::Cow;
 // ==========================================================================
 // Tokens
 
+/// Text inside tokens: borrowed from the binary for values known at compile
+/// time, owned for parsed CSS.
+pub type CssStr = Cow<'static, str>;
+
 /// A CSS component value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
     Num(f32),
-    Dim(f32, String),
+    Dim(f32, CssStr),
     Pct(f32),
-    Ident(String),
-    Hash(String),
-    Str(String),
-    /// `name(args)`, arguments split at top-level commas.
-    Func(String, Vec<Vec<Tok>>),
+    Ident(CssStr),
+    Hash(CssStr),
+    Str(CssStr),
+    /// `name(args)`, arguments split at top-level commas. Boxed: functions
+    /// are rare and this keeps every token at 32 bytes.
+    Func(Box<FuncTok>),
+    /// A color given as a value (typed style methods: `.bg(rgb(..))`).
+    Color(crate::color::Rgba),
     Comma,
     Slash,
     Delim(char),
+}
+
+/// A CSS function call: `rgb(1, 2, 3)`, `repeat(3, 1fr)` ...
+#[derive(Clone, Debug, PartialEq)]
+pub struct FuncTok {
+    pub name: CssStr,
+    pub args: Vec<Vec<Tok>>,
 }
 
 impl Tok {
@@ -30,6 +44,41 @@ impl Tok {
         match self {
             Tok::Ident(s) => Some(s),
             _ => None,
+        }
+    }
+
+    /// A length as the token CSS text would produce (`40px`, `50%`, `auto`).
+    pub const fn length(l: crate::geometry::Length) -> Tok {
+        use crate::geometry::Length;
+        match l {
+            Length::Px(v) => Tok::Dim(v, Cow::Borrowed("px")),
+            Length::Rem(v) => Tok::Dim(v, Cow::Borrowed("rem")),
+            Length::Em(v) => Tok::Dim(v, Cow::Borrowed("em")),
+            Length::Vw(v) => Tok::Dim(v, Cow::Borrowed("vw")),
+            Length::Vh(v) => Tok::Dim(v, Cow::Borrowed("vh")),
+            Length::Percent(v) => Tok::Pct(v),
+            Length::Auto => Tok::Ident(Cow::Borrowed("auto")),
+        }
+    }
+}
+
+impl std::hash::Hash for Tok {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        std::mem::discriminant(self).hash(h);
+        match self {
+            Tok::Num(v) | Tok::Pct(v) => v.to_bits().hash(h),
+            Tok::Dim(v, u) => {
+                v.to_bits().hash(h);
+                u.hash(h);
+            }
+            Tok::Ident(s) | Tok::Hash(s) | Tok::Str(s) => s.hash(h),
+            Tok::Func(fx) => {
+                fx.name.hash(h);
+                fx.args.hash(h);
+            }
+            Tok::Color(c) => [c.r, c.g, c.b, c.a].map(f32::to_bits).hash(h),
+            Tok::Delim(c) => c.hash(h),
+            Tok::Comma | Tok::Slash => {}
         }
     }
 }
@@ -51,11 +100,11 @@ pub fn tokenize(s: &str) -> Vec<Tok> {
             i += 1;
         } else if c == '"' || c == '\'' {
             let end = s[i + 1..].find(c).map(|e| i + 1 + e).unwrap_or(s.len());
-            out.push(Tok::Str(s[i + 1..end].to_string()));
+            out.push(Tok::Str(s[i + 1..end].to_string().into()));
             i = end + 1;
         } else if c == '#' {
             let end = scan_name(s, i + 1);
-            out.push(Tok::Hash(s[i + 1..end].to_ascii_lowercase()));
+            out.push(Tok::Hash(s[i + 1..end].to_ascii_lowercase().into()));
             i = end;
         } else if c.is_ascii_digit()
             || (c == '.' && b.get(i + 1).is_some_and(|d| d.is_ascii_digit()))
@@ -81,7 +130,7 @@ pub fn tokenize(s: &str) -> Vec<Tok> {
             } else {
                 let unit_end = scan_name(s, end);
                 if unit_end > end {
-                    out.push(Tok::Dim(v, s[end..unit_end].to_ascii_lowercase()));
+                    out.push(Tok::Dim(v, s[end..unit_end].to_ascii_lowercase().into()));
                 } else {
                     out.push(Tok::Num(v));
                 }
@@ -94,14 +143,14 @@ pub fn tokenize(s: &str) -> Vec<Tok> {
                 let close = matching_paren(s, end);
                 let inner = &s[end + 1..close];
                 let args = if name == "url" {
-                    vec![vec![Tok::Str(inner.trim().trim_matches(['"', '\'']).to_string())]]
+                    vec![vec![Tok::Str(inner.trim().trim_matches(['"', '\'']).to_string().into())]]
                 } else {
                     split_top(inner, ',').into_iter().map(tokenize).collect()
                 };
-                out.push(Tok::Func(name, args));
+                out.push(Tok::Func(Box::new(FuncTok { name: name.into(), args })));
                 i = (close + 1).min(s.len());
             } else {
-                out.push(Tok::Ident(name));
+                out.push(Tok::Ident(name.into()));
                 i = end;
             }
         } else {
@@ -167,52 +216,161 @@ pub(crate) fn split_top(s: &str, sep: char) -> Vec<&str> {
 // ==========================================================================
 // Declarations
 
+/// A CSS property, as an index into the property table (`style::HANDLERS`,
+/// then `style::ACCEPTED`). Style methods resolve it at compile time with
+/// [`Prop::named`]; parsed CSS with [`Prop::lookup`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Prop(pub(crate) u16);
+
+const fn str_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+impl Prop {
+    /// Not a property this engine knows.
+    pub const UNKNOWN: Prop = Prop(u16::MAX);
+    /// A custom property (`--name`): accepted, no effect.
+    pub const CUSTOM: Prop = Prop(u16::MAX - 1);
+
+    /// The property called `name`, evaluated at compile time in `const`
+    /// contexts (an unknown name there is a compile error).
+    pub const fn named(name: &str) -> Prop {
+        let h = crate::style::HANDLERS;
+        let mut i = 0;
+        while i < h.len() {
+            if str_eq(h[i].0, name) {
+                return Prop(i as u16);
+            }
+            i += 1;
+        }
+        let a = crate::style::ACCEPTED;
+        let mut j = 0;
+        while j < a.len() {
+            if str_eq(a[j], name) {
+                return Prop((h.len() + j) as u16);
+            }
+            j += 1;
+        }
+        let b = name.as_bytes();
+        if b.len() > 2 && b[0] == b'-' && b[1] == b'-' {
+            return Prop::CUSTOM;
+        }
+        panic!("unknown CSS property")
+    }
+
+    /// The property called `name` (lowercase), at run time.
+    pub fn lookup(name: &str) -> Prop {
+        crate::style::prop_index(name)
+    }
+
+    /// The property's name ("" for unknown and custom properties).
+    pub fn name(self) -> &'static str {
+        let (h, a) = (crate::style::HANDLERS, crate::style::ACCEPTED);
+        let i = self.0 as usize;
+        if i < h.len() {
+            h[i].0
+        } else if i - h.len() < a.len() && self != Prop::CUSTOM && self != Prop::UNKNOWN {
+            a[i - h.len()]
+        } else {
+            ""
+        }
+    }
+}
+
+impl std::fmt::Display for Prop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A declaration's tokens: one inline token (typed style methods), a slice
+/// parsed once for the whole program (fixed style methods), or parsed CSS.
+#[derive(Clone, Debug)]
+pub enum Value {
+    One(Tok),
+    Static(&'static [Tok]),
+    Owned(Box<[Tok]>),
+}
+
+impl std::ops::Deref for Value {
+    type Target = [Tok];
+    fn deref(&self) -> &[Tok] {
+        match self {
+            Value::One(t) => std::slice::from_ref(t),
+            Value::Static(s) => s,
+            Value::Owned(b) => b,
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, o: &Value) -> bool {
+        match (self, o) {
+            (Value::Static(a), Value::Static(b)) if std::ptr::eq(*a, *b) => true,
+            _ => **self == **o,
+        }
+    }
+}
+
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        (**self).hash(h)
+    }
+}
+
 /// One `property: value` declaration.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct Decl {
-    pub prop: Cow<'static, str>,
-    /// Tokens, shared: equal value strings tokenize once per thread.
-    pub value: std::sync::Arc<[Tok]>,
+    pub prop: Prop,
+    pub value: Value,
     pub important: bool,
 }
 
-/// Tokenize through a per-thread cache (style methods repeat the same values
-/// every render: `.w(px(40.0))` is "40px" a thousand times).
-fn tokenize_cached(value: &str) -> std::sync::Arc<[Tok]> {
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    thread_local! {
-        static CACHE: RefCell<HashMap<String, std::sync::Arc<[Tok]>>> = RefCell::new(HashMap::new());
-    }
-    CACHE.with(|c| {
-        if let Some(t) = c.borrow().get(value) {
-            return t.clone();
-        }
-        let t: std::sync::Arc<[Tok]> = tokenize(value).into();
-        let mut c = c.borrow_mut();
-        if c.len() > 50_000 {
-            c.clear();
-        }
-        c.insert(value.to_owned(), t.clone());
-        t
-    })
-}
-
 impl Decl {
-    pub fn new(prop: impl Into<Cow<'static, str>>, value: &str) -> Decl {
+    /// A cheap hash for style sharing: fixed values (parsed once, unique per
+    /// program) by address, others by content. Equal declarations may hash
+    /// differently across variants; that only costs a cache miss.
+    pub(crate) fn probe_hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        use std::hash::Hash;
+        self.prop.hash(h);
+        self.important.hash(h);
+        match &self.value {
+            Value::Static(s) => (s.as_ptr() as usize).hash(h),
+            v => (**v).hash(h),
+        }
+    }
+
+    /// Parse `value` for `prop` (the run-time path: `.css()`, stylesheets).
+    pub fn new(prop: impl AsRef<str>, value: &str) -> Decl {
         let mut value = value.trim();
         let mut important = false;
         if let Some(v) = value.strip_suffix("!important") {
             value = v.trim_end();
             important = true;
         }
-        let prop = prop.into();
+        let prop = prop.as_ref();
         let prop = if prop.bytes().any(|b| b.is_ascii_uppercase()) {
-            Cow::Owned(prop.to_ascii_lowercase())
+            Prop::lookup(&prop.to_ascii_lowercase())
         } else {
-            prop
+            Prop::lookup(prop)
         };
-        Decl { prop, value: tokenize_cached(value), important }
+        Decl { prop, value: Value::Owned(tokenize(value).into_boxed_slice()), important }
+    }
+
+    /// A declaration with one already-typed token (no parsing).
+    pub const fn one(prop: Prop, value: Tok) -> Decl {
+        Decl { prop, value: Value::One(value), important: false }
     }
 }
 
@@ -271,6 +429,14 @@ enum Combinator {
     Child,
     Adjacent,
     Sibling,
+}
+
+/// Where a rule is filed in a stylesheet's index.
+enum Bucket {
+    Id(String),
+    Class(String),
+    Tag(String),
+    Universal,
 }
 
 /// A complex selector: compounds joined by combinators (stored right to left).
@@ -354,18 +520,18 @@ impl Selector {
     }
 
     /// The bucket a rule is filed under: its subject's id, class, tag, or "*".
-    fn bucket(&self) -> String {
+    fn bucket(&self) -> Bucket {
         let subject = &self.parts[0].0;
         subject.iter().find_map(|s| match s {
-            Simple::Id(i) => Some(format!("#{i}")),
+            Simple::Id(i) => Some(Bucket::Id(i.clone())),
             _ => None,
         }).or_else(|| subject.iter().find_map(|s| match s {
-            Simple::Class(c) => Some(format!(".{c}")),
+            Simple::Class(c) => Some(Bucket::Class(c.clone())),
             _ => None,
         })).or_else(|| subject.iter().find_map(|s| match s {
-            Simple::Tag(t) => Some(t.to_ascii_lowercase()),
+            Simple::Tag(t) => Some(Bucket::Tag(t.to_ascii_lowercase())),
             _ => None,
-        })).unwrap_or_else(|| "*".into())
+        })).unwrap_or(Bucket::Universal)
     }
 
     pub fn matches<S: Subject + Clone>(&self, el: &S) -> bool {
@@ -609,10 +775,17 @@ impl Media {
 #[derive(Clone, Debug, Default)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
-    /// Rule indices by subject id / class / tag / "*" (rebuilt when `rules` changes length).
-    index: std::collections::HashMap<String, Vec<usize>>,
+    /// Rule indices by the subject's id / class / tag, or universal (rebuilt
+    /// when `rules` changes length). Looked up by `&str`: no key building.
+    by_id: std::collections::HashMap<String, Vec<usize>>,
+    by_class: std::collections::HashMap<String, Vec<usize>>,
+    by_tag: std::collections::HashMap<String, Vec<usize>>,
+    universal: Vec<usize>,
     indexed: usize,
 }
+
+/// Rules matching one element: on the stack for the usual handful.
+pub(crate) type Matches<'a> = smallvec::SmallVec<[&'a Rule; 8]>;
 
 impl Stylesheet {
     /// Parse CSS text (rules, `@media` blocks; other at-rules are skipped).
@@ -624,9 +797,17 @@ impl Stylesheet {
     }
 
     fn reindex(&mut self) {
-        self.index.clear();
+        self.by_id.clear();
+        self.by_class.clear();
+        self.by_tag.clear();
+        self.universal.clear();
         for (k, r) in self.rules.iter().enumerate() {
-            self.index.entry(r.selector.bucket()).or_default().push(k);
+            match r.selector.bucket() {
+                Bucket::Id(s) => self.by_id.entry(s).or_default().push(k),
+                Bucket::Class(s) => self.by_class.entry(s).or_default().push(k),
+                Bucket::Tag(s) => self.by_tag.entry(s).or_default().push(k),
+                Bucket::Universal => self.universal.push(k),
+            }
         }
         self.indexed = self.rules.len();
     }
@@ -656,24 +837,34 @@ impl Stylesheet {
     /// Declarations of every matching rule, in cascade order.
     pub fn matching<'a, S: Subject + Clone>(&'a self, el: &S, viewport: (f32, f32))
         -> Vec<&'a Rule> {
+        self.matches(el, viewport).into_vec()
+    }
+
+    /// [`Self::matching`] without heap allocation for the usual few rules.
+    pub(crate) fn matches<'a, S: Subject + Clone>(&'a self, el: &S, viewport: (f32, f32)) -> Matches<'a> {
         let ok = |r: &&Rule| r.media.as_ref().is_none_or(|m| m.applies(viewport)) && r.selector.matches(el);
-        let mut hits: Vec<&Rule> = if self.indexed != self.rules.len() {
+        let mut hits: Matches<'a> = if self.indexed != self.rules.len() {
             self.rules.iter().filter(ok).collect() // `rules` edited by hand: scan all
         } else {
-            let mut cand: Vec<usize> = Vec::new();
-            let mut take = |key: &str| {
-                if let Some(v) = self.index.get(key) {
-                    cand.extend_from_slice(v);
-                }
+            let mut cand: smallvec::SmallVec<[usize; 16]> = smallvec::SmallVec::new();
+            cand.extend_from_slice(&self.universal);
+            let tag = el.tag();
+            let found = if tag.bytes().any(|b| b.is_ascii_uppercase()) {
+                self.by_tag.get(&tag.to_ascii_lowercase())
+            } else {
+                self.by_tag.get(tag)
             };
-            take("*");
-            take(&el.tag().to_ascii_lowercase());
-            if let Some(id) = el.id() {
-                take(&format!("#{id}"));
+            if let Some(v) = found {
+                cand.extend_from_slice(v);
+            }
+            if let Some(v) = el.id().and_then(|id| self.by_id.get(id)) {
+                cand.extend_from_slice(v);
             }
             if let Some(classes) = el.class_attr() {
                 for c in classes.split_whitespace() {
-                    take(&format!(".{c}"));
+                    if let Some(v) = self.by_class.get(c) {
+                        cand.extend_from_slice(v);
+                    }
                 }
             }
             cand.sort_unstable();
@@ -711,7 +902,8 @@ mod tests {
         let t = tokenize("1px solid rgb(255, 0, 0) 50% -2.5rem #abc 'x'");
         assert_eq!(t[0], Tok::Dim(1.0, "px".into()));
         assert_eq!(t[1], Tok::Ident("solid".into()));
-        assert!(matches!(&t[2], Tok::Func(n, args) if n == "rgb" && args.len() == 3));
+        assert!(matches!(&t[2], Tok::Func(fx) if fx.name == "rgb" && fx.args.len() == 3));
+        assert_eq!(std::mem::size_of::<Tok>(), 32);
         assert_eq!(t[3], Tok::Pct(50.0));
         assert_eq!(t[4], Tok::Dim(-2.5, "rem".into()));
         assert_eq!(t[5], Tok::Hash("abc".into()));
@@ -723,6 +915,7 @@ mod tests {
         let d = parse_declarations("color: red; padding: 4px 8px !important; /* c */ ;");
         assert_eq!(d.len(), 2);
         assert!(d[1].important && d[1].value.len() == 2);
+        assert_eq!(d[0].prop, Prop::named("color"));
     }
 
     #[test]

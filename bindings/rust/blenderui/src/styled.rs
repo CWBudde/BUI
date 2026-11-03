@@ -2,60 +2,23 @@
 //! pushes a declaration that the one CSS property table applies.
 
 use crate::color::Rgba;
-use std::cell::RefCell;
-use std::sync::Arc;
-
-use crate::css::{parse_declarations, tokenize, Decl, Tok};
+use crate::css::{parse_declarations, tokenize, Decl, Prop, Tok, Value};
 use crate::geometry::Length;
 
-pub(crate) fn css_len(l: Length) -> String {
-    match l {
-        Length::Px(v) => format!("{v}px"),
-        Length::Rem(v) => format!("{v}rem"),
-        Length::Em(v) => format!("{v}em"),
-        Length::Percent(v) => format!("{v}%"),
-        Length::Vw(v) => format!("{v}vw"),
-        Length::Vh(v) => format!("{v}vh"),
-        Length::Auto => "auto".into(),
-    }
-}
 
-/// Tokens for a typed value, cached by its bits (no string formatting or
-/// parsing on the hot path). A miss tokenizes the same CSS text the string
-/// path would, so handlers see identical tokens.
-fn cached_tokens(key: (u8, [u32; 4]), css: impl FnOnce() -> String) -> Arc<[Tok]> {
-    thread_local! {
-        static CACHE: RefCell<crate::style::FnvMap<(u8, [u32; 4]), Arc<[Tok]>>> = RefCell::new(Default::default());
-    }
-    CACHE.with(|c| {
-        if let Some(t) = c.borrow().get(&key) {
-            return t.clone();
-        }
-        let t: Arc<[Tok]> = tokenize(&css()).into();
-        let mut c = c.borrow_mut();
-        if c.len() > 50_000 {
-            c.clear();
-        }
-        c.insert(key, t.clone());
-        t
-    })
-}
-
-pub(crate) fn len_tokens(l: Length) -> Arc<[Tok]> {
-    let (tag, v) = match l {
-        Length::Px(v) => (0, v),
-        Length::Rem(v) => (1, v),
-        Length::Em(v) => (2, v),
-        Length::Percent(v) => (3, v),
-        Length::Vw(v) => (4, v),
-        Length::Vh(v) => (5, v),
-        Length::Auto => (6, 0.0),
+/// `prop!("padding")`: the property index, resolved at compile time.
+macro_rules! prop {
+    ($name:literal) => {
+        const { Prop::named($name) }
     };
-    cached_tokens((tag, [v.to_bits(), 0, 0, 0]), || css_len(l))
 }
 
-pub(crate) fn color_tokens(c: Rgba) -> Arc<[Tok]> {
-    cached_tokens((7, [c.r.to_bits(), c.g.to_bits(), c.b.to_bits(), c.a.to_bits()]), || c.to_css())
+/// A fixed value, tokenized once for the whole program.
+macro_rules! fixed_value {
+    ($css:literal) => {{
+        static V: std::sync::OnceLock<Box<[Tok]>> = std::sync::OnceLock::new();
+        Value::Static(V.get_or_init(|| tokenize($css).into_boxed_slice()))
+    }};
 }
 
 impl Rgba {
@@ -63,6 +26,32 @@ impl Rgba {
     pub fn to_css(self) -> String {
         format!("rgba({},{},{},{})", (self.r * 255.0).round(), (self.g * 255.0).round(),
                 (self.b * 255.0).round(), self.a)
+    }
+}
+
+/// What `.style()` accepts: `css!` output (compile time) or CSS text (run time).
+pub trait StyleBlock {
+    fn push_into(self, out: &mut Vec<Decl>);
+}
+
+impl<const N: usize> StyleBlock for [Decl; N] {
+    fn push_into(self, out: &mut Vec<Decl>) {
+        out.extend(self);
+    }
+}
+impl StyleBlock for &str {
+    fn push_into(self, out: &mut Vec<Decl>) {
+        out.extend(parse_declarations(self));
+    }
+}
+impl StyleBlock for String {
+    fn push_into(self, out: &mut Vec<Decl>) {
+        out.extend(parse_declarations(&self));
+    }
+}
+impl StyleBlock for &String {
+    fn push_into(self, out: &mut Vec<Decl>) {
+        out.extend(parse_declarations(self));
     }
 }
 
@@ -88,8 +77,8 @@ macro_rules! scale {
     ($name:ident: $($prop:literal),+) => {
         paste::paste! {
             fn $name(self, length: impl Into<Length>) -> Self {
-                let v = len_tokens(length.into());
-                self$(.css_tokens($prop, v.clone()))+
+                let v = Tok::length(length.into());
+                self$(.decl(Decl::one(prop!($prop), v.clone())))+
             }
             fn [<$name _0>](self) -> Self { self.$name(Length::Px(0.0)) }
             fn [<$name _0p5>](self) -> Self { self.$name(Length::Rem(0.125)) }
@@ -145,10 +134,13 @@ macro_rules! fractions {
     };
 }
 
-/// Methods that set one fixed declaration: `flex() => display: flex`.
+/// Methods that set one fixed declaration: `flex() => display: flex`. The
+/// property index is resolved at compile time and the value parsed once.
 macro_rules! fixed {
     ($($name:ident => $prop:literal : $value:literal),* $(,)?) => {
-        $(fn $name(self) -> Self { self.css($prop, $value) })*
+        $(fn $name(self) -> Self {
+            self.decl(Decl { prop: prop!($prop), value: fixed_value!($value), important: false })
+        })*
     };
 }
 
@@ -156,22 +148,24 @@ macro_rules! fixed {
 pub trait Styled: Sized {
     fn decls_mut(&mut self) -> &mut Vec<Decl>;
 
-    /// One CSS declaration: `.css("grid-template-columns", "1fr 2fr")`.
+    /// One CSS declaration, parsed at run time:
+    /// `.css("grid-template-columns", "1fr 2fr")`.
     fn css(mut self, property: &'static str, value: impl AsRef<str>) -> Self {
         self.decls_mut().push(Decl::new(property, value.as_ref()));
         self
     }
 
-    /// A declaration with already-tokenized value (the typed methods' fast path).
-    #[doc(hidden)]
-    fn css_tokens(mut self, property: &'static str, value: Arc<[Tok]>) -> Self {
-        self.decls_mut().push(Decl { prop: property.into(), value, important: false });
+    /// A declaration built by the caller (typed values, no parsing).
+    fn decl(mut self, d: Decl) -> Self {
+        self.decls_mut().push(d);
         self
     }
 
-    /// A CSS declaration block: `.style("display: flex; gap: 4px")`.
-    fn style(mut self, block: impl AsRef<str>) -> Self {
-        self.decls_mut().extend(parse_declarations(block.as_ref()));
+    /// A CSS declaration block: `.style(css!("display: flex; gap: 4px"))`
+    /// (checked and resolved at compile time) or `.style("...")` (parsed
+    /// at run time, for text built at run time).
+    fn style(mut self, block: impl StyleBlock) -> Self {
+        block.push_into(self.decls_mut());
         self
     }
 
@@ -268,7 +262,7 @@ pub trait Styled: Sized {
     }
 
     fn order(self, n: i32) -> Self {
-        self.css("order", n.to_string())
+        self.decl(Decl::one(prop!("order"), Tok::Num(n as f32)))
     }
 
     // -- grid -------------------------------------------------------------------------------
@@ -282,45 +276,45 @@ pub trait Styled: Sized {
         self.css("grid-column", format!("span {n}"))
     }
     fn col_span_full(self) -> Self {
-        self.css("grid-column", "1 / -1")
+        self.decl(Decl { prop: prop!("grid-column"), value: fixed_value!("1 / -1"), important: false })
     }
     fn col_start(self, n: i16) -> Self {
-        self.css("grid-column-start", n.to_string())
+        self.decl(Decl::one(prop!("grid-column-start"), Tok::Num(n as f32)))
     }
     fn col_end(self, n: i16) -> Self {
-        self.css("grid-column-end", n.to_string())
+        self.decl(Decl::one(prop!("grid-column-end"), Tok::Num(n as f32)))
     }
     fn row_span(self, n: u16) -> Self {
         self.css("grid-row", format!("span {n}"))
     }
     fn row_span_full(self) -> Self {
-        self.css("grid-row", "1 / -1")
+        self.decl(Decl { prop: prop!("grid-row"), value: fixed_value!("1 / -1"), important: false })
     }
     fn row_start(self, n: i16) -> Self {
-        self.css("grid-row-start", n.to_string())
+        self.decl(Decl::one(prop!("grid-row-start"), Tok::Num(n as f32)))
     }
     fn row_end(self, n: i16) -> Self {
-        self.css("grid-row-end", n.to_string())
+        self.decl(Decl::one(prop!("grid-row-end"), Tok::Num(n as f32)))
     }
 
     // -- colors -------------------------------------------------------------------------------
     fn bg(self, color: impl Into<Rgba>) -> Self {
-        self.css_tokens("background-color", color_tokens(color.into()))
+        self.decl(Decl::one(prop!("background-color"), Tok::Color(color.into())))
     }
     fn text_color(self, color: impl Into<Rgba>) -> Self {
-        self.css_tokens("color", color_tokens(color.into()))
+        self.decl(Decl::one(prop!("color"), Tok::Color(color.into())))
     }
     fn border_color(self, color: impl Into<Rgba>) -> Self {
-        self.css_tokens("border-color", color_tokens(color.into()))
+        self.decl(Decl::one(prop!("border-color"), Tok::Color(color.into())))
     }
     fn outline_color(self, color: impl Into<Rgba>) -> Self {
-        self.css_tokens("outline-color", color_tokens(color.into()))
+        self.decl(Decl::one(prop!("outline-color"), Tok::Color(color.into())))
     }
     fn accent_color(self, color: impl Into<Rgba>) -> Self {
-        self.css_tokens("accent-color", color_tokens(color.into()))
+        self.decl(Decl::one(prop!("accent-color"), Tok::Color(color.into())))
     }
     fn opacity(self, value: f32) -> Self {
-        self.css("opacity", value.to_string())
+        self.decl(Decl::one(prop!("opacity"), Tok::Num(value)))
     }
 
     // -- borders ----------------------------------------------------------------------------
@@ -385,16 +379,18 @@ pub trait Styled: Sized {
 
     /// Single line, clipped with an ellipsis.
     fn truncate(self) -> Self {
-        self.css("overflow", "hidden").css("white-space", "nowrap").css("text-overflow", "ellipsis")
+        self.decl(Decl::one(prop!("overflow"), Tok::Ident("hidden".into())))
+            .decl(Decl::one(prop!("white-space"), Tok::Ident("nowrap".into())))
+            .decl(Decl::one(prop!("text-overflow"), Tok::Ident("ellipsis".into())))
     }
     fn text_size(self, size: impl Into<Length>) -> Self {
-        self.css_tokens("font-size", len_tokens(size.into()))
+        self.decl(Decl::one(prop!("font-size"), Tok::length(size.into())))
     }
     fn line_height(self, h: impl Into<Length>) -> Self {
-        self.css_tokens("line-height", len_tokens(h.into()))
+        self.decl(Decl::one(prop!("line-height"), Tok::length(h.into())))
     }
     fn font_weight(self, w: FontWeight) -> Self {
-        self.css("font-weight", w.0.to_string())
+        self.decl(Decl::one(prop!("font-weight"), Tok::Num(w.0 as f32)))
     }
     fn font_family(self, family: impl AsRef<str>) -> Self {
         self.css("font-family", family)
@@ -413,6 +409,6 @@ pub trait Styled: Sized {
     }
 
     fn z_index(self, z: i32) -> Self {
-        self.css("z-index", z.to_string())
+        self.decl(Decl::one(prop!("z-index"), Tok::Num(z as f32)))
     }
 }

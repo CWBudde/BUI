@@ -184,6 +184,8 @@ unsafe extern "C" {
     // canvas display list
     pub fn BK_canvas_set_item(canvas: *mut BKNode, item: *const BKCanvasItem);
     pub fn BK_canvas_add_item(canvas: *mut BKNode, item: *const BKCanvasItem);
+    pub fn BK_canvas_put_item(canvas: *mut BKNode, index: c_int, item: *const BKCanvasItem);
+    pub fn BK_canvas_truncate(canvas: *mut BKNode, count: c_int);
     pub fn BK_canvas_delete(canvas: *mut BKNode, id: c_int);
     pub fn BK_canvas_count(canvas: *mut BKNode) -> c_int;
 

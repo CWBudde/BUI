@@ -12,7 +12,7 @@ use taffy::prelude::*;
 use taffy::style::Overflow;
 
 use crate::color::{parse_color, Rgba};
-use crate::css::{Decl, Tok};
+use crate::css::{Decl, Prop, Tok};
 use crate::geometry::{Length, Units};
 
 // ==========================================================================
@@ -283,18 +283,34 @@ type Handler = fn(&mut Ctx, &[Tok]) -> bool;
 /// Apply one declaration; false when the property or value isn't understood.
 pub fn apply(c: &mut Computed, parent: &Computed, u: Units, d: &Decl) -> bool {
     let mut ctx = Ctx { c, parent, u };
-    let name = d.prop.as_ref();
-    if let [Tok::Ident(k)] = &*d.value {
-        if matches!(k.as_str(), "inherit" | "initial" | "unset" | "revert" | "revert-layer") {
-            return global_keyword(&mut ctx, name, k);
-        }
-    }
-    if name.starts_with("--") {
+    if d.prop == Prop::CUSTOM {
         return true; // custom properties are accepted (no var() substitution)
     }
-    match handlers().get(name) {
-        Some(h) => h(&mut ctx, &d.value),
-        None => ACCEPTED.contains(&name),
+    if d.prop == Prop::UNKNOWN {
+        return false;
+    }
+    if let [Tok::Ident(k)] = &*d.value {
+        if matches!(k.as_ref(), "inherit" | "initial" | "unset" | "revert" | "revert-layer") {
+            return global_keyword(&mut ctx, d.prop.name(), k);
+        }
+    }
+    match HANDLERS.get(d.prop.0 as usize) {
+        Some((_, h)) => h(&mut ctx, &d.value),
+        None => true, // accepted, no effect
+    }
+}
+
+/// The property index of `name` (run-time lookup for parsed CSS).
+pub(crate) fn prop_index(name: &str) -> Prop {
+    static MAP: OnceLock<FnvMap<&'static str, u16>> = OnceLock::new();
+    let map = MAP.get_or_init(|| {
+        HANDLERS.iter().map(|(n, _)| *n).chain(ACCEPTED.iter().copied()).enumerate()
+            .map(|(i, n)| (n, i as u16)).collect()
+    });
+    match map.get(name) {
+        Some(&i) => Prop(i),
+        None if name.starts_with("--") => Prop::CUSTOM,
+        None => Prop::UNKNOWN,
     }
 }
 
@@ -405,7 +421,7 @@ pub(crate) fn length(t: &Tok) -> Option<Length> {
         Tok::Num(v) if *v == 0.0 => Length::Px(0.0),
         Tok::Pct(p) => Length::Percent(*p),
         Tok::Ident(s) if s == "auto" => Length::Auto,
-        Tok::Dim(v, unit) => match unit.as_str() {
+        Tok::Dim(v, unit) => match unit.as_ref() {
             "px" => Length::Px(*v),
             "rem" => Length::Rem(*v),
             "em" => Length::Em(*v),
@@ -421,8 +437,8 @@ pub(crate) fn length(t: &Tok) -> Option<Length> {
             "q" => Length::Px(*v * 96.0 / 101.6),
             _ => return None,
         },
-        Tok::Func(f, args) if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") => {
-            return calc(f, args)
+        Tok::Func(fx) if matches!(fx.name.as_ref(), "calc" | "min" | "max" | "clamp") => {
+            return calc(&fx.name, &fx.args)
         }
         _ => return None,
     })
@@ -461,12 +477,14 @@ pub(crate) fn tok_text(t: &Tok) -> String {
         Tok::Num(v) => format!("{v}"),
         Tok::Dim(v, u) => format!("{v}{u}"),
         Tok::Pct(v) => format!("{v}%"),
-        Tok::Ident(s) => s.clone(),
+        Tok::Ident(s) => s.to_string(),
         Tok::Hash(h) => format!("#{h}"),
-        Tok::Str(s) => s.clone(),
-        Tok::Func(n, args) => format!(
-            "{n}({})",
-            args.iter()
+        Tok::Str(s) => s.to_string(),
+        Tok::Color(c) => c.to_css(),
+        Tok::Func(fx) => format!(
+            "{}({})",
+            fx.name,
+            fx.args.iter()
                 .map(|a| a.iter().map(tok_text).collect::<Vec<_>>().join(" "))
                 .collect::<Vec<_>>()
                 .join(",")
@@ -479,12 +497,13 @@ pub(crate) fn tok_text(t: &Tok) -> String {
 
 pub(crate) fn color(t: &Tok, current: Rgba) -> Option<Rgba> {
     match t {
+        Tok::Color(c) => Some(*c),
         Tok::Ident(s) if s == "currentcolor" => Some(current),
-        Tok::Ident(s) if matches!(s.as_str(), "canvas" | "field") => Some(crate::color::rgb(0x282828)),
-        Tok::Ident(s) if matches!(s.as_str(), "canvastext" | "fieldtext" | "buttontext") => {
+        Tok::Ident(s) if matches!(s.as_ref(), "canvas" | "field") => Some(crate::color::rgb(0x282828)),
+        Tok::Ident(s) if matches!(s.as_ref(), "canvastext" | "fieldtext" | "buttontext") => {
             Some(crate::color::rgb(0xe6e6e6))
         }
-        Tok::Ident(s) if matches!(s.as_str(), "linktext" | "highlight") => {
+        Tok::Ident(s) if matches!(s.as_ref(), "linktext" | "highlight") => {
             Some(crate::color::rgb(0x4772b3))
         }
         Tok::Hash(_) | Tok::Ident(_) | Tok::Func(..) => parse_color(&tok_text(t)),
@@ -710,13 +729,13 @@ fn track_max(ctx: &Ctx, t: &Tok) -> Option<MaxTrackSizingFunction> {
 
 fn track(ctx: &Ctx, t: &Tok) -> Option<NonRepeatedTrackSizingFunction> {
     match t {
-        Tok::Func(f, args) if f == "minmax" && args.len() == 2 => Some(MinMax {
-            min: track_min(ctx, args[0].first()?)?,
-            max: track_max(ctx, args[1].first()?)?,
+        Tok::Func(fx) if fx.name == "minmax" && fx.args.len() == 2 => Some(MinMax {
+            min: track_min(ctx, fx.args[0].first()?)?,
+            max: track_max(ctx, fx.args[1].first()?)?,
         }),
-        Tok::Func(f, args) if f == "fit-content" => Some(MinMax {
+        Tok::Func(fx) if fx.name == "fit-content" => Some(MinMax {
             min: MinTrackSizingFunction::Auto,
-            max: MaxTrackSizingFunction::FitContent(lp(ctx, length(args.first()?.first()?)?)),
+            max: MaxTrackSizingFunction::FitContent(lp(ctx, length(fx.args.first()?.first()?)?)),
         }),
         _ => Some(MinMax { min: track_min(ctx, t)?, max: track_max(ctx, t)? }),
     }
@@ -729,7 +748,8 @@ fn track_list(ctx: &Ctx, v: &[Tok]) -> Option<Vec<TrackSizingFunction>> {
     let mut out = Vec::new();
     for t in v {
         match t {
-            Tok::Func(f, args) if f == "repeat" && args.len() >= 2 => {
+            Tok::Func(fx) if fx.name == "repeat" && fx.args.len() >= 2 => {
+                let args = &fx.args;
                 let rep = match args[0].first()? {
                     Tok::Num(n) => GridTrackRepetition::Count(*n as u16),
                     Tok::Ident(s) if s == "auto-fill" => GridTrackRepetition::AutoFill,
@@ -771,7 +791,8 @@ fn grid_line(v: &[Tok]) -> Option<Line<GridPlacement>> {
 // -- backgrounds, shadows, fonts -----------------------------------------------------------
 
 fn gradient(ctx: &Ctx, t: &Tok) -> Option<Gradient> {
-    let Tok::Func(f, args) = t else { return None };
+    let Tok::Func(fx) = t else { return None };
+    let (f, args) = (&fx.name, &fx.args);
     let radial = f.contains("radial");
     if !f.contains("gradient") {
         return None;
@@ -781,7 +802,7 @@ fn gradient(ctx: &Ctx, t: &Tok) -> Option<Gradient> {
     if let Some(a) = args.first() {
         match a.first() {
             Some(Tok::Dim(v, u)) if u == "deg" || u == "turn" || u == "rad" => {
-                angle = match u.as_str() {
+                angle = match u.as_ref() {
                     "turn" => v * 360.0,
                     "rad" => v.to_degrees(),
                     _ => *v,
@@ -877,7 +898,7 @@ fn font_size(ctx: &Ctx, t: &Tok) -> Option<f32> {
 fn font_weight(ctx: &Ctx, t: &Tok) -> Option<u16> {
     Some(match t {
         Tok::Num(n) => *n as u16,
-        Tok::Ident(s) => match s.as_str() {
+        Tok::Ident(s) => match s.as_ref() {
             "normal" => 400,
             "bold" => 700,
             "bolder" => (ctx.parent.weight + 300).min(900),
@@ -1010,7 +1031,9 @@ macro_rules! side_handlers {
     };
 }
 
-static HANDLERS: &[(&str, Handler)] = &{
+/// The property table. A `const`, so style methods resolve property names to
+/// indices at compile time ([`Prop::named`]).
+pub(crate) const HANDLERS: &[(&str, Handler)] = &{
     const fn h(n: &'static str, f: Handler) -> (&'static str, Handler) {
         (n, f)
     }
@@ -1413,9 +1436,10 @@ static HANDLERS: &[(&str, Handler)] = &{
             let mut ok = true;
             for t in v {
                 match t {
-                    Tok::Func(f, args) => {
+                    Tok::Func(fx) => {
+                        let (f, args) = (&fx.name, &fx.args);
                         let arg = |i: usize| args.get(i).and_then(|a| a.first()).and_then(length);
-                        match f.as_str() {
+                        match f.as_ref() {
                             "translate" => {
                                 c.c.translate = (arg(0).unwrap_or_default(), arg(1).unwrap_or(Length::Px(0.0)))
                             }
@@ -1570,7 +1594,7 @@ static HANDLERS: &[(&str, Handler)] = &{
         }),
         h("quotes", |c, v| {
             let strs: Vec<&str> = v.iter().filter_map(|t| match t {
-                Tok::Str(s) => Some(s.as_str()),
+                Tok::Str(s) => Some(s.as_ref()),
                 _ => None,
             }).collect();
             match (kw(v), strs.as_slice()) {

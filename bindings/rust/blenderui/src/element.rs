@@ -1,7 +1,7 @@
 //! Elements: one [`Div`] type for every HTML tag, built gpui-style.
 
 use std::borrow::Cow;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::css::Decl;
 pub use crate::styled::Styled;
@@ -15,12 +15,13 @@ pub type SharedString = Cow<'static, str>;
 /// state across renders.
 pub type ElementId = SharedString;
 
-pub(crate) type Listener<E> = Rc<dyn Fn(&E, &mut Window, &mut App)>;
+/// An event listener, owned by its element (moved into the frame, never shared).
+pub(crate) type Listener<E> = Box<dyn Fn(&E, &mut Window, &mut App)>;
 
 /// Custom painting (gpui's `canvas()` element).
-pub(crate) type PaintFn = Rc<dyn Fn(crate::geometry::Bounds<f32>, &mut crate::paint::Painter)>;
+pub(crate) type PaintFn = Box<dyn Fn(crate::geometry::Bounds<f32>, &mut crate::paint::Painter)>;
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(crate) struct Listeners {
     pub click: Vec<Listener<ClickEvent>>,
     pub mouse_down: Vec<(Option<MouseButton>, Listener<MouseDownEvent>)>,
@@ -36,25 +37,32 @@ pub(crate) struct Listeners {
 
 /// An element: a tag, its attributes, styles, children and listeners.
 /// `div()`, `span()`, `button()` ... all build one of these.
-#[derive(Clone)]
 pub struct Div {
     pub(crate) tag: &'static str,
     pub(crate) id: Option<ElementId>,
     pub(crate) attrs: Vec<(SharedString, SharedString)>,
     pub(crate) decls: Vec<Decl>,
-    pub(crate) hover: Vec<Decl>,
-    pub(crate) active: Vec<Decl>,
-    pub(crate) focus: Vec<Decl>,
+    /// `:hover` / `:active` / `:focus` styles, allocated only when used.
+    pub(crate) states: Option<Box<StateDecls>>,
     pub(crate) children: Vec<AnyElement>,
-    pub(crate) listeners: Listeners,
+    /// Allocated only when the element has a listener.
+    pub(crate) listeners: Option<Box<Listeners>>,
     pub(crate) paint: Option<PaintFn>,
-    pub(crate) image: Option<Rc<crate::paint::Image>>,
+    pub(crate) image: Option<Arc<crate::paint::Image>>,
 }
 
-/// Anything that can be a child: an element or a text run.
-#[derive(Clone)]
+/// Styles for interaction states (`.hover(|s| ...)` ...).
+#[derive(Default)]
+pub(crate) struct StateDecls {
+    pub hover: Vec<Decl>,
+    pub active: Vec<Decl>,
+    pub focus: Vec<Decl>,
+}
+
+/// Anything that can be a child: an element or a text run. Elements are
+/// stored inline (no box per element).
 pub enum AnyElement {
-    Element(Box<Div>),
+    Element(Div),
     Text(SharedString),
 }
 
@@ -65,7 +73,7 @@ pub trait IntoElement {
 
 impl IntoElement for Div {
     fn into_any_element(self) -> AnyElement {
-        AnyElement::Element(Box::new(self))
+        AnyElement::Element(self)
     }
 }
 impl IntoElement for AnyElement {
@@ -96,14 +104,20 @@ impl Div {
             id: None,
             attrs: Vec::new(),
             decls: Vec::new(),
-            hover: Vec::new(),
-            active: Vec::new(),
-            focus: Vec::new(),
+            states: None,
             children: Vec::new(),
-            listeners: Listeners::default(),
+            listeners: None,
             paint: None,
             image: None,
         }
+    }
+
+    fn listeners_mut(&mut self) -> &mut Listeners {
+        self.listeners.get_or_insert_with(Default::default)
+    }
+
+    fn states_mut(&mut self) -> &mut StateDecls {
+        self.states.get_or_insert_with(Default::default)
     }
 
     /// The HTML tag name.
@@ -199,76 +213,83 @@ impl Div {
 
     /// Image pixels for `<img>`: RGBA, `width * height * 4` bytes.
     pub fn image_rgba(mut self, width: u32, height: u32, rgba: Vec<u8>) -> Self {
-        self.image = Some(Rc::new(crate::paint::Image { width, height, rgba }));
+        // (shared image data: see `image`)
+        self.image = Some(Arc::new(crate::paint::Image { width, height, rgba }));
+        self
+    }
+
+    /// Show shared image pixels (cheap to pass every frame).
+    pub fn image(mut self, image: Arc<crate::paint::Image>) -> Self {
+        self.image = Some(image);
         self
     }
 
     // -- events ----------------------------------------------------------------------------
     /// Click (press and release on this element); bubbles to ancestors.
     pub fn on_click(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.click.push(Rc::new(f));
+        self.listeners_mut().click.push(Box::new(f));
         self
     }
     pub fn on_mouse_down(mut self, button: MouseButton,
                          f: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.mouse_down.push((Some(button), Rc::new(f)));
+        self.listeners_mut().mouse_down.push((Some(button), Box::new(f)));
         self
     }
     pub fn on_any_mouse_down(mut self,
                              f: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.mouse_down.push((None, Rc::new(f)));
+        self.listeners_mut().mouse_down.push((None, Box::new(f)));
         self
     }
     pub fn on_mouse_up(mut self, button: MouseButton,
                        f: impl Fn(&MouseUpEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.mouse_up.push((Some(button), Rc::new(f)));
+        self.listeners_mut().mouse_up.push((Some(button), Box::new(f)));
         self
     }
     pub fn on_mouse_move(mut self,
                          f: impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.mouse_move.push(Rc::new(f));
+        self.listeners_mut().mouse_move.push(Box::new(f));
         self
     }
     /// Called with `true` when the pointer enters, `false` when it leaves.
     pub fn on_hover(mut self, f: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.hover.push(Rc::new(f));
+        self.listeners_mut().hover.push(Box::new(f));
         self
     }
     pub fn on_scroll_wheel(mut self,
                            f: impl Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.scroll.push(Rc::new(f));
+        self.listeners_mut().scroll.push(Box::new(f));
         self
     }
     pub fn on_key_down(mut self, f: impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.key_down.push(Rc::new(f));
+        self.listeners_mut().key_down.push(Box::new(f));
         self
     }
     pub fn on_key_up(mut self, f: impl Fn(&KeyUpEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.key_up.push(Rc::new(f));
+        self.listeners_mut().key_up.push(Box::new(f));
         self
     }
     /// Form controls: the committed value changed (`change` in HTML).
     pub fn on_change(mut self, f: impl Fn(&ChangeEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.change.push(Rc::new(f));
+        self.listeners_mut().change.push(Box::new(f));
         self
     }
     /// Form controls: every edit (`input` in HTML).
     pub fn on_input(mut self, f: impl Fn(&ChangeEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.listeners.input.push(Rc::new(f));
+        self.listeners_mut().input.push(Box::new(f));
         self
     }
 
     // -- state styles (gpui's .hover(|s| ...), CSS :hover / :active / :focus) ----------------
     pub fn hover(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.hover.extend(f(StyleRefinement::default()).decls);
+        self.states_mut().hover.extend(f(StyleRefinement::default()).decls);
         self
     }
     pub fn active(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.active.extend(f(StyleRefinement::default()).decls);
+        self.states_mut().active.extend(f(StyleRefinement::default()).decls);
         self
     }
     pub fn focus(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.focus.extend(f(StyleRefinement::default()).decls);
+        self.states_mut().focus.extend(f(StyleRefinement::default()).decls);
         self
     }
 }
@@ -281,6 +302,10 @@ pub struct StyleRefinement {
 
 impl Styled for Div {
     fn decls_mut(&mut self) -> &mut Vec<Decl> {
+        // one allocation for a typical element's handful of style calls
+        if self.decls.capacity() == 0 {
+            self.decls.reserve(8);
+        }
         &mut self.decls
     }
 }
@@ -337,6 +362,6 @@ impl FluentBuilder for StyleRefinement {}
 pub fn canvas(paint: impl Fn(crate::geometry::Bounds<f32>, &mut crate::paint::Painter) + 'static)
     -> Div {
     let mut d = Div::new("canvas");
-    d.paint = Some(Rc::new(paint));
+    d.paint = Some(Box::new(paint));
     d
 }

@@ -1,18 +1,16 @@
 //! Painting: a frame of laid-out boxes becomes one display list on the kit
 //! canvas. [`Painter`] is also what `canvas(|bounds, painter| ...)` draws with.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::CString;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use taffy::prelude::*;
 
 use crate::color::Rgba;
 use crate::geometry::{rect, Bounds, Units};
-use crate::layout::{BoxNode, Content, Frame, Replaced};
+use crate::layout::{BoxNode, Content, Frame, Replaced, StyleStore};
 use crate::style::{Computed, DisplayKind, TextAlign, WhiteSpace};
-use crate::text;
+use crate::text::{self, TextCache};
 use blenderui_sys as sys;
 
 /// RGBA pixels for `<img>` / `img().image_rgba(...)`.
@@ -65,18 +63,22 @@ impl Image {
     }
 }
 
-thread_local! {
-    static IMAGES: RefCell<HashMap<String, Option<Rc<Image>>>> = RefCell::new(HashMap::new());
+/// Decoded `<img src>` files, kept by the window (each file is decoded once).
+#[derive(Default)]
+pub(crate) struct ImageCache {
+    files: HashMap<String, Option<Arc<Image>>>,
 }
 
-/// `src` of an `<img>`: PNG files, decoded once.
-pub(crate) fn load_image(src: &str) -> Option<Rc<Image>> {
-    IMAGES.with(|m| {
-        m.borrow_mut()
-            .entry(src.to_owned())
-            .or_insert_with(|| Image::from_png(src).map(Rc::new))
-            .clone()
-    })
+impl ImageCache {
+    /// `src` of an `<img>`: PNG files.
+    pub(crate) fn load(&mut self, src: &str) -> Option<Arc<Image>> {
+        if let Some(i) = self.files.get(src) {
+            return i.clone();
+        }
+        let img = Image::from_png(src).map(Arc::new);
+        self.files.insert(src.to_owned(), img.clone());
+        img
+    }
 }
 
 #[derive(Clone)]
@@ -86,14 +88,41 @@ enum Kind {
     Line { width: f32 },
     Polygon,
     Arc { start: f32, extent: f32 },
-    Text { text: CString, size: f32, flags: i32 },
-    Image(Rc<Image>),
+    /// `start..end` of the painter's text arena (NUL-terminated there).
+    Text { start: u32, size: f32, flags: i32 },
+    Image(Arc<Image>),
+}
+
+/// Coordinates: up to four inline (rects, ovals, text, images), more on the heap.
+#[derive(Clone)]
+enum Coords {
+    Inline([f32; 4], u8),
+    Heap(Vec<f32>),
+}
+
+impl Coords {
+    fn of(v: &[f32]) -> Coords {
+        if v.len() <= 4 {
+            let mut a = [0.0; 4];
+            a[..v.len()].copy_from_slice(v);
+            Coords::Inline(a, v.len() as u8)
+        } else {
+            Coords::Heap(v.to_vec())
+        }
+    }
+
+    fn as_slice(&self) -> &[f32] {
+        match self {
+            Coords::Inline(a, n) => &a[..*n as usize],
+            Coords::Heap(v) => v,
+        }
+    }
 }
 
 #[derive(Clone)]
 struct Item {
     kind: Kind,
-    coords: Vec<f32>,
+    coords: Coords,
     fill: Rgba,
     clip: Option<Bounds<f32>>,
 }
@@ -109,16 +138,26 @@ struct Item {
 #[derive(Default)]
 pub struct Painter {
     items: Vec<Item>,
+    /// Every text item's bytes, NUL-terminated, back to back.
+    text: Vec<u8>,
     clip: Option<Bounds<f32>>,
     opacity: f32,
 }
 
 impl Painter {
     pub(crate) fn new() -> Painter {
-        Painter { items: Vec::new(), clip: None, opacity: 1.0 }
+        Painter { items: Vec::new(), text: Vec::new(), clip: None, opacity: 1.0 }
     }
 
-    fn push(&mut self, kind: Kind, coords: Vec<f32>, fill: Rgba) {
+    /// Empty for the next frame, keeping the buffers.
+    pub(crate) fn reset(&mut self) {
+        self.items.clear();
+        self.text.clear();
+        self.clip = None;
+        self.opacity = 1.0;
+    }
+
+    fn push(&mut self, kind: Kind, coords: Coords, fill: Rgba) {
         let fill = fill.opacity(self.opacity);
         let kind = match kind {
             Kind::Rect { radius, outline, width } => {
@@ -130,8 +169,8 @@ impl Painter {
         self.items.push(Item { kind, coords, fill, clip: self.clip });
     }
 
-    fn corners(b: Bounds<f32>) -> Vec<f32> {
-        vec![b.origin.x, b.origin.y, b.origin.x + b.size.width, b.origin.y + b.size.height]
+    fn corners(b: Bounds<f32>) -> Coords {
+        Coords::Inline([b.origin.x, b.origin.y, b.origin.x + b.size.width, b.origin.y + b.size.height], 4)
     }
 
     /// A filled rectangle (gpui's `paint_quad(fill(bounds, color))`).
@@ -164,12 +203,14 @@ impl Painter {
 
     /// A polyline through `points`.
     pub fn line(&mut self, points: &[(f32, f32)], color: impl Into<Rgba>, width: f32) {
-        self.push(Kind::Line { width }, points.iter().flat_map(|&(x, y)| [x, y]).collect(), color.into());
+        let v: Vec<f32> = points.iter().flat_map(|&(x, y)| [x, y]).collect();
+        self.push(Kind::Line { width }, Coords::of(&v), color.into());
     }
 
     /// A filled polygon (gpui's `paint_path`).
     pub fn polygon(&mut self, points: &[(f32, f32)], color: impl Into<Rgba>) {
-        self.push(Kind::Polygon, points.iter().flat_map(|&(x, y)| [x, y]).collect(), color.into());
+        let v: Vec<f32> = points.iter().flat_map(|&(x, y)| [x, y]).collect();
+        self.push(Kind::Polygon, Coords::of(&v), color.into());
     }
 
     /// A pie slice: degrees counter-clockwise from 3 o'clock.
@@ -184,13 +225,15 @@ impl Painter {
 
     pub(crate) fn styled_text(&mut self, x: f32, y: f32, text: &str, size: f32, flags: i32, color: Rgba) {
         if !text.trim().is_empty() {
-            let text = CString::new(text).unwrap_or_else(|_| CString::new(text.replace('\0', "")).unwrap_or_default());
-            self.push(Kind::Text { text, size, flags }, vec![x, y], color);
+            let start = self.text.len() as u32;
+            self.text.extend(text.bytes().filter(|&b| b != 0));
+            self.text.push(0);
+            self.push(Kind::Text { start, size, flags }, Coords::Inline([x, y, 0.0, 0.0], 2), color);
         }
     }
 
     /// An image scaled to `bounds`.
-    pub fn image(&mut self, bounds: Bounds<f32>, image: &Rc<Image>) {
+    pub fn image(&mut self, bounds: Bounds<f32>, image: &Arc<Image>) {
         self.push(Kind::Image(image.clone()), Self::corners(bounds), Rgba::TRANSPARENT);
     }
 
@@ -207,10 +250,22 @@ impl Painter {
 
     /// Replace the canvas display list with these items, scaled to device pixels.
     pub(crate) fn flush(&self, canvas: *mut sys::BKNode, scale: f32) {
-        // SAFETY: `canvas` is a live kit canvas node owned by the window.
-        unsafe { sys::BK_canvas_delete(canvas, -1) };
+        let mut heap: Vec<f32> = Vec::new();
+        let mut count: i32 = 0;
         for it in &self.items {
-            let mut coords: Vec<f32> = it.coords.iter().map(|v| v * scale).collect();
+            let src = it.coords.as_slice();
+            let mut inline = [0.0f32; 4];
+            let coords: &mut [f32] = if src.len() <= 4 {
+                for (d, s) in inline.iter_mut().zip(src) {
+                    *d = s * scale;
+                }
+                &mut inline[..src.len()]
+            } else {
+                heap.clear();
+                heap.extend(src.iter().map(|v| v * scale));
+                &mut heap[..]
+            };
+            let mut ncoords = coords.len();
             let mut ci = sys::BKCanvasItem { fill: it.fill.to_array(), ..Default::default() };
             let mut _keep_px = None;
             match &it.kind {
@@ -239,12 +294,12 @@ impl Painter {
                     ci.start = *start;
                     ci.extent = *extent;
                 }
-                Kind::Text { text, size, flags } => {
+                Kind::Text { start, size, flags } => {
                     ci.type_ = sys::BK_ITEM_TEXT;
                     ci.size = size * scale;
                     ci.text_flags = *flags;
                     ci.anchor = sys::BK_ANCHOR_N | sys::BK_ANCHOR_W;
-                    ci.text = text.as_ptr();
+                    ci.text = self.text[*start as usize..].as_ptr().cast();
                 }
                 Kind::Image(img) => {
                     let w = (coords[2] - coords[0]).round().max(1.0) as u32;
@@ -258,7 +313,7 @@ impl Painter {
                     ci.rgba = px.as_ptr();
                     ci.iw = w as i32;
                     ci.ih = h as i32;
-                    coords.truncate(2);
+                    ncoords = 2;
                     _keep_px = Some(px);
                 }
             }
@@ -268,10 +323,14 @@ impl Painter {
                            c.size.height * scale];
             }
             ci.coords = coords.as_ptr();
-            ci.ncoords = coords.len() as i32;
-            // SAFETY: every pointer in `ci` outlives the call; the kit copies them.
-            unsafe { sys::BK_canvas_add_item(canvas, &ci) };
+            ci.ncoords = ncoords as i32;
+            // SAFETY: every pointer in `ci` outlives the call; the kit copies
+            // them into the slot's existing buffers.
+            unsafe { sys::BK_canvas_put_item(canvas, count, &ci) };
+            count += 1;
         }
+        // SAFETY: `canvas` is a live kit canvas node owned by the window.
+        unsafe { sys::BK_canvas_truncate(canvas, count) };
     }
 }
 
@@ -298,9 +357,12 @@ fn radius_px(c: &Computed, b: Bounds<f32>, vp: (f32, f32)) -> f32 {
 }
 
 /// Paint every box of `frame`, in stacking order.
-pub(crate) fn paint_frame(frame: &Frame, p: &mut Painter, vp: (f32, f32)) {
+pub(crate) fn paint_frame(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, p: &mut Painter,
+                          vp: (f32, f32)) {
     let mut order: Vec<usize> = (0..frame.nodes.len()).collect();
-    order.sort_by_key(|&i| frame.z_of(i)); // stable: tree order within a level
+    if frame.nodes.iter().any(|n| styles[n.style].z_index.is_some()) {
+        order.sort_by_key(|&i| frame.z_of(i, styles)); // stable: tree order within a level
+    }
     for i in order {
         let n = &frame.nodes[i];
         if !n.visible || n.opacity <= 0.0 {
@@ -308,7 +370,7 @@ pub(crate) fn paint_frame(frame: &Frame, p: &mut Painter, vp: (f32, f32)) {
         }
         p.opacity = n.opacity;
         p.clip = n.clip;
-        paint_node(frame, n, p, vp);
+        paint_node(frame, styles, tc, i, p, vp);
     }
     p.opacity = 1.0;
     p.clip = None;
@@ -317,15 +379,15 @@ pub(crate) fn paint_frame(frame: &Frame, p: &mut Painter, vp: (f32, f32)) {
 /// A background that repaints exactly the pixels already under it: an opaque
 /// plain fill with the colour and bounds of the nearest painted ancestor, with
 /// only undecorated same-sized boxes in between (so nothing else can show).
-fn redundant_background(frame: &Frame, n: &BoxNode) -> bool {
-    let c = &*n.style;
+fn redundant_background(frame: &Frame, styles: &StyleStore, n: &BoxNode) -> bool {
+    let c = &styles[n.style];
     if c.background.a < 1.0 || c.gradient.is_some() || !c.shadows.is_empty() {
         return false;
     }
     let mut cur = n.parent;
     while let Some(i) = cur {
         let a = &frame.nodes[i];
-        let ac = &*a.style;
+        let ac = &styles[a.style];
         if a.bounds != n.bounds || a.taffy.is_none() || !ac.shadows.is_empty() || ac.gradient.is_some()
             || a.opacity < 1.0 || a.clip.is_some() != n.clip.is_some()
         {
@@ -342,73 +404,72 @@ fn redundant_background(frame: &Frame, n: &BoxNode) -> bool {
     false
 }
 
-fn paint_node(frame: &Frame, n: &BoxNode, p: &mut Painter, vp: (f32, f32)) {
-    let c = &*n.style;
+fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, p: &mut Painter,
+              vp: (f32, f32)) {
+    let n = &frame.nodes[i];
+    let c = &styles[n.style];
     let b = n.bounds;
     match &n.content {
-        Content::Word(w) => {
+        Content::Word { .. } => {
             // inline element backgrounds paint per line fragment (here: per word)
             let owner = &frame.nodes[n.owner];
             if owner.taffy.is_none() {
-                p.fill(b, owner.style.background);
+                p.fill(b, styles[owner.style].background);
             }
-            paint_text_line(p, c, w, b.origin.x, b.origin.y, b.size.height, None);
+            paint_text_line(p, tc, c, frame.text(i), b.origin.x, b.origin.y, b.size.height, None);
         }
         // a text run as a flex/grid item (in line boxes its words paint instead)
-        Content::Text(t) if n.taffy.is_some() => {
+        Content::Text(t) if n.taffy.is_some() || n.folded => {
             let flags = text::flags(c);
             let nowrap = matches!(c.white_space, WhiteSpace::NoWrap | WhiteSpace::Pre);
             if !c.ellipsis && !t.contains([' ', '\n']) {
                 // one word: one line (the common label case)
-                let lw = text::width(t, c.font_size, flags);
+                let lw = tc.width(t, c.font_size, flags);
                 let x = match c.text_align {
                     TextAlign::Center => b.origin.x + (b.size.width - lw) / 2.0,
                     TextAlign::Right => b.origin.x + b.size.width - lw,
                     _ => b.origin.x,
                 };
-                paint_text_line(p, c, t, x, b.origin.y, c.line_px(), Some(lw));
+                paint_text_line(p, tc, c, t, x, b.origin.y, c.line_px(), Some(lw));
                 return;
             }
             let lines = if nowrap {
                 vec![t.clone()]
             } else {
-                text::wrap(t, c.font_size, flags, b.size.width + 0.5)
+                tc.wrap(t, c.font_size, flags, b.size.width + 0.5)
             };
             let lh = c.line_px();
             for (k, line) in lines.iter().enumerate() {
-                let line = if c.ellipsis { text::ellipsize(line, c.font_size, flags, b.size.width) }
+                let line = if c.ellipsis { tc.ellipsize(line, c.font_size, flags, b.size.width) }
                            else { line.clone() };
-                let lw = text::width(&line, c.font_size, flags);
+                let lw = tc.width(&line, c.font_size, flags);
                 let x = match c.text_align {
                     TextAlign::Center => b.origin.x + (b.size.width - lw) / 2.0,
                     TextAlign::Right => b.origin.x + b.size.width - lw,
                     _ => b.origin.x,
                 };
-                paint_text_line(p, c, &line, x, b.origin.y + lh * k as f32, lh, Some(lw));
+                paint_text_line(p, tc, c, &line, x, b.origin.y + lh * k as f32, lh, Some(lw));
             }
         }
         Content::Element | Content::Replaced(_) if n.taffy.is_some() => {
-            paint_box(n, p, vp, redundant_background(frame, n));
+            paint_box(n, c, p, vp, redundant_background(frame, styles, n));
             if let Some(m) = &n.marker {
                 let bw = border_widths(c, b.size.width);
                 let pad = lp(c.layout.padding.top, b.size.width);
                 let flags = text::flags(c);
-                let mw = text::width(m, c.font_size, flags);
-                paint_text_line(p, c, m, b.origin.x - mw - 6.0, b.origin.y + bw[0] + pad, c.line_px(),
+                let mw = tc.width(m, c.font_size, flags);
+                paint_text_line(p, tc, c, m, b.origin.x - mw - 6.0, b.origin.y + bw[0] + pad, c.line_px(),
                                 Some(mw));
             }
             if let Content::Replaced(r) = &n.content {
                 let inner = content_box(c, b);
                 match r {
                     Replaced::Image(img) => p.image(inner, img),
-                    Replaced::Painted(f) => {
-                        let f = f.clone();
-                        p.with_clip(inner, |p| f(inner, p));
-                    }
+                    Replaced::Painted(f) => p.with_clip(inner, |p| f(inner, p)),
                     Replaced::Placeholder(tag) => {
                         p.fill(inner, crate::color::rgb(0x282828));
-                        let label = n.attr("alt").unwrap_or(tag);
-                        let w = text::width(label, c.font_size, 0);
+                        let label = frame.attr(i, "alt").unwrap_or(tag);
+                        let w = tc.width(label, c.font_size, 0);
                         p.styled_text(inner.origin.x + (inner.size.width - w) / 2.0,
                                       inner.origin.y + (inner.size.height - c.font_size) / 2.0,
                                       label, c.font_size, 0, crate::color::rgb(0x8a8a8a));
@@ -431,11 +492,13 @@ fn content_box(c: &Computed, b: Bounds<f32>) -> Bounds<f32> {
 }
 
 /// One line of text in a line box of height `lh`, with decorations.
-fn paint_text_line(p: &mut Painter, c: &Computed, s: &str, x: f32, y: f32, lh: f32, width: Option<f32>) {
+#[allow(clippy::too_many_arguments)]
+fn paint_text_line(p: &mut Painter, tc: &mut TextCache, c: &Computed, s: &str, x: f32, y: f32, lh: f32,
+                   width: Option<f32>) {
     let flags = text::flags(c);
     let size = c.font_size;
     let top = y + ((lh - size) / 2.0).max(0.0);
-    let s = if c.small_caps { s.to_uppercase() } else { s.to_owned() };
+    let s: std::borrow::Cow<str> = if c.small_caps { s.to_uppercase().into() } else { s.into() };
     let size_draw = if c.small_caps { size * 0.8 } else { size };
     if let Some(sh) = c.text_shadow {
         p.styled_text(x + sh.x, top + sh.y, &s, size_draw, flags, sh.color);
@@ -445,13 +508,13 @@ fn paint_text_line(p: &mut Painter, c: &Computed, s: &str, x: f32, y: f32, lh: f
         for ch in s.chars() {
             let t = ch.to_string();
             p.styled_text(cx, top, &t, size_draw, flags, c.color);
-            cx += text::width(&t, size_draw, flags) + c.letter_spacing;
+            cx += tc.width(&t, size_draw, flags) + c.letter_spacing;
         }
     } else {
         p.styled_text(x, top, &s, size_draw, flags, c.color);
     }
     if c.underline || c.line_through || c.overline {
-        let w = width.unwrap_or_else(|| text::width(s.trim_end(), size_draw, flags));
+        let w = width.unwrap_or_else(|| tc.width(s.trim_end(), size_draw, flags));
         let thick = (size / 14.0).max(1.0);
         let dc = c.decoration_color.unwrap_or(c.color);
         let mut deco = |yy: f32| p.fill(rect(x, yy, w, thick), dc);
@@ -468,8 +531,7 @@ fn paint_text_line(p: &mut Painter, c: &Computed, s: &str, x: f32, y: f32, lh: f
 }
 
 /// Shadows, background, borders and outline of an element box.
-fn paint_box(n: &BoxNode, p: &mut Painter, vp: (f32, f32), skip_background: bool) {
-    let c = &*n.style;
+fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_background: bool) {
     let b = n.bounds;
     if matches!(c.display, DisplayKind::Contents) || b.size.width <= 0.0 && b.size.height <= 0.0 {
         return;
