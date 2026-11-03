@@ -2,15 +2,19 @@
 // grid of N cells; every frame (16 ms) cell 0 changes colour and label.
 //   node bench/cells.js [cells=3000] [--react [--signals]] [--gpu] [--seconds=5]
 // --signals: cell 0's style and label are BUI signals; the grid renders once.
-// Prints CPU per update (whole process: JS thread + BUI's UI thread).
+// --dev: React's development build. Runs on Node or Bun (`bun bench/cells.js`).
+// Prints frames per second, CPU per frame (the whole process: JavaScript,
+// BUI's UI thread, the runtime) and resident memory.
 'use strict'
 const args = process.argv.slice(2)
+// React's production build, as an app ships (--dev: the development build)
+if (!args.includes('--dev')) process.env.NODE_ENV = 'production'
 const cells = Number(args.find(a => /^\d+$/.test(a)) ?? 3000)
 const useReact = args.includes('--react')
 const useSignals = args.includes('--signals')
 const gpu = args.includes('--gpu')
 const seconds = Number((args.find(a => a.startsWith('--seconds=')) ?? '--seconds=5').split('=')[1])
-const warmup = 2
+const warmup = 3
 
 // same grid and colours as bindings/rust/bench/common/measure.rs
 const W = 1000, H = 800, GAP = 2
@@ -80,20 +84,60 @@ if (useReact) {
   tick = (t) => { first.style = cellStyle(0, t); firstText.data = label(0, t) }
 }
 
-let t = 0, updates = 0, cpu0, wall0, rss = 0, samples = 0, running = true
+// CPU: the process's cycle count (every thread: JS, BUI's UI thread, Node's
+// own), turned into time with the cycle counter's rate measured during the
+// warm-up, as bindings/rust/bench/common/measure.rs does. Tick-based CPU
+// time (process.cpuUsage) under-reports threads that wake on each vsync; it
+// is the fallback where the cycle counter isn't available.
+const { native } = require('..')
+const cycles = () => native.processCpuCycles()
+const tsc = () => native.timestampCounter()
+const exact = cycles() != null && tsc() != null
+
+let t = 0, updates = 0, running = true
+let wall0, cpu0, tsc0, cal0
+let rss = 0, peakRss = 0, samples = 0
 // one update per displayed frame (vsync), like the Rust benchmark
 const frame = () => { if (!running) return; tick(++t); updates++; win.requestAnimationFrame(frame) }
 setTimeout(() => win.requestAnimationFrame(frame), 200)
-setTimeout(() => { cpu0 = process.cpuUsage(); wall0 = performance.now(); updates = 0 }, warmup * 1000)
-const sampler = setInterval(() => { rss += process.memoryUsage.rss(); samples++ }, 250)
+setTimeout(() => { cal0 = [performance.now(), exact ? tsc() : 0] }, 200)
 setTimeout(() => {
-  const cpu = process.cpuUsage(cpu0), wall = performance.now() - wall0
-  const ms = (cpu.user + cpu.system) / 1000
-  running = false; clearInterval(sampler)
+  wall0 = performance.now()
+  cpu0 = exact ? cycles() : process.cpuUsage()
+  tsc0 = exact ? tsc() : 0
+  updates = 0
+  rss = peakRss = samples = 0
+}, warmup * 1000)
+const sampler = setInterval(() => {
+  if (wall0 === undefined) return
+  const r = process.memoryUsage.rss()
+  rss += r
+  peakRss = Math.max(peakRss, r)
+  samples++
+}, 100)
+setTimeout(() => {
+  const wall = performance.now() - wall0
+  let ms
+  if (exact) {
+    const hz = (tsc0 - cal0[1]) / ((wall0 - cal0[0]) / 1000)
+    ms = (cycles() - cpu0) / hz * 1000
+  } else {
+    const c = process.cpuUsage(cpu0)
+    ms = (c.user + c.system) / 1000
+  }
+  running = false
+  clearInterval(sampler)
   console.log(JSON.stringify({
-    app: useReact ? (useSignals ? 'blenderui-react-signals' : 'blenderui-react') : 'blenderui-js', gpu, cells, updates_per_s: +(updates / wall * 1000).toFixed(1),
-    cpu_pct: +(ms / wall * 100).toFixed(1), cpu_ms_per_update: +(ms / updates).toFixed(2),
+    app: useReact ? (useSignals ? 'blenderui-react-signals' : 'blenderui-react') : 'blenderui-js',
+    runtime: typeof Bun !== 'undefined' ? `bun ${Bun.version}` : `node ${process.versions.node}`,
+    gpu,
+    cells,
+    fps: +(updates / wall * 1000).toFixed(1),
+    cpu_pct: +(ms / wall * 100).toFixed(1),
+    cpu_ms_per_frame: +(ms / updates).toFixed(2),
+    cpu_counter: exact ? 'cycles' : 'ticks',
     rss_mb: +(rss / samples / 1048576).toFixed(1),
+    peak_rss_mb: +(peakRss / 1048576).toFixed(1),
   }))
   app.quit()
 }, (warmup + seconds) * 1000)

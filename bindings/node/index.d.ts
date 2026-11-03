@@ -1,4 +1,4 @@
-// Types for @blenderui/native.
+// Types for @blender-ui/native.
 export interface AppOptions {
   /** Draw on the GPU (Direct3D 11). */
   gpu?: boolean
@@ -127,6 +127,8 @@ export interface ReadSignal<T> {
   with<R> (fn: (value: T) => R): R
   /** Call `fn` now and on every change; returns the unsubscribe function. */
   subscribe (fn: (value: T) => void): () => void
+  /** `count + 1`, `count > 5` read the value (`===` and truthiness don't: use `.value`). */
+  valueOf (): T
 }
 
 export class Signal<T> implements ReadSignal<T> {
@@ -138,6 +140,7 @@ export class Signal<T> implements ReadSignal<T> {
   update (fn: (value: T) => T): void
   with<R> (fn: (value: T) => R): R
   subscribe (fn: (value: T) => void): () => void
+  valueOf (): T
 }
 
 export class Memo<T> implements ReadSignal<T> {
@@ -146,8 +149,7 @@ export class Memo<T> implements ReadSignal<T> {
   peek (): T
   with<R> (fn: (value: T) => R): R
   subscribe (fn: (value: T) => void): () => void
-  /** Stop tracking (a later read starts again). */
-  dispose (): void
+  valueOf (): T
 }
 
 export function signal<T> (value: T, options?: { equals?: (a: T, b: T) => boolean }): Signal<T>
@@ -162,3 +164,24 @@ export function untrack<R> (fn: () => R): R
 /** Leptos / Solid style getter and setter. */
 export function createSignal<T> (value: T): [() => T, (value: T | ((prev: T) => T)) => void]
 export function isSignal (x: unknown): x is ReadSignal<unknown>
+/** Writes in `fn` update what they affect after urgent work, in slices. Settles
+ *  when done; rejects with the error of an async `fn`. */
+export function startTransition (fn: () => void | Promise<void>): Promise<void>
+/** Run `fn` at urgent priority, even inside a transition. */
+export function urgent<R> (fn: () => R): R
+
+/** A ref whose `.current` effects and memos can follow (reading it while a
+ *  React component renders doesn't subscribe). */
+export class Ref<T> extends Signal<T> { current: T }
+export function ref<T> (value: T): Ref<T>
+/** Run `fn` outside any owning effect: effects it creates live until disposed. */
+export function unowned<R> (fn: () => R): R
+
+/** The addon (internal), plus counters for benchmarks. */
+export const native: {
+  /** CPU cycles of every thread of this process (Windows), or null. */
+  processCpuCycles (): number | null
+  /** The x86-64 time-stamp counter, or null. */
+  timestampCounter (): number | null
+  [key: string]: unknown
+}

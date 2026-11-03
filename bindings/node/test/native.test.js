@@ -89,3 +89,36 @@ test('signals bound to attributes and text update only their node (headless)', a
   await tick()
   assert.deepStrictEqual(at(await win.screenshot(), 10, 10), [255, 0, 0])
 })
+
+test('DOM semantics: moving nodes, insertBefore checks, bubbling with stopPropagation (headless)', async (t) => {
+  const { App } = require('..')
+  const app = new App({ headless: true })
+  t.after(() => app.quit())
+  const win = app.window({ width: 100, height: 100 })
+  win.body.style = 'margin: 0'
+  const a = win.createElement('div'), b = win.createElement('div'), x = win.createElement('div')
+  x.style = 'width: 20px; height: 20px; background: #f00'
+  win.body.appendChild(a)
+  win.body.appendChild(b)
+  a.appendChild(x)
+  b.appendChild(x) // a move: must leave `a` natively too
+  assert.strictEqual(a.childNodes.length, 0)
+  assert.throws(() => a.insertBefore(win.createElement('i'), x), /not a child/)
+  assert.throws(() => x.appendChild(b), /itself or its descendants/)
+  const tick = () => new Promise(r => setTimeout(r, 30))
+  await tick()
+  const box = await x.getBoundingClientRect()
+  assert.ok(box && box.width === 20, 'rendered once, in b')
+  const log = []
+  b.addEventListener('click', (e) => log.push(`b target=${e.target === x} current=${e.currentTarget === b}`))
+  x.addEventListener('click', () => log.push('x'))
+  win.body.addEventListener('click', () => log.push('body'))
+  win.click(10, 10)
+  await tick()
+  assert.deepStrictEqual(log, ['x', 'b target=true current=true', 'body'], 'bubbles once through the JS tree')
+  log.length = 0
+  b.addEventListener('click', (e) => e.stopPropagation())
+  win.click(10, 10)
+  await tick()
+  assert.deepStrictEqual(log, ['x', 'b target=true current=true'], 'stopPropagation stops it')
+})

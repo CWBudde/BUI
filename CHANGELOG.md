@@ -7,14 +7,25 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added (JavaScript)
-- **`@blenderui/native`** (`bindings/node`, napi-rs crate `blenderui-node`): BUI from Node.js in native windows, GPUIX style.
-  - A DOM-like API: `createElement`, `setAttribute`, `appendChild`, `addEventListener`, `requestAnimationFrame`, `getBoundingClientRect`, `screenshot`.
-  - BUI runs on its own UI thread, so Node is never blocked and an idle UI uses no CPU.
+- **`@blender-ui/native`** (`bindings/node`, napi-rs crate `blenderui-node`): BUI from JavaScript in native windows, GPUIX style, on **Node.js and Bun**.
+  - A DOM-like API: `createElement`, `setAttribute`, `appendChild`, `insertBefore`, `addEventListener` (events bubble; `stopPropagation` works), `requestAnimationFrame`, `getBoundingClientRect`, `screenshot`.
+  - BUI runs on its own UI thread, so JavaScript is never blocked and an idle UI uses no CPU.
   - Each tick sends only the changes: one `Int32Array` of ops and a string table per window. Events return through a thread-safe function.
   - Animation frames are vsync-paced with one rebuild per frame.
   - Headless mode for tests.
-- **`@blenderui/react`** (`bindings/react`): a React 19 renderer (react-reconciler 0.31) with HTML host components, `className` / `style` objects / events, and one native batch per commit.
-- **Signals in JavaScript**: the Rust hooks' `Signal` / `Memo` / `Effect` as `signal`, `memo`, `effect`, `batch` (plain JS) and `useSignal`, `useComputed`, `useSignalEffect`, `useSignalValue` (React). A signal passed as an attribute, `style`, text, React prop or React child updates that node alone, without a re-render: React at 3,000 cells drops from ~184 MB to ~95 MB.
+  - **Signals** (the Rust hooks' `Signal` / `Memo` / `Effect`): `signal`, `memo`, `effect`, `batch`, `untrack`, `startTransition`, `ref`. A signal bound to an attribute, `style` or text updates that node alone. Also usable without the addon (`@blender-ui/native/signals`).
+    - Push-pull and glitch-free.
+    - Unobserved memos hold no subscriptions.
+    - Transitions run their effects after urgent ones, in 5 ms slices.
+- **`@blender-ui/react`** (`bindings/react`): a React 19.3 renderer (react-reconciler 0.34).
+  - **Hooks by React's names, backed by signals:** `useState`, `useReducer`, `useRef`, `useMemo`, `useCallback`, `useEffectEvent`, `useEffect` / `useLayoutEffect` / `useInsertionEffect`, `useSyncExternalStore`, `useTransition`, `useDeferredValue`, `useActionState` and `useOptimistic` take React's arguments and run at React's moments.
+    - Passed as a prop or child, their state updates that node without a re-render.
+    - Read while rendering, it re-renders the component, as with React.
+    - At 3,000 cells, React with signals costs about what the plain API does: about a quarter less CPU per frame and memory than re-rendering (production builds).
+  - **Conformance suite:** runs each hook beside React's original (development and production builds, StrictMode). It fails when React adds a hook that isn't covered, which caught React 19.2's `useEffectEvent`.
+  - **JSX runtime** (`"jsxImportSource": "@blender-ui/react"`): render tracking for components, and types that let host props take signals.
+  - **Host components:** HTML host components, `className` / `style` objects / events, and one native batch per commit. `<Suspense>`, `<Activity>`, actions and `<ViewTransition>` (without animation) work.
+- **Benchmarks** for JavaScript (`bindings/node/bench/cells.js`, Node or Bun) measure CPU with the process cycle counter, as the Rust benchmark does.
 - **Rust:**
   - `UiSender` / `App::ui_sender()`: run closures on the UI thread from any thread.
   - `Application::keep_alive`, `App::run_pending`, `App::on_window_closed`, `App::close_window`, `Div::key`, `blenderui::native_windows()`.

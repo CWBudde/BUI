@@ -1,4 +1,4 @@
-// @blenderui/native: Blender's UI from JavaScript.
+// @blender-ui/native: Blender's UI from JavaScript.
 //
 // A DOM-like retained tree (createElement, setAttribute, appendChild,
 // addEventListener) rendered by BUI in native windows: HTML elements, CSS,
@@ -14,9 +14,17 @@ const path = require('node:path')
 
 const addon = process.env.BUI_NODE_ADDON ||
   path.join(__dirname, `blenderui.${process.platform}-${process.arch}.node`)
-const native = require(addon)
+let native
+try {
+  native = require(addon)
+} catch (err) {
+  throw new Error(`@blender-ui/native: no native addon for ${process.platform}-${process.arch} (${addon}). ` +
+    'Prebuilt binaries are for Windows x64; elsewhere, build it from a clone of ' +
+    'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler).',
+  { cause: err })
+}
 const signals = require('./signals')
-const { isSignal, effect } = signals
+const { isSignal, effect, unowned } = signals
 
 // Keep in sync with bindings/rust/blenderui-node/src/lib.rs.
 const OP = { CREATE: 0, TEXT: 1, SET_ATTR: 2, REMOVE_ATTR: 3, APPEND: 4, INSERT: 5, REMOVE: 6, SET_TEXT: 7, LISTEN: 8, FREE: 9 }
@@ -25,11 +33,15 @@ const EVENT_BITS = {
   wheel: 32, keydown: 64, keyup: 128, change: 256, input: 512,
 }
 const BUTTONS = ['left', 'middle', 'right']
+// DOM: these don't bubble
+const NO_BUBBLE = new Set(['mouseenter', 'mouseleave'])
 
 /** The event object handlers receive (a subset of the DOM's). */
 class BuiEvent {
   constructor (raw, target) {
     this.type = raw.kind
+    this.bubbles = !NO_BUBBLE.has(raw.kind)
+    // the deepest element listening for this type (BUI reports no deeper target)
     this.target = target
     this.currentTarget = target
     this.clientX = this.x = raw.x
@@ -46,10 +58,13 @@ class BuiEvent {
     this.timeStamp = performance.now()
     this.defaultPrevented = false
     this.propagationStopped = false
+    this.immediatePropagationStopped = false
   }
 
+  /** Events reach JavaScript after BUI handled them: this marks the event only. */
   preventDefault () { this.defaultPrevented = true }
   stopPropagation () { this.propagationStopped = true }
+  stopImmediatePropagation () { this.propagationStopped = this.immediatePropagationStopped = true }
 }
 
 class Node {
@@ -69,6 +84,7 @@ class Node {
   }
 
   appendChild (child) {
+    this._adopt(child)
     child._detach()
     this.childNodes.push(child)
     child.parentNode = this
@@ -78,6 +94,9 @@ class Node {
 
   insertBefore (child, before) {
     if (!before) return this.appendChild(child)
+    if (before.parentNode !== this) throw new Error('blenderui: insertBefore: the reference node is not a child of this node')
+    if (child === before) return child
+    this._adopt(child)
     child._detach()
     this.childNodes.splice(this.childNodes.indexOf(before), 0, child)
     child.parentNode = this
@@ -98,18 +117,29 @@ class Node {
   remove () { this.parentNode?.removeChild(this) }
 
   _detach () {
-    if (this.parentNode) {
-      const p = this.parentNode
+    const p = this.parentNode
+    if (p) {
       p.childNodes.splice(p.childNodes.indexOf(this), 1)
-      this.parentNode = null // the APPEND/INSERT that follows moves it natively
+      this.parentNode = null
+      if (p !== this._nextParent) this.ownerWindow._op(OP.REMOVE, p.id, this.id)
     }
+  }
+
+  /** Checks before `child` moves under this node (as the DOM does). */
+  _adopt (child) {
+    if (child.ownerWindow !== this.ownerWindow) throw new Error('blenderui: the node belongs to another window')
+    for (let n = this; n; n = n.parentNode) {
+      if (n === child) throw new Error('blenderui: a node cannot be inserted into itself or its descendants')
+    }
+    child._nextParent = this // same parent: APPEND / INSERT reorders it natively
   }
 
   /** Keep `key` (an attribute, or the text) following `source`: each change
    *  updates this node alone. */
   _bind (key, source, apply) {
     this._unbind(key)
-    ;(this._bindings ??= new Map()).set(key, effect(() => { apply(source.value) }))
+    // unowned: a binding made inside an effect lives as long as the node, not that effect's run
+    ;(this._bindings ??= new Map()).set(key, unowned(() => effect(() => { apply(source.value) })))
   }
 
   _unbind (key) {
@@ -251,12 +281,19 @@ class Element extends Node {
       this.checked = raw.checked
       this.valueAsNumber = raw.number
     }
-    const set = this._listeners.get(raw.kind)
-    if (!set || !set.size) return
     const e = new BuiEvent(raw, this)
-    for (const fn of [...set]) {
-      try { fn.call(this, e) } catch (err) { queueMicrotask(() => { throw err }) }
+    for (let n = this; n !== null; n = n.parentNode) {
+      const set = n._listeners?.get(raw.kind)
+      if (set && set.size) {
+        e.currentTarget = n
+        for (const fn of [...set]) {
+          try { fn.call(n, e) } catch (err) { queueMicrotask(() => { throw err }) }
+          if (e.immediatePropagationStopped) break
+        }
+      }
+      if (e.propagationStopped || !e.bubbles) break
     }
+    e.currentTarget = null
   }
 
   /** Layout box `{ x, y, width, height }` in logical pixels (or null). */
@@ -328,7 +365,13 @@ class Window {
   /** Changes are sent once per tick; `flush()` sends them now. */
   flush () {
     this._scheduled = false
-    if (!this._ops.length || this.closed) return
+    if (this.closed) {
+      this._ops = []
+      this._strings = []
+      this._stringIds.clear()
+      return
+    }
+    if (!this._ops.length) return
     const ops = Int32Array.from(this._ops)
     const strings = this._strings
     this._ops = []
@@ -398,7 +441,16 @@ class Window {
   _closed () {
     if (this.closed) return
     this.closed = true
-    for (const fn of this._onClose) fn()
+    for (const fn of this._onClose) {
+      try { fn() } catch (err) { queueMicrotask(() => { throw err }) }
+    }
+    // the native window is gone: free what follows signals or holds listeners
+    for (const n of this._nodes.values()) {
+      n._unbindAll()
+      n._listeners?.clear()
+    }
+    this._frameCallbacks.clear()
+    this.flush()
     this.app._windowClosed(this)
   }
 
@@ -421,8 +473,7 @@ class Window {
 
   _free (node) {
     node._unbindAll()
-    if (node.id === 0) return
-    this._nodes.delete(node.id)
+    if (node.id === 0 || !this._nodes.delete(node.id)) return // the body, or freed already
     this._op(OP.FREE, node.id)
   }
 }
@@ -455,8 +506,12 @@ class App {
 
   /** Close every window and end the UI thread (Node may then exit). */
   quit () {
-    for (const w of this.windows.values()) w.flush()
-    this.windows.clear()
+    if (this._quit) return
+    this._quit = true
+    for (const w of [...this.windows.values()]) {
+      w.flush()
+      w._closed()
+    }
     this.native.quit()
   }
 
@@ -476,7 +531,10 @@ class App {
 
   _windowClosed (win) {
     this.windows.delete(win.id)
-    if (this.quitOnLastWindowClosed && this.windows.size === 0) this.native.quit()
+    if (this.quitOnLastWindowClosed && this.windows.size === 0 && !this._quit) {
+      this._quit = true
+      this.native.quit()
+    }
   }
 }
 

@@ -1,28 +1,36 @@
-// Signal twins of React's hooks: `useSignal<Name>` for each React `use<Name>`
-// that holds or reacts to state. Same arguments, same return shape, same
-// timing, but the state is a signal: pass it as a prop or child and a change
-// updates that node without re-rendering the component.
+// React's hooks, by React's names, with signals for state.
 //
-// Built only on React's public hooks (useState, useRef, useMemo, the effect
-// hooks, startTransition), so they follow React's own semantics (StrictMode,
-// concurrent rendering) as React evolves. test/hooks.test.js runs each twin
-// beside its React original, and fails when React adds a hook that has
-// neither a twin nor an entry in NO_TWIN.
+// `useState`, `useReducer`, `useMemo` ... take React's arguments, run at
+// React's moments and return React's shapes, but the state they hold is a
+// signal. Pass it as a prop or child (`<span>{count}</span>`) and a change
+// updates that one node: the component doesn't re-render. Read it while
+// rendering (`count.value`, `count + 1`, a condition) and the component
+// re-renders when it changes, exactly as with React's own hooks.
+//
+// The second part needs to know which component is rendering: components
+// created through this package's JSX runtime (`jsxImportSource:
+// "@blender-ui/react"`) or `createElement` are wrapped with `track()`.
+//
+// Built only on React's public hooks (useState, useReducer, useRef, useMemo,
+// the effect hooks, startTransition), so React's semantics (StrictMode,
+// concurrent rendering) come from React itself. test/hooks.test.js runs each
+// hook beside React's original and fails when React adds a hook that has
+// neither a signal version here nor an entry in NO_TWIN.
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 'use strict'
 
 const React = require('react')
-const S = require('@blenderui/native')
-const { signal, memo, effect, batch, untrack, isSignal } = S
+const S = require('@blender-ui/native')
+const { signal, memo, effect, batch, untrack, isSignal, Tracker, Ref } = S
 
-/** React hooks without a twin, and why (the coverage test reads this). */
+/** React hooks re-exported unchanged, and why (the coverage test reads this). */
 const NO_TWIN = {
   use: 'suspends rendering: inherently a render-time read',
   useContext: 'pass a signal as the context value: consumers bind to it without re-rendering',
   useDebugValue: 'no state',
   useId: 'no state',
-  useImperativeHandle: 'no state (works with useSignalRef)',
+  useImperativeHandle: 'no state (works with useRef)',
 }
 
 // The latest value, for callbacks that outlive the render that made them.
@@ -32,71 +40,126 @@ function useLatest (value) {
   return ref
 }
 
-/** A component-owned signal, created once (lazily when `init` is a function). */
+/** A component-owned value, created once. */
 function useOnce (create) {
   return React.useState(create)[0]
 }
+
+// ---- render tracking -----------------------------------------------------------
+
+const bump = (n) => n + 1
+
+/** Re-render this component when a signal its render read changes. */
+function useRenderTracker () {
+  const [, force] = React.useReducer(bump, 0)
+  const tracker = useOnce(() => new Tracker(() => force()))
+  const reads = React.useRef(null)
+  // after each commit: follow what that render read
+  React.useLayoutEffect(() => { tracker.commit(reads.current) })
+  // mount / unmount (StrictMode re-mounts: pause, then resume)
+  React.useLayoutEffect(() => {
+    tracker.resume()
+    return () => tracker.pause()
+  }, [tracker])
+  return { tracker, reads }
+}
+
+const tracked = new WeakMap()
+const MEMO = Symbol.for('react.memo')
+const FORWARD_REF = Symbol.for('react.forward_ref')
+
+/** `type` with render tracking: function components, `memo` and `forwardRef`. */
+function track (type) {
+  if (type == null) return type
+  if (typeof type === 'function') {
+    if (type.prototype?.isReactComponent) return type // class components: no hooks
+  } else if (typeof type !== 'object' || (type.$$typeof !== MEMO && type.$$typeof !== FORWARD_REF)) {
+    return type // host components, fragments, providers, lazy ...
+  }
+  let t = tracked.get(type)
+  if (t !== undefined) return t
+  if (typeof type === 'function') {
+    t = function (props, secondArg) {
+      const { tracker, reads } = useRenderTracker()
+      const [result, r] = tracker.run(() => type(props, secondArg))
+      reads.current = r
+      return result
+    }
+    Object.defineProperty(t, 'name', { value: type.name })
+    t.displayName = type.displayName || type.name
+  } else if (type.$$typeof === MEMO) {
+    t = React.memo(track(type.type), type.compare)
+    t.displayName = type.displayName
+  } else {
+    t = React.forwardRef(track(type.render))
+    t.displayName = type.displayName
+  }
+  tracked.set(type, t)
+  tracked.set(t, t)
+  return t
+}
+
+/** React's `createElement`, with render tracking for components. */
+function createElement (type, props, ...children) {
+  return React.createElement(track(type), props, ...children)
+}
+
+// ---- state -----------------------------------------------------------------
 
 /** Rust's `use_signal`: a signal owned by this component. */
 function useSignal (initial) {
   return useOnce(() => signal(typeof initial === 'function' ? initial() : initial))
 }
 
-// ---- state -----------------------------------------------------------------
-
-/** `useState` twin: `[signal, setState]`; `setState(v | prev => next)`. */
-function useSignalState (initialState) {
+/** `[signal, setState]`; `setState(v | prev => next)`; the same value: no update. */
+function useState (initialState) {
   const s = useSignal(initialState)
   const set = React.useCallback((v) => s.set(typeof v === 'function' ? v(s.peek()) : v), [s])
   return [s, set]
 }
 
-/** `useReducer` twin: `[signal, dispatch]`, with the latest render's reducer. */
-function useSignalReducer (reducer, initialArg, init) {
+/** `[signal, dispatch]`, with the latest render's reducer (as React does). */
+function useReducer (reducer, initialArg, init) {
   const s = useOnce(() => signal(init !== undefined ? init(initialArg) : initialArg))
   const latest = useLatest(reducer)
   const dispatch = React.useCallback((action) => s.set(latest.current(s.peek(), action)), [s])
   return [s, dispatch]
 }
 
-/** `useRef` twin: `.current` is a signal, so memos and effects see the ref change
- *  (an element mounting, for instance). The ref is itself a signal. */
-class SignalRef extends S.Signal {
-  constructor (value) {
-    super(value)
-    // an own property: React (dev) rejects ref objects without one
-    Object.defineProperty(this, 'current', {
-      get () { return this.value },
-      set (v) { this.set(v) },
-      enumerable: true,
-    })
-  }
-}
-
-function useSignalRef (initialValue) {
-  return useOnce(() => new SignalRef(initialValue))
+/** `{ current }`, observable by effects and memos (an element mounting re-runs
+ *  them); reading it while rendering doesn't subscribe, as with React's refs. */
+function useRef (initialValue) {
+  return useOnce(() => new Ref(initialValue))
 }
 
 // ---- derived values ----------------------------------------------------------
 
-/** `useMemo` twin: a memo, recomputed when the signals it reads change, and
- *  replaced (like useMemo's value) when `deps` change; no deps: every render. */
-function useSignalMemo (fn, deps) {
+/** A memo: recomputed when the signals it reads change, and replaced (like
+ *  useMemo's value) when `deps` change; without deps, every render. */
+function useMemo (fn, deps) {
   const latest = useLatest(fn)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return React.useMemo(() => memo(() => latest.current()), deps)
 }
 
-/** Rust's `Memo::new`: `useSignalMemo` with `deps = []` by default. */
+/** Rust's `Memo::new`: `useMemo` with `deps = []` by default. */
 function useComputed (fn, deps = []) {
-  return useSignalMemo(fn, deps)
+  return useMemo(fn, deps)
 }
 
-/** `useCallback` twin: the callback runs batched (its writes make one update)
- *  and untracked (calling it in an effect doesn't subscribe to what it reads). */
-function useSignalCallback (fn, deps) {
+/** React's `useCallback`; calls are batched (their writes make one update) and
+ *  untracked (calling it in an effect doesn't subscribe to what it reads). */
+function useCallback (fn, deps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return React.useCallback((...args) => batch(() => untrack(() => fn(...args))), deps)
+}
+
+/** React's `useEffectEvent`: a stable function that calls the latest render's
+ *  `fn`; calls are batched and untracked (an effect calling it doesn't
+ *  subscribe to the signals `fn` reads). */
+function useEffectEvent (fn) {
+  const latest = useLatest(fn)
+  return React.useCallback((...args) => batch(() => untrack(() => latest.current(...args))), [latest])
 }
 
 // ---- effects -----------------------------------------------------------------
@@ -109,17 +172,17 @@ function effectHook (reactHook) {
   }
 }
 
-/** `useEffect` twin; also re-runs when the signals it read change. */
-const useSignalEffect = effectHook(React.useEffect)
-/** `useLayoutEffect` twin. */
-const useSignalLayoutEffect = effectHook(React.useLayoutEffect)
-/** `useInsertionEffect` twin. */
-const useSignalInsertionEffect = effectHook(React.useInsertionEffect)
+/** React's `useEffect`, also re-run when the signals it read change. */
+const useEffect = effectHook(React.useEffect)
+/** React's `useLayoutEffect`, also re-run when the signals it read change. */
+const useLayoutEffect = effectHook(React.useLayoutEffect)
+/** React's `useInsertionEffect`, also re-run when the signals it read change. */
+const useInsertionEffect = effectHook(React.useInsertionEffect)
 
 // ---- external stores ---------------------------------------------------------
 
-/** `useSyncExternalStore` twin: a signal following the store, without re-renders. */
-function useSignalSyncExternalStore (subscribe, getSnapshot) {
+/** A signal following the store. */
+function useSyncExternalStore (subscribe, getSnapshot) {
   const s = useOnce(() => signal(getSnapshot()))
   const latest = useLatest(getSnapshot)
   React.useLayoutEffect(() => {
@@ -131,7 +194,8 @@ function useSignalSyncExternalStore (subscribe, getSnapshot) {
   return s
 }
 
-/** Re-render this component when `source` changes; returns its value. */
+/** Re-render this component when `source` changes; returns its value (for
+ *  components rendered without this package's JSX runtime). */
 function useSignalValue (source) {
   const subscribe = React.useCallback((onChange) => {
     let first = true
@@ -148,74 +212,115 @@ function useSignalValue (source) {
 
 // Run `action` as a BUI transition and a React transition at once: signal
 // writes defer their effects, React state updates render at transition priority.
+// React tracks the action's promise (its optimistic updates last until it
+// settles) but never sees its rejection: each hook sends errors where React's does.
+const quiet = () => {}
 function transition (action) {
   return S.startTransition(() => {
     let result
+    let failure = null
     React.startTransition(() => {
-      result = action()
-      return result
+      try {
+        result = action()
+      } catch (error) {
+        failure = { error } // React would report it globally and swallow it
+        return
+      }
+      return result && typeof result.then === 'function' ? result.then(quiet, quiet) : undefined
     })
+    if (failure !== null) throw failure.error
     return result
   })
 }
 
-/** `useTransition` twin: `[isPending signal, startTransition(action)]`. `action`
- *  may be async; isPending stays true until it settles and its deferred
- *  updates have run. */
-function useSignalTransition () {
+/** React's `startTransition`, for signal writes too. Returns a promise that
+ *  settles when the action and the updates it caused are done. */
+function startTransition (action) {
+  return transition(action)
+}
+
+/** A setter that rethrows `error` during render: React's way to reach the
+ *  nearest error boundary from an async callback. */
+function useThrowToBoundary () {
+  const [, set] = React.useState(null)
+  return React.useCallback((error) => set(() => { throw error }), [])
+}
+
+/** `[isPending signal, startTransition(action)]`. `action` may be async;
+ *  isPending stays true until it settles and its deferred updates have run.
+ *  An error goes to the nearest error boundary. */
+function useTransition () {
   const isPending = useOnce(() => signal(false))
+  const fail = useThrowToBoundary()
   const start = React.useCallback((action) => {
     isPending._count = (isPending._count ?? 0) + 1
     S.urgent(() => isPending.set(true))
-    transition(action).then(() => {
+    const settle = () => {
       if (--isPending._count === 0) S.urgent(() => isPending.set(false))
-    })
-  }, [isPending])
+    }
+    let done
+    try {
+      done = transition(action)
+    } catch (error) {
+      settle()
+      return fail(error)
+    }
+    done.then(settle, (error) => { settle(); fail(error) })
+  }, [isPending, fail])
   return [isPending, start]
 }
 
-/** `useDeferredValue` twin: a signal that follows `value` (a signal or a plain
- *  value) at transition priority, after urgent updates. */
-function useSignalDeferredValue (value, initialValue) {
+/** A signal following `value` (a signal or a value) at transition priority,
+ *  after urgent updates; `initialValue` first, if given. */
+function useDeferredValue (value, initialValue) {
   const read = () => (isSignal(value) ? value.peek() : value)
   const out = useOnce(() => signal(initialValue !== undefined ? initialValue : read()))
   const latest = useLatest(value)
   React.useEffect(() => {
     let scheduled = false
+    let live = true
     const push = () => {
       if (scheduled) return
       scheduled = true
       S.scheduleDeferred(() => {
         scheduled = false
+        if (!live) return
         const v = latest.current
         out.set(isSignal(v) ? v.peek() : v)
       })
     }
-    if (isSignal(value)) return effect(() => { value.value; push() })
+    if (isSignal(value)) {
+      const stop = effect(() => { value.value; push() })
+      return () => { live = false; stop() }
+    }
     push()
+    return () => { live = false }
   }, [value, out])
   return out
 }
 
-/** `useActionState` twin: `[state signal, dispatch, isPending signal]`.
- *  Dispatches queue and run in order, each with the previous state; an action
- *  may be async. A thrown error goes to the nearest error boundary, and the
- *  queued actions are dropped, as in React. */
-function useSignalActionState (action, initialState) {
+/** `[state signal, dispatch, isPending signal]`. Dispatches queue and run in
+ *  order, each with the previous state; an action may be async. A thrown
+ *  error goes to the nearest error boundary and drops the queue, as in React. */
+function useActionState (action, initialState) {
   const state = useOnce(() => signal(initialState))
   const isPending = useOnce(() => signal(false))
   const latest = useLatest(action)
   const queue = useOnce(() => ({ items: [], running: false }))
-  const [, setError] = React.useState(null)
+  const fail = useThrowToBoundary()
 
   const runNext = React.useCallback(() => {
     const payload = queue.items.shift()
     queue.running = true
     let result
-    transition(() => {
-      result = latest.current(state.peek(), payload)
-      return result
-    })
+    try {
+      transition(() => {
+        result = latest.current(state.peek(), payload)
+        return result
+      }).catch(quiet) // the error is handled below, from `result`
+    } catch (error) {
+      result = Promise.reject(error)
+    }
     Promise.resolve(result).then((next) => {
       const more = queue.items.length > 0
       batch(() => {
@@ -228,9 +333,9 @@ function useSignalActionState (action, initialState) {
       queue.items.length = 0
       queue.running = false
       isPending.set(false)
-      setError(() => { throw err })
+      fail(err)
     })
-  }, [state, isPending, queue])
+  }, [state, isPending, queue, fail])
 
   const dispatch = React.useCallback((payload) => {
     queue.items.push(payload)
@@ -243,10 +348,10 @@ function useSignalActionState (action, initialState) {
   return [state, dispatch, isPending]
 }
 
-/** `useOptimistic` twin: `[optimistic signal, addOptimistic]`. Updates added
- *  during a transition or action show at once and are dropped when it ends;
- *  `passthrough` (a signal or a value) shows through otherwise. */
-function useSignalOptimistic (passthrough, reducer) {
+/** `[optimistic signal, addOptimistic]`. Updates added during a transition or
+ *  action show at once and are dropped when it ends; `passthrough` (a signal
+ *  or a value) shows through otherwise. */
+function useOptimistic (passthrough, reducer) {
   const updates = useOnce(() => signal([]))
   const latestReducer = useLatest(reducer)
   const out = React.useMemo(() => memo(() => {
@@ -269,21 +374,24 @@ function useSignalOptimistic (passthrough, reducer) {
 
 module.exports = {
   NO_TWIN,
-  SignalRef,
+  track,
+  createElement,
+  startTransition,
   useSignal,
   useComputed,
   useSignalValue,
-  useSignalState,
-  useSignalReducer,
-  useSignalRef,
-  useSignalMemo,
-  useSignalCallback,
-  useSignalEffect,
-  useSignalLayoutEffect,
-  useSignalInsertionEffect,
-  useSignalSyncExternalStore,
-  useSignalTransition,
-  useSignalDeferredValue,
-  useSignalActionState,
-  useSignalOptimistic,
+  useState,
+  useReducer,
+  useRef,
+  useMemo,
+  useCallback,
+  useEffectEvent,
+  useEffect,
+  useLayoutEffect,
+  useInsertionEffect,
+  useSyncExternalStore,
+  useTransition,
+  useDeferredValue,
+  useActionState,
+  useOptimistic,
 }

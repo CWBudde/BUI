@@ -46,7 +46,7 @@ You can drive it five ways, and all of them share the same C runtime:
 | **Qt-style** Python (`QWidget`, layouts, `clicked.connect`) | The common subset of Qt widgets | 🟡 Partial |
 | **Blender components** in Python (`Panel`, `NumberSlider`, `PieMenu` ...) | 45 native Blender widgets and editors | ✅ Complete |
 | **Rust**: HTML + CSS + Tailwind, JSX (`rsx!`), hooks, or gpui syntax | A web-like framework rendered with Blender widgets | ✅ Working |
-| **JavaScript / React** from Node: a DOM-like API or JSX | The same engine in native windows, driven over napi-rs ([guide](docs/javascript.md)) | 🟡 New (Windows) |
+| **JavaScript / React** on Node.js or Bun: a DOM-like API or JSX | The same engine in native windows, over napi-rs; React's hooks backed by signals ([guide](docs/javascript.md)) | 🟡 New (Windows) |
 
 ## Quick start
 
@@ -91,6 +91,33 @@ App("Object", (420, 520),
     Button("Apply", on_click=lambda: print("apply")),
 ).run()
 ```
+
+### JavaScript and React
+
+```sh
+npm install @blender-ui/react react     # or: bun add @blender-ui/react react
+```
+
+```jsx
+/** @jsxImportSource @blender-ui/react */
+import { render, useState } from '@blender-ui/react'
+
+function Counter () {
+  const [count, setCount] = useState(0)   // React's hook, backed by a signal
+  return (
+    <main className="p-6 flex flex-col gap-3">
+      <span>Clicks: {count}</span>
+      <button onClick={() => setCount(c => c + 1)}>Add one</button>
+    </main>
+  )
+}
+
+render(<Counter />, { title: 'Counter', width: 360, height: 200, gpu: true })
+```
+
+A click updates the one text node; `Counter` doesn't re-render. Without
+React, `@blender-ui/native` gives you a DOM-like API with signals. Both run on
+Node.js and Bun, Windows x64 for now ([guide](docs/javascript.md)).
 
 ### Rust
 
@@ -242,7 +269,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | Components | 45 Blender components, including the color ramp and curve editors |
 | Rust | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 82/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`/`@container`/`@font-face`/`@property`, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, headless testing |
 | Rendering | Software raster (parallel, damage-tracked), GPU renderer (Direct3D 11), portable text engine |
-| JavaScript / React | `@blenderui/native` (DOM-like API over napi-rs, its own UI thread, only changes cross the boundary, vsync-paced `requestAnimationFrame`) and `@blenderui/react` (React 19 renderer), with BUI's signals (`useSignal`, `useComputed`, `useSignalEffect`) updating nodes without re-renders; headless testing ([guide](docs/javascript.md)) |
+| JavaScript / React | `@blender-ui/native`: a DOM-like API over napi-rs, with its own UI thread, only changes crossing the boundary, vsync-paced `requestAnimationFrame` and signals. `@blender-ui/react`: a React 19.3 renderer whose hooks (`useState`, `useMemo`, `useEffect` ...) hold signals that update nodes without re-renders. Both on Node.js and Bun, with headless testing ([guide](docs/javascript.md)) |
 | Packaging | [`blenderui` on PyPI](https://pypi.org/project/blenderui/), with a CI workflow for wheels on all platforms |
 
 ### 🟡 Partial or in progress
@@ -253,7 +280,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | CSS (207 of 745 W3C properties render, 177 more parse) | Rendering effects: `rotate`/`skew` transforms, `filter`/`backdrop-filter`, blend modes, `clip-path`, masks, `border-image`, non-solid borders. Also animations and transitions. Most of the remaining W3C list is drafts, speech, print and SVG ([breakdown](docs/rust.md#coverage)) |
 | Text | No text wrapping around floats; no right-to-left shaping |
 | Rust components | No async resources (`use_resource`); no generic components |
-| JavaScript / React | Native windows on Windows only (headless elsewhere); npm packages not published yet; events are asynchronous (no native `preventDefault`) |
+| JavaScript / React | Prebuilt for Windows x64 only (elsewhere: build from source, headless); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest *listening* element |
 | Linux / macOS | They work through a fallback window (the stdlib Tk window shows BUI's frame), but they're less tested. No native window host and no GPU renderer yet |
 | crates.io | The crates are ready to publish but not published yet; use the git dependency for now |
 
@@ -261,7 +288,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 
 | Target | Plan |
 |---|---|
-| **WebAssembly** | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit; `@blenderui/react` and the DOM-like API on top, unchanged |
+| **WebAssembly** | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit; `@blender-ui/react` and the DOM-like API on top, unchanged |
 | **egui** | BUI panels inside egui, plus a Blender-styled theme |
 | **Native Linux / macOS windows** | Wayland / X11 and Cocoa hosts in C, like the Win32 one |
 | **More GPU backends** | Vulkan / Metal / WebGPU drawing the same instance stream as Direct3D 11 |
@@ -343,6 +370,22 @@ gpui-fast's heavy-scene frame rate varies between sessions on this laptop
 [bindings/rust/bench/README.md](bindings/rust/bench/README.md).
 </details>
 
+JavaScript, on the same scene in `one` mode: one cell changes per frame, the
+GPU renderer, medians of 3 runs. CPU is the whole process, counted the same
+way as for Rust. Plain JS uses `@blender-ui/native`; React uses
+`@blender-ui/react` in its production build.
+
+| 3,000 cells | FPS | CPU per frame | RAM |
+|---|---:|---:|---:|
+| Rust | 59.6 | **12.0 ms** | **43 MB** |
+| Bun 1.4: plain JS / React with signals / React with state | 58.8 / 58.4 / 55.8 | 13.1 / 13.3 / 20.8 ms | 80 / 85 / 118 MB |
+| Node 22: plain JS / React with signals / React with state | 55.8 / 56.7 / 54.8 | 14.4 / 14.0 / 18.9 ms | 88 / 93 / 121 MB |
+
+At 1,000 cells every configuration holds 60 FPS, at 4.8 ms per frame (Rust)
+to 7.5 ms (React re-rendering). Method and more:
+[docs/javascript.md](docs/javascript.md#performance).
+
+
 ## Documentation
 
 | Guide | What's inside |
@@ -352,7 +395,7 @@ gpui-fast's heavy-scene frame rate varies between sessions on this laptop
 | [Qt syntax](docs/qt.md) | Classes, signals, layouts, painting, coverage |
 | [Components](docs/components.md) | The `bui.components` reference |
 | [Rust](docs/rust.md) | `rsx!`, hooks, HTML, CSS and Tailwind coverage, events, headless tests |
-| [JavaScript and React](docs/javascript.md) | `@blenderui/native`, `@blenderui/react`, how changes cross to the UI thread, performance |
+| [JavaScript and React](docs/javascript.md) | `@blender-ui/native`, `@blender-ui/react`, how changes cross to the UI thread, performance |
 | [C API](docs/c-api.md) | The C kit (`BUI_kit.h`) |
 | [Integration](INTEGRATION.md) | Embedding BUI drawing in C, C++, Qt or PySide hosts |
 | [Architecture](ARCHITECTURE.md) | Modules and what was taken from Blender |

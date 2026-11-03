@@ -1,19 +1,74 @@
 {
-  "name": "@blenderui/react",
+  "name": "@blender-ui/react",
   "version": "0.1.0",
-  "description": "React renderer for BUI: Blender's UI in native windows, from JSX",
+  "description": "React renderer for BUI: Blender's UI in native windows from JSX, with React's hooks backed by signals. Node.js and Bun.",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "hooks.js", "index.d.ts", "README.md"],
-  "scripts": { "test": "node --test" },
-  "engines": { "node": ">=18" },
-  "dependencies": {
-    "@blenderui/native": "file:../node",
-    "react-reconciler": "0.31.0"
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./jsx-runtime": {
+      "types": "./jsx-runtime.d.ts",
+      "default": "./jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./jsx-dev-runtime.d.ts",
+      "default": "./jsx-dev-runtime.js"
+    },
+    "./package.json": "./package.json"
   },
-  "peerDependencies": { "react": "^19.0.0" },
-  "devDependencies": { "react": "19.0.0" },
+  "files": [
+    "index.js",
+    "hooks.js",
+    "index.d.ts",
+    "jsx-runtime.js",
+    "jsx-runtime.d.ts",
+    "jsx-dev-runtime.js",
+    "jsx-dev-runtime.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "prepublishOnly": "node --test",
+    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\"",
+    "postpack": "node -e \"require('fs').rmSync('LICENSE', { force: true })\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@blender-ui/native": "^0.1.0",
+    "react-reconciler": "0.34.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "19.3.1"
+  },
   "license": "GPL-2.0-or-later",
-  "repository": { "type": "git", "url": "git+https://github.com/ppmpreetham/BUI.git", "directory": "bindings/react" },
-  "keywords": ["react", "renderer", "blender", "ui", "native", "desktop", "napi", "tailwind"]
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ppmpreetham/BUI.git",
+    "directory": "bindings/react"
+  },
+  "homepage": "https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md",
+  "bugs": {
+    "url": "https://github.com/ppmpreetham/BUI/issues"
+  },
+  "keywords": [
+    "react",
+    "renderer",
+    "react-reconciler",
+    "signals",
+    "blender",
+    "ui",
+    "desktop",
+    "native",
+    "tailwind",
+    "bun"
+  ]
 }

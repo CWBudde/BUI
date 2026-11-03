@@ -1,18 +1,62 @@
 {
-  "name": "@blenderui/native",
+  "name": "@blender-ui/native",
   "version": "0.1.0",
-  "description": "Blender's UI from JavaScript: native windows, HTML/CSS/Tailwind, driven from Node through napi-rs",
+  "description": "Blender's UI from JavaScript: native windows (CPU or Direct3D 11), HTML elements, CSS and Tailwind classes, signals. Node.js and Bun, through napi-rs.",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "signals.js", "index.d.ts", "*.node", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./signals": "./signals.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "signals.js",
+    "index.d.ts",
+    "blenderui.*.node",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "node scripts/build.js",
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "node scripts/build.js && node --test",
+    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\"",
+    "postpack": "node -e \"require('fs').rmSync('LICENSE', { force: true })\""
   },
-  "engines": { "node": ">=18" },
-  "os": ["win32"],
-  "cpu": ["x64"],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "license": "GPL-2.0-or-later",
-  "repository": { "type": "git", "url": "git+https://github.com/ppmpreetham/BUI.git", "directory": "bindings/node" },
-  "keywords": ["blender", "ui", "gui", "napi", "native", "desktop", "tailwind", "react"]
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ppmpreetham/BUI.git",
+    "directory": "bindings/node"
+  },
+  "homepage": "https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md",
+  "bugs": {
+    "url": "https://github.com/ppmpreetham/BUI/issues"
+  },
+  "keywords": [
+    "blender",
+    "ui",
+    "gui",
+    "desktop",
+    "native",
+    "napi",
+    "tailwind",
+    "css",
+    "signals",
+    "bun",
+    "react"
+  ]
 }

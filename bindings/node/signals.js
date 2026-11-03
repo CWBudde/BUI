@@ -76,6 +76,8 @@ class Signal {
   /** Call `fn(value)` now and on every change; returns the unsubscribe function. */
   subscribe (fn) { return effect(() => { fn(this.value) }) }
   toString () { return String(this.value) }
+  /** `count + 1`, `count > 5` read the value (`===` and truthiness don't: use `.value`). */
+  valueOf () { return this.value }
   toJSON () { return this.value }
 
   _addSub (s) { this._subs.add(s) }
@@ -116,8 +118,12 @@ class Computation {
         }
       }
     }
-    if (this._state === DIRTY) this._run()
-    this._state = CLEAN
+    if (this._state === DIRTY) {
+      this._state = CLEAN // a mark made while running (a write to a source) re-queues it
+      this._run()
+    } else {
+      this._state = CLEAN
+    }
   }
 }
 
@@ -129,44 +135,67 @@ class Memo extends Computation {
     this._value = undefined
     this._init = false
     this._seen = -1 // `writes` when last known up to date while detached
+    this._error = null // { error } when the computation threw: rethrown on read
+    this._lowPriority = false // marked by a transition only
     this._equals = options?.equals ?? Object.is
   }
 
   get value () {
     track(this)
     this._refresh()
+    if (this._error !== null) throw this._error.error
     return this._value
   }
 
   get () { return this.value }
-  peek () { this._refresh(); return this._value }
+  peek () {
+    this._refresh()
+    if (this._error !== null) throw this._error.error
+    return this._value
+  }
   with (fn) { return fn(this.value) }
   subscribe (fn) { return effect(() => { fn(this.value) }) }
   toString () { return String(this.value) }
+  /** `count + 1`, `count > 5` read the value (`===` and truthiness don't: use `.value`). */
+  valueOf () { return this.value }
   toJSON () { return this.value }
 
   _refresh () {
     if (this._attached) return super._refresh()
     // nobody observes this memo: revalidate against the global write count
-    if (this._seen !== writes || !this._init) this._run()
-    this._seen = writes
+    const at = writes
     this._state = CLEAN
+    if (this._seen !== at || !this._init) this._run()
+    this._seen = at
   }
 
   _run () {
-    const v = this._track()
-    if (!this._init || !this._equals(this._value, v)) {
+    let v
+    try {
+      v = this._track()
+    } catch (error) {
       this._init = true
+      this._error = { error }
+      for (const s of this._subs) if (s._state === CHECK) s._state = DIRTY // readers waiting on this check
+      return
+    }
+    if (!this._init || this._error !== null || !this._equals(this._value, v)) {
+      this._init = true
+      this._error = null
       this._value = v
-      for (const s of this._subs) s._state = DIRTY
+      for (const s of this._subs) if (s._state === CHECK) s._state = DIRTY // readers waiting on this check
     }
   }
 
   _mark (state) {
-    if (this._state >= state) return
+    const urgent = transition === null
     const was = this._state
-    this._state = state
-    if (was === CLEAN) for (const s of this._subs) s._mark(CHECK)
+    // already marked: pass it on only to make a transition's mark urgent
+    if (was >= state && !(urgent && this._lowPriority)) return
+    if (state > was) this._state = state
+    const propagate = was === CLEAN || (urgent && this._lowPriority)
+    this._lowPriority = !urgent && (was === CLEAN || this._lowPriority)
+    if (propagate) for (const s of this._subs) s._mark(CHECK)
   }
 
   _addSub (s) {
@@ -200,8 +229,17 @@ class Effect extends Computation {
     this._disposed = false
     this._queued = NONE
     if (owner !== null) (owner._children ??= []).push(this)
-    this._run()
     this._state = CLEAN
+    batchDepth++ // writes made by this run re-run it after, not inside, the run
+    try {
+      this._run()
+    } catch (error) {
+      this.dispose() // no half-subscribed effect left behind
+      throw error
+    } finally {
+      batchDepth--
+      flush()
+    }
   }
 
   _run () {
@@ -238,6 +276,8 @@ class Effect extends Computation {
     } else if (this._queued === NONE) {
       this._queued = DEFERRED
       defer(this)
+    } else if (this._queued === DEFERRED) {
+      holdTransition() // this transition also waits for the deferred run
     }
   }
 
@@ -245,6 +285,7 @@ class Effect extends Computation {
     if (this._disposed) return
     this._disposed = true
     this._unsubscribe()
+    this._attached = false // reads after dispose (mid-run) don't subscribe
     this._clean()
   }
 }
@@ -263,12 +304,14 @@ function runEffect (e) {
 function flush () {
   if (batchDepth > 0 || flushing) return
   flushing = true
+  let i = 0
   try {
-    for (let i = 0; i < pending.length; i++) {
+    for (; i < pending.length; i++) {
       if (i > 100000) throw new Error('blenderui: effects keep re-triggering each other')
       if (pending[i]._queued === URGENT) runEffect(pending[i])
     }
   } finally {
+    for (; i < pending.length; i++) if (pending[i]._queued === URGENT) pending[i]._queued = NONE
     pending.length = 0
     flushing = false
   }
@@ -297,14 +340,19 @@ class Transition {
 const now = typeof performance !== 'undefined' ? () => performance.now() : () => Date.now()
 const macrotask = typeof setImmediate === 'function' ? setImmediate : (f) => setTimeout(f, 0)
 
-/** Queue an effect or task of the current transition. */
-function defer (item) {
-  deferred.push(item)
+/** The current transition waits for the deferred queue to drain. */
+function holdTransition () {
   if (transition !== null && !transition._queued) {
     transition._queued = true
     transition._hold()
     waiting.add(transition)
   }
+}
+
+/** Queue an effect or task of the current transition. */
+function defer (item) {
+  deferred.push(item)
+  holdTransition()
   if (!deferredScheduled) {
     deferredScheduled = true
     macrotask(runDeferred)
@@ -354,17 +402,24 @@ const IDLE = new Transition()
  * Run `fn` as a transition: what its signal writes trigger (bindings,
  * effects) runs after urgent work, in slices. Like React, only writes made
  * before `fn`'s first `await` belong to it. Returns a promise that settles
- * when `fn` (and its promise, if any) and the deferred work are done.
+ * when `fn` (and its promise, if any) and the deferred work are done; it
+ * rejects with the error of an async `fn` (a synchronous throw propagates).
  */
 function startTransition (fn) {
   const t = new Transition()
-  const done = new Promise((resolve) => t._done.push(resolve))
+  let failure = null
+  const done = new Promise((resolve, reject) => {
+    t._done.push(() => (failure ? reject(failure.error) : resolve()))
+  })
   const prev = transition
   transition = t
   batchDepth++
   let result
   try {
     result = fn()
+  } catch (error) {
+    t._release()
+    throw error
   } finally {
     batchDepth--
     transition = prev
@@ -372,7 +427,7 @@ function startTransition (fn) {
   }
   if (result && typeof result.then === 'function') {
     t._hold()
-    result.then(() => t._release(), (err) => { reportError(err); t._release() })
+    result.then(() => t._release(), (error) => { failure = { error }; t._release() })
   }
   t._release()
   return done
@@ -410,6 +465,87 @@ function urgent (fn) {
 
 const inTransition = () => transition !== null
 
+// ---- render tracking (components) ------------------------------------------
+
+/**
+ * What a component's render read, and a callback when any of it changes.
+ * `run(fn)` collects reads without subscribing (a render may be thrown
+ * away); `commit(reads)` subscribes once the render is committed; `pause`
+ * / `resume` follow mount and unmount. Built for React components.
+ */
+class Tracker extends Computation {
+  constructor (onChange) {
+    super(null)
+    this._attached = true
+    this._state = CLEAN
+    this._queued = NONE
+    this._disposed = false
+    this._onChange = onChange
+    this._pausedAt = 0
+  }
+
+  /** Run `fn`, collecting the signals it reads. Returns `[result, reads]`. */
+  run (fn) {
+    const reads = { _deps: new Set(), _attached: false, _render: true, _at: 0 }
+    const prev = observer
+    observer = reads
+    try {
+      const result = fn()
+      reads._at = writes // writes made by the render itself don't count
+      return [result, reads]
+    } finally {
+      observer = prev
+    }
+  }
+
+  /** The render that read `reads` was committed: follow those signals now. */
+  commit (reads) {
+    if (reads === null) return
+    const next = reads._deps
+    if (this._attached) {
+      for (const d of this._deps) if (!next.has(d)) d._removeSub(this)
+      for (const d of next) if (!this._deps.has(d)) d._addSub(this)
+    }
+    this._deps = next
+    this._state = CLEAN
+    if (writes !== reads._at && next.size > 0) this._onChange() // changed in between
+  }
+
+  pause () {
+    if (!this._attached) return
+    for (const d of this._deps) d._removeSub(this)
+    this._attached = false
+    this._pausedAt = writes
+  }
+
+  resume () {
+    if (this._attached) return
+    this._attached = true
+    for (const d of this._deps) d._addSub(this)
+    if (writes !== this._pausedAt && this._deps.size > 0) this._onChange()
+  }
+
+  _run () { this._onChange() }
+  dispose () { this.pause(); this._disposed = true }
+}
+Tracker.prototype._mark = Effect.prototype._mark
+
+const inRender = () => observer !== null && observer._render === true
+
+/** A ref whose `.current` is a signal for effects and memos, but not for
+ *  renders (reading a ref while rendering doesn't subscribe, as in React). */
+class Ref extends Signal {
+  constructor (value) {
+    super(value)
+    // an own property: React (dev) rejects ref objects without one
+    Object.defineProperty(this, 'current', {
+      get () { return inRender() ? this._value : this.value },
+      set (v) { this.set(v) },
+      enumerable: true,
+    })
+  }
+}
+
 // ---- API -------------------------------------------------------------------
 
 /** `signal(0)`: a read-write signal (`.value`, `.set`, `.update`). */
@@ -435,6 +571,17 @@ function batch (fn) {
   }
 }
 
+/** Run `fn` outside any owning effect: effects it creates live until disposed. */
+function unowned (fn) {
+  const prev = owner
+  owner = null
+  try {
+    return fn()
+  } finally {
+    owner = prev
+  }
+}
+
 /** Run `fn` without subscribing to what it reads. */
 function untrack (fn) {
   const prev = observer
@@ -454,6 +601,9 @@ function createSignal (value, options) {
 
 const isSignal = (x) => x instanceof Signal || x instanceof Memo
 
+/** A ref (`{ current }`) whose changes effects and memos can follow. */
+function ref (value) { return new Ref(value) }
+
 module.exports = {
   Signal,
   Memo,
@@ -464,6 +614,7 @@ module.exports = {
   effect,
   batch,
   untrack,
+  unowned,
   createSignal,
   isSignal,
   startTransition,
@@ -471,4 +622,7 @@ module.exports = {
   inTransition,
   onTransitionDone,
   scheduleDeferred,
+  Tracker,
+  Ref,
+  ref,
 }

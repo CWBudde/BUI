@@ -1,21 +1,21 @@
-// A React counter in a native BUI window (no build step: React.createElement).
-// With a JSX toolchain, write the same with JSX, e.g. `npx tsx counter.jsx`.
-//   node examples/counter.js
+// A React counter in a native BUI window, without a build step (createElement).
+//   node examples/counter.js      (or: bun examples/counter.js)
+// The hooks are React's, by React's names, with signals for state: `count`
+// below updates its text node without re-rendering Counter; `name.value`,
+// read while rendering, re-renders it when the name changes.
 'use strict'
-const React = require('react')
-const { render } = require('..')
-const h = React.createElement
+const { render, createElement: h, useState } = require('..')
 
 function Counter () {
-  const [count, setCount] = React.useState(0)
-  const [name, setName] = React.useState('')
+  const [count, setCount] = useState(0)
+  const [name, setName] = useState('')
   return h('main', { className: 'p-6 flex flex-col gap-3' },
     h('h1', { className: 'text-xl font-bold' }, 'BUI + React'),
     h('div', { className: 'flex items-center gap-3' },
-      h('span', null, `Clicks: ${count}`),
+      h('span', null, 'Clicks: ', count),
       h('button', { onClick: () => setCount(c => c + 1) }, 'Add one')),
     h('input', { placeholder: 'Your name', value: name, onChange: e => setName(e.target.value) }),
-    name && h('p', { className: 'text-[#9ab8e8]' }, `Hello, ${name}!`))
+    name.value && h('p', { className: 'text-[#9ab8e8]' }, `Hello, ${name}!`))
 }
 
 const { app, window } = render(h(Counter), { title: 'BUI + React', width: 420, height: 260 })

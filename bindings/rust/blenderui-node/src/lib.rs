@@ -7,8 +7,8 @@
 //! applies the ops to its mirror of the tree and re-renders; events come back
 //! through a thread-safe function.
 //!
-//! The JavaScript side lives in `bindings/node` (`@blenderui/native`, with
-//! `@blenderui/react` on top).
+//! The JavaScript side lives in `bindings/node` (`@blender-ui/native`, with
+//! `@blender-ui/react` on top).
 //!
 //! SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -130,10 +130,30 @@ fn parse_style(css: &str) -> Box<[blenderui::css::Decl]> {
     }).collect()
 }
 
-/// One window's tree; node ids are per window and dense (root = 0).
+/// Hashes a node id as itself: ids are unique, increasing integers.
+#[derive(Default, Clone, Copy)]
+struct IdHasher(u64);
+
+impl std::hash::Hasher for IdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 << 8) | u64::from(b);
+        }
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0 = u64::from(n);
+    }
+}
+
+type NodeMap = HashMap<u32, JsNode, std::hash::BuildHasherDefault<IdHasher>>;
+
+/// One window's tree; node ids are per window, never reused (root = 0).
 struct JsView {
     window: u32,
-    nodes: Vec<Option<JsNode>>,
+    nodes: NodeMap,
     tsfn: Tsfn,
     /// JS asked for an animation frame: tell it when this one renders.
     raf: bool,
@@ -152,15 +172,13 @@ fn intern_tag(tag: &str, custom: &mut HashMap<String, &'static str>) -> &'static
 
 impl JsView {
     fn node(&mut self, id: i32) -> Option<&mut JsNode> {
-        self.nodes.get_mut(usize::try_from(id).ok()?)?.as_mut()
+        self.nodes.get_mut(&u32::try_from(id).ok()?)
     }
 
     fn put(&mut self, id: i32, n: JsNode) {
-        let Ok(i) = usize::try_from(id) else { return };
-        if i >= self.nodes.len() {
-            self.nodes.resize_with(i + 1, || None);
+        if let Ok(i) = u32::try_from(id) {
+            self.nodes.insert(i, n);
         }
-        self.nodes[i] = Some(n);
     }
 
     fn apply(&mut self, ops: &[i32], strings: &[String], tags: &mut HashMap<String, &'static str>) {
@@ -243,10 +261,8 @@ impl JsView {
                     i += 3;
                 }
                 op::FREE => {
-                    if let Ok(k) = usize::try_from(a(1)) {
-                        if let Some(slot) = self.nodes.get_mut(k) {
-                            *slot = None;
-                        }
+                    if let Ok(k) = u32::try_from(a(1)) {
+                        self.nodes.remove(&k);
                     }
                     i += 2;
                 }
@@ -256,7 +272,7 @@ impl JsView {
     }
 
     fn build(&self, id: u32) -> AnyElement {
-        let Some(Some(n)) = self.nodes.get(id as usize) else {
+        let Some(n) = self.nodes.get(&id) else {
             return String::new().into_any_element();
         };
         if let Some(t) = &n.text {
@@ -301,14 +317,23 @@ impl JsView {
                 MouseButton::Right => 2,
             }
         }
+        // The deepest listening node gets the event, and native propagation
+        // stops there: JavaScript bubbles it through its own tree, so
+        // stopPropagation() works. Hover (mouseenter / mouseleave) doesn't bubble.
         macro_rules! on {
             ($bit:expr, $method:ident $(($arg:expr))?, |$e:ident, $ev:ident| $body:block) => {
+                on!(@ true, $bit, $method $(($arg))?, |$e, $ev| $body)
+            };
+            (@ $stop:expr, $bit:expr, $method:ident $(($arg:expr))?, |$e:ident, $ev:ident| $body:block) => {
                 if bits & $bit != 0 {
                     let (send, base) = (send.clone(), base.clone());
-                    d = d.$method($($arg,)? move |$ev, _, _| {
+                    d = d.$method($($arg,)? move |$ev, _, app| {
                         let mut $e = base.clone();
                         $body
                         send($e);
+                        if $stop {
+                            app.stop_propagation();
+                        }
                     });
                 }
             };
@@ -340,7 +365,7 @@ impl JsView {
             (e.x, e.y) = (m.position.x.0 as f64, m.position.y.0 as f64);
             mods(&mut e, &m.modifiers);
         });
-        on!(ev::HOVER, on_hover, |e, h| {
+        on!(@ false, ev::HOVER, on_hover, |e, h| {
             e.kind = if *h { "mouseenter" } else { "mouseleave" }.into();
         });
         on!(ev::WHEEL, on_scroll_wheel, |e, w| {
@@ -458,7 +483,9 @@ impl NativeApp {
                     if let Some(w) = js {
                         close.call(BuiEvent { kind: "close".into(), window: w, ..Default::default() },
                                    ThreadsafeFunctionCallMode::NonBlocking);
-                        cx.global_mut::<UiState>().windows.remove(&w);
+                        let st = cx.global_mut::<UiState>();
+                        st.windows.remove(&w);
+                        st.by_native.remove(&id.0);
                     }
                 });
                 if headless {
@@ -510,7 +537,7 @@ impl NativeApp {
             };
             let handle = cx.open_window(opts, |_, cx| {
                 cx.new(|_| {
-                    let mut v = JsView { window: id, nodes: Vec::new(), tsfn, raf: false, frame_scheduled: false };
+                    let mut v = JsView { window: id, nodes: NodeMap::default(), tsfn, raf: false, frame_scheduled: false };
                     v.put(0, JsNode { tag: "body", key: "n0".into(), text: None, attrs: Vec::new(),
                                       style: None, children: Vec::new(), events: 0 });
                     v
@@ -565,7 +592,9 @@ impl NativeApp {
     #[napi]
     pub fn close_window(&self, window: u32) {
         self.link.send(move |cx| {
-            if let Some(h) = cx.global_mut::<UiState>().windows.remove(&window) {
+            let st = cx.global_mut::<UiState>();
+            if let Some(h) = st.windows.remove(&window) {
+                st.by_native.remove(&h.id.0);
                 cx.close_window(h.id);
             }
         });
@@ -651,4 +680,46 @@ pub struct Screenshot {
     pub height: u32,
     /// RGBA, row-major.
     pub data: Buffer,
+}
+
+// ==========================================================================
+// Measuring (benchmarks): the same counters as bench/common/measure.rs.
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetCurrentProcess() -> isize;
+    fn QueryProcessCycleTime(p: isize, cycles: *mut u64) -> i32;
+}
+
+/// CPU cycles used by every thread of this process (Windows; otherwise null).
+/// Unlike tick-based CPU time, exact for threads that wake on each vsync.
+#[napi]
+pub fn process_cpu_cycles() -> Option<f64> {
+    #[cfg(windows)]
+    {
+        let mut c = 0u64;
+        // SAFETY: the current-process pseudo handle and a valid out pointer.
+        unsafe { QueryProcessCycleTime(GetCurrentProcess(), &mut c) };
+        Some(c as f64)
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// The time-stamp counter (x86-64; otherwise null): divide cycle counts by
+/// its rate, measured against the wall clock, to get CPU time.
+#[napi]
+pub fn timestamp_counter() -> Option<f64> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // SAFETY: rdtsc has no preconditions on x86-64.
+        Some(unsafe { core::arch::x86_64::_rdtsc() } as f64)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        None
+    }
 }

@@ -36,7 +36,7 @@ test('React: render, state, events, conditional children (headless)', async (t) 
   assert.deepStrictEqual(at(shot, 10, 42), [255, 0, 0], 'conditional child mounted (8px gap below the button)')
 })
 
-test('React: BUI signals as props and children update without re-rendering', async (t) => {
+test('React: signals as props and children update without re-rendering', async (t) => {
   const { useSignal, useComputed, useSignalValue, signal } = require('..')
   const external = signal(0)
   let renders = 0
@@ -76,4 +76,62 @@ test('React: BUI signals as props and children update without re-rendering', asy
   assert.strictEqual(watcherRenders, 2, 'useSignalValue re-renders its component')
   const span = [...window._nodes.values()].find(n => n.textContent === 'ext 5' && n.localName === 'span')
   assert.ok(span)
+})
+
+test('React: text children switching to elements and back; onChange follows type', async (t) => {
+  let setMode
+  function C () {
+    const [mode, sm] = React.useState('text')
+    setMode = sm
+    return h('div', { id: 'box' },
+      mode === 'text' ? 'hello' : mode === 'el' ? h('span', null, 'inner') : null,
+      h('input', { onChange: () => {}, type: mode === 'el' ? 'checkbox' : 'text', id: 'in' }))
+  }
+  const { app, window } = render(h(C), { headless: true, width: 100, height: 100 })
+  t.after(() => app.quit())
+  const find = (id) => [...window._nodes.values()].find(n => n.getAttribute?.('id') === id)
+  await tick()
+  assert.strictEqual(find('box').textContent, 'hello')
+  assert.ok(find('in')._listeners.get('input')?.size, 'a text field: onChange is input')
+  setMode('el')
+  await tick()
+  assert.strictEqual(find('box').childNodes[0].localName, 'span', 'the new element survived the text reset')
+  assert.strictEqual(find('box').textContent, 'inner')
+  assert.ok(find('in')._listeners.get('change')?.size, 'a checkbox: onChange is change')
+  assert.ok(!find('in')._listeners.get('input')?.size, 'the input listener went away')
+  setMode('none')
+  await tick()
+  assert.strictEqual(find('box').childNodes.length, 1, 'only the input left')
+  const before = window._nodes.size
+  setMode('el')
+  await tick()
+  setMode('none')
+  await tick()
+  assert.strictEqual(window._nodes.size, before, 'removed elements and their text are freed')
+})
+
+test('React: <Activity> hides and shows a subtree; <ViewTransition> commits without animating', async (t) => {
+  const Activity = React.Activity ?? React.unstable_Activity
+  const ViewTransition = React.ViewTransition ?? React.unstable_ViewTransition
+  let setShow
+  function C () {
+    const [show, ss] = React.useState(true)
+    setShow = ss
+    const inner = h('span', { id: 'kid' }, 'kept')
+    return h('div', null,
+      h(Activity, { mode: show ? 'visible' : 'hidden' }, inner),
+      ViewTransition ? h(ViewTransition, null, h('b', { id: 'vt' }, show ? 'a' : 'b')) : null)
+  }
+  const { app, window } = render(h(C), { headless: true, width: 100, height: 100 })
+  t.after(() => app.quit())
+  const find = (id) => [...window._nodes.values()].find(n => n.getAttribute?.('id') === id)
+  await tick()
+  assert.strictEqual(find('kid').hasAttribute('hidden'), false)
+  React.startTransition(() => setShow(false))
+  await tick(100)
+  assert.strictEqual(find('kid').hasAttribute('hidden'), true, 'hidden, and kept')
+  if (ViewTransition) assert.strictEqual(find('vt').textContent, 'b', 'the view transition committed')
+  React.startTransition(() => setShow(true))
+  await tick(100)
+  assert.strictEqual(find('kid').hasAttribute('hidden'), false)
 })
