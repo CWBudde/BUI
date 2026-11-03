@@ -93,9 +93,8 @@ App("Object", (420, 520),
 
 ### Rust
 
-```toml
-[dependencies]
-blenderui = { git = "https://github.com/ppmpreetham/BUI" }   # crates.io release coming; needs CMake + a C compiler
+```bash
+cargo add blenderui
 ```
 
 ```rust
