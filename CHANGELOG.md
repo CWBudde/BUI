@@ -7,6 +7,50 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Modern CSS in the Rust crate**:
+  - **Layout:** [taffy](https://github.com/DioxusLabs/taffy) 0.6 → 0.15 behind a layout tree of our own. taffy's built-in tree resolves `calc()` to 0; ours evaluates it. That brings mixed-unit `calc()` everywhere (`calc(100% - 2rem)`, grid tracks, `fit-content(calc())`), floats and `clear`, `direction: rtl`, `grid-template-areas` with named lines and areas, the sizing keywords (`min-content`, `max-content`, `fit-content`, `stretch`), `display: flow-root`, real `position: static` / `fixed` with containing blocks, `contain`, `flex-wrap: balance`, and `safe` / `unsafe` alignment.
+  - **Math:** `calc()`, `min()`, `max()`, `clamp()`, `round()` (all four strategies), `mod()`, `rem()`, `abs()`, `sign()`, trigonometry, `pow()`, `sqrt()`, `hypot()`, `log()`, `exp()`, the constants `e`/`pi`/`infinity`, and every length unit (`vmin`/`vmax`, `dvh`/`svh`/`lvh`, `ch`, `ex`, `lh`, `rlh`, `cap`, `cq*` ...) plus angles. Expressions are interned once.
+  - **Custom properties:** `var()` with fallbacks, nesting inside functions, inheritance and cycle detection. `env()` is supported too. Variable maps live in a shared arena, not in reference-counted values.
+  - **Colors (CSS Color 4/5):** modern `rgb()`/`hsl()` syntax with `none`; `hwb()`, `lab()`, `lch()`, `oklab()` and `oklch()`; `color()` in every predefined space; `color-mix()` with every interpolation space and hue method; relative colors (`oklch(from var(--c) calc(l + .1) c h)`); `light-dark()`; system colors; CSS gamut mapping into sRGB.
+  - **Selectors Level 4:** full selector lists in `:is()`, `:where()` and `:not()`; relative `:has()` (evaluated on the element's declarative subtree before it is built); `:nth-child(An+B of S)`; the `*-of-type` family; `:lang()`; `:dir()`; attribute `i`/`s` flags; CSS escapes; nesting with `&`; and pseudo-elements, with `::before` / `::after` generating boxes (the `content` property with strings, `attr()` and quotes).
+  - **At-rules:**
+    - Media Queries 4: ranges, `not`/`or`, every desktop feature.
+    - `@supports`, including `selector()`.
+    - `@layer`: cascade layers, both the statement and the block form.
+    - `@scope`.
+    - Parsed but not applied yet: `@container`, `@font-face`, `@keyframes` and `@property`.
+- **Tailwind CSS v4** (`blenderui-tailwind` crate): class names compile to CSS on first use, like Tailwind's JIT, using the v4 default theme.
+  - **Variants:** state and structural ones, pseudo-elements, `group-*` and `peer-*` (including named), `has-*`, `not-*`, `in-*`, `data-*`, `aria-*`, `nth-*`, `*` and `**`, the breakpoints with their `max-*` and `min-[…]` forms, container queries, `dark`, `motion-*`, `contrast-*`, `print`, orientation, `supports-*`, `rtl`/`ltr`, `open`, `inert`, and arbitrary `[&…]`.
+  - **Values:** arbitrary values and properties, `(--var)`, negatives, `/opacity` and `!important`.
+  - **Order:** utilities sort the way Tailwind sorts them.
+  - **Usage:** `.class("md:hover:bg-sky-500/50")` just works; `tw!("…")` checks classes at compile time; `blenderui::set_tailwind(false)` opts out.
+- **GPU renderer** (Direct3D 11, opt-in): Rust `Application::new().gpu(true)`
+  or `WindowOptions { gpu: Some(true), .. }`, tkinter `Tk(gpu=True)` or
+  `bui.set_gpu()`, C `BUI_gpu_set_default` / `BK_window_set_gpu`, or
+  `BUI_GPU=1` for any app. Modeled on Blender's instanced widget-base
+  batches (`interface_widgets.cc`): every primitive (rects, Blender widget
+  bases, circles, lines, shadows, gradients, HSV wheels, images, text runs)
+  is one 128-byte instance of a single uber-shader, so a frame of thousands
+  of widgets is a few `DrawInstanced` calls. Text runs and images live in
+  atlases. Frames render into a persistent target, so the kit's damage
+  rectangles still bound the work, and they present through a flip-model
+  swap chain with dirty rects. The device is created on a worker thread
+  (the first frame never waits for the driver), and a lost device falls
+  back to the software raster. The pixel shader evaluates the software
+  raster's coverage formulas, so both renderers draw the same pixels
+  (`gpu_parity` test: 10 of 172,800 pixels differ by more than 3/255, all on
+  hard triangle edges). Shaders live in `gpu/shaders/bui_ui.hlsl`, with
+  precompiled bytecode checked in, so builds need no shader compiler.
+- **Portable text engine**: stb_truetype behind the same glyph-run cache as
+  GDI, so text renders on Linux, macOS and wasm. It is also available on
+  Windows with `-DBUI_TEXT_STB=ON` or the `portable-text` Rust feature.
+  Fonts come from the platform's font folders (Segoe UI, DejaVu, Liberation,
+  Noto, Helvetica and others, with generic `sans`/`serif`/`mono`), from
+  `BUI_FONT` / `BUI_FONT_DIR`, or from `BUI_text_add_font` (Rust
+  `blenderui::add_font`), which wasm needs. Missing bold and italic faces
+  are synthesized. A per-glyph bitmap cache keeps changing strings cheap.
+  Layout matches GDI, and the 3000-cell benchmark costs the same CPU.
+- `BUI_text_run_mask`, `BUI_raster_gpu_attach`/`_poll`/`is_gpu`.
 - **Rust crates** (`bindings/rust/`): `blenderui-sys` (FFI over `BUI_kit.h`,
   builds the kit with CMake) and `blenderui`: gpui syntax (`Application`,
   `Render`, `Context`, `Entity`, `cx.listener`, ~1,300 `Styled` methods), all

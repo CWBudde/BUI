@@ -123,3 +123,11 @@ def version() -> str:
 def set_backend(backend) -> None:
     """Route BUI drawing into ``backend`` (or None to disable rendering)."""
     buipy.set_backend(backend)
+
+
+def set_gpu(on: bool = True) -> None:
+    """Draw new native windows on the GPU (Direct3D 11): the same pixels as
+    the software raster, with rasterization off the CPU. Falls back to the
+    software raster where no device exists. ``BUI_GPU=1``/``0`` overrides.
+    Per window: ``Tk(gpu=True)``."""
+    buipy.set_gpu(bool(on))

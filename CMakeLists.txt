@@ -55,6 +55,7 @@ add_subdirectory(api)    # stable C ABI for hosts & bindings
 if(BUI_BUILD_TESTS)
   enable_testing()
   add_subdirectory(core/tests)
+  add_subdirectory(gpu/tests)
 endif()
 
 if(BUI_BUILD_PYTHON_BINDINGS)

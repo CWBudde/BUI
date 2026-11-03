@@ -338,9 +338,12 @@ impl Painter {
 // Painting a frame
 
 fn lp(v: LengthPercentage, basis: f32) -> f32 {
-    match v {
-        LengthPercentage::Length(p) => p,
-        LengthPercentage::Percent(f) => f * basis,
+    use taffy::style::ExpandedLengthPercentage as E;
+    match v.expand() {
+        E::Length(p) => p,
+        E::Percent(f) => f * basis,
+        // SAFETY: calc pointers in styles come from crate::calc's interner
+        E::Calc(ptr) => unsafe { crate::calc::Resolved::from_ptr(ptr) }.eval(basis),
     }
 }
 

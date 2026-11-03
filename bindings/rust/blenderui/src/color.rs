@@ -137,9 +137,10 @@ pub(crate) const NAMED: &[(&str, u32)] = &[
     ("yellow", 0xffff00), ("yellowgreen", 0x9acd32),
 ];
 
-/// Parse a CSS color: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`/`rgba()`,
-/// `hsl()`/`hsla()` (comma or space syntax, `/ alpha`), named colors and
-/// `transparent`. `currentcolor` is resolved by the cascade.
+/// Parse a CSS color: hex, named and system colors, `transparent`, and every
+/// CSS Color 4/5 function (`rgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`,
+/// `oklch`, `color()`, `color-mix()`, relative colors, `light-dark()`).
+/// `currentcolor` is resolved by the cascade.
 pub fn parse_color(s: &str) -> Option<Rgba> {
     let s = s.trim().to_ascii_lowercase();
     if s == "transparent" {
@@ -156,32 +157,9 @@ pub fn parse_color(s: &str) -> Option<Rgba> {
             _ => return None,
         });
     }
-    if let Some((name, rest)) = s.split_once('(') {
-        let args: Vec<&str> = rest
-            .trim_end_matches(')')
-            .split(|c: char| c == ',' || c == '/' || c.is_whitespace())
-            .filter(|a| !a.is_empty())
-            .collect();
-        let num = |a: &str, scale: f32| -> Option<f32> {
-            match a.strip_suffix('%') {
-                Some(p) => p.parse::<f32>().ok().map(|v| v / 100.0),
-                None => a.trim_end_matches("deg").parse::<f32>().ok().map(|v| v / scale),
-            }
-        };
-        let alpha = args.get(3).and_then(|a| num(a, 1.0)).unwrap_or(1.0);
-        return match name.trim() {
-            "rgb" | "rgba" => Some(Rgba {
-                r: num(args.first()?, 255.0)?,
-                g: num(args.get(1)?, 255.0)?,
-                b: num(args.get(2)?, 255.0)?,
-                a: alpha,
-            }),
-            "hsl" | "hsla" => Some(hsla(
-                num(args.first()?, 360.0)?,
-                num(args.get(1)?, 100.0)?,
-                num(args.get(2)?, 100.0)?,
-                alpha,
-            )),
+    if s.contains('(') {
+        return match crate::css::tokenize(&s).as_slice() {
+            [crate::css::Tok::Func(fx)] => crate::color4::color_fn(fx, Rgba::TRANSPARENT),
             _ => None,
         };
     }

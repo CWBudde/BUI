@@ -62,6 +62,12 @@ win.show()
 app.exec()
 ```
 
+## GPU rendering
+
+Call `bui.set_gpu(True)` before creating windows, or run with `BUI_GPU=1`, to
+draw them on the GPU (Direct3D 11). The pixels are the same and the CPU cost
+is much lower. See [getting-started.md](getting-started.md#gpu-rendering).
+
 ## How it maps
 
 | Qt | On BUI |

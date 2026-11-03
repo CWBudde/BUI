@@ -222,7 +222,8 @@ fn css_macro_matches_runtime_css() {
     assert_eq!(compiled[0].prop, Prop::named("display"));
     assert_eq!(compiled[2].prop, Prop::named("color"));
     assert!(compiled[2].important);
-    assert_eq!(compiled[3].prop, Prop::CUSTOM);
+    assert!(compiled[3].prop.is_custom());
+    assert_eq!(compiled[3].prop.name(), "--x");
     let parsed = blenderui::css::parse_declarations("display: flex; padding: 4px 8px; color: #e6a23c !important; --x: 1");
     for (a, b) in compiled.iter().zip(&parsed) {
         assert_eq!(a, b); // same tokens, whether parsed at compile time or run time

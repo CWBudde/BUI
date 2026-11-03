@@ -32,6 +32,10 @@ pub enum Length {
     Percent(f32),
     Vw(f32),
     Vh(f32),
+    Vmin(f32),
+    Vmax(f32),
+    /// Any CSS math (`calc()`, `min()`, `clamp()` ...), interned.
+    Calc(&'static crate::calc::Calc),
     #[default]
     Auto,
 }
@@ -70,6 +74,9 @@ impl Length {
             Length::Em(v) => Some(v * u.font_size),
             Length::Vw(v) => Some(v * u.viewport.0 / 100.0),
             Length::Vh(v) => Some(v * u.viewport.1 / 100.0),
+            Length::Vmin(v) => Some(v * u.viewport.0.min(u.viewport.1) / 100.0),
+            Length::Vmax(v) => Some(v * u.viewport.0.max(u.viewport.1) / 100.0),
+            Length::Calc(c) => c.to_px(u),
             Length::Percent(_) | Length::Auto => None,
         }
     }
@@ -78,6 +85,7 @@ impl Length {
     pub(crate) fn resolve(self, u: &Units, basis: f32) -> f32 {
         match self {
             Length::Percent(p) => p * basis / 100.0,
+            Length::Calc(c) => c.eval_units(u, basis),
             Length::Auto => 0.0,
             other => other.to_px(u).unwrap_or(0.0),
         }

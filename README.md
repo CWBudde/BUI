@@ -45,7 +45,7 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
   - [Blender components](#blender-components)
   - [Rust (gpui syntax, HTML and CSS)](#rust-gpui-syntax-html-and-css)
 - [How it works](#how-it-works)
-- [Performance](#performance) (including [blenderui vs gpui](#rust-blenderui-vs-gpui))
+- [Performance](#performance) (including [blenderui vs gpui](#rust-blenderui-vs-gpui) and the [GPU renderer](#gpu-renderer))
 - [Roadmap: more languages and platforms](#roadmap-more-languages-and-platforms)
 - [Packaging](#packaging)
 - [Documentation](#documentation)
@@ -77,11 +77,11 @@ Right: an unmodified tkinter program (<code>examples/tk_unchanged_app.py</code>)
 | Component library (`bui.components`) | ✅ Working            | 45 Blender components, including editors (color ramp, curves) and templates                                                                                                        |
 | C++ / Qt render-sink backends        | ✅ Working            | For embedding BUI drawing into your own renderer ([INTEGRATION.md](INTEGRATION.md))                                                                                                |
 | Packaging (`pip install blenderui`)  | ✅ Published          | [`blenderui` 0.1.0 on PyPI](https://pypi.org/project/blenderui/): a prebuilt wheel for Windows / CPython 3.12, and a source package that other platforms compile on install (needs CMake and a C compiler). Prebuilt wheels for all platforms come from CI on the next tagged release ([docs/publishing.md](docs/publishing.md)) |
-| **Rust** (`blenderui` crate)         | ✅ **Working**        | gpui syntax (`Render`, `Context`, `Entity`, `cx.listener`, ~1,300 `Styled` methods) over **113/113 HTML elements** and CSS: **173 properties rendered** (+87 parsed without effect), CSS 2.1 screen properties 76/90 rendered (90/90 parsed), Flexbox 12/12, Grid 22/23. Layout by [taffy](https://github.com/DioxusLabs/taffy). Native window on Windows, headless rendering everywhere. Animating 3000 elements: 57.5 fps on 27 ms CPU per frame (same session: gpui-fast 50.5 fps, gpui 18.9 fps), with about half their memory and a 6 ms first frame ([benchmark](bindings/rust/bench/README.md)). [docs/rust.md](docs/rust.md) |
+| **Rust** (`blenderui` crate)         | ✅ **Working**        | gpui syntax (`Render`, `Context`, `Entity`, `cx.listener`, ~1,300 `Styled` methods) over **113/113 HTML elements** and CSS: **180 properties rendered** (+81 parsed without effect); against the 745-property W3C index, 24% rendered, 10% parsed only and 66% left (mostly drafts, speech, print and SVG; [details](docs/rust.md#coverage)), CSS 2.1 screen properties 80/90 rendered, Flexbox 12/12, Grid 23/23, plus `calc()` and every math function, `var()`, CSS Color 4/5 (`oklch`, `color-mix`), Selectors 4 (`:has()`), nesting, `@layer`, and **Tailwind CSS v4** classes (`tw!` checks them at compile time). Layout by [taffy](https://github.com/DioxusLabs/taffy). Native window on Windows, headless rendering everywhere. Animating 3000 elements: 59.9 fps on 11.6 ms CPU per frame with the opt-in GPU renderer (same session: gpui-fast 31.5 fps on 31.9 ms, gpui 19.9 fps on 50.5 ms), with less memory and a ~5 ms first frame ([benchmark](bindings/rust/bench/README.md)). [docs/rust.md](docs/rust.md) |
 | **egui integration**                 | 🗺️ Planned             | BUI panels drawn inside egui (raster → `egui::TextureHandle`, input forwarded) and a Blender-styled `egui::Visuals` theme. Builds on the Rust crate |
 | **WebAssembly build**                | 🗺️ Planned             | The kit compiled with Emscripten: the raster blits to `<canvas>` (damage rectangles only), DOM events feed `BK_press` / `BK_key` |
 | **React** (`@blenderui/react`)       | 🗺️ Planned             | A JSX reconciler over the WASM build (`<Panel>`, `<NumberSlider>` ...); `@blenderui/web` for plain JS/TS, N-API for Node |
-| Other languages and hosts            | 🗺️ Planned             | C#, Go, Zig, Swift, Kotlin, Lua; Dear ImGui; Godot, Unity, Bevy; Flutter; native Linux/macOS windows; GPU renderers ([roadmap](#roadmap-more-languages-and-platforms)) |
+| Other languages and hosts            | 🗺️ Planned             | C#, Go, Zig, Swift, Kotlin, Lua; Dear ImGui; Godot, Unity, Bevy; Flutter; native Linux/macOS windows; Vulkan/Metal/WebGPU renderers ([roadmap](#roadmap-more-languages-and-platforms)) |
 
 ## Install and build
 
@@ -176,6 +176,9 @@ scroll regions), `Text` (indices, tags, marks, search, undo), `Treeview`,
 bindings, variables and traces, `after`, and window-manager calls.
 Full guide: **[docs/tkinter.md](docs/tkinter.md)**.
 
+> **GPU rendering:** add `gpu=True` to `Tk(...)` (or call `bui.set_gpu(True)`,
+> or run with `BUI_GPU=1`) to draw on the GPU. See [GPU renderer](#gpu-renderer).
+
 ### Qt syntax
 
 ```python
@@ -266,6 +269,10 @@ fn main() {
 }
 ```
 
+> **GPU rendering:** `Application::new().gpu(true)` (or `BUI_GPU=1`) draws every
+> window with Direct3D 11: same pixels, about half the CPU of the default
+> software raster, and less than gpui-fast. See [GPU renderer](#gpu-renderer).
+
 <p align="center"><img src="docs/images/rust-showcase.png" width="560" alt="The Rust showcase example"></p>
 <p align="center"><sub><code>bindings/rust/blenderui/examples/showcase.rs</code>: a stylesheet, grid cards with
 gradients and shadows, Blender form widgets, a table, lists, <code>&lt;details&gt;</code> and <code>&lt;pre&gt;</code>.</sub></p>
@@ -294,7 +301,8 @@ Elements, the CSS that is supported, events and testing headless:
   packer and gridder. Qt's box, grid and form layouts are mapped onto them.
 - **Damage rendering.** A state change marks only its widget's rectangle.
   A frame redraws just those regions into a frame buffer (anti-aliased SDF
-  shapes and a cached native text engine). Only the changed tiles are
+  shapes and a cached glyph-run text engine: GDI on Windows, stb_truetype
+  elsewhere), on the CPU or, opt-in, on the GPU. Only the changed tiles are
   presented to the window.
 - **Python stays thin.** Facades keep what tkinter and Qt keep in their own
   scripting layers: option values, variables, traces, signals and bindings.
@@ -318,30 +326,69 @@ interaction frames under 1 ms.
 ### Rust: blenderui vs gpui
 
 The same UI built with the `blenderui` crate and with
-[gpui](https://crates.io/crates/gpui) 0.2.2 (Zed's GPU-rendered framework): a
+[gpui](https://crates.io/crates/gpui) 0.2.2 (Zed's GPU-rendered framework)
+and its faster fork [gpui-fast](https://github.com/longbridge/gpui-fast): a
 1000×800 window of N rounded, labelled cells that all change every frame.
-Ryzen 7 5800U laptop on mains power, 60 Hz display, release builds, both apps
-in the same session, median of 3 runs
-([method and full data](bindings/rust/bench/README.md)).
+Ryzen 7 5800U laptop on mains power, 60 Hz display, release builds, all apps
+back to back in one session
+([method and full data](bindings/rust/bench/README.md)). blenderui is shown
+with its opt-in GPU renderer (`.gpu(true)` / `BUI_GPU=1`) and its default
+software raster.
 
-| | blenderui | gpui |
-|---|---:|---:|
-| FPS, 3000 animated cells | **57.5** | 18.9 |
-| FPS, 1000 / 100 animated cells | 60 / 60 (display cap; 157 / 529 uncapped) | 60 / 60 |
-| CPU per frame, 3000 cells | **27.3 ms** | 53.1 ms + GPU |
-| CPU per frame, 1000 cells | **13.7 ms** | 14.7 ms + GPU |
-| CPU per frame, 100 cells | 5.1 ms | **3.4 ms** + GPU |
-| RAM (working set), 3000 / 1000 / 100 cells | **31 / 23 / 20 MB** | 76 / 46 / 32 MB, plus 16-21 MB GPU memory |
-| First frame after launch | **~6 ms** | ~250 ms |
-| Idle CPU | **0 %** | 0.7-1.4 % |
+| | blenderui (GPU) | blenderui (CPU raster) | gpui-fast | gpui |
+|---|---:|---:|---:|---:|
+| FPS, 3000 animated cells | **59.9** | 57.6 | 31.5 | 19.9 |
+| FPS, 1000 animated cells | **60** | **60** | 49.2 | 36.4 |
+| CPU per frame, 3000 cells | **11.6 ms** | 22.0 ms | 31.9 ms + GPU | 50.5 ms + GPU |
+| CPU per frame, 1000 cells | **4.7 ms** | 10.2 ms | 20.5 ms + GPU | 27.7 ms + GPU |
+| CPU per frame, 100 cells | **1.2 ms** | 4.6 ms | 2.7 ms + GPU | 4.7 ms + GPU |
+| Uncapped FPS, 100 / 1000 / 3000 cells | **1491 / 309 / 94** | 649 / 202 / 76 | - | - |
+| RAM (working set), 3000 / 1000 / 100 cells | 40 / 35 / 28 MB | **30 / 24 / 21 MB** | 65 / 45 / 47 MB | 77 / 47 / 40 MB |
+| GPU memory | 19-22 MB | **none** | 19-24 MB | 16-21 MB |
+| First frame after launch | **~5 ms** | **~5 ms** | ~200 ms | ~220 ms |
+| Idle CPU | **0 %** | 0-0.9 % | 0-0.4 % | 0.9-1.4 % |
 
-blenderui wins everything except CPU per frame on very small scenes, where
-gpui's GPU does the drawing. With only one of 3000 cells changing per frame
-(a later, power-limited session for both apps), blenderui ran at 54 fps and
-gpui at 11 fps. Against [gpui-fast](https://github.com/longbridge/gpui-fast),
-a faster gpui fork, blenderui leads on frame rate in the heavy scene, memory
-and startup, while gpui-fast uses less CPU per frame; see the
-[benchmark](bindings/rust/bench/README.md).
+With the GPU renderer, blenderui beats gpui-fast on every row. It does the
+least CPU work per frame at every scene size (2.2-4.4x less than gpui-fast),
+holds 60 fps where both gpuis drop, and uses less RAM with the same GPU
+memory. It still starts about 40x faster. The software raster remains the
+default, because it needs no GPU memory or driver. gpui-fast's heavy-scene
+frame rate varies between sessions on this laptop (30-60 fps at 3000 cells),
+so compare within a session.
+
+### GPU renderer
+
+Off by default; turn it on per app or per window:
+
+```rust
+Application::new().gpu(true).run(|cx| { /* ... */ });               // every window
+cx.open_window(WindowOptions { gpu: Some(true), ..Default::default() }, build); // one window
+```
+
+```python
+from bui import tksyntax as tk
+root = tk.Tk(gpu=True)        # or bui.set_gpu(True) for every window
+```
+
+Or set `BUI_GPU=1` for any BUI app (C, Python, Rust); `BUI_GPU=0` forces the
+software raster. It is Direct3D 11 on Windows. On other platforms, or when
+no device can be created, windows stay on the software raster. The design
+follows Blender's instanced widget-base batches (`interface_widgets.cc`):
+- Every primitive is one 128-byte instance of a single uber-shader
+  ([`gpu/shaders/bui_ui.hlsl`](gpu/shaders/bui_ui.hlsl)). The primitives are
+  rects, Blender widget bases with outline and emboss, circles, lines,
+  shadows, gradients, HSV wheels, images and text runs.
+- A frame of thousands of widgets is a few `DrawInstanced` calls.
+- Text runs and images are cached in atlases.
+- Frames render into a persistent target, so damage tracking still limits
+  redraws to what changed. Presentation uses a flip-model swap chain with
+  dirty rects.
+- The device is created on a worker thread, so startup never waits for the
+  driver.
+
+The shaders evaluate the software raster's own coverage formulas, so both
+renderers draw the same pixels: the `gpu_parity` test finds 10 of 172,800
+pixels that differ by more than 3/255, all on hard triangle edges.
 
 ### tkinter canvas
 
@@ -369,7 +416,7 @@ them needs Python.
 | **C / C++** | `BUI_kit.h`, render sinks, Qt/QPainter backend | ✅ Done |
 | **Rust** | `blenderui-sys` (FFI over `BUI_kit.h`, builds the kit with CMake) and `blenderui`: gpui syntax, all HTML elements, CSS, taffy layout ([docs/rust.md](docs/rust.md)) | ✅ Done (native window on Windows; Linux/macOS render headless until their window hosts land) |
 | **egui** | Two ways in: draw a BUI panel inside egui (raster to an `egui::TextureHandle`, with input forwarded), and a Blender-styled `egui::Visuals` theme | 🗺️ Planned |
-| **WebAssembly** | Compile the kit with Emscripten. The raster blits to a `<canvas>` (`putImageData` of the damage rectangles only), and DOM pointer and keyboard events go to `BK_press` / `BK_key` | 🗺️ Planned |
+| **WebAssembly** | Compile the kit with rust. The raster blits to a `<canvas>` (`putImageData` of the damage rectangles only), and DOM pointer and keyboard events go to `BK_press` / `BK_key` | 🗺️ Planned |
 | **React** | `@blenderui/react` on top of the WASM build: a reconciler that maps JSX to kit nodes (`<Panel>`, `<NumberSlider>` ...) | 🗺️ Planned |
 | **JavaScript / TypeScript** | `@blenderui/web` (the plain WASM API), and Node through N-API | 🗺️ Planned |
 | **Tauri / Electron** | The WASM build in the webview, or the native kit through the host language | 🗺️ Planned |
@@ -379,7 +426,7 @@ them needs Python.
 | **Game engines**: Godot, Unity, Bevy | Editor-style tool panels: GDExtension, a native Unity plugin, a Bevy plugin through the Rust crate | 🗺️ Planned |
 | **Flutter** | `dart:ffi` bindings, with the frame buffer shown as a `Texture` | 🗺️ Planned |
 | **Native windows on Linux / macOS** | Wayland / X11 and Cocoa hosts in C, like the Win32 one (today the stdlib Tk window hosts them) | 🗺️ Planned |
-| **GPU renderers** | OpenGL / Vulkan / Metal / WebGPU render sinks for very large or high-DPI UIs (today a SIMD-friendly CPU raster, under 1 ms per frame) | 🗺️ Planned |
+| **GPU renderers** | Direct3D 11 done (opt-in, see [GPU renderer](#gpu-renderer)); Vulkan / Metal / WebGPU backends for the same instance stream | 🟡 D3D11 done |
 
 <details>
 <summary>Intended API sketches (planned, not implemented yet)</summary>
@@ -395,17 +442,12 @@ egui::Window::new("Properties").show(ctx, |ui| {
 React (WebAssembly):
 
 ```jsx
-import { BlenderUI, Panel, NumberSlider, Checkbox } from "@blenderui/react";
+import { render } from "@blenderui/react";
 
 export default function Properties() {
   const [size, setSize] = useState(1);
   return (
-    <BlenderUI width={360} height={260}>
-      <Panel title="Object">
-        <NumberSlider label="Size" value={size} min={0} max={10} onChange={setSize} />
-        <Checkbox label="Smooth" defaultChecked />
-      </Panel>
-    </BlenderUI>
+    render(<App />, {title: "Bla bla", width: 1920, height: 1080})
   );
 }
 ```
@@ -472,7 +514,7 @@ Examples (`examples/`):
 | Path                  | Contents                                                                                                                                                                                                                                                                                                                                     |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `kit/`                | **The C runtime**: `kit_core.c` (nodes, input, rendering, undo, views), `kit_draw.c` (theme and the `interface_widgets.cc` port), `kit_widgets.c`, `kit_views.c` (lists, trees), `kit_menus.c`, `kit_color.c`, `kit_frame.c` (geometry managers, canvas), `kit_textarea.c`, `kit_window.c` (Win32 host). Public API: `kit/include/BUI_kit.h` |
-| `gpu/`                | Drawing: software raster (`gpu_raster.c`), render-sink dispatch                                                                                                                                                                                                                                                                              |
+| `gpu/`                | Drawing: software raster (`gpu_raster.c`), D3D11 GPU renderer (`gpu_d3d11.c`, `shaders/`), text (GDI / stb_truetype), render-sink dispatch                                                                                                                                                                                                                                                                            |
 | `core/`, `types/`     | Blender's `blenlib` subset (C11) and data types                                                                                                                                                                                                                                                                                              |
 | `ui/`, `compat/`      | Blender's original interface sources and the seams replacing Blender's application APIs                                                                                                                                                                                                                                                      |
 | `api/`                | Stable C ABI for render-sink hosts (`bui_c_api.h`)                                                                                                                                                                                                                                                                                           |

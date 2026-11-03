@@ -190,6 +190,28 @@ const BuiTextRun *BUI_text_prepare(
     const char *family, int flags, float size, const char *utf8, int len, float *r_width);
 unsigned BUI_text_generation(void);
 void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, const float rgba[4]);
+/* A prepared run's 8-bit coverage mask (row-major, `*r_w` x `*r_h`): the
+ * pen origin is at (`*r_ox`, `*r_ascent`) inside it. For GPU renderers. */
+const uint8_t *BUI_text_run_mask(const BuiTextRun *run, int *r_w, int *r_h, int *r_ox, int *r_ascent);
+/* Registers a TrueType/OpenType font (copied) under `family` with style
+ * `flags` (BUI_FONT_BOLD | BUI_FONT_ITALIC). Needed where the platform has no
+ * font folders (wasm); elsewhere it adds to them. Returns 0 on bad data. */
+int BUI_text_add_font(const char *family, int flags, const void *data, int len);
+
+/* GPU rendering (Direct3D 11 on Windows). A raster in GPU mode records its
+ * primitives as instances and draws them on the GPU at present; it keeps the
+ * same API, clip and damage semantics. attach() creates the device on a
+ * worker thread (frames keep using the software raster meanwhile) unless
+ * `wait`; poll() switches over once it is ready and returns 1 when the
+ * renderer changed, so the caller must redraw the whole frame. A NULL window
+ * renders offscreen (BUI_raster_pixels reads the frame back). */
+int BUI_raster_gpu_attach(BuiRaster *r, void *window_handle, int wait);
+int BUI_raster_gpu_poll(BuiRaster *r);
+int BUI_raster_is_gpu(const BuiRaster *r);
+/* Whether new windows use the GPU: BUI_gpu_set_default(), overridden by the
+ * BUI_GPU environment variable (1/0). Off by default. */
+void BUI_gpu_set_default(int on);
+int BUI_gpu_default(void);
 
 /* A BuiGpuSink that renders into `r` (user pointer is the raster). */
 const BuiGpuSink *BUI_raster_sink(BuiRaster *r);

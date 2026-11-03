@@ -30,5 +30,15 @@ fn main() {
 }
 ```
 
+**GPU rendering:** windows draw on the CPU by default. Use
+`Application::new().gpu(true)` (or `WindowOptions { gpu: Some(true), .. }`, or
+run with `BUI_GPU=1`) to draw them with Direct3D 11. This produces the same
+pixels at a fraction of the CPU cost: 11.6 ms vs 22.0 ms per frame for
+3000 animated cells, where gpui-fast needs 31.9 ms.
+
+**Text** works on every platform: GDI on Windows and a bundled stb_truetype
+engine elsewhere (the `portable-text` feature selects it on Windows).
+Register fonts with `blenderui::add_font` where there are none (wasm).
+
 Guide, CSS coverage and limitations:
 [docs/rust.md](https://github.com/ppmpreetham/BUI/blob/main/docs/rust.md).

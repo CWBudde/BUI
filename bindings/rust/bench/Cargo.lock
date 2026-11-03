@@ -717,15 +717,19 @@ version = "0.1.0"
 dependencies = [
  "blenderui-macros",
  "blenderui-sys",
+ "blenderui-tailwind",
  "paste",
  "png 0.17.16",
  "smallvec",
- "taffy 0.6.3",
+ "taffy 0.15.0",
 ]
 
 [[package]]
 name = "blenderui-macros"
 version = "0.1.0"
+dependencies = [
+ "blenderui-tailwind",
+]
 
 [[package]]
 name = "blenderui-sys"
@@ -733,6 +737,10 @@ version = "0.1.0"
 dependencies = [
  "cmake",
 ]
+
+[[package]]
+name = "blenderui-tailwind"
+version = "0.1.0"
 
 [[package]]
 name = "block"
@@ -3257,12 +3265,6 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
-
-[[package]]
-name = "grid"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36119f3a540b086b4e436bb2b588cf98a68863470e0e880f4d0842f112a3183a"
 
 [[package]]
 name = "grid"
@@ -6934,25 +6936,12 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "136661daffcdfb128afb0d45a8f7e88078739196d64d7ffa47f8513f4a00a6d7"
-dependencies = [
- "arrayvec",
- "grid 0.15.0",
- "num-traits",
- "serde",
- "slotmap",
-]
-
-[[package]]
-name = "taffy"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a13e5d13f79d558b5d353a98072ca8ca0e99da429467804de959aa8c83c9a004"
 dependencies = [
  "arrayvec",
- "grid 0.18.0",
+ "grid",
  "serde",
  "slotmap",
 ]

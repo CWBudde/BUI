@@ -275,6 +275,9 @@ static void do_render(BKWindow *win)
     prof = getenv("BUI_PROFILE") != NULL;
   }
   QueryPerformanceCounter(&t0);
+  if (BUI_raster_gpu_poll(win->raster)) {
+    win->full = 1; /* the renderer changed: its frame starts empty */
+  }
   const int regions = BK_render(win->ctx, win->raster, w, h, win->full);
   QueryPerformanceCounter(&t1);
   win->full = 0;
@@ -612,6 +615,9 @@ BKWindow *BK_window_new(BKContext *ctx, const char *title, int width, int height
   }
   SetWindowLongPtrW(win->hwnd, GWLP_USERDATA, (LONG_PTR)win);
   g_open++;
+  if (BUI_gpu_default()) {
+    BUI_raster_gpu_attach(win->raster, win->hwnd, 0);
+  }
   BKHost host = {win,           host_request,       host_set_cursor, host_warp,
                  host_clipboard_get, host_clipboard_set, host_schedule, host_emit};
   BK_context_set_host(ctx, &host);
@@ -695,6 +701,19 @@ void BK_window_get_size(BKWindow *win, int *w, int *h)
 BuiRaster *BK_window_raster(BKWindow *win)
 {
   return win->raster;
+}
+
+void BK_window_set_gpu(BKWindow *win, int on)
+{
+  if (win && on) {
+    BUI_raster_gpu_attach(win->raster, win->hwnd, 0);
+    host_request(win);
+  }
+}
+
+int BK_window_gpu(BKWindow *win)
+{
+  return win && BUI_raster_is_gpu(win->raster);
 }
 
 int BK_window_frames(BKWindow *win)
@@ -907,6 +926,11 @@ void BK_window_get_size(BKWindow *win, int *w, int *h)
 BuiRaster *BK_window_raster(BKWindow *win)
 {
   return NULL;
+}
+void BK_window_set_gpu(BKWindow *win, int on) {}
+int BK_window_gpu(BKWindow *win)
+{
+  return 0;
 }
 int BK_window_frames(BKWindow *win)
 {

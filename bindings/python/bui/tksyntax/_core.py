@@ -2214,7 +2214,8 @@ class _WindowHost:
         self._withdrawn = False
         self._menubar = None
         self._ctx = buipy.KitContext(self._node)
-        self._window = host.Window(self._ctx, self._title, (200, 200))
+        self._window = host.Window(self._ctx, self._title, (200, 200),
+                                   gpu=getattr(self, "_gpu", None))
         self._window.on_close = self._on_close_button
         _window_list.append(self)
 
@@ -2364,8 +2365,12 @@ class Tk(_WindowHost, Misc, Wm):
     _name = "."
 
     def __init__(self, screenName=None, baseName=None, className="Tk", useTk=True, sync=False,
-                 use=None):
+                 use=None, gpu=None):
+        """``gpu=True`` draws this window on the GPU (Direct3D 11) instead of
+        the software raster: same pixels, rasterization off the CPU. ``None``
+        follows ``bui.set_gpu()`` / the ``BUI_GPU`` environment variable."""
         global _default_root
+        self._gpu = gpu
         self.master = None
         self.children = {}
         self._destroyed = False

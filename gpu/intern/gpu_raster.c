@@ -1,6 +1,7 @@
 /* BUI software raster backend — see GPU_raster.h.
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #include "GPU_raster.h"
+#include "gpu_d3d11.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -25,6 +26,13 @@ struct BuiRaster {
   int font_flags;
 
   BuiGpuSink sink;
+
+  /* GPU mode: primitives are recorded as instances (gpu_d3d11.c) and pix /
+   * prev are not allocated (read back on demand by BUI_raster_pixels). */
+  BuiGpu *gpu;
+  BuiGpu *gpu_pending;
+  int gpu_switched; /* the renderer changed: the next frame must be full */
+  struct BuiRaster *scratch; /* CPU coverage for polygons in GPU mode */
 };
 
 /* -------------------------------------------------------------------- */
@@ -120,6 +128,12 @@ static void raster_alloc(BuiRaster *r, int w, int h)
   free(r->prev);
   r->w = w > 0 ? w : 1;
   r->h = h > 0 ? h : 1;
+  if (r->gpu) { /* the frame lives on the GPU */
+    r->pix = r->prev = NULL;
+    r->full_damage = 1;
+    raster_reset_clip(r);
+    return;
+  }
   r->pix = (uint32_t *)calloc((size_t)r->w * r->h, sizeof(uint32_t));
   r->prev = (uint32_t *)calloc((size_t)r->w * r->h, sizeof(uint32_t));
   r->full_damage = 1;
@@ -180,6 +194,9 @@ void BUI_raster_free(BuiRaster *r)
   if (!r) {
     return;
   }
+  bui_gpu_free(r->gpu);
+  bui_gpu_free(r->gpu_pending);
+  BUI_raster_free(r->scratch);
   free(r->pix);
   free(r->prev);
   free(r->damage);
@@ -197,7 +214,109 @@ void BUI_raster_begin_frame(BuiRaster *r, int width, int height)
     raster_alloc(r, width, height);
   }
   raster_reset_clip(r);
+  if (r->gpu) {
+    bui_gpu_begin(r->gpu, r->w, r->h);
+  }
 }
+
+/* -------------------------------------------------------------------- */
+/** \name GPU mode
+ * \{ */
+
+static int g_gpu_default = -1;
+
+void BUI_gpu_set_default(int on)
+{
+  g_gpu_default = on ? 1 : 0;
+}
+
+int BUI_gpu_default(void)
+{
+  const char *env = getenv("BUI_GPU");
+  if (env && env[0]) {
+    return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' || env[0] == 'T';
+  }
+  return g_gpu_default > 0;
+}
+
+int BUI_raster_gpu_attach(BuiRaster *r, void *window_handle, int wait)
+{
+  if (r->gpu || r->gpu_pending) {
+    return 1;
+  }
+  r->gpu_pending = bui_gpu_create(window_handle);
+  if (!r->gpu_pending) {
+    return 0;
+  }
+  if (wait) {
+    bui_gpu_state(r->gpu_pending, 1);
+    BUI_raster_gpu_poll(r);
+    return r->gpu != NULL;
+  }
+  return 1;
+}
+
+int BUI_raster_gpu_poll(BuiRaster *r)
+{
+  if (r->gpu_pending) {
+    const int st = bui_gpu_state(r->gpu_pending, 0);
+    if (st == 0) {
+      return 0;
+    }
+    if (st > 0) {
+      r->gpu = r->gpu_pending;
+      r->gpu_pending = NULL;
+      raster_alloc(r, r->w, r->h); /* drops the CPU frame */
+      bui_gpu_begin(r->gpu, r->w, r->h);
+      r->gpu_switched = 1;
+    }
+    else {
+      bui_gpu_free(r->gpu_pending);
+      r->gpu_pending = NULL;
+    }
+  }
+  const int sw = r->gpu_switched;
+  r->gpu_switched = 0;
+  return sw;
+}
+
+int BUI_raster_is_gpu(const BuiRaster *r)
+{
+  return r->gpu != NULL;
+}
+
+/* back to the software raster (device lost) */
+static void gpu_drop(BuiRaster *r)
+{
+  bui_gpu_free(r->gpu);
+  r->gpu = NULL;
+  r->pix = r->prev = NULL;
+  raster_alloc(r, r->w, r->h);
+  r->gpu_switched = 1;
+}
+
+/* Instance over the clipped pixel box; NULL when nothing to draw. */
+static BuiGpuInst *gpu_inst(BuiRaster *r, int kind, int x0, int y0, int x1, int y1)
+{
+  return bui_gpu_inst(r->gpu, kind, x0, y0, x1, y1);
+}
+
+static void v4(float d[4], float a, float b, float c, float e)
+{
+  d[0] = a;
+  d[1] = b;
+  d[2] = c;
+  d[3] = e;
+}
+
+static void c4(float d[4], const float *s)
+{
+  if (s) {
+    memcpy(d, s, sizeof(float[4]));
+  }
+}
+
+/** \} */
 
 static void damage_push(BuiRaster *r, int x, int y, int w, int h)
 {
@@ -229,6 +348,12 @@ static void damage_push(BuiRaster *r, int x, int y, int w, int h)
 void BUI_raster_end_frame(BuiRaster *r)
 {
   r->damage_len = 0;
+  if (r->gpu) {
+    bui_gpu_damage(r->gpu, 0, 0, 0, 0);
+    damage_push(r, 0, 0, r->w, r->h);
+    r->full_damage = 0;
+    return;
+  }
   const size_t total = (size_t)r->w * r->h;
   if (r->full_damage) {
     damage_push(r, 0, 0, r->w, r->h);
@@ -280,6 +405,15 @@ int BUI_raster_height(const BuiRaster *r)
 }
 const uint32_t *BUI_raster_pixels(const BuiRaster *r)
 {
+  if (r->gpu) { /* read the GPU frame back (tests, screenshots) */
+    BuiRaster *m = (BuiRaster *)r;
+    if (!m->prev) {
+      m->prev = (uint32_t *)malloc((size_t)r->w * r->h * sizeof(uint32_t));
+    }
+    if (m->prev && bui_gpu_read(r->gpu, m->prev, r->w, r->h)) {
+      return m->prev;
+    }
+  }
   return r->pix;
 }
 
@@ -330,6 +464,14 @@ void BUI_raster_fill_rect(BuiRaster *r, float x, float y, float w, float h, cons
 {
   int x0, y0, x1, y1;
   if (!clip_box(r, x, y, x + w, y + h, &x0, &y0, &x1, &y1)) {
+    return;
+  }
+  if (r->gpu) {
+    BuiGpuInst *in = rgba[3] > 0.0f ? gpu_inst(r, BG_RECT, x0, y0, x1, y1) : NULL;
+    if (in) {
+      v4(in->rect, x, y, w, h);
+      c4(in->c0, rgba);
+    }
     return;
   }
   const Paint p = paint_from(rgba);
@@ -408,6 +550,17 @@ void BUI_raster_round_rect(
   }
   int x0, y0, x1, y1;
   if (!clip_box(r, x, y, x + w, y + h, &x0, &y0, &x1, &y1)) {
+    return;
+  }
+  if (r->gpu) {
+    BuiGpuInst *in = rgba[3] > 0.0f ? gpu_inst(r, BG_WIDGET, x0, y0, x1, y1) : NULL;
+    if (in) {
+      v4(in->rect, x, y, w, h);
+      c4(in->c0, rgba);
+      c4(in->c1, rgba);
+      v4(in->p, BG_WIDGET, rad, rad, 0.0f);
+      v4(in->uv, BUI_CORNER_ALL, BG_W_INNER, 0.0f, 0.0f);
+    }
     return;
   }
   const Paint p = paint_from(rgba);
@@ -491,6 +644,15 @@ void BUI_raster_circle(
   if (!clip_box(r, cx - ext, cy - ext, cx + ext, cy + ext, &x0, &y0, &x1, &y1)) {
     return;
   }
+  if (r->gpu) {
+    BuiGpuInst *in = rgba[3] > 0.0f ? gpu_inst(r, BG_ELLIPSE, x0, y0, x1, y1) : NULL;
+    if (in) {
+      v4(in->rect, cx, cy, radius, radius);
+      c4(in->c0, rgba);
+      in->p[1] = line_width;
+    }
+    return;
+  }
   const Paint p = paint_from(rgba);
   if (p.a <= 0) {
     return;
@@ -541,6 +703,15 @@ void BUI_raster_line(
   {
     return;
   }
+  if (r->gpu) {
+    BuiGpuInst *in = rgba[3] > 0.0f ? gpu_inst(r, BG_LINE, ix0, iy0, ix1, iy1) : NULL;
+    if (in) {
+      v4(in->rect, ax, ay, bx, by);
+      c4(in->c0, rgba);
+      in->p[1] = hw;
+    }
+    return;
+  }
   const Paint p = paint_from(rgba);
   if (p.a <= 0) {
     return;
@@ -582,6 +753,15 @@ void BUI_raster_ellipse(BuiRaster *r,
   if (!clip_box(r, cx - rx - ext, cy - ry - ext, cx + rx + ext, cy + ry + ext, &x0, &y0, &x1,
                 &y1))
   {
+    return;
+  }
+  if (r->gpu) {
+    BuiGpuInst *in = rgba[3] > 0.0f ? gpu_inst(r, BG_ELLIPSE, x0, y0, x1, y1) : NULL;
+    if (in) {
+      v4(in->rect, cx, cy, rx, ry);
+      c4(in->c0, rgba);
+      in->p[1] = line_width;
+    }
     return;
   }
   const Paint p = paint_from(rgba);
@@ -663,6 +843,23 @@ void BUI_raster_widget(BuiRaster *r,
   }
   const float *top = inner_top ? inner_top : inner_bottom;
   const float *bot = inner_bottom ? inner_bottom : inner_top;
+  if (r->gpu) {
+    BuiGpuInst *in = gpu_inst(r, BG_WIDGET, x0, y0, x1, y1);
+    if (in) {
+      v4(in->rect, x, y, w, h);
+      c4(in->c0, top);
+      c4(in->c1, bot);
+      if (ow > 0.0f) {
+        c4(in->c2, outline);
+      }
+      if (has_emboss) {
+        c4(in->c3, emboss);
+      }
+      v4(in->p, BG_WIDGET, rad, rad, 1.0f);
+      v4(in->uv, (float)corners, (float)(BG_W_LEGACY | (top ? BG_W_INNER : 0)), ow, 0.0f);
+    }
+    return;
+  }
   const int gradient = top && bot && memcmp(top, bot, sizeof(float[4])) != 0;
   Paint p_inner = top ? paint_from(top) : (Paint){0, 0};
   const Paint p_out = outline ? paint_from(outline) : (Paint){0, 0};
@@ -762,6 +959,25 @@ void BUI_raster_widget_base(BuiRaster *r, const BuiWidgetBase *p)
   }
   int x0, y0, x1, y1;
   if (!clip_box(r, x - 1.0f, y - 1.0f, x + w + 1.0f, y + h + px1 + 1.0f, &x0, &y0, &x1, &y1)) {
+    return;
+  }
+  if (r->gpu) {
+    BuiGpuInst *in = gpu_inst(r, BG_WIDGET, x0, y0, x1, y1);
+    if (in) {
+      v4(in->rect, x, y, w, h);
+      c4(in->c0, p->inner1);
+      c4(in->c1, p->inner2);
+      if (has_outline) {
+        c4(in->c2, p->outline);
+      }
+      if (has_emboss) {
+        c4(in->c3, p->emboss);
+      }
+      v4(in->p, BG_WIDGET, rad, radi, px1);
+      const int flags = (p->shade_horizontal ? BG_W_SHADE_H : 0) |
+                        (p->alpha_checker ? BG_W_CHECKER : 0) | (has_inner ? BG_W_INNER : 0);
+      v4(in->uv, (float)p->corners, (float)flags, 0.0f, 0.0f);
+    }
     return;
   }
   const int gradient = memcmp(p->inner1, p->inner2, sizeof(float[4])) != 0;
@@ -886,6 +1102,18 @@ void BUI_raster_image(BuiRaster *r,
   if (!argb || iw <= 0 || ih <= 0 || !clip_box(r, x, y, x + w, y + h, &x0, &y0, &x1, &y1)) {
     return;
   }
+  if (r->gpu) {
+    int ax, ay;
+    BuiGpuInst *in = alpha > 0.0f && bui_gpu_image(r->gpu, argb, iw, ih, &ax, &ay) ?
+                         gpu_inst(r, BG_IMAGE, x0, y0, x1, y1) :
+                         NULL;
+    if (in) {
+      v4(in->rect, x, y, w, h);
+      v4(in->uv, (float)ax, (float)ay, (float)iw, (float)ih);
+      in->p[1] = clampf(alpha, 0.0f, 1.0f);
+    }
+    return;
+  }
   const int ga = (int)(clampf(alpha, 0.0f, 1.0f) * 256.0f + 0.5f);
   for (int py = y0; py < y1; py++) {
     uint32_t *row = r->pix + (size_t)py * r->w;
@@ -914,6 +1142,11 @@ void BUI_raster_end_frame_region(BuiRaster *r, int rx, int ry, int rw, int rh)
     return;
   }
   r->damage_len = 0;
+  if (r->gpu) {
+    bui_gpu_damage(r->gpu, rx, ry, rw, rh);
+    damage_push(r, rx, ry, rw, rh);
+    return;
+  }
   const int tx0 = clampi(rx, 0, r->w) / TILE_W * TILE_W;
   const int ty0 = clampi(ry, 0, r->h) / TILE_H * TILE_H;
   const int tx1 = clampi(rx + rw, 0, r->w), ty1 = clampi(ry + rh, 0, r->h);
@@ -962,6 +1195,14 @@ void BUI_raster_shadow(
   }
   const float hw = w * 0.5f, hh = h * 0.5f;
   const float rad = clampf(radius, 0.0f, fminf(hw, hh));
+  if (r->gpu) {
+    BuiGpuInst *in = gpu_inst(r, BG_SHADOW, x0, y0, x1, y1);
+    if (in) {
+      v4(in->rect, x, y, w, h);
+      v4(in->p, BG_SHADOW, rad, size, alpha);
+    }
+    return;
+  }
   /* Light comes from above: the shadow sits slightly lower. */
   const float cx = x + hw, cy = y + hh + size * 0.25f;
   const Paint black = {0x000000u, 256};
@@ -1005,6 +1246,54 @@ void BUI_raster_polygon(BuiRaster *r, const float (*pts)[2], int n, const float 
   }
   int x0, y0, x1, y1;
   if (!clip_box(r, minx, miny, maxx, maxy, &x0, &y0, &x1, &y1)) {
+    return;
+  }
+  if (r->gpu) {
+    if (rgba[3] <= 0.0f) {
+      return;
+    }
+    /* Exact software coverage (even-odd, anti-aliased) as a mask: white on
+     * black in a scratch raster, green channel = coverage. */
+    const int mw = x1 - x0, mh = y1 - y0;
+    if (!r->scratch) {
+      r->scratch = BUI_raster_create(mw, mh);
+    }
+    BuiRaster *s = r->scratch;
+    if (!s) {
+      return;
+    }
+    BUI_raster_begin_frame(s, mw > s->w ? mw : s->w, mh > s->h ? mh : s->h);
+    BUI_raster_set_clip(s, 0, 0, mw, mh);
+    for (int yy = 0; yy < mh; yy++) {
+      memset(s->pix + (size_t)yy * s->w, 0, (size_t)mw * sizeof(uint32_t));
+    }
+    float(*tp)[2] = (float(*)[2])malloc(sizeof(float[2]) * (size_t)n);
+    uint8_t *mask = (uint8_t *)malloc((size_t)mw * mh);
+    if (tp && mask) {
+      for (int i = 0; i < n; i++) {
+        tp[i][0] = pts[i][0] - (float)x0;
+        tp[i][1] = pts[i][1] - (float)y0;
+      }
+      const float white[4] = {1, 1, 1, 1};
+      BUI_raster_polygon(s, (const float(*)[2])tp, n, white);
+      for (int yy = 0; yy < mh; yy++) {
+        const uint32_t *row = s->pix + (size_t)yy * s->w;
+        for (int xx = 0; xx < mw; xx++) {
+          mask[(size_t)yy * mw + xx] = (uint8_t)((row[xx] >> 8) & 0xFF);
+        }
+      }
+      int ax, ay;
+      BuiGpuInst *in = bui_gpu_mask(r->gpu, NULL, 0, mask, mw, mh, &ax, &ay) ?
+                           gpu_inst(r, BG_MASK, x0, y0, x1, y1) :
+                           NULL;
+      if (in) {
+        v4(in->rect, (float)x0, (float)y0, (float)mw, (float)mh);
+        v4(in->uv, (float)ax, (float)ay, 0.0f, 0.0f);
+        c4(in->c0, rgba);
+      }
+    }
+    free(tp);
+    free(mask);
     return;
   }
   const Paint p = paint_from(rgba);
@@ -1086,6 +1375,11 @@ void BUI_raster_triangles(BuiRaster *r,
                           const float (*col)[4],
                           int count)
 {
+  if (r->gpu) {
+    const int clip[4] = {r->cx0, r->cy0, r->cx1, r->cy1};
+    bui_gpu_triangles(r->gpu, co, col, count, clip);
+    return;
+  }
   for (int i = 0; i + 2 < count; i += 3) {
     float v[3][2] = {{co[i][0], co[i][1]}, {co[i + 1][0], co[i + 1][1]}, {co[i + 2][0], co[i + 2][1]}};
     const float *c[3] = {col[i], col[i + 1], col[i + 2]};
@@ -1184,6 +1478,13 @@ void BUI_raster_hsv_circle(BuiRaster *r, float cx, float cy, float radius, float
   {
     return;
   }
+  if (r->gpu) {
+    BuiGpuInst *in = gpu_inst(r, BG_HSV, x0, y0, x1, y1);
+    if (in) {
+      v4(in->rect, cx, cy, radius, value);
+    }
+    return;
+  }
   const float inv_2pi = 0.15915494309189535f;
   for (int py = y0; py < y1; py++) {
     uint32_t *row = r->pix + (size_t)py * r->w;
@@ -1217,6 +1518,17 @@ void BUI_raster_gradient(BuiRaster *r,
 {
   int x0, y0, x1, y1;
   if (!clip_box(r, x, y, x + w, y + h, &x0, &y0, &x1, &y1)) {
+    return;
+  }
+  if (r->gpu) {
+    BuiGpuInst *in = gpu_inst(r, BG_GRADIENT, x0, y0, x1, y1);
+    if (in) {
+      v4(in->rect, x, y, w, h);
+      c4(in->c0, tl);
+      c4(in->c1, tr);
+      c4(in->c2, br);
+      c4(in->c3, bl);
+    }
     return;
   }
   for (int py = y0; py < y1; py++) {
@@ -1266,6 +1578,16 @@ void BUI_raster_sphere(
     H[1] /= hl;
     H[2] /= hl;
   }
+  if (r->gpu) {
+    BuiGpuInst *in = gpu_inst(r, BG_SPHERE, x0, y0, x1, y1);
+    if (in) {
+      v4(in->rect, cx, cy, radius, 0.0f);
+      c4(in->c0, rgba);
+      v4(in->c1, L[0], L[1], L[2], 0.0f);
+      v4(in->c2, H[0], H[1], H[2], 0.0f);
+    }
+    return;
+  }
   for (int py = y0; py < y1; py++) {
     uint32_t *row = r->pix + (size_t)py * r->w;
     const float ny = -((float)py + 0.5f - cy) / radius; /* up is +y */
@@ -1281,7 +1603,7 @@ void BUI_raster_sphere(
       float spec = fmaxf(0.0f, nx * H[0] + ny * H[1] + nz * H[2]);
       spec = spec * spec;
       spec = spec * spec;
-      spec = spec * spec * spec * spec; /* ^32 */
+      spec = spec * spec * spec * spec; /* ^16 */
       float c[4];
       for (int k = 0; k < 3; k++) {
         c[k] = rgba[k] * (0.12f + 0.88f * diff) + 0.6f * spec;
@@ -1307,7 +1629,15 @@ void BUI_raster_set_font(BuiRaster *r, const char *family, int flags)
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Native text + present (Win32 GDI)
+/** \name Text: glyph-run cache over a font backend
+ *
+ * One cache for every platform: a run is a (font slot, UTF-8 string) pair
+ * with its advance and, once drawn, an 8-bit coverage mask. Two backends
+ * fill slots and masks:
+ *  - GDI (Windows default): the system's hinted ClearType-free grayscale AA.
+ *  - Portable (stb_truetype): Linux, macOS, wasm, and Windows when built
+ *    with BUI_TEXT_STB. Faces come from BUI_text_add_font(), the BUI_FONT /
+ *    BUI_FONT_DIR environment variables, or the platform's font folders.
  * \{ */
 
 #ifdef _WIN32
@@ -1315,20 +1645,33 @@ void BUI_raster_set_font(BuiRaster *r, const char *family, int flags)
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
+#endif
+
+#if defined(_WIN32) && !defined(BUI_TEXT_STB)
+#  define TEXT_GDI 1
+#else
+#  define TEXT_GDI 0
+#endif
 
 typedef struct FontSlot {
   char family[64];
   int px;
   int flags;
-  HFONT font;
   int ascent;
   int height;
+#if TEXT_GDI
+  HFONT font;
+#else
+  int face;
+  float scale;     /* font units -> pixels */
+  int synth;       /* BUI_FONT_BOLD / ITALIC flags the face lacks */
+  float embolden;  /* synthetic bold: extra pixels per glyph */
+#endif
 } FontSlot;
 
-#  define MAX_FONTS 48
+#define MAX_FONTS 48
 static FontSlot g_fonts[MAX_FONTS];
 static int g_font_count = 0;
-static HDC g_dc = NULL;
 
 typedef struct TextRun {
   uint64_t hash;
@@ -1342,11 +1685,18 @@ typedef struct TextRun {
   uint8_t *mask;
 } TextRun;
 
-#  define RUN_CAP 8192 /* power of two */
-#  define RUN_MAX_FILL 6000
+#define RUN_CAP 8192 /* power of two */
+#define RUN_MAX_FILL 6000
 static TextRun *g_runs = NULL;
 static int g_run_count = 0;
 static unsigned g_text_gen = 1; /* bumped whenever runs or fonts are freed */
+
+/* backend */
+static int be_font_open(FontSlot *s, const char *family, int flags, int px);
+static void be_font_close(FontSlot *s);
+static float be_measure(const FontSlot *s, const char *utf8, int len);
+static void be_build(TextRun *e, const FontSlot *s);
+static void be_flush_glyphs(void);
 
 static void runs_flush(void)
 {
@@ -1366,26 +1716,17 @@ static void fonts_flush(void)
 {
   g_text_gen++;
   for (int i = 0; i < g_font_count; i++) {
-    DeleteObject(g_fonts[i].font);
+    be_font_close(&g_fonts[i]);
   }
   g_font_count = 0;
+  be_flush_glyphs();
   runs_flush(); /* runs reference font slots */
-}
-
-static HDC text_dc(void)
-{
-  if (!g_dc) {
-    g_dc = CreateCompatibleDC(NULL);
-    SetBkMode(g_dc, TRANSPARENT);
-    SetTextAlign(g_dc, TA_LEFT | TA_TOP | TA_NOUPDATECP);
-  }
-  return g_dc;
 }
 
 static int font_get(const char *family, int flags, float size)
 {
   if (!family || !family[0] || strcmp(family, "TkDefaultFont") == 0) {
-    family = "Segoe UI";
+    family = "";
   }
   int px = (int)(size + 0.5f);
   if (px < 1) {
@@ -1404,31 +1745,14 @@ static int font_get(const char *family, int flags, float size)
   if (g_font_count == MAX_FONTS) {
     fonts_flush();
   }
-  wchar_t wfam[64];
-  if (MultiByteToWideChar(CP_UTF8, 0, family, -1, wfam, 64) == 0) {
-    wcscpy(wfam, L"Segoe UI");
-  }
-  HFONT font = CreateFontW(-px, 0, 0, 0, (flags & BUI_FONT_BOLD) ? FW_BOLD : FW_NORMAL,
-                           (flags & BUI_FONT_ITALIC) ? TRUE : FALSE,
-                           (flags & BUI_FONT_UNDERLINE) ? TRUE : FALSE, FALSE, DEFAULT_CHARSET,
-                           OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, wfam);
-  if (!font) {
-    return -1;
-  }
   FontSlot *s = &g_fonts[g_font_count];
+  memset(s, 0, sizeof(*s));
   strncpy(s->family, family, sizeof(s->family) - 1);
-  s->family[sizeof(s->family) - 1] = '\0';
   s->px = px;
   s->flags = flags;
-  s->font = font;
-  HDC dc = text_dc();
-  HGDIOBJ old = SelectObject(dc, font);
-  TEXTMETRICW tm;
-  GetTextMetricsW(dc, &tm);
-  SelectObject(dc, old);
-  s->ascent = tm.tmAscent;
-  s->height = tm.tmHeight;
+  if (!be_font_open(s, family, flags, px)) {
+    return -1;
+  }
   return g_font_count++;
 }
 
@@ -1440,20 +1764,6 @@ static uint64_t run_hash(int font, const char *s, int len)
     h *= 1099511628211ull;
   }
   return h ? h : 1;
-}
-
-static wchar_t *to_wide(const char *s, int len, int *r_n)
-{
-  int n = MultiByteToWideChar(CP_UTF8, 0, s, len, NULL, 0);
-  wchar_t *w = (wchar_t *)malloc(sizeof(wchar_t) * (size_t)(n + 1));
-  if (!w) {
-    *r_n = 0;
-    return NULL;
-  }
-  MultiByteToWideChar(CP_UTF8, 0, s, len, w, n);
-  w[n] = 0;
-  *r_n = n;
-  return w;
 }
 
 static TextRun *run_get(int font, const char *s, int len)
@@ -1491,75 +1801,14 @@ static TextRun *run_get(int font, const char *s, int len)
   e->font = font;
   e->len = len;
   g_run_count++;
-
-  int wn;
-  wchar_t *w = to_wide(s, len, &wn);
-  HDC dc = text_dc();
-  HGDIOBJ old = SelectObject(dc, g_fonts[font].font);
-  SIZE sz = {0, 0};
-  if (w && wn > 0) {
-    GetTextExtentPoint32W(dc, w, wn, &sz);
-  }
-  SelectObject(dc, old);
-  free(w);
-  e->advance = (float)sz.cx;
+  e->advance = be_measure(&g_fonts[font], s, len);
   return e;
-}
-
-static void run_build(TextRun *e)
-{
-  e->built = 1;
-  const FontSlot *fs = &g_fonts[e->font];
-  int wn;
-  wchar_t *w = to_wide(e->text, e->len, &wn);
-  if (!w || wn == 0 || e->advance <= 0.0f) {
-    free(w);
-    return;
-  }
-  const int pad = 2 + fs->px / 4; /* bearings / italic overhang */
-  const int mw = (int)e->advance + pad * 2;
-  const int mh = fs->height + 1;
-  BITMAPINFO bmi;
-  memset(&bmi, 0, sizeof(bmi));
-  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  bmi.bmiHeader.biWidth = mw;
-  bmi.bmiHeader.biHeight = -mh;
-  bmi.bmiHeader.biPlanes = 1;
-  bmi.bmiHeader.biBitCount = 32;
-  bmi.bmiHeader.biCompression = BI_RGB;
-  void *bits = NULL;
-  HDC dc = text_dc();
-  HBITMAP bmp = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
-  if (!bmp || !bits) {
-    free(w);
-    return;
-  }
-  memset(bits, 0, (size_t)mw * mh * 4);
-  HGDIOBJ old_bmp = SelectObject(dc, bmp);
-  HGDIOBJ old_font = SelectObject(dc, fs->font);
-  SetTextColor(dc, RGB(255, 255, 255));
-  TextOutW(dc, pad, 0, w, wn);
-  GdiFlush();
-  e->mask = (uint8_t *)malloc((size_t)mw * mh);
-  if (e->mask) {
-    const uint32_t *src = (const uint32_t *)bits;
-    for (int i = 0; i < mw * mh; i++) {
-      /* grayscale AA: channels match; take green (perceptual) */
-      e->mask[i] = (uint8_t)((src[i] >> 8) & 0xFF);
-    }
-    e->mw = mw;
-    e->mh = mh;
-    e->ox = pad;
-  }
-  SelectObject(dc, old_font);
-  SelectObject(dc, old_bmp);
-  DeleteObject(bmp);
-  free(w);
 }
 
 int BUI_text_native(void)
 {
-  return 1;
+  /* the portable engine reports 1 once a face can be found */
+  return font_get("", 0, 12.0f) >= 0;
 }
 
 int BUI_text_measure(
@@ -1607,7 +1856,10 @@ const BuiTextRun *BUI_text_prepare(
     *r_width = e->advance;
   }
   if (!e->built) {
-    run_build(e);
+    e->built = 1;
+    if (e->advance > 0.0f) {
+      be_build(e, &g_fonts[e->font]);
+    }
   }
   return e->mask ? (const BuiTextRun *)e : NULL; /* NULL: whitespace-only */
 }
@@ -1644,6 +1896,19 @@ void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, 
   const int dy = (int)floorf(y + 0.5f) - g_fonts[e->font].ascent;
   const int x0 = clampi(dx, r->cx0, r->cx1), x1 = clampi(dx + e->mw, r->cx0, r->cx1);
   const int y0 = clampi(dy, r->cy0, r->cy1), y1 = clampi(dy + e->mh, r->cy0, r->cy1);
+  if (r->gpu) {
+    int ax, ay;
+    BuiGpuInst *in = x1 > x0 && y1 > y0 &&
+                             bui_gpu_mask(r->gpu, e, g_text_gen, e->mask, e->mw, e->mh, &ax, &ay) ?
+                         gpu_inst(r, BG_MASK, x0, y0, x1, y1) :
+                         NULL;
+    if (in) {
+      v4(in->rect, (float)dx, (float)dy, (float)e->mw, (float)e->mh);
+      v4(in->uv, (float)ax, (float)ay, 0.0f, 0.0f);
+      c4(in->c0, rgba);
+    }
+    return;
+  }
   for (int py = y0; py < y1; py++) {
     uint32_t *row = r->pix + (size_t)py * r->w;
     const uint8_t *m = e->mask + (size_t)(py - dy) * e->mw - dx;
@@ -1663,8 +1928,812 @@ void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, 
   }
 }
 
+/* Text runs for GPU renderers: mask size, left padding and ascent. */
+const uint8_t *BUI_text_run_mask(const BuiTextRun *run, int *r_w, int *r_h, int *r_ox, int *r_ascent)
+{
+  const TextRun *e = (const TextRun *)run;
+  if (!e || !e->mask) {
+    return NULL;
+  }
+  *r_w = e->mw;
+  *r_h = e->mh;
+  *r_ox = e->ox;
+  *r_ascent = g_fonts[e->font].ascent;
+  return e->mask;
+}
+
+/** \} */
+
+#if TEXT_GDI
+/* -------------------------------------------------------------------- */
+/** \name Text backend: GDI
+ * \{ */
+
+static HDC g_dc = NULL;
+
+static HDC text_dc(void)
+{
+  if (!g_dc) {
+    g_dc = CreateCompatibleDC(NULL);
+    SetBkMode(g_dc, TRANSPARENT);
+    SetTextAlign(g_dc, TA_LEFT | TA_TOP | TA_NOUPDATECP);
+  }
+  return g_dc;
+}
+
+static int be_font_open(FontSlot *s, const char *family, int flags, int px)
+{
+  if (!family[0]) {
+    family = "Segoe UI";
+  }
+  wchar_t wfam[64];
+  if (MultiByteToWideChar(CP_UTF8, 0, family, -1, wfam, 64) == 0) {
+    wcscpy(wfam, L"Segoe UI");
+  }
+  HFONT font = CreateFontW(-px, 0, 0, 0, (flags & BUI_FONT_BOLD) ? FW_BOLD : FW_NORMAL,
+                           (flags & BUI_FONT_ITALIC) ? TRUE : FALSE,
+                           (flags & BUI_FONT_UNDERLINE) ? TRUE : FALSE, FALSE, DEFAULT_CHARSET,
+                           OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                           DEFAULT_PITCH | FF_DONTCARE, wfam);
+  if (!font) {
+    return 0;
+  }
+  s->font = font;
+  HDC dc = text_dc();
+  HGDIOBJ old = SelectObject(dc, font);
+  TEXTMETRICW tm;
+  GetTextMetricsW(dc, &tm);
+  SelectObject(dc, old);
+  s->ascent = tm.tmAscent;
+  s->height = tm.tmHeight;
+  return 1;
+}
+
+static void be_font_close(FontSlot *s)
+{
+  DeleteObject(s->font);
+}
+
+static void be_flush_glyphs(void) {}
+
+static wchar_t *to_wide(const char *s, int len, int *r_n)
+{
+  int n = MultiByteToWideChar(CP_UTF8, 0, s, len, NULL, 0);
+  wchar_t *w = (wchar_t *)malloc(sizeof(wchar_t) * (size_t)(n + 1));
+  if (!w) {
+    *r_n = 0;
+    return NULL;
+  }
+  MultiByteToWideChar(CP_UTF8, 0, s, len, w, n);
+  w[n] = 0;
+  *r_n = n;
+  return w;
+}
+
+static float be_measure(const FontSlot *s, const char *utf8, int len)
+{
+  int wn;
+  wchar_t *w = to_wide(utf8, len, &wn);
+  HDC dc = text_dc();
+  HGDIOBJ old = SelectObject(dc, s->font);
+  SIZE sz = {0, 0};
+  if (w && wn > 0) {
+    GetTextExtentPoint32W(dc, w, wn, &sz);
+  }
+  SelectObject(dc, old);
+  free(w);
+  return (float)sz.cx;
+}
+
+static void be_build(TextRun *e, const FontSlot *fs)
+{
+  int wn;
+  wchar_t *w = to_wide(e->text, e->len, &wn);
+  if (!w || wn == 0) {
+    free(w);
+    return;
+  }
+  const int pad = 2 + fs->px / 4; /* bearings / italic overhang */
+  const int mw = (int)e->advance + pad * 2;
+  const int mh = fs->height + 1;
+  BITMAPINFO bmi;
+  memset(&bmi, 0, sizeof(bmi));
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = mw;
+  bmi.bmiHeader.biHeight = -mh;
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+  void *bits = NULL;
+  HDC dc = text_dc();
+  HBITMAP bmp = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
+  if (!bmp || !bits) {
+    free(w);
+    return;
+  }
+  memset(bits, 0, (size_t)mw * mh * 4);
+  HGDIOBJ old_bmp = SelectObject(dc, bmp);
+  HGDIOBJ old_font = SelectObject(dc, fs->font);
+  SetTextColor(dc, RGB(255, 255, 255));
+  TextOutW(dc, pad, 0, w, wn);
+  GdiFlush();
+  e->mask = (uint8_t *)malloc((size_t)mw * mh);
+  if (e->mask) {
+    const uint32_t *src = (const uint32_t *)bits;
+    for (int i = 0; i < mw * mh; i++) {
+      /* grayscale AA: channels match; take green (perceptual) */
+      e->mask[i] = (uint8_t)((src[i] >> 8) & 0xFF);
+    }
+    e->mw = mw;
+    e->mh = mh;
+    e->ox = pad;
+  }
+  SelectObject(dc, old_font);
+  SelectObject(dc, old_bmp);
+  DeleteObject(bmp);
+  free(w);
+}
+
+int BUI_text_add_font(const char *family, int flags, const void *data, int len)
+{
+  (void)flags;
+  /* private to this process; addressable by the font's own family name */
+  DWORD n = 0;
+  HANDLE h = AddFontMemResourceEx((void *)data, (DWORD)len, NULL, &n);
+  (void)family;
+  if (h && n > 0) {
+    fonts_flush();
+    return 1;
+  }
+  return 0;
+}
+
+/** \} */
+
+#else /* portable */
+/* -------------------------------------------------------------------- */
+/** \name Text backend: stb_truetype
+ * \{ */
+
+#  if defined(__GNUC__) || defined(__clang__)
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wunused-function"
+#    pragma GCC diagnostic ignored "-Wsign-compare"
+#    pragma GCC diagnostic ignored "-Wconversion"
+#    pragma GCC diagnostic ignored "-Wshadow"
+#    pragma GCC diagnostic ignored "-Wcast-qual"
+#  endif
+#  define STBTT_STATIC
+#  define STB_TRUETYPE_IMPLEMENTATION
+#  include "../extern/stb_truetype.h"
+#  if defined(__GNUC__) || defined(__clang__)
+#    pragma GCC diagnostic pop
+#  endif
+#  include <stdio.h>
+
+typedef struct Face {
+  char key[96]; /* file path, or "mem:<family>" */
+  unsigned char *data;
+  stbtt_fontinfo info;
+  int ascent, descent, line_gap; /* font units */
+} Face;
+
+#  define MAX_FACES 32
+static Face g_faces[MAX_FACES];
+static int g_face_count = 0;
+
+/* registered (in-memory) fonts: family + style -> face */
+typedef struct FaceReg {
+  char family[64];
+  int style; /* BUI_FONT_BOLD | BUI_FONT_ITALIC */
+  int face;
+} FaceReg;
+static FaceReg g_regs[MAX_FACES];
+static int g_reg_count = 0;
+
+static int ieq(const char *a, const char *b)
+{
+  for (; *a && *b; a++, b++) {
+    int ca = (unsigned char)*a, cb = (unsigned char)*b;
+    if (ca >= 'A' && ca <= 'Z') {
+      ca += 32;
+    }
+    if (cb >= 'A' && cb <= 'Z') {
+      cb += 32;
+    }
+    if (ca != cb) {
+      return 0;
+    }
+  }
+  return *a == *b;
+}
+
+static int face_init(Face *f, unsigned char *data)
+{
+  const int off = stbtt_GetFontOffsetForIndex(data, 0);
+  if (off < 0 || !stbtt_InitFont(&f->info, data, off)) {
+    return 0;
+  }
+  f->data = data;
+  /* GDI's metrics: the OS/2 table's Windows ascent/descent when present */
+  int a, d, g;
+  if (stbtt_GetFontVMetricsOS2(&f->info, &a, &d, &g)) {
+    int wa = 0, wd = 0;
+    const stbtt_uint32 os2 = stbtt__find_table(f->info.data, (stbtt_uint32)f->info.fontstart, "OS/2");
+    if (os2) {
+      wa = ttUSHORT(f->info.data + os2 + 74);
+      wd = ttUSHORT(f->info.data + os2 + 76);
+    }
+    if (wa > 0 || wd > 0) {
+      a = wa;
+      d = -wd;
+    }
+  }
+  else {
+    stbtt_GetFontVMetrics(&f->info, &a, &d, &g);
+  }
+  f->ascent = a;
+  f->descent = d;
+  f->line_gap = g;
+  return 1;
+}
+
+static int face_load_file(const char *path)
+{
+  for (int i = 0; i < g_face_count; i++) {
+    if (strcmp(g_faces[i].key, path) == 0) {
+      return i;
+    }
+  }
+  if (g_face_count == MAX_FACES || strlen(path) >= sizeof(g_faces[0].key)) {
+    return -1;
+  }
+  FILE *fp = fopen(path, "rb");
+  if (!fp) {
+    return -1;
+  }
+  fseek(fp, 0, SEEK_END);
+  const long n = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+  unsigned char *data = n > 0 ? (unsigned char *)malloc((size_t)n) : NULL;
+  if (!data || fread(data, 1, (size_t)n, fp) != (size_t)n) {
+    free(data);
+    fclose(fp);
+    return -1;
+  }
+  fclose(fp);
+  Face *f = &g_faces[g_face_count];
+  memset(f, 0, sizeof(*f));
+  if (!face_init(f, data)) {
+    free(data);
+    return -1;
+  }
+  strcpy(f->key, path);
+  return g_face_count++;
+}
+
+int BUI_text_add_font(const char *family, int flags, const void *data, int len)
+{
+  if (!data || len <= 0 || g_face_count == MAX_FACES || g_reg_count == MAX_FACES) {
+    return 0;
+  }
+  unsigned char *copy = (unsigned char *)malloc((size_t)len);
+  if (!copy) {
+    return 0;
+  }
+  memcpy(copy, data, (size_t)len);
+  Face *f = &g_faces[g_face_count];
+  memset(f, 0, sizeof(*f));
+  if (!face_init(f, copy)) {
+    free(copy);
+    return 0;
+  }
+  snprintf(f->key, sizeof(f->key), "mem:%s", family ? family : "");
+  FaceReg *r = &g_regs[g_reg_count++];
+  strncpy(r->family, family ? family : "", sizeof(r->family) - 1);
+  r->family[sizeof(r->family) - 1] = '\0';
+  r->style = flags & (BUI_FONT_BOLD | BUI_FONT_ITALIC);
+  r->face = g_face_count++;
+  fonts_flush(); /* the new face may replace a fallback */
+  return 1;
+}
+
+/* Font folders, most specific first. */
+static int font_dirs(char dirs[][260], int max)
+{
+  int n = 0;
+  const char *env = getenv("BUI_FONT_DIR");
+  if (env && env[0] && n < max) {
+    snprintf(dirs[n++], 260, "%s", env);
+  }
+#  ifdef _WIN32
+  const char *win = getenv("WINDIR");
+  snprintf(dirs[n++], 260, "%s/Fonts", win ? win : "C:/Windows");
+  const char *local = getenv("LOCALAPPDATA");
+  if (local && n < max) {
+    snprintf(dirs[n++], 260, "%s/Microsoft/Windows/Fonts", local);
+  }
+#  elif defined(__APPLE__)
+  static const char *mac[] = {"/System/Library/Fonts", "/System/Library/Fonts/Supplemental",
+                              "/Library/Fonts"};
+  for (int i = 0; i < 3 && n < max; i++) {
+    snprintf(dirs[n++], 260, "%s", mac[i]);
+  }
+  const char *home = getenv("HOME");
+  if (home && n < max) {
+    snprintf(dirs[n++], 260, "%s/Library/Fonts", home);
+  }
+#  else
+  static const char *nix[] = {
+      "/usr/share/fonts/truetype/dejavu", "/usr/share/fonts/dejavu",
+      "/usr/share/fonts/TTF",             "/usr/share/fonts/truetype/liberation",
+      "/usr/share/fonts/liberation",      "/usr/share/fonts/truetype/noto",
+      "/usr/share/fonts/noto",            "/usr/share/fonts/google-noto",
+      "/usr/share/fonts/truetype",        "/usr/local/share/fonts",
+      "/usr/share/fonts"};
+  for (int i = 0; i < (int)(sizeof(nix) / sizeof(nix[0])) && n < max; i++) {
+    snprintf(dirs[n++], 260, "%s", nix[i]);
+  }
+  const char *home = getenv("HOME");
+  if (home && n + 1 < max) {
+    snprintf(dirs[n++], 260, "%s/.local/share/fonts", home);
+    snprintf(dirs[n++], 260, "%s/.fonts", home);
+  }
+#  endif
+  return n;
+}
+
+/* File names per generic family and style (regular, bold, italic, both). */
+typedef struct FamilyFiles {
+  const char *names; /* '|'-separated aliases */
+  const char *files[4];
+} FamilyFiles;
+
+static const FamilyFiles g_families[] = {
+    {"|sans|sans-serif|segoe ui|system-ui|helvetica|arial|dejavu sans|liberation sans|noto "
+     "sans|tkdefaultfont|tktextfont|tkheadingfont|tkcaptionfont|tkmenufont|",
+     {"segoeui.ttf|DejaVuSans.ttf|LiberationSans-Regular.ttf|NotoSans-Regular.ttf|Arial.ttf|"
+      "arial.ttf|Helvetica.ttc|SFNS.ttf",
+      "segoeuib.ttf|DejaVuSans-Bold.ttf|LiberationSans-Bold.ttf|NotoSans-Bold.ttf|Arial "
+      "Bold.ttf|arialbd.ttf",
+      "segoeuii.ttf|DejaVuSans-Oblique.ttf|LiberationSans-Italic.ttf|NotoSans-Italic.ttf|Arial "
+      "Italic.ttf|ariali.ttf",
+      "segoeuiz.ttf|DejaVuSans-BoldOblique.ttf|LiberationSans-BoldItalic.ttf|NotoSans-"
+      "BoldItalic.ttf|Arial Bold Italic.ttf|arialbi.ttf"}},
+    {"|mono|monospace|courier|courier new|consolas|menlo|dejavu sans mono|liberation "
+     "mono|tkfixedfont|",
+     {"consola.ttf|DejaVuSansMono.ttf|LiberationMono-Regular.ttf|NotoSansMono-Regular.ttf|"
+      "Menlo.ttc|cour.ttf",
+      "consolab.ttf|DejaVuSansMono-Bold.ttf|LiberationMono-Bold.ttf|NotoSansMono-Bold.ttf|"
+      "courbd.ttf",
+      "consolai.ttf|DejaVuSansMono-Oblique.ttf|LiberationMono-Italic.ttf|couri.ttf",
+      "consolaz.ttf|DejaVuSansMono-BoldOblique.ttf|LiberationMono-BoldItalic.ttf|courbi.ttf"}},
+    {"|serif|times|times new roman|georgia|dejavu serif|liberation serif|",
+     {"times.ttf|DejaVuSerif.ttf|LiberationSerif-Regular.ttf|NotoSerif-Regular.ttf|Times New "
+      "Roman.ttf|Times.ttc",
+      "timesbd.ttf|DejaVuSerif-Bold.ttf|LiberationSerif-Bold.ttf|NotoSerif-Bold.ttf|Times New "
+      "Roman Bold.ttf",
+      "timesi.ttf|DejaVuSerif-Italic.ttf|LiberationSerif-Italic.ttf|NotoSerif-Italic.ttf|Times "
+      "New Roman Italic.ttf",
+      "timesbi.ttf|DejaVuSerif-BoldItalic.ttf|LiberationSerif-BoldItalic.ttf|NotoSerif-"
+      "BoldItalic.ttf|Times New Roman Bold Italic.ttf"}},
+};
+
+static int family_index(const char *family)
+{
+  if (!family[0]) {
+    return 0;
+  }
+  char probe[72];
+  snprintf(probe, sizeof(probe), "|%s|", family);
+  for (int i = 0; probe[i]; i++) {
+    if (probe[i] >= 'A' && probe[i] <= 'Z') {
+      probe[i] = (char)(probe[i] + 32);
+    }
+  }
+  for (int i = 0; i < (int)(sizeof(g_families) / sizeof(g_families[0])); i++) {
+    if (strstr(g_families[i].names, probe)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/* First '|'-separated file found in any font folder. */
+static int face_from_files(const char *files, char dirs[][260], int ndirs)
+{
+  const char *p = files;
+  while (*p) {
+    const char *end = strchr(p, '|');
+    const int n = end ? (int)(end - p) : (int)strlen(p);
+    for (int d = 0; d < ndirs; d++) {
+      char path[600];
+      snprintf(path, sizeof(path), "%s/%.*s", dirs[d], n, p);
+      const int f = face_load_file(path);
+      if (f >= 0) {
+        return f;
+      }
+    }
+    p += n + (end ? 1 : 0);
+  }
+  return -1;
+}
+
+/* The face for family + style; *r_have gets the style bits it really has. */
+static int face_find(const char *family, int style, int *r_have)
+{
+  /* 1. registered fonts: exact style, then any style of the family */
+  for (int pass = 0; pass < 2; pass++) {
+    for (int i = 0; i < g_reg_count; i++) {
+      if ((ieq(g_regs[i].family, family) || (!family[0] && i == 0)) &&
+          (pass == 1 || g_regs[i].style == style))
+      {
+        *r_have = g_regs[i].style;
+        return g_regs[i].face;
+      }
+    }
+  }
+  /* 2. an explicit file */
+  const size_t fl = strlen(family);
+  if (fl > 4 && (ieq(family + fl - 4, ".ttf") || ieq(family + fl - 4, ".otf") ||
+                 ieq(family + fl - 4, ".ttc")))
+  {
+    const int f = face_load_file(family);
+    if (f >= 0) {
+      *r_have = 0;
+      return f;
+    }
+  }
+  char dirs[16][260];
+  const int nd = font_dirs(dirs, 16);
+  /* 3. BUI_FONT overrides the default face */
+  const char *env = (!family[0] || family_index(family) == 0) ? getenv("BUI_FONT") : NULL;
+  if (env && env[0]) {
+    const int f = face_load_file(env);
+    if (f >= 0) {
+      *r_have = 0;
+      return f;
+    }
+  }
+  /* 4. a known generic family, then "<family>.ttf", then the default */
+  int fam = family_index(family);
+  if (fam < 0) {
+    char files[200];
+    char squashed[64];
+    int k = 0;
+    for (const char *c = family; *c && k < 63; c++) {
+      if (*c != ' ') {
+        squashed[k++] = *c;
+      }
+    }
+    squashed[k] = 0;
+    snprintf(files, sizeof(files), "%s.ttf|%s.ttf|%s.otf|%s-Regular.ttf", family, squashed,
+             family, squashed);
+    const int f = face_from_files(files, dirs, nd);
+    if (f >= 0) {
+      *r_have = 0;
+      return f;
+    }
+    fam = 0;
+  }
+  const int want = (style & BUI_FONT_BOLD ? 1 : 0) | (style & BUI_FONT_ITALIC ? 2 : 0);
+  int f = face_from_files(g_families[fam].files[want], dirs, nd);
+  if (f >= 0) {
+    *r_have = style;
+    return f;
+  }
+  if (want) { /* synthesize the style from the regular face */
+    f = face_from_files(g_families[fam].files[0], dirs, nd);
+    if (f >= 0) {
+      *r_have = 0;
+      return f;
+    }
+  }
+  if (fam != 0) {
+    return face_find("", style, r_have);
+  }
+  if (g_reg_count > 0) {
+    *r_have = g_regs[0].style;
+    return g_regs[0].face;
+  }
+  return -1;
+}
+
+static int be_font_open(FontSlot *s, const char *family, int flags, int px)
+{
+  const int style = flags & (BUI_FONT_BOLD | BUI_FONT_ITALIC);
+  int have = 0;
+  const int face = face_find(family, style, &have);
+  if (face < 0) {
+    return 0;
+  }
+  const Face *f = &g_faces[face];
+  s->face = face;
+  s->scale = stbtt_ScaleForMappingEmToPixels(&f->info, (float)px); /* GDI: -px = em height */
+  s->ascent = (int)ceilf((float)f->ascent * s->scale - 0.01f);
+  s->height = s->ascent + (int)ceilf((float)-f->descent * s->scale - 0.01f);
+  s->synth = style & ~have;
+  s->embolden = (s->synth & BUI_FONT_BOLD) ? (px < 24 ? 1.0f : (float)px / 24.0f) : 0.0f;
+  return 1;
+}
+
+static void be_font_close(FontSlot *s)
+{
+  (void)s;
+}
+
+/* UTF-8 decode; invalid bytes map to U+FFFD. */
+static int utf8_next(const char *s, int len, int *i)
+{
+  const unsigned char c = (unsigned char)s[*i];
+  int cp, n;
+  if (c < 0x80) {
+    cp = c;
+    n = 1;
+  }
+  else if ((c & 0xE0) == 0xC0) {
+    cp = c & 0x1F;
+    n = 2;
+  }
+  else if ((c & 0xF0) == 0xE0) {
+    cp = c & 0x0F;
+    n = 3;
+  }
+  else if ((c & 0xF8) == 0xF0) {
+    cp = c & 0x07;
+    n = 4;
+  }
+  else {
+    (*i)++;
+    return 0xFFFD;
+  }
+  if (*i + n > len) {
+    *i = len;
+    return 0xFFFD;
+  }
+  for (int k = 1; k < n; k++) {
+    const unsigned char cc = (unsigned char)s[*i + k];
+    if ((cc & 0xC0) != 0x80) {
+      *i += k;
+      return 0xFFFD;
+    }
+    cp = (cp << 6) | (cc & 0x3F);
+  }
+  *i += n;
+  return cp;
+}
+
+/* Glyph bitmaps by (slot, glyph, quarter-pixel phase). Rasterized once,
+ * composited into every run that uses them. */
+typedef struct GlyphBmp {
+  uint32_t key; /* 0 = empty */
+  int16_t w, h, xoff, yoff;
+  uint8_t *bits;
+} GlyphBmp;
+
+#  define GLYPH_CAP 4096 /* power of two */
+#  define GLYPH_MAX_FILL 3000
+static GlyphBmp *g_glyphs = NULL;
+static int g_glyph_count = 0;
+
+static void be_flush_glyphs(void)
+{
+  if (!g_glyphs) {
+    return;
+  }
+  for (int i = 0; i < GLYPH_CAP; i++) {
+    free(g_glyphs[i].bits);
+  }
+  memset(g_glyphs, 0, sizeof(GlyphBmp) * GLYPH_CAP);
+  g_glyph_count = 0;
+}
+
+static const GlyphBmp *glyph_get(int slot, const FontSlot *s, int glyph, int phase)
+{
+  if (!g_glyphs) {
+    g_glyphs = (GlyphBmp *)calloc(GLYPH_CAP, sizeof(GlyphBmp));
+    if (!g_glyphs) {
+      return NULL;
+    }
+  }
+  const uint32_t key = (((uint32_t)slot + 1) << 24) ^ ((uint32_t)glyph << 2) ^ (uint32_t)phase;
+  uint32_t idx = (key * 2654435761u) >> 20 & (GLYPH_CAP - 1);
+  for (;;) {
+    GlyphBmp *g = &g_glyphs[idx];
+    if (g->key == 0) {
+      break;
+    }
+    if (g->key == key) {
+      return g;
+    }
+    idx = (idx + 1) & (GLYPH_CAP - 1);
+  }
+  if (g_glyph_count >= GLYPH_MAX_FILL) {
+    be_flush_glyphs();
+    return glyph_get(slot, s, glyph, phase);
+  }
+  GlyphBmp *g = &g_glyphs[idx];
+  const stbtt_fontinfo *info = &g_faces[s->face].info;
+  int w = 0, h = 0, xo = 0, yo = 0;
+  g->bits = stbtt_GetGlyphBitmapSubpixel(
+      info, s->scale, s->scale, (float)phase * 0.25f, 0.0f, glyph, &w, &h, &xo, &yo);
+  if (g->bits) {
+    /* stb's coverage is linear; blending it in sRGB thins strokes. Lift it
+     * (gamma 1/1.45, close to how GDI's grayscale AA reads). */
+    static uint8_t lut[256];
+    if (!lut[255]) {
+      for (int i = 0; i < 256; i++) {
+        lut[i] = (uint8_t)(255.0f * powf((float)i / 255.0f, 1.0f / 1.45f) + 0.5f);
+      }
+    }
+    for (int i = 0; i < w * h; i++) {
+      g->bits[i] = lut[g->bits[i]];
+    }
+  }
+  g->key = key;
+  g->w = (int16_t)w;
+  g->h = (int16_t)h;
+  g->xoff = (int16_t)xo;
+  g->yoff = (int16_t)yo;
+  g_glyph_count++;
+  return g;
+}
+
+/* Walks the glyphs of a run: pen positions in pixels (unrounded). */
+typedef void (*GlyphFn)(void *user, int glyph, float pen);
+
+static float glyph_walk(const FontSlot *s, const char *utf8, int len, GlyphFn fn, void *user)
+{
+  const stbtt_fontinfo *info = &g_faces[s->face].info;
+  float pen = 0.0f;
+  int prev = 0;
+  for (int i = 0; i < len;) {
+    int cp = utf8_next(utf8, len, &i);
+    if (cp == '\t') {
+      cp = ' ';
+    }
+    const int glyph = stbtt_FindGlyphIndex(info, cp);
+    if (prev) {
+      pen += s->scale * (float)stbtt_GetGlyphKernAdvance(info, prev, glyph);
+    }
+    if (fn) {
+      fn(user, glyph, pen);
+    }
+    int adv, lsb;
+    stbtt_GetGlyphHMetrics(info, glyph, &adv, &lsb);
+    pen += s->scale * (float)adv + s->embolden;
+    prev = glyph;
+  }
+  return pen;
+}
+
+static float be_measure(const FontSlot *s, const char *utf8, int len)
+{
+  return floorf(glyph_walk(s, utf8, len, NULL, NULL) + 0.5f);
+}
+
+typedef struct BuildCtx {
+  const FontSlot *s;
+  int slot;
+  uint8_t *mask;
+  int mw, mh, ox, ascent;
+  float shear; /* synthetic italic: pixels per pixel above the baseline */
+} BuildCtx;
+
+static void build_glyph(void *user, int glyph, float pen)
+{
+  BuildCtx *c = (BuildCtx *)user;
+  const float px = floorf(pen * 4.0f + 0.5f) * 0.25f;
+  const int whole = (int)floorf(px);
+  const int phase = (int)((px - (float)whole) * 4.0f) & 3;
+  const GlyphBmp *g = glyph_get(c->slot, c->s, glyph, phase);
+  if (!g || !g->bits) {
+    return;
+  }
+  const int gx = c->ox + whole + g->xoff;
+  const int gy = c->ascent + g->yoff;
+  for (int y = 0; y < g->h; y++) {
+    const int my = gy + y;
+    if (my < 0 || my >= c->mh) {
+      continue;
+    }
+    uint8_t *row = c->mask + (size_t)my * c->mw;
+    const uint8_t *src = g->bits + (size_t)y * g->w;
+    if (c->shear == 0.0f) {
+      for (int x = 0; x < g->w; x++) {
+        const int mx = gx + x;
+        if (mx >= 0 && mx < c->mw && src[x]) {
+          const int v = row[mx] + src[x];
+          row[mx] = (uint8_t)(v > 255 ? 255 : v);
+        }
+      }
+    }
+    else {
+      /* shear about the baseline, splitting coverage between two pixels */
+      const float sh = (float)(c->ascent - my) * c->shear;
+      const int si = (int)floorf(sh);
+      const int fr = (int)((sh - (float)si) * 256.0f);
+      for (int x = 0; x < g->w; x++) {
+        if (!src[x]) {
+          continue;
+        }
+        const int mx = gx + x + si;
+        const int hi = (src[x] * fr) >> 8, lo = src[x] - hi;
+        if (mx >= 0 && mx < c->mw) {
+          const int v = row[mx] + lo;
+          row[mx] = (uint8_t)(v > 255 ? 255 : v);
+        }
+        if (mx + 1 >= 0 && mx + 1 < c->mw) {
+          const int v = row[mx + 1] + hi;
+          row[mx + 1] = (uint8_t)(v > 255 ? 255 : v);
+        }
+      }
+    }
+  }
+}
+
+static void be_build(TextRun *e, const FontSlot *fs)
+{
+  const int pad = 2 + fs->px / 4; /* bearings / italic overhang */
+  const int mw = (int)e->advance + pad * 2;
+  const int mh = fs->height + 1;
+  uint8_t *mask = (uint8_t *)calloc((size_t)mw * mh, 1);
+  if (!mask) {
+    return;
+  }
+  BuildCtx c = {fs, (int)(fs - g_fonts), mask, mw, mh, pad, fs->ascent,
+                (fs->synth & BUI_FONT_ITALIC) ? 0.2f : 0.0f};
+  glyph_walk(fs, e->text, e->len, build_glyph, &c);
+  if (fs->embolden > 0.0f) { /* synthetic bold: smear right */
+    const int k = (int)(fs->embolden + 0.5f);
+    for (int y = 0; y < mh; y++) {
+      uint8_t *row = mask + (size_t)y * mw;
+      for (int x = mw - 1; x >= k; x--) {
+        int v = row[x];
+        for (int j = 1; j <= k; j++) {
+          v = row[x - j] > v ? row[x - j] : v;
+        }
+        row[x] = (uint8_t)v;
+      }
+    }
+  }
+  if (fs->flags & BUI_FONT_UNDERLINE) {
+    const int t = fs->px / 14 > 1 ? fs->px / 14 : 1;
+    const int y0 = fs->ascent + (fs->height - fs->ascent) / 2;
+    for (int y = y0; y < y0 + t && y < mh; y++) {
+      memset(mask + (size_t)y * mw + pad, 255, (size_t)e->advance);
+    }
+  }
+  int any = 0;
+  for (int i = 0; i < mw * mh && !any; i++) {
+    any = mask[i] != 0;
+  }
+  if (!any) {
+    free(mask);
+    return;
+  }
+  e->mask = mask;
+  e->mw = mw;
+  e->mh = mh;
+  e->ox = pad;
+}
+
+/** \} */
+#endif /* text backends */
+
+/* -------------------------------------------------------------------- */
+/** \name Native present
+ * \{ */
+
+#ifdef _WIN32
 int BUI_raster_present_native(BuiRaster *r, void *window_handle, int full)
 {
+  if (r->gpu) {
+    if (!bui_gpu_present(r->gpu, full)) {
+      gpu_drop(r); /* device lost: the software raster takes over */
+    }
+    return 1;
+  }
   HWND hwnd = (HWND)window_handle;
   if (!hwnd || !IsWindow(hwnd)) {
     return 0;
@@ -1725,80 +2794,19 @@ int BUI_raster_present_native(BuiRaster *r, void *window_handle, int full)
   ReleaseDC(hwnd, hdc);
   return 1;
 }
-
-#else /* !_WIN32 */
-
-int BUI_text_native(void)
-{
-  return 0;
-}
-
-int BUI_text_measure(
-    const char *family, int flags, float size, const char *utf8, int len, float *r_width)
-{
-  (void)family;
-  (void)flags;
-  (void)size;
-  (void)utf8;
-  (void)len;
-  *r_width = 0.0f;
-  return 0;
-}
-
-int BUI_raster_text(BuiRaster *r,
-                    float x,
-                    float y,
-                    const char *utf8,
-                    int len,
-                    float size,
-                    const float rgba[4])
-{
-  (void)r;
-  (void)x;
-  (void)y;
-  (void)utf8;
-  (void)len;
-  (void)size;
-  (void)rgba;
-  return 0;
-}
-
+#else
 int BUI_raster_present_native(BuiRaster *r, void *window_handle, int full)
 {
-  (void)r;
+  if (r->gpu) {
+    if (!bui_gpu_present(r->gpu, full)) {
+      gpu_drop(r);
+    }
+    return 1;
+  }
   (void)window_handle;
   (void)full;
   return 0;
 }
-
-unsigned BUI_text_generation(void)
-{
-  return 1;
-}
-
-const BuiTextRun *BUI_text_prepare(
-    const char *family, int flags, float size, const char *utf8, int len, float *r_width)
-{
-  (void)family;
-  (void)flags;
-  (void)size;
-  (void)utf8;
-  (void)len;
-  if (r_width) {
-    *r_width = 0.0f;
-  }
-  return NULL;
-}
-
-void BUI_raster_text_run(BuiRaster *r, float x, float y, const BuiTextRun *run, const float rgba[4])
-{
-  (void)r;
-  (void)x;
-  (void)y;
-  (void)run;
-  (void)rgba;
-}
-
 #endif
 
 /** \} */

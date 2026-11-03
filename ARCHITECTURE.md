@@ -59,6 +59,29 @@ defines `BuiGpuSink` — a function-pointer table (`triangles`, `lines`,
 - applies the model matrix and forwards screen-space primitives to the sink,
 - or, with no sink installed, discards everything (pure null).
 
+### Raster and GPU renderer
+
+The kit itself draws through `GPU_raster.h`:
+- **Software raster** (`gpu/intern/gpu_raster.c`): the default. It renders
+  anti-aliased SDF primitives into a CPU frame buffer, in parallel bands.
+  Text is a glyph-run cache over GDI (Windows) or stb_truetype (everywhere
+  else; `BUI_TEXT_STB=ON` selects it on Windows too).
+- **GPU renderer** (`gpu/intern/gpu_d3d11.c`, `gpu/shaders/bui_ui.hlsl`):
+  opt-in with `BUI_GPU=1`, `BUI_gpu_set_default`, Rust `.gpu(true)` or
+  tkinter `Tk(gpu=True)`.
+
+In GPU mode the same `BUI_raster_*` calls record one 128-byte instance per
+primitive, after the same clip test. This follows Blender's
+`GPU_SHADER_2D_WIDGET_BASE_INST` batching in `interface_widgets.cc`:
+- One uber-shader evaluates the software raster's coverage formulas, so the
+  pixels match. `gpu/tests/test_gpu_parity.c` checks this.
+- Text runs and images are cached in atlases. Polygons are covered on the
+  CPU and uploaded as masks.
+- Frames render into a persistent target, so damage rectangles still limit
+  redraws. Presentation uses a flip-model swap chain with dirty rects.
+- The device is created on a worker thread, and a lost device falls back
+  to software.
+
 Real renderers plug in at three levels: C (`bui_set_render_sink`), Qt/C++
 (`BUI::QtSink`), Python (`buipy.set_backend`). See INTEGRATION.md.
 

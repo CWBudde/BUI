@@ -2058,6 +2058,23 @@ static PyObject *kitwin_frames(KitWindowObject *self, void *c)
   return PyLong_FromLong(BK_window_frames(self->win));
 }
 
+static PyObject *kitwin_get_gpu(KitWindowObject *self, void *c)
+{
+  return PyBool_FromLong(self->win && BK_window_gpu(self->win));
+}
+
+static int kitwin_set_gpu(KitWindowObject *self, PyObject *v, void *c)
+{
+  const int on = v ? PyObject_IsTrue(v) : 0;
+  if (on < 0) {
+    return -1;
+  }
+  if (self->win) {
+    BK_window_set_gpu(self->win, on);
+  }
+  return 0;
+}
+
 static PyObject *kitwin_hwnd(KitWindowObject *self, void *c)
 {
   return PyLong_FromVoidPtr(BK_window_handle(self->win));
@@ -2149,6 +2166,8 @@ static PyMethodDef kitwin_methods[] = {
 static PyGetSetDef kitwin_getset[] = {
     {"size", (getter)kitwin_size, NULL, "client size in pixels", NULL},
     {"frames", (getter)kitwin_frames, NULL, "presented frames", NULL},
+    {"gpu", (getter)kitwin_get_gpu, (setter)kitwin_set_gpu,
+     "True once frames are drawn on the GPU; set True to switch this window to the GPU", NULL},
     {"hwnd", (getter)kitwin_hwnd, NULL, "native handle", NULL},
     {"on_close", (getter)kitwin_get_on_close, (setter)kitwin_set_on_close,
      "called on the close button; return True to close", NULL},

@@ -337,6 +337,13 @@ void BK_window_set_title(BKWindow *win, const char *title);
 void BK_window_set_size(BKWindow *win, int width, int height); /* logical pixels */
 void BK_window_get_size(BKWindow *win, int *r_width, int *r_height);
 BuiRaster *BK_window_raster(BKWindow *win);
+/* GPU rendering (Direct3D 11): windows start on the GPU when
+ * BUI_gpu_set_default(1) was called or BUI_GPU=1; this turns it on for one
+ * window. The device is created in the background (the first frames use the
+ * software raster) and the window falls back to software if it fails.
+ * BK_window_gpu() is 1 once frames are drawn on the GPU. */
+void BK_window_set_gpu(BKWindow *win, int on);
+int BK_window_gpu(BKWindow *win);
 int BK_window_frames(BKWindow *win);
 void BK_window_render_now(BKWindow *win);
 int BK_window_timer(BKWindow *win, int ms); /* one-shot; returns its id */

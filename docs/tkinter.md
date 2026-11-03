@@ -79,6 +79,24 @@ root.mainloop()
 
 The full version is `examples/tk_unchanged_app.py`.
 
+## GPU rendering
+
+Pass `gpu=True` to draw the window on the GPU (Direct3D 11) instead of the
+CPU:
+
+```python
+import bui.tksyntax as tk
+
+root = tk.Tk(gpu=True)
+```
+
+The pixels are the same, but rendering uses far less CPU, which helps busy
+`Canvas` scenes most. For apps you run unchanged
+(`python -m bui.tksyntax app.py`), set `BUI_GPU=1` instead, or call
+`bui.set_gpu(True)` before the first `Tk()`. The first frames draw on the
+CPU while the device starts. If no GPU is available, the window stays on
+the software raster.
+
 ## Module map
 
 | tkinter | BUI | Notes |

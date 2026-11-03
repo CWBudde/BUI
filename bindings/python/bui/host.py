@@ -82,7 +82,8 @@ def _tk():
 
 
 class Window:
-    def __init__(self, ctx, title: str = "BUI", size=(640, 480), native: bool = None):
+    def __init__(self, ctx, title: str = "BUI", size=(640, 480), native: bool = None,
+                 gpu: bool = None):
         self.ctx = ctx
         self._title, self._size = title, tuple(size)
         self.native = native_available() if native is None else native
@@ -93,6 +94,8 @@ class Window:
         if self.native:
             self._win = buipy.KitWindow(ctx, title, *self._size)
             self._win.on_close = self._close_requested
+            if gpu:  # None: buipy.set_gpu() / BUI_GPU decide
+                self._win.gpu = True
         else:
             self._make_tk()
         _windows.append(self)

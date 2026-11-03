@@ -25,6 +25,7 @@ use crate::geometry::{rect, Bounds, Units};
 use crate::html::{tag_kind, ua_stylesheet, TagKind};
 use crate::paint::{Image, ImageCache};
 use crate::prof::{span, Phase};
+use crate::style::ContentPart;
 use crate::style::{apply, Computed, DisplayKind, Fnv, FnvMap, TextAlign, TextTransform, VAlign, WhiteSpace};
 use crate::text::{self, TextCache};
 use crate::widgets::WidgetSpec;
@@ -98,11 +99,13 @@ struct StyleKey {
 pub(crate) struct StyleStore {
     styles: Vec<Computed>,
     cache: FnvMap<u64, Vec<(StyleKey, StyleId)>>,
+    /// Custom property maps the styles point into (`Computed::vars`).
+    vars: crate::vars::Vars,
 }
 
 impl Default for StyleStore {
     fn default() -> Self {
-        StyleStore { styles: vec![Computed::default()], cache: Default::default() }
+        StyleStore { styles: vec![Computed::default()], cache: Default::default(), vars: Default::default() }
     }
 }
 
@@ -120,6 +123,7 @@ impl StyleStore {
         if self.styles.len() > 20_000 {
             self.styles.truncate(1);
             self.cache.clear();
+            self.vars.clear();
         }
     }
 
@@ -130,6 +134,55 @@ impl StyleStore {
 }
 
 /// The author stylesheet (all `<style>` elements), reparsed only when its text changes.
+/// Tailwind classes seen so far, compiled to CSS (like Tailwind's JIT):
+/// each distinct `class` attribute is scanned once.
+#[derive(Default)]
+pub(crate) struct TwJit {
+    on: bool,
+    seen: FnvMap<u64, ()>,
+    known: FnvMap<String, ()>,
+    rules: Vec<((u32, u32), usize, String)>,
+    css: String,
+    dirty: bool,
+}
+
+/// Whether class names compile as Tailwind utilities (on by default).
+pub(crate) static TAILWIND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+impl TwJit {
+    fn scan(&mut self, classes: &str) {
+        let h = fnv(&[classes.as_bytes()]);
+        if self.seen.insert(h, ()).is_some() {
+            return;
+        }
+        for c in classes.split_whitespace() {
+            if self.known.contains_key(c) {
+                continue;
+            }
+            self.known.insert(c.to_string(), ());
+            if let Some(r) = crate::tailwind::compile(c) {
+                let n = self.rules.len();
+                self.rules.push((r.sort, n, r.css));
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// The utilities, in Tailwind's order.
+    fn css(&mut self) -> &str {
+        if self.dirty {
+            self.rules.sort_by_key(|r| (r.0, r.1));
+            self.css.clear();
+            for r in &self.rules {
+                self.css.push_str(&r.2);
+                self.css.push('\n');
+            }
+            self.dirty = false;
+        }
+        &self.css
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct AuthorSheet {
     hash: u64,
@@ -166,6 +219,8 @@ pub(crate) struct ElData {
     pub id: Option<SharedString>,
     pub attrs: Vec<(SharedString, SharedString)>,
     pub listeners: Option<Box<Listeners>>,
+    /// Which of the author sheet's `:has()` hold here (bit = index).
+    pub has: u64,
 }
 
 const NONE: u32 = u32::MAX;
@@ -191,6 +246,8 @@ pub(crate) struct BoxNode {
     fp: u64,
     pub taffy: Option<NodeId>,
     pub pos: (usize, usize),
+    /// Position among siblings of the same tag, and their count.
+    pub tpos: (u32, u32),
     pub marker: Option<String>,
     // filled after layout
     pub bounds: Bounds<f32>,
@@ -240,7 +297,7 @@ pub(crate) struct LayoutCaches {
     pub text: TextCache,
     pub images: ImageCache,
     pub author: AuthorSheet,
-    pub taffy: TaffyTree<Measure>,
+    pub(crate) taffy: crate::tree::LayoutTree<Measure>,
     /// Box index of each taffy node (by slot), rebuilt in place each frame.
     box_of: Vec<u32>,
     /// Scratch for `finish`.
@@ -251,6 +308,7 @@ pub(crate) struct LayoutCaches {
     recon: Recon,
     /// Measured text leaves: key -> box index, this frame.
     text_box: FnvMap<Key, usize>,
+    tw: TwJit,
 }
 
 /// Rule indices (`Rule::order`) in the UA and author sheets.
@@ -269,12 +327,13 @@ impl Default for LayoutCaches {
             text: TextCache::default(),
             images: ImageCache::default(),
             author: AuthorSheet::default(),
-            taffy: TaffyTree::new(),
+            taffy: Default::default(),
             box_of: Vec::new(),
             acc: Vec::new(),
             matched: MatchCache::default(),
             recon: Recon::default(),
             text_box: FnvMap::default(),
+            tw: TwJit::default(),
         }
     }
 }
@@ -282,7 +341,7 @@ impl Default for LayoutCaches {
 struct Builder<'a> {
     nodes: Vec<BoxNode>,
     els: Vec<ElData>,
-    taffy: &'a mut TaffyTree<Measure>,
+    taffy: &'a mut crate::tree::LayoutTree<Measure>,
     styles: &'a mut StyleStore,
     text: &'a mut TextCache,
     images: &'a mut ImageCache,
@@ -291,8 +350,13 @@ struct Builder<'a> {
     text_box: &'a mut FnvMap<Key, usize>,
     /// Set when a node changed while building the current subtree.
     changed: bool,
+    /// `tpos` for the element about to be built.
+    next_tpos: (u32, u32),
     author: &'a Stylesheet,
     author_hash: u64,
+    /// Media query results of the UA and author sheets this frame.
+    ua_media: Vec<bool>,
+    au_media: Vec<bool>,
     state: &'a UiState,
     viewport: (f32, f32),
     title: Option<String>,
@@ -303,9 +367,9 @@ struct Builder<'a> {
 type Kids = smallvec::SmallVec<[usize; 8]>;
 type NodeList = smallvec::SmallVec<[NodeId; 8]>;
 
-/// The slot index of a taffy node (dense from 0 after `TaffyTree::clear`).
+/// The slot index of a layout node (dense: the tree reuses freed slots).
 fn slot(id: NodeId) -> usize {
-    (u64::from(id) & 0xffff_ffff) as usize
+    u64::from(id) as usize
 }
 
 /// Children of box `i` in the arena `nodes`.
@@ -345,6 +409,11 @@ impl NodeRef<'_> {
     }
     fn own_attr(&self, name: &str) -> Option<&str> {
         el_attr(self.nodes, self.els, self.i, name)
+    }
+    /// A `::before` / `::after` box (invisible to sibling selectors).
+    fn is_generated(&self, k: usize) -> bool {
+        let e = self.nodes[k].el;
+        e != NONE && self.els[e as usize].tag.starts_with("::")
     }
 }
 
@@ -394,7 +463,7 @@ impl Subject for NodeRef<'_> {
     fn prev_sibling(&self) -> Option<Self> {
         let mut k = self.nodes[self.i].prev;
         while k != NONE {
-            if self.nodes[k as usize].el != NONE {
+            if self.nodes[k as usize].el != NONE && !self.is_generated(k as usize) {
                 return Some(NodeRef { i: k as usize, ..self.clone() });
             }
             k = self.nodes[k as usize].prev;
@@ -404,15 +473,169 @@ impl Subject for NodeRef<'_> {
     fn position(&self) -> (usize, usize) {
         self.nodes[self.i].pos
     }
+    fn type_position(&self) -> (usize, usize) {
+        let t = self.nodes[self.i].tpos;
+        (t.0 as usize, t.1 as usize)
+    }
     fn is_empty(&self) -> bool {
         self.nodes[self.i].first == NONE
+    }
+    fn has(&self, id: u16) -> bool {
+        id < 64 && self.el().is_some_and(|e| e.has & (1 << id) != 0)
+    }
+    fn same(&self, o: &Self) -> bool {
+        self.i == o.i
+    }
+    fn next_sibling(&self) -> Option<Self> {
+        let mut k = self.nodes[self.i].next;
+        while k != NONE {
+            if self.nodes[k as usize].el != NONE && !self.is_generated(k as usize) {
+                return Some(NodeRef { i: k as usize, ..self.clone() });
+            }
+            k = self.nodes[k as usize].next;
+        }
+        None
+    }
+    fn first_child(&self) -> Option<Self> {
+        let k = self.nodes[self.i].first;
+        if k == NONE {
+            return None;
+        }
+        let c = NodeRef { i: k as usize, ..self.clone() };
+        if self.nodes[k as usize].el != NONE && !self.is_generated(k as usize) { Some(c) } else { c.next_sibling() }
+    }
+}
+
+/// An element of a not-yet-built subtree (for `:has()`): its tag, id,
+/// attributes and tree links, flattened from the declarative children.
+struct Flat<'d> {
+    tag: &'static str,
+    id: Option<&'d str>,
+    attrs: &'d [(SharedString, SharedString)],
+    parent: u32,
+    first: u32,
+    next: u32,
+    prev: u32,
+    pos: (usize, usize),
+    tpos: (usize, usize),
+    key: Key,
+}
+
+/// (same-tag siblings before `k`, same-tag siblings in all) for `:has()`
+/// subtrees (small: linear scans are fine there).
+fn type_counts(els: &[&Div], k: usize) -> (usize, usize) {
+    let tag = els[k].tag;
+    let before = els[..k].iter().filter(|e| e.tag == tag).count();
+    (before, before + els[k..].iter().filter(|e| e.tag == tag).count())
+}
+
+/// Flatten `div`'s element subtree (index 0 = `div` itself, the anchor).
+fn flatten<'d>(div: &'d Div, key: Key, out: &mut Vec<Flat<'d>>) {
+    out.push(Flat { tag: div.tag, id: None, attrs: &[], parent: NONE, first: NONE, next: NONE, prev: NONE,
+                    pos: (1, 1), tpos: (1, 1), key });
+    fn kids<'d>(div: &'d Div, me: u32, key: Key, out: &mut Vec<Flat<'d>>) {
+        let els: smallvec::SmallVec<[&'d Div; 16]> = div.children.iter().filter_map(|c| match c {
+            AnyElement::Element(d) => Some(d),
+            _ => None,
+        }).collect();
+        let mut prev = NONE;
+        for (k, d) in els.iter().enumerate() {
+            let ck = match &d.id {
+                Some(id) => id_key(id),
+                None => child_key(key, d.tag, k + 1),
+            };
+            let (before, total) = type_counts(&els, k);
+            let idx = out.len() as u32;
+            out.push(Flat { tag: d.tag, id: d.id.as_deref(), attrs: &d.attrs, parent: me, first: NONE, next: NONE,
+                            prev, pos: (k + 1, els.len()), tpos: (before + 1, total), key: ck });
+            if prev == NONE {
+                out[me as usize].first = idx;
+            } else {
+                out[prev as usize].next = idx;
+            }
+            prev = idx;
+            kids(d, idx, ck, out);
+        }
+    }
+    kids(div, 0, key, out);
+}
+
+#[derive(Clone)]
+struct DivSubject<'f, 'd> {
+    flat: &'f [Flat<'d>],
+    state: &'f UiState,
+    i: usize,
+}
+
+impl DivSubject<'_, '_> {
+    fn at(&self, k: u32) -> Option<Self> {
+        (k != NONE).then(|| DivSubject { i: k as usize, ..self.clone() })
+    }
+}
+
+impl Subject for DivSubject<'_, '_> {
+    fn tag(&self) -> &str {
+        self.flat[self.i].tag
+    }
+    fn id(&self) -> Option<&str> {
+        self.flat[self.i].id
+    }
+    fn has_class(&self, class: &str) -> bool {
+        self.attr("class").is_some_and(|c| c.split_whitespace().any(|w| w == class))
+    }
+    fn attr(&self, name: &str) -> Option<&str> {
+        self.flat[self.i].attrs.iter().find(|(k, _)| k.as_ref() == name).map(|(_, v)| v.as_ref())
+    }
+    fn state(&self, pseudo: &str) -> bool {
+        let key = self.flat[self.i].key;
+        match pseudo {
+            "hover" => self.state.hovered.contains(&key),
+            "active" => self.state.active.contains(&key),
+            "focus" | "focus-visible" => self.state.focused == Some(key),
+            "focus-within" => self.state.focus_path.contains(&key),
+            "checked" => self.state.checked.get(&key).copied().unwrap_or(self.attr("checked").is_some()),
+            "disabled" => self.attr("disabled").is_some(),
+            "enabled" => self.attr("disabled").is_none(),
+            "required" => self.attr("required").is_some(),
+            "link" | "any-link" => self.tag() == "a" && self.attr("href").is_some(),
+            _ => false,
+        }
+    }
+    fn parent(&self) -> Option<Self> {
+        self.at(self.flat[self.i].parent)
+    }
+    fn prev_sibling(&self) -> Option<Self> {
+        self.at(self.flat[self.i].prev)
+    }
+    fn next_sibling(&self) -> Option<Self> {
+        self.at(self.flat[self.i].next)
+    }
+    fn first_child(&self) -> Option<Self> {
+        self.at(self.flat[self.i].first)
+    }
+    fn position(&self) -> (usize, usize) {
+        self.flat[self.i].pos
+    }
+    fn type_position(&self) -> (usize, usize) {
+        self.flat[self.i].tpos
+    }
+    fn is_empty(&self) -> bool {
+        self.flat[self.i].first == NONE
+    }
+    fn same(&self, o: &Self) -> bool {
+        self.i == o.i
     }
 }
 
 // -- building -------------------------------------------------------------------------------
 
-fn collect_styles(el: &AnyElement, css: &mut String, title: &mut Option<String>) {
+fn collect_styles(el: &AnyElement, css: &mut String, title: &mut Option<String>, jit: &mut TwJit) {
     if let AnyElement::Element(d) = el {
+        if jit.on {
+            if let Some((_, classes)) = d.attrs.iter().find(|(k, _)| k.as_ref() == "class") {
+                jit.scan(classes);
+            }
+        }
         let text = || d.children.iter().filter_map(|c| match c {
             AnyElement::Text(t) => Some(t.as_ref()),
             _ => None,
@@ -423,7 +646,7 @@ fn collect_styles(el: &AnyElement, css: &mut String, title: &mut Option<String>)
             _ => {}
         }
         for c in &d.children {
-            collect_styles(c, css, title);
+            collect_styles(c, css, title, jit);
         }
     }
 }
@@ -515,8 +738,8 @@ impl<'a> Builder<'a> {
                     a.iter().map(|&k| &author.rules[k as usize]).collect());
         }
         let subj = self.subject(i);
-        let ua = ua_sheet.matches(&subj, self.viewport);
-        let au = author.matches(&subj, self.viewport);
+        let ua = ua_sheet.matches(&subj, &self.ua_media, None);
+        let au = author.matches(&subj, &self.au_media, None);
         self.matched.map.insert(memo, (ua.iter().map(|r| r.order as u32).collect(),
                                        au.iter().map(|r| r.order as u32).collect()));
         (ua, au)
@@ -534,7 +757,9 @@ impl<'a> Builder<'a> {
         }
         (if k == NONE { 0 } else { self.nodes[k as usize].fp }).hash(&mut h);
         n.pos.hash(&mut h);
+        n.tpos.hash(&mut h);
         if let Some(e) = (n.el != NONE).then(|| &self.els[n.el as usize]) {
+            e.has.hash(&mut h);
             e.tag.hash(&mut h);
             e.id.as_deref().hash(&mut h);
             for (a, v) in &e.attrs {
@@ -572,22 +797,65 @@ impl<'a> Builder<'a> {
         decls
     }
 
-    fn compute(&self, parent: StyleId, decls: &[&Decl]) -> Computed {
+    fn compute(&mut self, parent: StyleId, decls: &[&Decl]) -> Computed {
+        // custom properties first: other declarations may reference them
+        let pvars = self.styles[parent].vars;
+        let vars = if decls.iter().any(|d| d.prop.is_custom()) {
+            let mut map: Vec<(Prop, Box<[crate::css::Tok]>)> = self.styles.vars.get(pvars).to_vec();
+            for important in [false, true] {
+                for d in decls.iter().filter(|d| d.important == important && d.prop.is_custom()) {
+                    let v: Box<[crate::css::Tok]> = if crate::vars::uses_vars(&d.value) {
+                        match crate::vars::substitute(&d.value, &map) {
+                            Some(v) => v.into_boxed_slice(),
+                            None => Box::new([]), // guaranteed-invalid: falls back
+                        }
+                    } else {
+                        d.value.to_vec().into_boxed_slice()
+                    };
+                    match map.binary_search_by_key(&d.prop, |e| e.0) {
+                        Ok(i) => map[i].1 = v,
+                        Err(i) => map.insert(i, (d.prop, v)),
+                    }
+                }
+            }
+            self.styles.vars.add(map.into_boxed_slice())
+        } else {
+            pvars
+        };
         let parent = &self.styles[parent];
         let mut c = Computed::inherit(parent);
+        c.vars = vars;
+        let map = self.styles.vars.get(vars);
+        let subst = |d: &Decl| -> Option<Decl> {
+            crate::vars::substitute(&d.value, map).map(|v| Decl {
+                prop: d.prop,
+                value: crate::css::Value::Owned(v.into_boxed_slice()),
+                important: d.important,
+            })
+        };
         const FONT_SIZE: Prop = Prop::named("font-size");
         const FONT: Prop = Prop::named("font");
         let font_first = |d: &&Decl| d.prop == FONT_SIZE || d.prop == FONT;
+        let units = |fs: f32| Units { font_size: fs, viewport: self.viewport };
+        let run = |c: &mut Computed, u: Units, d: &Decl| {
+            if crate::vars::uses_vars(&d.value) {
+                if let Some(d) = subst(d) {
+                    apply(c, parent, u, &d);
+                }
+            } else {
+                apply(c, parent, u, d);
+            }
+        };
         for important in [false, true] {
             // font-size first: em lengths in the other properties depend on it
             for d in decls.iter().filter(|d| d.important == important && font_first(d)) {
-                apply(&mut c, parent, self.units(parent.font_size), d);
+                run(&mut c, units(parent.font_size), d);
             }
         }
-        let u = self.units(c.font_size);
+        let u = units(c.font_size);
         for important in [false, true] {
             for d in decls.iter().filter(|d| d.important == important && !font_first(d)) {
-                apply(&mut c, parent, u, d);
+                run(&mut c, u, d);
             }
         }
         c
@@ -620,6 +888,7 @@ impl<'a> Builder<'a> {
             fp: 0,
             taffy: None,
             pos: (1, 1),
+            tpos: (1, 1),
             marker: None,
             bounds: rect(0.0, 0.0, 0.0, 0.0),
             clip: None,
@@ -665,13 +934,36 @@ impl<'a> Builder<'a> {
         let parent_style = parent.map(|p| self.nodes[p].style).unwrap_or(ROOT_STYLE);
         let i = self.push(parent, Content::Element, None, parent_style, key, true);
         self.nodes[i].pos = pos;
+        self.nodes[i].tpos = std::mem::replace(&mut self.next_tpos, (1, 1));
         self.nodes[i].el = self.els.len() as u32;
         self.els.push(ElData {
             tag: div.tag,
             id: div.id.take(),
             attrs: std::mem::take(&mut div.attrs),
             listeners: std::mem::take(&mut div.listeners),
+            has: 0,
         });
+        if !self.author.has.is_empty() {
+            // :has() looks at the element's subtree, which isn't built yet:
+            // evaluate it on the declarative children instead
+            let mut bits = 0u64;
+            let mut flat = Vec::new();
+            for (id, entry) in self.author.has.iter().enumerate().take(64) {
+                if !entry.host_matches(&self.subject(i)) {
+                    continue;
+                }
+                if flat.is_empty() {
+                    flatten(&div, key, &mut flat);
+                }
+                let anchor = DivSubject { flat: &flat, state: self.state, i: 0 };
+                if crate::css::has_match(&entry.rels, &anchor) {
+                    bits |= 1 << id;
+                }
+            }
+            if let Some(e) = self.els.last_mut() {
+                e.has = bits;
+            }
+        }
         self.nodes[i].fp = self.fingerprint(i);
         let kind = tag_kind(div.tag);
         // widgets and replaced elements are atomic inlines; flex/grid items are blockified
@@ -731,10 +1023,86 @@ impl<'a> Builder<'a> {
                     children.insert(0, AnyElement::Text(open.into()));
                     children.push(AnyElement::Text(close.into()));
                 }
+                let pseudo = self.author.uses_pseudo() || ua_stylesheet().uses_pseudo();
+                if pseudo {
+                    self.generated(i, crate::css::PseudoElement::Before);
+                }
                 self.children(i, children);
+                if pseudo {
+                    self.generated(i, crate::css::PseudoElement::After);
+                }
             }
         }
         Some(i)
+    }
+
+    /// The `::before` / `::after` box of element `i`, when a rule gives it content.
+    fn generated(&mut self, i: usize, pe: crate::css::PseudoElement) {
+        let ua_sheet = ua_stylesheet();
+        let author: &'a Stylesheet = self.author;
+        let (ua, au) = {
+            let subj = self.subject(i);
+            (ua_sheet.matches(&subj, &self.ua_media, Some(pe)), author.matches(&subj, &self.au_media, Some(pe)))
+        };
+        if ua.is_empty() && au.is_empty() {
+            return;
+        }
+        let parent = self.nodes[i].style;
+        let tag = if pe == crate::css::PseudoElement::Before { "::before" } else { "::after" };
+        // shared like element styles: same parent + same rules = same style
+        let hash = {
+            let mut h = Fnv::default();
+            (parent, tag, self.author_hash).hash(&mut h);
+            for r in ua.iter().chain(au.iter()) {
+                (*r as *const Rule as usize).hash(&mut h);
+            }
+            h.finish()
+        };
+        let rule_ids: Vec<usize> = ua.iter().chain(au.iter()).map(|r| *r as *const Rule as usize).collect();
+        let fixup = if pe == crate::css::PseudoElement::Before { 3 } else { 4 };
+        let viewport = (self.viewport.0.to_bits(), self.viewport.1.to_bits());
+        let found = self.styles.cache.get(&hash).and_then(|b| b.iter().find(|(k, _)| {
+            k.parent == parent && k.fixup == fixup && k.viewport == viewport && k.author == self.author_hash
+                && k.rules == rule_ids
+        })).map(|(_, id)| *id);
+        let sid = match found {
+            Some(id) => id,
+            None => {
+                let decls: smallvec::SmallVec<[&Decl; 24]> =
+                    ua.iter().chain(au.iter()).flat_map(|r| r.decls.iter()).collect();
+                let mut c = self.compute(parent, &decls);
+                if matches!(self.st(i).display, DisplayKind::Flex | DisplayKind::InlineFlex
+                            | DisplayKind::Grid | DisplayKind::InlineGrid) && c.display == DisplayKind::Inline {
+                    c.display = DisplayKind::Block; // flex / grid items are blockified
+                }
+                let id = self.styles.add(c);
+                let key = StyleKey { parent, viewport, author: self.author_hash, rules: rule_ids, decls: Vec::new(), fixup };
+                self.styles.cache.entry(hash).or_default().push((key, id));
+                id
+            }
+        };
+        let st = &self.styles[sid];
+        let Some(parts) = st.content.as_ref() else { return };
+        if st.display == DisplayKind::None {
+            return;
+        }
+        let quotes = st.quotes.clone().unwrap_or_else(|| ("\u{201c}".into(), "\u{201d}".into()));
+        let mut text = String::new();
+        for p in parts.iter() {
+            match p {
+                ContentPart::Text(t) => text.push_str(t),
+                ContentPart::Attr(n) => text.push_str(self.attr(i, n).unwrap_or("")),
+                ContentPart::OpenQuote => text.push_str(&quotes.0),
+                ContentPart::CloseQuote => text.push_str(&quotes.1),
+            }
+        }
+        let key = child_key(self.nodes[i].key, tag, 0);
+        let g = self.push(Some(i), Content::Element, None, sid, key, true);
+        self.nodes[g].el = self.els.len() as u32;
+        self.els.push(ElData { tag, id: None, attrs: Vec::new(), listeners: None, has: 0 });
+        if !text.is_empty() {
+            self.push(Some(g), Content::Text(text), Some(g), sid, child_key(key, "#text", 1), true);
+        }
     }
 
     /// Children of element `i`: elements and text, keyed by position.
@@ -760,6 +1128,17 @@ impl<'a> Builder<'a> {
             }
         }
         let count = children.iter().filter(|c| matches!(c, AnyElement::Element(_))).count();
+        // positions among siblings of the same tag (`:nth-of-type`, `:last-of-type`):
+        // totals per tag (few distinct tags), then running counters, O(n)
+        let mut tag_counts: smallvec::SmallVec<[(&'static str, u32, u32); 8]> = smallvec::SmallVec::new();
+        for c in &children {
+            if let AnyElement::Element(d) = c {
+                match tag_counts.iter_mut().find(|t| std::ptr::eq(t.0, d.tag) || t.0 == d.tag) {
+                    Some(t) => t.1 += 1,
+                    None => tag_counts.push((d.tag, 1, 0)),
+                }
+            }
+        }
         let (mut k, mut n) = (0, 0);
         let parent_key = self.nodes[i].key;
         for child in children {
@@ -771,6 +1150,10 @@ impl<'a> Builder<'a> {
                         Some(id) => id_key(id),
                         None => child_key(parent_key, d.tag, k),
                     };
+                    if let Some(t) = tag_counts.iter_mut().find(|t| std::ptr::eq(t.0, d.tag) || t.0 == d.tag) {
+                        t.2 += 1;
+                        self.next_tpos = (t.2, t.1);
+                    }
                     self.element(d, Some(i), key, (k, count));
                 }
                 AnyElement::Text(t) => {
@@ -800,11 +1183,11 @@ impl<'a> Builder<'a> {
             DisplayKind::Table | DisplayKind::TableRowGroup => {
                 s.flex_direction = FlexDirection::Column;
                 let sp = if c.border_collapse { 0.0 } else { c.border_spacing.1 };
-                s.gap.height = LengthPercentage::Length(sp);
+                s.gap.height = LengthPercentage::length(sp);
                 if c.display == DisplayKind::Table && !c.border_collapse {
-                    let pad = |v: LengthPercentage, add: f32| match v {
-                        LengthPercentage::Length(p) => LengthPercentage::Length(p + add),
-                        other => other,
+                    let pad = |v: LengthPercentage, add: f32| match v.into_raw() {
+                        r if r.tag() == taffy::CompactLength::LENGTH_TAG => LengthPercentage::length(r.value() + add),
+                        _ => v,
                     };
                     let (h, v) = c.border_spacing;
                     s.padding = Rect { left: pad(s.padding.left, h), right: pad(s.padding.right, h),
@@ -814,16 +1197,17 @@ impl<'a> Builder<'a> {
             }
             DisplayKind::TableRow => {
                 s.flex_direction = FlexDirection::Row;
-                s.gap.width = LengthPercentage::Length(if c.border_collapse { 0.0 } else { c.border_spacing.0 });
+                s.gap.width = LengthPercentage::length(if c.border_collapse { 0.0 } else { c.border_spacing.0 });
                 Display::Flex
             }
+            _ if c.layout.display == Display::FlowRoot => Display::FlowRoot,
             _ => Display::Block,
         };
-        if c.display == DisplayKind::TableCell && s.size.width == Dimension::Auto {
+        if c.display == DisplayKind::TableCell && s.size.width == Dimension::auto() {
             let span = self.attr(i, "colspan").and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.0);
             s.flex_grow = span;
             s.flex_shrink = 1.0;
-            s.flex_basis = Dimension::Percent(0.0);
+            s.flex_basis = Dimension::percent(0.0);
         }
         s
     }
@@ -835,13 +1219,13 @@ impl<'a> Builder<'a> {
         // nowrap / pre text arrives as unbreakable pieces; wrapping only
         // happens at forced breaks (<br>, newlines) and between inline boxes
         s.flex_wrap = FlexWrap::Wrap;
-        s.align_items = Some(AlignItems::FlexEnd);
-        s.align_content = Some(AlignContent::FlexStart);
-        s.justify_content = Some(match c.text_align {
-            TextAlign::Center => JustifyContent::Center,
-            TextAlign::Right => JustifyContent::FlexEnd,
-            _ => JustifyContent::FlexStart,
-        });
+        s.align_items = AlignItems::FLEX_END;
+        s.align_content = AlignContent::FLEX_START;
+        s.justify_content = match c.text_align {
+            TextAlign::Center => JustifyContent::CENTER,
+            TextAlign::Right => JustifyContent::FLEX_END,
+            _ => JustifyContent::FLEX_START,
+        };
         s
     }
 
@@ -859,25 +1243,23 @@ impl<'a> Builder<'a> {
         };
         let t = &mut *self.taffy;
         if let Some(id) = reuse {
-            if t.style(id).map(|s| *s != style).unwrap_or(true) {
-                let _ = t.set_style(id, style);
+            if *t.style(id) != style {
+                t.set_style(id, style);
                 self.changed = true;
             }
-            let same_kids = t.child_count(id) == children.len()
-                && children.iter().enumerate().all(|(k, c)| t.child_at_index(id, k).ok() == Some(*c));
-            if !same_kids {
-                let _ = t.set_children(id, children);
+            if t.children(id) != children {
+                t.set_children(id, children);
                 self.changed = true;
             }
-            if t.get_node_context(id) != ctx.as_ref() {
-                let _ = t.set_node_context(id, ctx);
+            if t.context(id) != ctx.as_ref() {
+                t.set_context(id, ctx);
                 self.changed = true;
             }
             return id;
         }
         let id = match ctx {
-            Some(m) => t.new_leaf_with_context(style, m).unwrap(),
-            None => t.new_with_children(style, children).unwrap(),
+            Some(m) => t.new_leaf_with_context(style, m),
+            None => t.new_with_children(style, children),
         };
         self.changed = true;
         match self.recon.map.entry(key) {
@@ -923,7 +1305,7 @@ impl<'a> Builder<'a> {
         let outer = std::mem::replace(&mut self.changed, false);
         let id = self.layout_node_inner(i);
         if self.changed {
-            let _ = self.taffy.mark_dirty(id);
+            self.taffy.mark_dirty(id);
         }
         self.changed |= outer;
         id
@@ -933,19 +1315,19 @@ impl<'a> Builder<'a> {
         let mut base = self.base_style(i);
         if i == 0 {
             // the root fills the viewport
-            base.min_size = Size { width: Dimension::Length(self.viewport.0),
-                                   height: Dimension::Length(self.viewport.1) };
+            base.min_size = Size { width: LengthPercentageAuto::length(self.viewport.0),
+                                   height: LengthPercentageAuto::length(self.viewport.1) };
         }
         let sid = self.nodes[i].style;
         match &self.nodes[i].content {
             Content::Widget(spec) => {
                 let (w, h) = (self.widgets)(self.nodes[i].key, spec);
                 let mut s = base;
-                if s.size.width == Dimension::Auto {
-                    s.size.width = Dimension::Length(w);
+                if s.size.width == Dimension::auto() {
+                    s.size.width = Dimension::length(w);
                 }
-                if s.size.height == Dimension::Auto {
-                    s.size.height = Dimension::Length(h);
+                if s.size.height == Dimension::auto() {
+                    s.size.height = Dimension::length(h);
                 }
                 return self.leaf(i, s);
             }
@@ -957,14 +1339,14 @@ impl<'a> Builder<'a> {
                 let attr = |n: &str| self.attr(i, n).and_then(|v| v.trim_end_matches("px").parse::<f32>().ok());
                 let mut s = base;
                 let (aw, ah) = (attr("width"), attr("height"));
-                if s.size.width == Dimension::Auto {
-                    s.size.width = Dimension::Length(aw.unwrap_or(match ah {
+                if s.size.width == Dimension::auto() {
+                    s.size.width = Dimension::length(aw.unwrap_or(match ah {
                         Some(h) if ih > 0.0 => h * iw / ih,
                         _ => iw,
                     }));
                 }
-                if s.size.height == Dimension::Auto {
-                    s.size.height = Dimension::Length(ah.unwrap_or(match aw {
+                if s.size.height == Dimension::auto() {
+                    s.size.height = Dimension::length(ah.unwrap_or(match aw {
                         Some(w) if iw > 0.0 => w * ih / iw,
                         _ => ih,
                     }));
@@ -972,7 +1354,7 @@ impl<'a> Builder<'a> {
                 return self.leaf(i, s);
             }
             Content::LineBreak => {
-                let s = Style { size: Size { width: Dimension::Percent(1.0), height: Dimension::Length(0.0) },
+                let s = Style { size: Size { width: Dimension::percent(1.0), height: Dimension::length(0.0) },
                                 flex_shrink: 0.0, ..Default::default() };
                 return self.leaf(i, s);
             }
@@ -1117,7 +1499,7 @@ impl<'a> Builder<'a> {
         let ls = Self::line_style(&self.styles[style], Style::default());
         let id = self.node(key, ls, None, &line);
         if self.changed {
-            let _ = self.taffy.mark_dirty(id);
+            self.taffy.mark_dirty(id);
         }
         self.nodes[anon].taffy = Some(id);
         out.push(id);
@@ -1216,9 +1598,9 @@ impl<'a> Builder<'a> {
             let content = Content::Word { src: src as u32, start: a as u32, end: b as u32 };
             let node = self.push(Some(owner), content, Some(owner), sid, child_key(src_key, "#w", n), false);
             let s = Style {
-                size: Size { width: Dimension::Length(w.ceil()), height: Dimension::Length(line_h) },
+                size: Size { width: Dimension::length(w.ceil()), height: Dimension::length(line_h) },
                 flex_shrink: 0.0,
-                margin: Rect { left: LengthPercentageAuto::Length(if n == 0 { indent } else { 0.0 }),
+                margin: Rect { left: LengthPercentageAuto::length(if n == 0 { indent } else { 0.0 }),
                                ..Rect::zero() },
                 ..Default::default()
             };
@@ -1227,7 +1609,7 @@ impl<'a> Builder<'a> {
                 let br = self.push(Some(owner), Content::LineBreak, Some(owner), sid,
                                    child_key(src_key, "#br", n), false);
                 line.push(self.leaf(br, Style {
-                    size: Size { width: Dimension::Percent(1.0), height: Dimension::Length(0.0) },
+                    size: Size { width: Dimension::percent(1.0), height: Dimension::length(0.0) },
                     flex_shrink: 0.0,
                     ..Default::default()
                 }));
@@ -1289,7 +1671,12 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
                      recycle: Frame, widgets: &mut dyn FnMut(Key, &WidgetSpec) -> (f32, f32)) -> Frame {
     let mut css = String::new();
     let mut title = None;
-    collect_styles(&root, &mut css, &mut title);
+    caches.tw.on = TAILWIND.load(std::sync::atomic::Ordering::Relaxed);
+    collect_styles(&root, &mut css, &mut title, &mut caches.tw);
+    if caches.tw.on && !caches.tw.rules.is_empty() {
+        css.push('\n');
+        css.push_str(caches.tw.css());
+    }
     let css_hash = fnv(&[css.as_bytes()]);
     if css_hash != caches.author.hash {
         caches.author = AuthorSheet { hash: css_hash, sheet: Stylesheet::parse(&css) };
@@ -1297,7 +1684,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
     caches.styles.begin_frame();
     // the taffy tree persists: drop last frame's duplicates, start a new stamp
     for id in caches.recon.extra.drain(..) {
-        let _ = caches.taffy.remove(id);
+        caches.taffy.remove(id);
     }
     caches.recon.stamp = caches.recon.stamp.wrapping_add(1);
     caches.text_box.clear();
@@ -1308,7 +1695,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         caches.matched.map.clear();
         caches.matched.author = caches.author.hash;
     }
-    let LayoutCaches { styles, text, images, author, taffy, box_of, acc, matched, recon, text_box } = caches;
+    let LayoutCaches { styles, text, images, author, taffy, box_of, acc, matched, recon, text_box, .. } = caches;
     let mut b = Builder {
         nodes,
         els,
@@ -1320,8 +1707,11 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         recon,
         text_box,
         changed: false,
+        next_tpos: (1, 1),
         author: &author.sheet,
         author_hash: author.hash,
+        ua_media: ua_stylesheet().media_results(&crate::css::MediaEnv::viewport(viewport)),
+        au_media: author.sheet.media_results(&crate::css::MediaEnv::viewport(viewport)),
         state,
         viewport,
         title,
@@ -1354,16 +1744,15 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         if *st == stamp {
             return true;
         }
-        let _ = taffy_ref.remove(*id);
+        taffy_ref.remove(*id);
         false
     });
     let avail = Size { width: AvailableSpace::Definite(viewport.0),
                        height: AvailableSpace::Definite(viewport.1) };
     let Builder { nodes, els, taffy, styles, text: tc, title, text_box, .. } = b;
-    taffy
-        .compute_layout_with_measure(root_id, avail, |known, available, _id, ctx, _style| {
+    taffy.compute(root_id, avail, |known, available, ctx| {
             match ctx {
-                Some(Measure::Text { key, size, flags, line, nowrap, .. }) => {
+                Measure::Text { key, size, flags, line, nowrap, .. } => {
                     let text = match text_box.get(key).map(|&k| &nodes[k].content) {
                         Some(Content::Text(t)) => t.as_str(),
                         _ => "",
@@ -1384,10 +1773,8 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
                     Size { width: known.width.unwrap_or(w.ceil()),
                            height: known.height.unwrap_or(*line * lines.len().max(1) as f32) }
                 }
-                None => Size::ZERO,
             }
-        })
-        .unwrap();
+        });
     drop(s);
     let _s = span(Phase::Place);
     let mut frame = Frame { nodes, els, title, by_key: Default::default() };
@@ -1402,7 +1789,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         }
     }
     let mut walk = Walk { t: taffy, box_of, state, vp: viewport, styles, text: tc };
-    walk.place(&mut frame.nodes, root_id, 0.0, 0.0, None);
+    walk.place(&mut frame.nodes, root_id, 0.0, 0.0, None, (0.0, 0.0));
     finish(&mut frame.nodes, styles, acc);
     frame
 }
@@ -1410,7 +1797,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
 /// Positions follow the taffy tree (words live in line containers, which may
 /// be anonymous); translate and scroll offsets shift whole subtrees.
 struct Walk<'a> {
-    t: &'a TaffyTree<Measure>,
+    t: &'a crate::tree::LayoutTree<Measure>,
     box_of: &'a [u32],
     state: &'a UiState,
     vp: (f32, f32),
@@ -1419,11 +1806,11 @@ struct Walk<'a> {
 }
 
 impl Walk<'_> {
-    fn place(&mut self, nodes: &mut [BoxNode], id: NodeId, ox: f32, oy: f32, clip: Option<Bounds<f32>>) {
-        let l = match self.t.layout(id) {
-            Ok(l) => *l,
-            Err(_) => return,
-        };
+    /// `cb`: the origin of the containing block of absolutely positioned
+    /// descendants (taffy places those relative to it, not to their parent).
+    fn place(&mut self, nodes: &mut [BoxNode], id: NodeId, ox: f32, oy: f32, clip: Option<Bounds<f32>>,
+             cb: (f32, f32)) {
+        let l = *self.t.layout(id);
         let (mut x, mut y) = (ox + l.location.x, oy + l.location.y);
         let (w, h) = (l.size.width, l.size.height);
         let mut child_clip = clip;
@@ -1455,8 +1842,8 @@ impl Walk<'_> {
                     let axis = |o: Overflow, content: f32, view: f32| {
                         if o == Overflow::Scroll { (content - view).max(0.0) } else { 0.0 }
                     };
-                    let range = (axis(ov.x, l.content_size.width + l.padding.right, pad.size.width),
-                                 axis(ov.y, l.content_size.height + l.padding.bottom, pad.size.height));
+                    let range = (axis(ov.x, l.scrollable_overflow_rect.right, pad.size.width),
+                                 axis(ov.y, l.scrollable_overflow_rect.bottom, pad.size.height));
                     nodes[i].scroll_range = range;
                     let (ax, ay) = self.state.scroll.get(&nodes[i].key).copied().unwrap_or((0.0, 0.0));
                     sx = ax.clamp(0.0, range.0);
@@ -1468,10 +1855,15 @@ impl Walk<'_> {
                 place_folded_text(nodes, i, k, rect(x, y, w, h), &l, self.styles, self.text);
             }
         }
-        let n = self.t.child_count(id);
-        for c in 0..n {
-            let k = self.t.child_at_index(id, c).unwrap();
-            self.place(nodes, k, x - sx, y - sy, child_clip);
+        let inner = (x - sx, y - sy);
+        let cb = if self.t.style(id).position == Position::Static { cb } else { inner };
+        for &k in self.t.children(id) {
+            let (kx, ky) = match self.t.style(k).position {
+                Position::Absolute => cb,
+                Position::Fixed => (0.0, 0.0),
+                _ => inner,
+            };
+            self.place(nodes, k, kx, ky, child_clip, cb);
         }
     }
 }
@@ -1504,17 +1896,18 @@ fn place_folded_text(nodes: &mut [BoxNode], i: usize, k: usize, b: Bounds<f32>, 
         2 => room - size,
         _ => 0.0,
     };
-    let justify = match s.justify_content {
-        Some(JustifyContent::Center | JustifyContent::SpaceAround | JustifyContent::SpaceEvenly) => 1,
-        Some(JustifyContent::End | JustifyContent::FlexEnd) => 2,
+    use taffy::style::{AlignContentKeyword as Ac, AlignItemsKeyword as Ai};
+    let justify = match s.justify_content.keyword() {
+        Ac::Center | Ac::SpaceAround | Ac::SpaceEvenly => 1,
+        Ac::End | Ac::FlexEnd => 2,
         _ => 0,
     };
-    let align = match s.align_items {
-        Some(AlignItems::Center) => 1,
-        Some(AlignItems::End | AlignItems::FlexEnd) => 2,
+    let align = match s.align_items.keyword() {
+        Ai::Center => 1,
+        Ai::End | Ai::FlexEnd => 2,
         _ => 0,
     };
-    let stretch = matches!(s.align_items, None | Some(AlignItems::Stretch));
+    let stretch = matches!(s.align_items.keyword(), Ai::Normal | Ai::Stretch);
     let tb = match c.display {
         DisplayKind::Flex | DisplayKind::InlineFlex if s.flex_direction == FlexDirection::Row => {
             rect(cb.origin.x + at(cb.size.width, tw, justify), cb.origin.y + at(cb.size.height, th, align), tw, th)

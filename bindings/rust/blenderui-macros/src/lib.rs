@@ -19,6 +19,28 @@ pub fn css(input: TokenStream) -> TokenStream {
     }
 }
 
+/// `tw!("p-4 md:flex hover:bg-sky-500/50")`: Tailwind classes, checked when
+/// the program compiles (a misspelled or unknown utility is a compile
+/// error), expanding to the class string for `.class(...)`.
+///
+#[proc_macro]
+pub fn tw(input: TokenStream) -> TokenStream {
+    let mut tokens = input.into_iter();
+    let lit = match (tokens.next(), tokens.next()) {
+        (Some(TokenTree::Literal(l)), None) => l.to_string(),
+        _ => return "::core::compile_error!(\"tw! takes one string literal\")".parse().unwrap(),
+    };
+    let Some(text) = unquote(&lit) else {
+        return "::core::compile_error!(\"tw! takes one string literal\")".parse().unwrap();
+    };
+    let unknown: Vec<&str> = text.split_whitespace().filter(|c| blenderui_tailwind::compile(c).is_none()).collect();
+    if !unknown.is_empty() {
+        let msg = format!("tw!: not Tailwind utilities: {}", unknown.join(", "));
+        return format!("::core::compile_error!({msg:?})").parse().unwrap();
+    }
+    format!("{text:?}").parse().unwrap()
+}
+
 fn expand(input: TokenStream) -> Result<String, String> {
     let mut tokens = input.into_iter();
     let lit = match (tokens.next(), tokens.next()) {
@@ -46,9 +68,17 @@ fn expand(input: TokenStream) -> Result<String, String> {
         if value.is_empty() {
             return Err(format!("css!: missing value for `{name}`"));
         }
+        // custom properties are interned at run time (once per call site)
+        let prop = if name.starts_with("--") {
+            format!("{{ static P: ::std::sync::OnceLock<::blenderui::css::Prop> = \
+                     ::std::sync::OnceLock::new(); \
+                     *P.get_or_init(|| ::blenderui::css::Prop::custom({name:?})) }}")
+        } else {
+            format!("const {{ ::blenderui::css::Prop::named({name:?}) }}")
+        };
         decls.push(format!(
             "::blenderui::css::Decl {{ \
-                prop: const {{ ::blenderui::css::Prop::named({name:?}) }}, \
+                prop: {prop}, \
                 value: {{ \
                     static V: ::std::sync::OnceLock<::std::boxed::Box<[::blenderui::css::Tok]>> = \
                         ::std::sync::OnceLock::new(); \

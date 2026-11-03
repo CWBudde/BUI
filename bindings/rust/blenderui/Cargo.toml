@@ -13,7 +13,13 @@ readme = "README.md"
 [dependencies]
 blenderui-sys = { path = "../blenderui-sys", version = "0.1.0" }
 blenderui-macros = { path = "../blenderui-macros", version = "0.1.0" }
-taffy = { version = "0.6", default-features = false, features = ["std", "flexbox", "grid", "block_layout", "taffy_tree", "content_size"] }
+blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.1.0" }
+taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "flexbox_balance", "grid", "block_layout", "float_layout", "calc", "content_size"] }
 paste = "1"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 png = "0.17"
+
+[features]
+# Draw text with the portable stb_truetype engine on Windows too (it's always
+# used on Linux, macOS and wasm).
+portable-text = ["blenderui-sys/portable-text"]

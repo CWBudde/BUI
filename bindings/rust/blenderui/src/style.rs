@@ -164,6 +164,20 @@ pub struct Computed {
     pub quotes: Option<(String, String)>,
     pub text_shadow: Option<Shadow>,
     pub decoration_color: Option<Rgba>,
+    /// Custom properties in scope (inherited), in the style store's var arena.
+    pub vars: u32,
+    /// `content` (for `::before` / `::after`): None = `normal` / `none`.
+    pub content: Option<Box<[ContentPart]>>,
+}
+
+/// One piece of generated content.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ContentPart {
+    Text(String),
+    /// `attr(name)`: the originating element's attribute.
+    Attr(String),
+    OpenQuote,
+    CloseQuote,
 }
 
 impl Default for Computed {
@@ -213,6 +227,8 @@ impl Default for Computed {
             quotes: None,
             text_shadow: None,
             decoration_color: None,
+            vars: 0,
+            content: None,
         }
     }
 }
@@ -250,6 +266,8 @@ impl Computed {
             marker_inside: parent.marker_inside,
             quotes: parent.quotes.clone(),
             text_shadow: parent.text_shadow,
+            vars: parent.vars,
+            layout: Style { display: Display::Block, direction: parent.layout.direction, ..Default::default() },
             ..Computed::default()
         }
     }
@@ -283,8 +301,8 @@ type Handler = fn(&mut Ctx, &[Tok]) -> bool;
 /// Apply one declaration; false when the property or value isn't understood.
 pub fn apply(c: &mut Computed, parent: &Computed, u: Units, d: &Decl) -> bool {
     let mut ctx = Ctx { c, parent, u };
-    if d.prop == Prop::CUSTOM {
-        return true; // custom properties are accepted (no var() substitution)
+    if d.prop.is_custom() {
+        return true; // custom properties are collected by the cascade (`vars`)
     }
     if d.prop == Prop::UNKNOWN {
         return false;
@@ -300,6 +318,20 @@ pub fn apply(c: &mut Computed, parent: &Computed, u: Units, d: &Decl) -> bool {
     }
 }
 
+/// `@supports (prop: value)`: whether this engine understands the declaration.
+pub(crate) fn supports_decl(prop: &str, value: &str) -> bool {
+    let d = Decl::new(prop.to_ascii_lowercase(), value);
+    if d.prop.is_custom() {
+        return true;
+    }
+    if d.prop == Prop::UNKNOWN {
+        return false;
+    }
+    let parent = Computed::default();
+    let mut c = Computed::default();
+    apply(&mut c, &parent, Units { font_size: 16.0, viewport: (1000.0, 800.0) }, &d)
+}
+
 /// The property index of `name` (run-time lookup for parsed CSS).
 pub(crate) fn prop_index(name: &str) -> Prop {
     static MAP: OnceLock<FnvMap<&'static str, u16>> = OnceLock::new();
@@ -309,7 +341,7 @@ pub(crate) fn prop_index(name: &str) -> Prop {
     });
     match map.get(name) {
         Some(&i) => Prop(i),
-        None if name.starts_with("--") => Prop::CUSTOM,
+        None if name.starts_with("--") => Prop::custom(name),
         None => Prop::UNKNOWN,
     }
 }
@@ -318,14 +350,14 @@ pub(crate) fn prop_index(name: &str) -> Prop {
 /// renderer (floats, bidi, generated content, background images, animation ...).
 pub const ACCEPTED: &[&str] = &[
     "background-attachment", "background-position", "background-repeat", "background-size",
-    "background-clip", "background-origin", "clear", "float", "clip", "clip-path", "content",
-    "counter-increment", "counter-reset", "counter-set", "direction", "unicode-bidi",
-    "writing-mode", "empty-cells", "list-style-image", "table-layout", "grid-template-areas",
+    "background-clip", "background-origin", "clip", "clip-path",
+    "counter-increment", "counter-reset", "counter-set", "unicode-bidi",
+    "writing-mode", "empty-cells", "list-style-image", "table-layout",
     "object-fit", "object-position", "filter", "backdrop-filter", "mix-blend-mode", "isolation",
     "transition", "transition-property", "transition-duration", "transition-timing-function",
     "transition-delay", "animation", "animation-name", "animation-duration", "animation-delay",
     "animation-iteration-count", "animation-direction", "animation-fill-mode",
-    "animation-timing-function", "animation-play-state", "will-change", "contain",
+    "animation-timing-function", "animation-play-state", "will-change",
     "user-select", "resize", "appearance", "caret-color", "scroll-behavior", "scroll-snap-type",
     "scroll-snap-align", "overscroll-behavior", "touch-action", "hyphens", "overflow-wrap",
     "word-wrap", "word-break", "tab-size", "font-feature-settings", "font-kerning",
@@ -417,59 +449,25 @@ pub fn is_implemented(name: &str) -> bool {
 // -- value helpers -----------------------------------------------------------------
 
 pub(crate) fn length(t: &Tok) -> Option<Length> {
+    use crate::calc::{is_math_fn, leaf, Calc};
     Some(match t {
         Tok::Num(v) if *v == 0.0 => Length::Px(0.0),
         Tok::Pct(p) => Length::Percent(*p),
         Tok::Ident(s) if s == "auto" => Length::Auto,
-        Tok::Dim(v, unit) => match unit.as_ref() {
-            "px" => Length::Px(*v),
-            "rem" => Length::Rem(*v),
-            "em" => Length::Em(*v),
-            "ex" | "ch" => Length::Em(*v * 0.5),
-            "vw" => Length::Vw(*v),
-            "vh" => Length::Vh(*v),
-            "vmin" | "vmax" => Length::Vw(*v),
-            "pt" => Length::Px(*v * 4.0 / 3.0),
-            "pc" => Length::Px(*v * 16.0),
-            "in" => Length::Px(*v * 96.0),
-            "cm" => Length::Px(*v * 96.0 / 2.54),
-            "mm" => Length::Px(*v * 96.0 / 25.4),
-            "q" => Length::Px(*v * 96.0 / 101.6),
-            _ => return None,
+        Tok::Dim(v, unit) => match leaf(*v, unit)? {
+            Calc::Px(x) => Length::Px(x),
+            Calc::Em(x) => Length::Em(x),
+            Calc::Rem(x) => Length::Rem(x),
+            Calc::Vw(x) => Length::Vw(x),
+            Calc::Vh(x) => Length::Vh(x),
+            Calc::Vmin(x) => Length::Vmin(x),
+            Calc::Vmax(x) => Length::Vmax(x),
+            _ => return None, // angles, times
         },
-        Tok::Func(fx) if matches!(fx.name.as_ref(), "calc" | "min" | "max" | "clamp") => {
-            return calc(&fx.name, &fx.args)
-        }
+        Tok::Calc(c) => Length::Calc(c),
+        Tok::Func(fx) if is_math_fn(&fx.name) => Length::Calc(Calc::parse_fn(&fx.name, &fx.args)?),
         _ => return None,
     })
-}
-
-/// `calc()` and friends: sums of pixels, or of percentages (a mix keeps the
-/// percentage part, the closest a single taffy length can express).
-fn calc(f: &str, args: &[Vec<Tok>]) -> Option<Length> {
-    let eval = |toks: &[Tok]| -> Option<Length> {
-        let (mut px, mut pct, mut sign, mut any_pct) = (0.0f32, 0.0f32, 1.0f32, false);
-        for t in toks {
-            match t {
-                Tok::Delim('+') => sign = 1.0,
-                Tok::Delim('-') => sign = -1.0,
-                Tok::Pct(p) => {
-                    pct += sign * p;
-                    any_pct = true;
-                }
-                other => {
-                    let l = length(other)?;
-                    px += sign * l.to_px(&Units { font_size: 16.0, viewport: (0.0, 0.0) })?;
-                }
-            }
-        }
-        Some(if any_pct { Length::Percent(pct) } else { Length::Px(px) })
-    };
-    match f {
-        "calc" => eval(args.first()?),
-        "min" | "max" => args.iter().filter_map(|a| eval(a)).next(),
-        _ => args.get(1).and_then(|a| eval(a)),
-    }
 }
 
 pub(crate) fn tok_text(t: &Tok) -> String {
@@ -492,6 +490,7 @@ pub(crate) fn tok_text(t: &Tok) -> String {
         Tok::Comma => ",".into(),
         Tok::Slash => "/".into(),
         Tok::Delim(c) => c.to_string(),
+        Tok::Calc(c) => format!("{c:?}"),
     }
 }
 
@@ -499,14 +498,9 @@ pub(crate) fn color(t: &Tok, current: Rgba) -> Option<Rgba> {
     match t {
         Tok::Color(c) => Some(*c),
         Tok::Ident(s) if s == "currentcolor" => Some(current),
-        Tok::Ident(s) if matches!(s.as_ref(), "canvas" | "field") => Some(crate::color::rgb(0x282828)),
-        Tok::Ident(s) if matches!(s.as_ref(), "canvastext" | "fieldtext" | "buttontext") => {
-            Some(crate::color::rgb(0xe6e6e6))
-        }
-        Tok::Ident(s) if matches!(s.as_ref(), "linktext" | "highlight") => {
-            Some(crate::color::rgb(0x4772b3))
-        }
-        Tok::Hash(_) | Tok::Ident(_) | Tok::Func(..) => parse_color(&tok_text(t)),
+        Tok::Ident(s) => crate::color4::system(s).or_else(|| parse_color(s)),
+        Tok::Hash(_) => parse_color(&tok_text(t)),
+        Tok::Func(fx) => crate::color4::color_fn(fx, current),
         _ => None,
     }
 }
@@ -529,34 +523,61 @@ fn px(ctx: &Ctx, l: Length) -> f32 {
 
 fn lp(ctx: &Ctx, l: Length) -> LengthPercentage {
     match l {
-        Length::Percent(p) => LengthPercentage::Percent(p / 100.0),
-        Length::Auto => LengthPercentage::Length(0.0),
-        other => LengthPercentage::Length(px(ctx, other)),
+        Length::Percent(p) => LengthPercentage::percent(p / 100.0),
+        Length::Auto => LengthPercentage::length(0.0),
+        Length::Calc(c) if c.has_pct() => LengthPercentage::calc(c.resolve(&ctx.u).as_ptr()),
+        other => LengthPercentage::length(px(ctx, other)),
     }
 }
 
 fn lpa(ctx: &Ctx, l: Length) -> LengthPercentageAuto {
     match l {
-        Length::Percent(p) => LengthPercentageAuto::Percent(p / 100.0),
-        Length::Auto => LengthPercentageAuto::Auto,
-        other => LengthPercentageAuto::Length(px(ctx, other)),
+        Length::Percent(p) => LengthPercentageAuto::percent(p / 100.0),
+        Length::Auto => LengthPercentageAuto::auto(),
+        Length::Calc(c) if c.has_pct() => LengthPercentageAuto::calc(c.resolve(&ctx.u).as_ptr()),
+        other => LengthPercentageAuto::length(px(ctx, other)),
     }
 }
 
 fn dim(ctx: &Ctx, l: Length) -> Dimension {
     match l {
-        Length::Percent(p) => Dimension::Percent(p / 100.0),
-        Length::Auto => Dimension::Auto,
-        other => Dimension::Length(px(ctx, other)),
+        Length::Percent(p) => Dimension::percent(p / 100.0),
+        Length::Auto => Dimension::auto(),
+        Length::Calc(c) if c.has_pct() => Dimension::calc(c.resolve(&ctx.u).as_ptr()),
+        other => Dimension::length(px(ctx, other)),
     }
 }
 
+/// `width`-like values: lengths plus the sizing keywords.
 fn dim_kw(ctx: &Ctx, v: &[Tok]) -> Option<Dimension> {
     match kw(v) {
-        Some("none") | Some("max-content") | Some("min-content") | Some("fit-content") => {
-            Some(Dimension::Auto)
+        Some("none") => Some(Dimension::auto()),
+        Some("min-content") => Some(Dimension::min_content()),
+        Some("max-content") => Some(Dimension::max_content()),
+        Some("fit-content") => Some(Dimension::fit_content()),
+        Some("stretch" | "-webkit-fill-available" | "-moz-available" | "fill-available") => {
+            Some(Dimension::stretch())
         }
-        _ => v.first().and_then(length).map(|l| dim(ctx, l)),
+        _ => match v.first()? {
+            Tok::Func(fx) if fx.name == "fit-content" => {
+                Some(match length(fx.args.first()?.first()?)? {
+                    Length::Percent(p) => Dimension::fit_content_percent(p / 100.0),
+                    Length::Calc(c) if c.has_pct() => Dimension::fit_content_calc(c.resolve(&ctx.u).as_ptr()),
+                    l => Dimension::fit_content_px(px(ctx, l)),
+                })
+            }
+            t => length(t).map(|l| dim(ctx, l)),
+        },
+    }
+}
+
+/// `min-width`-like values (taffy has no sizing keywords there yet: they act as auto).
+fn lpa_kw(ctx: &Ctx, v: &[Tok]) -> Option<LengthPercentageAuto> {
+    match kw(v) {
+        Some("none" | "min-content" | "max-content" | "fit-content" | "stretch") => {
+            Some(LengthPercentageAuto::auto())
+        }
+        _ => v.first().and_then(length).map(|l| lpa(ctx, l)),
     }
 }
 
@@ -610,7 +631,7 @@ fn set_inset(ctx: &mut Ctx, side: usize, l: Length) {
 }
 
 fn set_border_width(ctx: &mut Ctx, side: usize, w: f32) {
-    let v = LengthPercentage::Length(w);
+    let v = LengthPercentage::length(w);
     let b = &mut ctx.c.layout.border;
     match side {
         0 => b.top = v,
@@ -665,125 +686,238 @@ fn per_side(v: &[Tok], mut f: impl FnMut(usize, &Tok) -> bool) -> bool {
 
 fn align(v: &str) -> Option<AlignItems> {
     Some(match v {
-        "start" | "self-start" => AlignItems::Start,
-        "end" | "self-end" => AlignItems::End,
-        "flex-start" | "left" => AlignItems::FlexStart,
-        "flex-end" | "right" => AlignItems::FlexEnd,
-        "center" => AlignItems::Center,
-        "baseline" | "first" | "last" => AlignItems::Baseline,
-        "stretch" | "normal" => AlignItems::Stretch,
+        "start" => AlignItems::START,
+        "end" => AlignItems::END,
+        "self-start" => AlignItems::SELF_START,
+        "self-end" => AlignItems::SELF_END,
+        "flex-start" | "left" => AlignItems::FLEX_START,
+        "flex-end" | "right" => AlignItems::FLEX_END,
+        "center" | "anchor-center" => AlignItems::CENTER,
+        "baseline" | "first" | "last" => AlignItems::BASELINE,
+        "stretch" => AlignItems::STRETCH,
+        "normal" | "legacy" => AlignItems::NORMAL,
         _ => return None,
     })
 }
 
 fn align_content(v: &str) -> Option<AlignContent> {
     Some(match v {
-        "start" => AlignContent::Start,
-        "end" => AlignContent::End,
-        "flex-start" | "left" => AlignContent::FlexStart,
-        "flex-end" | "right" => AlignContent::FlexEnd,
-        "center" => AlignContent::Center,
-        "stretch" | "normal" => AlignContent::Stretch,
-        "space-between" => AlignContent::SpaceBetween,
-        "space-around" => AlignContent::SpaceAround,
-        "space-evenly" => AlignContent::SpaceEvenly,
+        "start" => AlignContent::START,
+        "end" => AlignContent::END,
+        "flex-start" | "left" => AlignContent::FLEX_START,
+        "flex-end" | "right" => AlignContent::FLEX_END,
+        "center" => AlignContent::CENTER,
+        "stretch" => AlignContent::STRETCH,
+        "normal" => AlignContent::NORMAL,
+        "space-between" => AlignContent::SPACE_BETWEEN,
+        "space-around" => AlignContent::SPACE_AROUND,
+        "space-evenly" => AlignContent::SPACE_EVENLY,
+        "baseline" | "first" | "last" => AlignContent::START,
         _ => return None,
     })
 }
 
+/// `[safe | unsafe] <keyword>` (and `first baseline` / `last baseline`).
+fn safety(v: &[Tok]) -> taffy::style::AlignmentSafety {
+    use taffy::style::AlignmentSafety;
+    match v.iter().filter_map(Tok::ident).next() {
+        Some("safe") => AlignmentSafety::Safe,
+        Some("unsafe") => AlignmentSafety::Unsafe,
+        _ => AlignmentSafety::Default,
+    }
+}
+
 fn kw_align(v: &[Tok]) -> Option<AlignItems> {
     v.iter().filter_map(Tok::ident).filter(|s| *s != "safe" && *s != "unsafe").next_back()
-        .and_then(align)
+        .and_then(align).map(|a| a.with_safety(safety(v)))
 }
 
 fn kw_align_content(v: &[Tok]) -> Option<AlignContent> {
     v.iter().filter_map(Tok::ident).filter(|s| *s != "safe" && *s != "unsafe").next_back()
-        .and_then(align_content)
+        .and_then(align_content).map(|a| a.with_safety(safety(v)))
 }
 
 // -- grid ----------------------------------------------------------------------------
 
+type Ident = String;
+use taffy::style::{GridTemplateArea, GridTemplateAreas, GridTemplateComponent, GridTemplateRepetition,
+                   RepetitionCount};
+
 fn track_min(ctx: &Ctx, t: &Tok) -> Option<MinTrackSizingFunction> {
     Some(match t.ident() {
-        Some("auto") => MinTrackSizingFunction::Auto,
-        Some("min-content") => MinTrackSizingFunction::MinContent,
-        Some("max-content") => MinTrackSizingFunction::MaxContent,
+        Some("auto") => MinTrackSizingFunction::auto(),
+        Some("min-content") => MinTrackSizingFunction::min_content(),
+        Some("max-content") => MinTrackSizingFunction::max_content(),
         _ => match t {
-            Tok::Dim(_, u) if u == "fr" => MinTrackSizingFunction::Auto,
-            _ => MinTrackSizingFunction::Fixed(lp(ctx, length(t)?)),
+            Tok::Dim(_, u) if u == "fr" => MinTrackSizingFunction::auto(),
+            _ => match length(t)? {
+                Length::Percent(p) => MinTrackSizingFunction::percent(p / 100.0),
+                Length::Calc(c) if c.has_pct() => MinTrackSizingFunction::calc(c.resolve(&ctx.u).as_ptr()),
+                l => MinTrackSizingFunction::length(px(ctx, l)),
+            },
         },
     })
 }
 
 fn track_max(ctx: &Ctx, t: &Tok) -> Option<MaxTrackSizingFunction> {
     Some(match t.ident() {
-        Some("auto") => MaxTrackSizingFunction::Auto,
-        Some("min-content") => MaxTrackSizingFunction::MinContent,
-        Some("max-content") => MaxTrackSizingFunction::MaxContent,
+        Some("auto") => MaxTrackSizingFunction::auto(),
+        Some("min-content") => MaxTrackSizingFunction::min_content(),
+        Some("max-content") => MaxTrackSizingFunction::max_content(),
         _ => match t {
-            Tok::Dim(v, u) if u == "fr" => MaxTrackSizingFunction::Fraction(*v),
-            _ => MaxTrackSizingFunction::Fixed(lp(ctx, length(t)?)),
+            Tok::Dim(v, u) if u == "fr" => MaxTrackSizingFunction::fr(*v),
+            _ => match length(t)? {
+                Length::Percent(p) => MaxTrackSizingFunction::percent(p / 100.0),
+                Length::Calc(c) if c.has_pct() => MaxTrackSizingFunction::calc(c.resolve(&ctx.u).as_ptr()),
+                l => MaxTrackSizingFunction::length(px(ctx, l)),
+            },
         },
     })
 }
 
-fn track(ctx: &Ctx, t: &Tok) -> Option<NonRepeatedTrackSizingFunction> {
+fn track(ctx: &Ctx, t: &Tok) -> Option<TrackSizingFunction> {
     match t {
         Tok::Func(fx) if fx.name == "minmax" && fx.args.len() == 2 => Some(MinMax {
             min: track_min(ctx, fx.args[0].first()?)?,
             max: track_max(ctx, fx.args[1].first()?)?,
         }),
         Tok::Func(fx) if fx.name == "fit-content" => Some(MinMax {
-            min: MinTrackSizingFunction::Auto,
-            max: MaxTrackSizingFunction::FitContent(lp(ctx, length(fx.args.first()?.first()?)?)),
+            min: MinTrackSizingFunction::auto(),
+            max: match length(fx.args.first()?.first()?)? {
+                Length::Percent(p) => MaxTrackSizingFunction::fit_content_percent(p / 100.0),
+                Length::Calc(c) if c.has_pct() => {
+                    MaxTrackSizingFunction::fit_content_calc(c.resolve(&ctx.u).as_ptr())
+                }
+                l => MaxTrackSizingFunction::fit_content_px(px(ctx, l)),
+            },
         }),
         _ => Some(MinMax { min: track_min(ctx, t)?, max: track_max(ctx, t)? }),
     }
 }
 
-fn track_list(ctx: &Ctx, v: &[Tok]) -> Option<Vec<TrackSizingFunction>> {
-    if kw(v) == Some("none") {
-        return Some(Vec::new());
+type TrackList = (Vec<GridTemplateComponent<Ident>>, Vec<Vec<Ident>>);
+
+/// A track list with its line names (`[a b] 1fr [c] repeat(2, [d] 10px)`):
+/// tracks, and one name set per line between them.
+fn track_list(ctx: &Ctx, v: &[Tok]) -> Option<TrackList> {
+    if matches!(kw(v), Some("none") | Some("subgrid") | Some("masonry")) {
+        return Some((Vec::new(), Vec::new()));
     }
     let mut out = Vec::new();
-    for t in v {
-        match t {
+    let mut names: Vec<Vec<Ident>> = vec![Vec::new()];
+    let mut k = 0;
+    while k < v.len() {
+        match &v[k] {
+            Tok::Delim('[') => {
+                k += 1;
+                while k < v.len() && !matches!(v[k], Tok::Delim(']')) {
+                    if let Some(n) = v[k].ident() {
+                        names.last_mut()?.push(Ident::from(n));
+                    }
+                    k += 1;
+                }
+            }
             Tok::Func(fx) if fx.name == "repeat" && fx.args.len() >= 2 => {
-                let args = &fx.args;
-                let rep = match args[0].first()? {
-                    Tok::Num(n) => GridTrackRepetition::Count(*n as u16),
-                    Tok::Ident(s) if s == "auto-fill" => GridTrackRepetition::AutoFill,
-                    Tok::Ident(s) if s == "auto-fit" => GridTrackRepetition::AutoFit,
+                let count = match fx.args[0].first()? {
+                    Tok::Num(n) => RepetitionCount::Count(*n as u16),
+                    Tok::Ident(s) if s == "auto-fill" => RepetitionCount::AutoFill,
+                    Tok::Ident(s) if s == "auto-fit" => RepetitionCount::AutoFit,
                     _ => return None,
                 };
-                let tracks = args[1..].iter().flatten().map(|t| track(ctx, t))
-                    .collect::<Option<Vec<_>>>()?;
-                out.push(TrackSizingFunction::Repeat(rep, tracks));
+                let inner: Vec<Tok> = fx.args[1..].iter().flatten().cloned().collect();
+                let (tracks, inner_names) = track_list(ctx, &inner)?;
+                let tracks: Vec<TrackSizingFunction> = tracks.into_iter().filter_map(|t| match t {
+                    GridTemplateComponent::Single(t) => Some(t),
+                    GridTemplateComponent::Repeat(_) => None,
+                }).collect();
+                let line_names = if inner_names.len() == tracks.len() + 1 { inner_names } else { Vec::new() };
+                out.push(GridTemplateComponent::Repeat(GridTemplateRepetition { count, tracks, line_names }));
+                names.push(Vec::new());
             }
-            Tok::Delim('[') | Tok::Delim(']') => {}
-            _ => out.push(TrackSizingFunction::Single(track(ctx, t)?)),
+            t => {
+                out.push(GridTemplateComponent::Single(track(ctx, t)?));
+                names.push(Vec::new());
+            }
         }
+        k += 1;
     }
-    Some(out)
+    if names.iter().all(Vec::is_empty) {
+        names.clear();
+    }
+    Some((out, names))
 }
 
-fn grid_line(v: &[Tok]) -> Option<Line<GridPlacement>> {
-    let place = |toks: &[Tok]| -> Option<GridPlacement> {
-        match toks {
-            [Tok::Ident(s)] if s == "auto" => Some(GridPlacement::Auto),
-            [Tok::Num(n)] => Some(taffy::style_helpers::line(*n as i16)),
-            [Tok::Ident(s), Tok::Num(n)] if s == "span" => {
-                Some(taffy::style_helpers::span(*n as u16))
+/// `grid-template-areas: "a a b" "c . b"`.
+fn template_areas(v: &[Tok]) -> Option<Option<GridTemplateAreas<Ident>>> {
+    if kw(v) == Some("none") {
+        return Some(None);
+    }
+    let rows: Vec<Vec<String>> = v.iter().map(|t| match t {
+        Tok::Str(s) => Some(s.split_whitespace().map(str::to_string).collect()),
+        _ => None,
+    }).collect::<Option<_>>()?;
+    let cols = rows.first().map(Vec::len).unwrap_or(0);
+    if rows.is_empty() || rows.iter().any(|r| r.len() != cols) {
+        return None;
+    }
+    let mut areas: Vec<GridTemplateArea<Ident>> = Vec::new();
+    for (ri, row) in rows.iter().enumerate() {
+        for (ci, cell) in row.iter().enumerate() {
+            if cell.chars().all(|c| c == '.') {
+                continue;
             }
-            [Tok::Ident(_)] => Some(GridPlacement::Auto), // named lines/areas
-            _ => None,
+            let (r, c) = (ri as u16 + 1, ci as u16 + 1);
+            match areas.iter_mut().find(|a| a.name == *cell) {
+                Some(a) => {
+                    a.row_start = a.row_start.min(r);
+                    a.row_end = a.row_end.max(r + 1);
+                    a.column_start = a.column_start.min(c);
+                    a.column_end = a.column_end.max(c + 1);
+                }
+                None => areas.push(GridTemplateArea {
+                    name: Ident::from(cell.as_str()),
+                    row_start: r,
+                    row_end: r + 1,
+                    column_start: c,
+                    column_end: c + 1,
+                }),
+            }
         }
-    };
+    }
+    Some(Some(GridTemplateAreas { areas, row_count: rows.len() as u16, column_count: cols as u16 }))
+}
+
+fn grid_place(toks: &[Tok]) -> Option<GridPlacement<Ident>> {
+    let mut span = false;
+    let (mut num, mut name) = (None, None);
+    for t in toks {
+        match t {
+            Tok::Ident(s) if s == "span" => span = true,
+            Tok::Ident(s) if s == "auto" && toks.len() == 1 => return Some(GridPlacement::Auto),
+            Tok::Ident(s) => name = Some(Ident::from(s.as_ref())),
+            Tok::Num(n) => num = Some(*n as i32),
+            _ => return None,
+        }
+    }
+    Some(match (span, num, name) {
+        (true, n, None) => GridPlacement::Span(n.unwrap_or(1).max(1) as u16),
+        (true, n, Some(id)) => GridPlacement::NamedSpan(id, n.unwrap_or(1).max(1) as u16),
+        (false, Some(n), None) => taffy::style_helpers::line(n as i16),
+        (false, n, Some(id)) => GridPlacement::NamedLine(id, n.unwrap_or(0) as i16),
+        _ => return None,
+    })
+}
+
+fn grid_line(v: &[Tok]) -> Option<Line<GridPlacement<Ident>>> {
     let parts: Vec<&[Tok]> = v.split(|t| matches!(t, Tok::Slash)).collect();
-    let start = place(parts[0])?;
+    let start = grid_place(parts[0])?;
     let end = match parts.get(1) {
-        Some(p) => place(p)?,
-        None => GridPlacement::Auto,
+        Some(p) => grid_place(p)?,
+        // a lone area name: its -end line closes it
+        None => match &start {
+            GridPlacement::NamedLine(id, 0) => GridPlacement::NamedLine(id.clone(), 0),
+            _ => GridPlacement::Auto,
+        },
     };
     Some(Line { start, end })
 }
@@ -925,7 +1059,11 @@ fn display(ctx: &mut Ctx, v: &[Tok]) -> bool {
     let words: Vec<&str> = v.iter().filter_map(Tok::ident).collect();
     let k = match words.as_slice() {
         ["none"] => DisplayKind::None,
-        ["block"] | ["block", "flow"] | ["flow-root"] | ["block", "flow-root"] => DisplayKind::Block,
+        ["block"] | ["block", "flow"] => DisplayKind::Block,
+        ["flow-root"] | ["block", "flow-root"] => {
+            ctx.c.layout.display = Display::FlowRoot;
+            DisplayKind::Block
+        }
         ["inline"] | ["inline", "flow"] | ["ruby"] | ["ruby-text"] | ["ruby-base"] => {
             DisplayKind::Inline
         }
@@ -1046,6 +1184,64 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
     [
         // -- box model --------------------------------------------------------------
         h("display", display),
+        h("float", |c, v| {
+            let rtl = c.c.layout.direction == taffy::style::Direction::Rtl;
+            c.c.layout.float = match kw(v) {
+                Some("left") => taffy::style::Float::Left,
+                Some("right") => taffy::style::Float::Right,
+                Some("inline-start") => if rtl { taffy::style::Float::Right } else { taffy::style::Float::Left },
+                Some("inline-end") => if rtl { taffy::style::Float::Left } else { taffy::style::Float::Right },
+                Some("none") => taffy::style::Float::None,
+                _ => return false,
+            };
+            true
+        }),
+        h("clear", |c, v| {
+            let rtl = c.c.layout.direction == taffy::style::Direction::Rtl;
+            c.c.layout.clear = match kw(v) {
+                Some("left") => taffy::style::Clear::Left,
+                Some("right") => taffy::style::Clear::Right,
+                Some("inline-start") => if rtl { taffy::style::Clear::Right } else { taffy::style::Clear::Left },
+                Some("inline-end") => if rtl { taffy::style::Clear::Left } else { taffy::style::Clear::Right },
+                Some("both" | "both-inline" | "both-block") => taffy::style::Clear::Both,
+                Some("none") => taffy::style::Clear::None,
+                _ => return false,
+            };
+            true
+        }),
+        h("direction", |c, v| {
+            c.c.layout.direction = match kw(v) {
+                Some("ltr") => taffy::style::Direction::Ltr,
+                Some("rtl") => taffy::style::Direction::Rtl,
+                _ => return false,
+            };
+            true
+        }),
+        h("contain", |c, v| {
+            use taffy::style::Contain;
+            let mut bits = Contain::NONE;
+            for w in v.iter().filter_map(Tok::ident) {
+                bits = match w {
+                    "none" => Contain::NONE,
+                    "layout" => bits | Contain::LAYOUT,
+                    "paint" => bits | Contain::PAINT,
+                    "content" | "strict" => bits | Contain::CONTENT,
+                    "size" | "inline-size" | "style" => bits,
+                    _ => return false,
+                };
+            }
+            c.c.layout.contain = bits;
+            true
+        }),
+        h("scrollbar-width", |c, v| {
+            c.c.layout.scrollbar_width = match kw(v) {
+                Some("auto") => 0.0, // overlay scrollbars, like the kit's
+                Some("thin") => 0.0,
+                Some("none") => 0.0,
+                _ => return false,
+            };
+            true
+        }),
         h("box-sizing", |c, v| {
             c.c.layout.box_sizing = match kw(v) {
                 Some("content-box") => BoxSizing::ContentBox,
@@ -1056,10 +1252,10 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         }),
         h("width", |c, v| dim_kw(c, v).map(|d| c.c.layout.size.width = d).is_some()),
         h("height", |c, v| dim_kw(c, v).map(|d| c.c.layout.size.height = d).is_some()),
-        h("min-width", |c, v| dim_kw(c, v).map(|d| c.c.layout.min_size.width = d).is_some()),
-        h("min-height", |c, v| dim_kw(c, v).map(|d| c.c.layout.min_size.height = d).is_some()),
-        h("max-width", |c, v| dim_kw(c, v).map(|d| c.c.layout.max_size.width = d).is_some()),
-        h("max-height", |c, v| dim_kw(c, v).map(|d| c.c.layout.max_size.height = d).is_some()),
+        h("min-width", |c, v| lpa_kw(c, v).map(|d| c.c.layout.min_size.width = d).is_some()),
+        h("min-height", |c, v| lpa_kw(c, v).map(|d| c.c.layout.min_size.height = d).is_some()),
+        h("max-width", |c, v| lpa_kw(c, v).map(|d| c.c.layout.max_size.width = d).is_some()),
+        h("max-height", |c, v| lpa_kw(c, v).map(|d| c.c.layout.max_size.height = d).is_some()),
         h("inline-size", |c, v| delegate(c, "width", v)),
         h("block-size", |c, v| delegate(c, "height", v)),
         h("min-inline-size", |c, v| delegate(c, "min-width", v)),
@@ -1099,8 +1295,11 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         // -- positioning ------------------------------------------------------------
         h("position", |c, v| {
             c.c.layout.position = match kw(v) {
-                Some("static") | Some("relative") | Some("sticky") => Position::Relative,
-                Some("absolute") | Some("fixed") => Position::Absolute,
+                Some("static") => Position::Static,
+                Some("relative") => Position::Relative,
+                Some("sticky") | Some("-webkit-sticky") => Position::Sticky,
+                Some("absolute") => Position::Absolute,
+                Some("fixed") => Position::Fixed,
                 _ => return false,
             };
             true
@@ -1139,6 +1338,7 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
                 Some("nowrap") => FlexWrap::NoWrap,
                 Some("wrap") => FlexWrap::Wrap,
                 Some("wrap-reverse") => FlexWrap::WrapReverse,
+                Some("balance") => FlexWrap::Balance,
                 _ => return false,
             };
             true
@@ -1151,7 +1351,7 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         h("flex-shrink", |c, v| v.first().and_then(number).map(|n| c.c.layout.flex_shrink = n).is_some()),
         h("flex-basis", |c, v| match kw(v) {
             Some("content") => {
-                c.c.layout.flex_basis = Dimension::Auto;
+                c.c.layout.flex_basis = Dimension::auto();
                 true
             }
             _ => dim_kw(c, v).map(|d| c.c.layout.flex_basis = d).is_some(),
@@ -1159,11 +1359,11 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         h("flex", |c, v| {
             let l = &mut c.c.layout;
             match (kw(v), v) {
-                (Some("none"), _) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (0.0, 0.0, Dimension::Auto),
-                (Some("auto"), _) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (1.0, 1.0, Dimension::Auto),
-                (Some("initial"), _) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (0.0, 1.0, Dimension::Auto),
-                (_, [Tok::Num(g)]) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (*g, 1.0, Dimension::Percent(0.0)),
-                (_, [Tok::Num(g), Tok::Num(s)]) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (*g, *s, Dimension::Percent(0.0)),
+                (Some("none"), _) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (0.0, 0.0, Dimension::auto()),
+                (Some("auto"), _) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (1.0, 1.0, Dimension::auto()),
+                (Some("initial"), _) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (0.0, 1.0, Dimension::auto()),
+                (_, [Tok::Num(g)]) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (*g, 1.0, Dimension::percent(0.0)),
+                (_, [Tok::Num(g), Tok::Num(s)]) => (l.flex_grow, l.flex_shrink, l.flex_basis) = (*g, *s, Dimension::percent(0.0)),
                 (_, [Tok::Num(g), Tok::Num(s), b]) => {
                     let Some(len) = length(b) else { return false };
                     let d = dim(c, len);
@@ -1194,7 +1394,7 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             _ => false,
         }),
         // -- alignment ------------------------------------------------------------------
-        h("align-items", |c, v| kw_align(v).map(|a| c.c.layout.align_items = Some(a)).is_some()),
+        h("align-items", |c, v| kw_align(v).map(|a| c.c.layout.align_items = a).is_some()),
         h("align-self", |c, v| match kw(v) {
             Some("auto") => {
                 c.c.layout.align_self = None;
@@ -1202,7 +1402,7 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             }
             _ => kw_align(v).map(|a| c.c.layout.align_self = Some(a)).is_some(),
         }),
-        h("justify-items", |c, v| kw_align(v).map(|a| c.c.layout.justify_items = Some(a)).is_some()),
+        h("justify-items", |c, v| kw_align(v).map(|a| c.c.layout.justify_items = a).is_some()),
         h("justify-self", |c, v| match kw(v) {
             Some("auto") => {
                 c.c.layout.justify_self = None;
@@ -1210,8 +1410,8 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             }
             _ => kw_align(v).map(|a| c.c.layout.justify_self = Some(a)).is_some(),
         }),
-        h("align-content", |c, v| kw_align_content(v).map(|a| c.c.layout.align_content = Some(a)).is_some()),
-        h("justify-content", |c, v| kw_align_content(v).map(|a| c.c.layout.justify_content = Some(a)).is_some()),
+        h("align-content", |c, v| kw_align_content(v).map(|a| c.c.layout.align_content = a).is_some()),
+        h("justify-content", |c, v| kw_align_content(v).map(|a| c.c.layout.justify_content = a).is_some()),
         h("place-items", |c, v| two_kw(c, v, "align-items", "justify-items")),
         h("place-content", |c, v| two_kw(c, v, "align-content", "justify-content")),
         h("place-self", |c, v| two_kw(c, v, "align-self", "justify-self")),
@@ -1234,10 +1434,33 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         h("grid-row-gap", |c, v| delegate(c, "row-gap", v)),
         h("grid-column-gap", |c, v| delegate(c, "column-gap", v)),
         // -- grid -------------------------------------------------------------------------
-        h("grid-template-columns", |c, v| track_list(c, v).map(|t| c.c.layout.grid_template_columns = t).is_some()),
-        h("grid-template-rows", |c, v| track_list(c, v).map(|t| c.c.layout.grid_template_rows = t).is_some()),
+        h("grid-template-columns", |c, v| track_list(c, v).map(|(t, n)| {
+            c.c.layout.grid_template_columns = t;
+            c.c.layout.grid_template_column_names = n;
+        }).is_some()),
+        h("grid-template-rows", |c, v| track_list(c, v).map(|(t, n)| {
+            c.c.layout.grid_template_rows = t;
+            c.c.layout.grid_template_row_names = n;
+        }).is_some()),
+        h("grid-template-areas", |c, v| template_areas(v).map(|a| c.c.layout.grid_template_areas = a).is_some()),
         h("grid-template", |c, v| {
             let parts: Vec<&[Tok]> = v.split(|t| matches!(t, Tok::Slash)).collect();
+            // "a a" 40px "b b" 1fr / auto 1fr: area strings, each with its row size
+            if parts[0].iter().any(|t| matches!(t, Tok::Str(_))) {
+                let strs: Vec<Tok> = parts[0].iter().filter(|t| matches!(t, Tok::Str(_))).cloned().collect();
+                let mut rows: Vec<Tok> = Vec::new();
+                for (k, t) in parts[0].iter().enumerate() {
+                    if matches!(t, Tok::Str(_)) {
+                        match parts[0].get(k + 1) {
+                            Some(n) if !matches!(n, Tok::Str(_)) => rows.push(n.clone()),
+                            _ => rows.push(Tok::Ident("auto".into())),
+                        }
+                    }
+                }
+                return delegate(c, "grid-template-areas", &strs)
+                    && delegate(c, "grid-template-rows", &rows)
+                    && parts.get(1).is_none_or(|cols| delegate(c, "grid-template-columns", cols));
+            }
             match parts.as_slice() {
                 [rows, cols] => delegate(c, "grid-template-rows", rows)
                     && delegate(c, "grid-template-columns", cols),
@@ -1290,13 +1513,20 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         h("grid-area", |c, v| {
             let parts: Vec<&[Tok]> = v.split(|t| matches!(t, Tok::Slash)).collect();
             let get = |i: usize| parts.get(i).and_then(|p| grid_line(p)).map(|l| l.start);
+            // an omitted part copies the matching earlier one when that is a
+            // name (`grid-area: head` = head / head / head / head), else auto
+            let named = |p: &Option<GridPlacement<Ident>>| match p {
+                Some(GridPlacement::NamedLine(id, 0)) => GridPlacement::NamedLine(id.clone(), 0),
+                _ => GridPlacement::Auto,
+            };
             match (get(0), get(1), get(2), get(3)) {
                 (Some(rs), cs, re, ce) => {
-                    c.c.layout.grid_row = Line { start: rs, end: re.unwrap_or(GridPlacement::Auto) };
-                    c.c.layout.grid_column = Line {
-                        start: cs.unwrap_or(GridPlacement::Auto),
-                        end: ce.unwrap_or(GridPlacement::Auto),
-                    };
+                    let rs = Some(rs);
+                    let cs = cs.or_else(|| Some(named(&rs)));
+                    let re = re.unwrap_or_else(|| named(&rs));
+                    let ce = ce.unwrap_or_else(|| named(&cs));
+                    c.c.layout.grid_row = Line { start: rs.unwrap(), end: re };
+                    c.c.layout.grid_column = Line { start: cs.unwrap(), end: ce };
                     true
                 }
                 _ => false,
@@ -1592,6 +1822,35 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             }
             _ => false,
         }),
+        h("content", |c, v| {
+            if matches!(kw(v), Some("none" | "normal")) {
+                c.c.content = None;
+                return true;
+            }
+            let mut parts = Vec::new();
+            // `content: "x" / "alt text"`: the part after the slash is alt text
+            let main = v.split(|t| matches!(t, Tok::Slash)).next().unwrap_or(&[]);
+            for t in main {
+                parts.push(match t {
+                    Tok::Str(s) => ContentPart::Text(s.to_string()),
+                    Tok::Ident(s) if s == "open-quote" => ContentPart::OpenQuote,
+                    Tok::Ident(s) if s == "close-quote" => ContentPart::CloseQuote,
+                    Tok::Ident(s) if s == "no-open-quote" || s == "no-close-quote" => continue,
+                    Tok::Func(fx) if fx.name == "attr" => {
+                        let Some(n) = fx.args.first().and_then(|a| a.first()).and_then(Tok::ident) else {
+                            return false;
+                        };
+                        ContentPart::Attr(n.to_string())
+                    }
+                    // counters and images: no counter state / inline images here
+                    Tok::Func(fx) if matches!(fx.name.as_ref(), "counter" | "counters" | "url" | "image"
+                                              | "linear-gradient" | "image-set") => continue,
+                    _ => return false,
+                });
+            }
+            c.c.content = Some(parts.into_boxed_slice());
+            true
+        }),
         h("quotes", |c, v| {
             let strs: Vec<&str> = v.iter().filter_map(|t| match t {
                 Tok::Str(s) => Some(s.as_ref()),
@@ -1728,11 +1987,11 @@ mod tests {
         let c = computed("display: flex; padding: 4px 8px; margin: 0 auto; flex: 1; gap: 2px 6px;
                           width: 50%; border: 2px solid #f00; border-radius: 4px");
         assert_eq!(c.display, DisplayKind::Flex);
-        assert_eq!(c.layout.padding.left, LengthPercentage::Length(8.0));
-        assert_eq!(c.layout.margin.left, LengthPercentageAuto::Auto);
+        assert_eq!(c.layout.padding.left, LengthPercentage::length(8.0));
+        assert_eq!(c.layout.margin.left, LengthPercentageAuto::auto());
         assert_eq!(c.layout.flex_grow, 1.0);
-        assert_eq!(c.layout.size.width, Dimension::Percent(0.5));
-        assert_eq!(c.layout.border.top, LengthPercentage::Length(2.0));
+        assert_eq!(c.layout.size.width, Dimension::percent(0.5));
+        assert_eq!(c.layout.border.top, LengthPercentage::length(2.0));
         assert_eq!(c.border_color[0], crate::color::rgb(0xff0000));
     }
 

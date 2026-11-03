@@ -303,49 +303,116 @@ From `cargo test --test parity -- --nocapture`:
 | Area                                  | Coverage                                                                         |
 | ------------------------------------- | -------------------------------------------------------------------------------- |
 | HTML elements (WHATWG index)          | **113 / 113** constructible, plus `svg` / `math` roots; 9 are Blender widgets     |
-| CSS properties                        | **173** change layout or rendering; **87** more parse but have no effect          |
-| CSS 2.1, screen properties            | **76 / 90** rendered, 90 / 90 parsed                                              |
+| CSS properties                        | **180** change layout or rendering; **81** more parse but have no effect          |
+| W3C property index (745 properties)   | **176** rendered (24%), **75** parsed without effect (10%), **494** not recognized (66%): most of these are drafts, speech, paged media and SVG |
+| CSS 2.1, screen properties            | **80 / 90** rendered, 90 / 90 parsed                                              |
 | Flexbox                               | **12 / 12**                                                                       |
-| Grid                                  | **22 / 23** (no `grid-template-areas`)                                            |
-| gpui / Tailwind `Styled` methods      | ~1,300                                                                            |
+| Grid                                  | **23 / 23** (including `grid-template-areas` and named lines)                     |
+| Tailwind CSS v4                       | Classes compile on first use (v4 theme, variants, arbitrary values); `tw!` checks them at compile time |
 
-The CSS 2.1 properties that parse without effect: `float`, `clear`, `clip`,
-`content`, `counter-increment`, `counter-reset`, `direction`,
-`unicode-bidi`, `empty-cells`, `table-layout`, `list-style-image` and
-`background-attachment` / `-position` / `-repeat` (there are no background
-images; gradients are supported).
+Beyond properties, the engine supports:
+- **Values:** every CSS math function (`calc`, `min`, `max`, `clamp`, `round`, `mod`, `rem`, trigonometry, `pow`, `hypot` ...) with mixed units, every length unit, and `var()` / `env()`.
+- **Colors:** CSS Color 4/5: `oklch`, `lab`, `color()`, `color-mix()`, relative colors and `light-dark()`.
+- **Selectors:** Selectors Level 4 (`:has()`, `:is()`, `:where()`, `:nth-child(of S)` ...), nesting, and `::before` / `::after` with `content`.
+- **At-rules:** `@media` (Media Queries 4 ranges), `@supports`, `@layer` and `@scope`.
+
+```rust
+div().class(tw!("grid grid-cols-3 gap-4 md:grid-cols-6 hover:bg-sky-500/50"))
+div().style("width: calc(100% - 2 * var(--gap)); background: color-mix(in oklch, var(--brand) 60%, white)")
+```
+
+The CSS 2.1 properties that parse without effect: `clip`, `counter-increment`, `counter-reset`, `empty-cells`, `table-layout`, `unicode-bidi`, `list-style-image` and `background-attachment` / `-position` / `-repeat` (there are no background images; gradients are supported).
+
+How much is left, against all 745 properties in the
+[W3C index](https://www.w3.org/Style/CSS/all-properties.en.html):
+
+| | Properties | Share |
+|---|---:|---:|
+| Change layout or rendering | 176 | 24% |
+| Parsed, no effect yet | 75 | 10% |
+| Not recognized | 494 | 66% |
+
+The 494 unrecognized properties break down as:
+
+| Group | Properties |
+|---|---:|
+| Draft border and corner shapes (`corner-shape`, `border-*-clip` ...) | ~78 |
+| SVG fill, stroke and markers | ~40 |
+| Gap decorations (`row-rule-*` ...) | 38 |
+| Speech and aural | 31 |
+| Animation triggers and scroll-driven animation | 26 |
+| Paged media, regions, rhythm and others | ~25 |
+| Scroll snap margins and padding | 23 |
+| Masking | 18 |
+| Everything else | ~215 |
+
+The everyday screen CSS is much further along: Flexbox 12/12, Grid 23/23 and
+CSS 2.1 80/90. The largest remaining gaps among common properties are visual
+effects (transforms, filters, blend modes, `clip-path`), animations and
+transitions, and background images.
+
+Not done yet:
+- **Parsed, not applied:** `@container` (queries parse, no container sizes yet), `@font-face`, `@keyframes`, transitions and animations.
+- **Rendering effects:** 2D/3D `rotate` / `skew` transforms, `filter` / `backdrop-filter`, blend modes, `clip-path`, masks, `border-image` and border styles other than solid.
+- **The rest of the W3C property index:** about 490 entries this engine doesn't know, mostly drafts, speech and paged media.
+- **Box sizing:** the default is `border-box` (like Tailwind's preflight), not CSS's `content-box`.
 
 ## Performance vs gpui
 
-The same UI on blenderui, [gpui-fast](https://github.com/longbridge/gpui-fast)
-0.1.13 and gpui 0.2.2: a window of N rounded, labelled cells that all change
-every frame. Ryzen 7 5800U laptop at 60 Hz, one session, median of 3 runs.
+The same UI on blenderui (GPU renderer and default software raster),
+[gpui-fast](https://github.com/longbridge/gpui-fast) 0.1.13 and gpui 0.2.2:
+a window of N rounded, labelled cells that all change every frame. Ryzen 7
+5800U laptop at 60 Hz, all apps back to back in one session.
 [bindings/rust/bench](../bindings/rust/bench/README.md) has the full table and
 how to re-run it.
 
-| | blenderui | gpui-fast | gpui |
-|---|---|---|---|
-| 100 / 1000 animated cells | 60 / 60 fps (display cap; 529 / 157 uncapped) | 60 / 60 fps | 60 / 60 fps |
-| 3000 animated cells | **57.5 fps** | 50.5 fps | 18.9 fps |
-| CPU per frame, 1000 / 3000 cells | 13.7 / 27.3 ms (all threads) | **6.7 / 20.1 ms** + GPU | 14.7 / 53.1 ms + GPU |
-| RAM (working set) | **18-31 MB** | 33-64 MB + 19-24 MB GPU | 31-76 MB + 16-21 MB GPU |
-| First frame after launch | **~6 ms** | ~250 ms | ~260 ms |
-| Idle CPU | **0 %** | 0-0.1 % | 0.7-1.4 % |
+| | blenderui GPU | blenderui CPU | gpui-fast | gpui |
+|---|---|---|---|---|
+| 1000 / 3000 animated cells | **60 / 59.9 fps** | 60 / 57.6 fps | 49.2 / 31.5 fps | 36.4 / 19.9 fps |
+| CPU per frame, 100 / 1000 / 3000 cells | **1.2 / 4.7 / 11.6 ms** | 4.6 / 10.2 / 22.0 ms | 2.7 / 20.5 / 31.9 ms + GPU | 4.7 / 27.7 / 50.5 ms + GPU |
+| RAM (working set) | 28-40 MB + 19-22 MB GPU | **21-30 MB**, no GPU | 45-65 MB + 19-24 MB GPU | 40-77 MB + 16-21 MB GPU |
+| First frame after launch | **~5 ms** | **~5 ms** | ~200 ms | ~220 ms |
+| Idle CPU | **0 %** | 0-0.9 % | 0-0.4 % | 0.9-1.4 % |
 
-blenderui leads on memory and startup, and in this session on the 3000-cell
-frame rate. gpui-fast does the least CPU work per frame; its heavy-scene frame
-rate varies between sessions on this laptop (29.7-59.8 fps). blenderui rasterises on the CPU
-in parallel bands (`BUI_RASTER_THREADS=1` forces one thread). `BUI_PROFILE=1`
-prints its per-phase frame times.
+### The GPU renderer
+
+```rust
+Application::new().gpu(true).run(|cx| { /* every window on the GPU */ });
+// or one window:
+cx.open_window(WindowOptions { gpu: Some(true), ..Default::default() }, build);
+// window.is_gpu() turns true a few frames in, once the device is ready
+```
+
+`BUI_GPU=1` / `0` overrides both. It is Direct3D 11 on Windows. Elsewhere,
+or without a device, windows stay on the software raster. Every primitive
+becomes one instance of a single shader, following Blender's instanced
+widget-base batches. Text runs and images are cached in atlases. Frames
+render into a persistent target, so only damaged regions redraw. Both
+renderers produce the same pixels (the `gpu_parity` test).
+
+The software raster draws in parallel bands (`BUI_RASTER_THREADS=1` forces
+one thread). `BUI_PROFILE=1` prints per-phase frame times for either
+renderer.
+
+### Text
+
+Windows draws text with GDI by default. Linux, macOS and wasm use the
+bundled stb_truetype engine; enable it on Windows too with the
+`portable-text` feature. It finds the platform's fonts, or `BUI_FONT` /
+`BUI_FONT_DIR`. Where there are no system fonts (wasm), register one:
+
+```rust
+blenderui::add_font("Inter", false, false, include_bytes!("Inter-Regular.ttf"));
+```
 
 ## Limitations
 
-- **No floats** (`float` is ignored), no `::before` / `::after` or generated
-  content, no right-to-left text.
+- **Floats** place block boxes, but text does not wrap around them; `direction: rtl`
+  lays boxes out right to left, but text itself is not shaped right to left.
 - **One font face**: the UI font in regular, bold and italic. `font-family`
   is parsed but `monospace` text uses the UI font.
+- **Effects and animation**: see "Not done yet" under [Coverage](#coverage).
 - **Transforms**: `translate` only; `scale()` and `rotate()` are ignored.
-- **No `var()`**: custom properties are accepted but not substituted.
 - **Inline boxes** paint their background per word; borders and padding on
   inline elements (`<kbd>`, `<code>`) are not drawn.
 - **Widgets draw above page content**, so a `z-index`ed box (a `<dialog>`)

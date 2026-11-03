@@ -1143,6 +1143,24 @@ static PyObject *buipy_has_native_text(PyObject *self, PyObject *noargs)
   return PyBool_FromLong(BUI_text_native());
 }
 
+static PyObject *buipy_set_gpu(PyObject *self, PyObject *on)
+{
+  (void)self;
+  const int v = PyObject_IsTrue(on);
+  if (v < 0) {
+    return NULL;
+  }
+  BUI_gpu_set_default(v);
+  Py_RETURN_NONE;
+}
+
+static PyObject *buipy_gpu_default(PyObject *self, PyObject *noargs)
+{
+  (void)self;
+  (void)noargs;
+  return PyBool_FromLong(BUI_gpu_default());
+}
+
 static PyObject *buipy_version(PyObject *self, PyObject *args)
 {
   int major, minor, patch;
@@ -1232,6 +1250,9 @@ static PyMethodDef buipy_methods[] = {
     {"set_font", buipy_set_font, METH_VARARGS, "set_font(family='', flags=0): font for draw_text (1 bold, 2 italic, 4 underline)."},
     {"measure_text", buipy_measure_text, METH_VARARGS, "measure_text(text, size, family='', flags=0) -> float | None."},
     {"has_native_text", buipy_has_native_text, METH_NOARGS, "True when draw_text renders natively into a Raster."},
+    {"set_gpu", buipy_set_gpu, METH_O,
+     "set_gpu(on): new native windows draw on the GPU (Direct3D 11). BUI_GPU=1/0 overrides."},
+    {"gpu_default", buipy_gpu_default, METH_NOARGS, "Whether new native windows use the GPU."},
     {"draw_triangles", buipy_draw_triangles, METH_VARARGS, "draw_triangles([(x, y), ...], [(r, g, b, a), ...]): per-vertex colored triangles."},
     {"draw_gradient", buipy_draw_gradient, METH_VARARGS, "draw_gradient(x, y, w, h, tl, tr, br, bl): bilinear corner-color rectangle."},
     {"draw_hsv_circle", buipy_draw_hsv_circle, METH_VARARGS, "draw_hsv_circle(cx, cy, radius, value): Blender HSV color wheel."},

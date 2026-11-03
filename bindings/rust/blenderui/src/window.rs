@@ -211,11 +211,15 @@ pub struct WindowOptions {
     pub titlebar: Option<TitlebarOptions>,
     pub is_resizable: Option<bool>,
     pub window_min_size: Option<Size<Pixels>>,
+    /// Draw this window on the GPU (Direct3D 11) instead of the software
+    /// raster; `None` follows [`Application::gpu`] / the `BUI_GPU` variable.
+    pub gpu: Option<bool>,
 }
 
 /// The application entry point (gpui's `Application`).
 pub struct Application {
     headless: bool,
+    gpu: Option<bool>,
 }
 
 impl Default for Application {
@@ -227,13 +231,22 @@ impl Default for Application {
 impl Application {
     /// Native windows.
     pub fn new() -> Application {
-        Application { headless: false }
+        Application { headless: false, gpu: None }
+    }
+
+    /// Draw every window on the GPU (Direct3D 11 on Windows): the same
+    /// pixels as the software raster, with rasterization off the CPU. Falls
+    /// back to software where no device exists. The `BUI_GPU` environment
+    /// variable (1/0) overrides this.
+    pub fn gpu(mut self, on: bool) -> Application {
+        self.gpu = Some(on);
+        self
     }
 
     /// Off-screen windows (tests, screenshots, CI): nothing is shown, the
     /// `simulate_*` and `draw` methods drive it.
     pub fn headless() -> Application {
-        Application { headless: true }
+        Application { headless: true, gpu: None }
     }
 
     /// Run `f`, then the event loop until every window is closed.
@@ -242,6 +255,9 @@ impl Application {
         static KIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = KIT.lock().unwrap_or_else(|e| e.into_inner());
         let headless = self.headless || unsafe { sys::BK_window_supported() } == 0;
+        if let Some(on) = self.gpu {
+            unsafe { sys::BUI_gpu_set_default(on as c_int) };
+        }
         let mut app = App::create(headless);
         f(&mut app);
         app.flush();
@@ -351,6 +367,9 @@ impl App {
                 if let Some(m) = options.window_min_size {
                     sys::BK_window_wm(*n, c"minsize".as_ptr(), (m.width.0 * w.scale) as f64,
                                       (m.height.0 * w.scale) as f64);
+                }
+                if options.gpu == Some(true) {
+                    sys::BK_window_set_gpu(*n, 1);
                 }
             }
         }
@@ -775,6 +794,13 @@ impl Window {
     /// Device pixels per logical pixel.
     pub fn scale_factor(&self) -> f32 {
         self.scale
+    }
+
+    /// Whether frames are drawn on the GPU right now (it turns on a few
+    /// frames after start, once the device is ready).
+    pub fn is_gpu(&self) -> bool {
+        // SAFETY: `native` is a live kit window owned by this Window.
+        self.native.map(|n| unsafe { sys::BK_window_gpu(n) } != 0).unwrap_or(false)
     }
 
     pub fn set_window_title(&mut self, title: &str) {

@@ -9,3 +9,6 @@ rust-version.workspace = true
 
 [lib]
 proc-macro = true
+
+[dependencies]
+blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.1.0" }

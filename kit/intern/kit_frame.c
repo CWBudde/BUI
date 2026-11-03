@@ -1549,7 +1549,10 @@ static void canvas_draw(BKNode *n)
   const int *clip = bk_draw.clip;
   const long region = (long)BK_MAX(0, clip[2] - clip[0]) * BK_MAX(0, clip[3] - clip[1]);
   const bool small = region * 4 < (long)n->w * n->h; /* a damage rectangle, not the canvas */
-  const int threads = (d->n >= PAR_MIN_ITEMS && !small) ? threads_wanted(par_threads()) : 1;
+  /* on the GPU, drawing only records instances: one thread is fastest */
+  const int threads = (d->n >= PAR_MIN_ITEMS && !small && !BUI_raster_is_gpu(bk_draw.r)) ?
+                          threads_wanted(par_threads()) :
+                          1;
   if (bk_draw.clip[2] > bk_draw.clip[0] && bk_draw.clip[3] > bk_draw.clip[1] &&
       canvas_draw_parallel(d, ox, oy, threads))
   {

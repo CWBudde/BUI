@@ -55,7 +55,20 @@ extern crate self as blenderui;
 /// ```
 pub use blenderui_macros::css;
 
+/// Tailwind CSS v4 classes checked at compile time:
+/// `div().class(tw!("p-4 md:flex hover:bg-sky-500/50"))`. Plain
+/// `.class("...")` works too (classes compile on first use); `tw!` turns a
+/// typo into a compile error:
+///
+/// ```compile_fail
+/// use blenderui::prelude::*;
+/// let _ = div().class(tw!("p-4 flx"));
+/// ```
+pub use blenderui_macros::tw;
+
+pub mod calc;
 pub mod color;
+mod color4;
 pub mod css;
 pub mod element;
 pub mod events;
@@ -64,7 +77,11 @@ pub mod html;
 pub(crate) mod layout;
 pub mod paint;
 pub(crate) mod prof;
+mod selector;
 pub mod style;
+pub use blenderui_tailwind as tailwind;
+mod tree;
+mod vars;
 pub mod styled;
 pub(crate) mod text;
 pub(crate) mod widgets;
@@ -80,9 +97,28 @@ pub use paint::{Image, Painter};
 pub use styled::{FontWeight, StyleBlock, Styled};
 pub use window::*;
 
+/// Whether `class` names also work as Tailwind CSS v4 utilities (`p-4`,
+/// `md:hover:bg-sky-500/50` ...), compiled on first use. On by default;
+/// turn it off when your own class names collide with Tailwind's.
+pub fn set_tailwind(on: bool) {
+    layout::TAILWIND.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Registers a TrueType/OpenType font under `family` (as bold and/or italic
+/// when set), e.g. bundled with `include_bytes!`. Required on wasm, where
+/// there are no system fonts; elsewhere it adds to them. Returns false when
+/// the data isn't a font.
+pub fn add_font(family: &str, bold: bool, italic: bool, data: &[u8]) -> bool {
+    let fam = std::ffi::CString::new(family).unwrap_or_default();
+    let flags = if bold { 1 } else { 0 } | if italic { 2 } else { 0 };
+    let len = data.len().min(i32::MAX as usize) as i32;
+    // SAFETY: the kit copies the bytes; both pointers are valid for the call.
+    unsafe { sys::BUI_text_add_font(fam.as_ptr(), flags, data.as_ptr().cast(), len) != 0 }
+}
+
 /// Everything an app needs: `use blenderui::prelude::*;`
 pub mod prelude {
-    pub use crate::css;
+    pub use crate::{css, tw};
     pub use crate::color::*;
     pub use crate::element::*;
     pub use crate::events::*;

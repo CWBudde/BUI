@@ -9,5 +9,9 @@ rust-version.workspace = true
 links = "bui_kit"
 build = "build.rs"
 
+[features]
+# The portable stb_truetype text engine on Windows too (always on elsewhere).
+portable-text = []
+
 [build-dependencies]
 cmake = "0.1"

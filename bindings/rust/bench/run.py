@@ -21,7 +21,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 EXE = {"blenderui": HERE / "target/release/bui-bench.exe", "gpui": HERE / "target/release/gpui-bench.exe",
-       "gpui-fast": HERE / "target/release/gpui-fast-bench.exe"}
+       "gpui-fast": HERE / "target/release/gpui-fast-bench.exe",
+       "blenderui-gpu": HERE / "target/release/bui-bench.exe"}
+# per-app environment: blenderui-gpu is blenderui with the GPU renderer
+ENV = {"blenderui": {"BUI_GPU": "0"}, "blenderui-gpu": {"BUI_GPU": "1"}}
 
 
 def gpu_sampler(pid, start_after, duration, out):
@@ -50,7 +53,9 @@ def gpu_sampler(pid, start_after, duration, out):
 def run(app, cells, mode, warmup, seconds, extra=()):
     args = [str(EXE[app]), "--cells", str(cells), "--mode", mode,
             "--warmup", str(warmup), "--seconds", str(seconds), *extra]
-    p = subprocess.Popen(args, stdout=subprocess.PIPE, text=True)
+    import os
+    env = dict(os.environ, **ENV.get(app, {}))
+    p = subprocess.Popen(args, stdout=subprocess.PIPE, text=True, env=env)
     gpu = {}
     t = threading.Thread(target=gpu_sampler, args=(p.pid, warmup + 1.0, seconds, gpu))
     t.start()
@@ -75,21 +80,22 @@ def main():
     ap.add_argument("--warmup", type=float, default=3)
     ap.add_argument("--seconds", type=float, default=10)
     ap.add_argument("--cells", default="100,1000,3000")
-    ap.add_argument("--apps", default="gpui,gpui-fast,blenderui")
+    ap.add_argument("--apps", default="gpui,gpui-fast,blenderui,blenderui-gpu")
     a = ap.parse_args()
     configs = []
     for cells in map(int, a.cells.split(",")):
         for mode in ("anim", "one", "idle"):
             for app in a.apps.split(","):
                 configs.append((app, cells, mode, ()))
-        if "blenderui" in a.apps.split(","):
-            configs.append(("blenderui", cells, "anim", ("--uncapped",)))
+        for app in ("blenderui", "blenderui-gpu"):
+            if app in a.apps.split(","):
+                configs.append((app, cells, "anim", ("--uncapped",)))
     results = []
     for app, cells, mode, extra in configs:
         rows = []
         for rep in range(a.reps):
             r = run(app, cells, mode, a.warmup, a.seconds, extra)
-            print(f"  {app:9} {cells:5} {mode}{' uncapped' if extra else ''} #{rep + 1}: {json.dumps(r)}",
+            print(f"  {app:13} {cells:5} {mode}{' uncapped' if extra else ''} #{rep + 1}: {json.dumps(r)}",
                   file=sys.stderr)
             rows.append(r)
         label = app + (" (uncapped)" if extra else "")

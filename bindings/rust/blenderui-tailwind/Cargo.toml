@@ -1,0 +1,8 @@
+[package]
+name = "blenderui-tailwind"
+description = "Tailwind CSS v4 class compiler (class name -> CSS) for blenderui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true

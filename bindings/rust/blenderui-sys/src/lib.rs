@@ -245,4 +245,12 @@ unsafe extern "C" {
     pub fn BUI_raster_pixels(r: *const BuiRaster) -> *const u32;
     pub fn BUI_text_measure(family: *const c_char, flags: c_int, size: c_float,
                             utf8: *const c_char, len: c_int, r_width: *mut c_float) -> c_int;
+    /// Registers a TrueType/OpenType font (copied) for `family` + style flags.
+    /// GPU rendering: default for new windows (BUI_GPU overrides).
+    pub fn BUI_gpu_set_default(on: c_int);
+    pub fn BUI_gpu_default() -> c_int;
+    pub fn BK_window_set_gpu(win: *mut BKWindow, on: c_int);
+    pub fn BK_window_gpu(win: *mut BKWindow) -> c_int;
+    pub fn BUI_text_add_font(family: *const c_char, flags: c_int, data: *const c_void,
+                             len: c_int) -> c_int;
 }

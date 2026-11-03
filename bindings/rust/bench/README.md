@@ -1,7 +1,8 @@
-# blenderui vs gpui vs gpui-fast
+# blenderui (CPU and GPU) vs gpui vs gpui-fast
 
 The same UI on three frameworks:
-- `bui-bench`: blenderui.
+- `bui-bench`: blenderui, on the software raster (default) or the GPU
+  renderer (`BUI_GPU=1`; `run.py` runs it as `blenderui-gpu`).
 - `gpui-bench`: [gpui](https://crates.io/crates/gpui) 0.2.2, Zed's GPU-rendered framework.
 - `gpui-fast-bench`: [gpui-fast](https://github.com/longbridge/gpui-fast) 0.1.13, a gpui fork with rendering and layout optimizations.
 
@@ -17,7 +18,8 @@ with a centred number), built with the same element tree in both
   changes: closer to a real UI (a hover, a ticking value), where reusing the
   previous frame's work pays off.
 - **idle**: the scene renders once and then nothing changes.
-- **blenderui (uncapped)**: animation without vsync pacing (`--uncapped`).
+- **blenderui (uncapped)**: animation without vsync pacing (`--uncapped`), for
+  both renderers.
 
 ## Running
 
@@ -43,74 +45,98 @@ Every configuration ran 3 times, and the table shows the medians.
 
 ## Results
 
-Ryzen 7 5800U (8 cores / 16 threads, laptop, plugged in), AMD Radeon iGPU,
-60 Hz display, Windows 11, release builds. All three apps ran back to back in
-one session, 3 runs each, medians shown. This is after blenderui's
-arena / compile-time rework (no `Rc` / `RefCell`).
+Ryzen 7 5800U (8 cores / 16 threads, laptop, plugged in, 100 % charge), AMD
+Radeon iGPU, 60 Hz display, Windows 11, release builds. All four configurations
+ran back to back in one session (`py run.py --reps 1 --warmup 2 --seconds 6`).
+`blenderui-gpu` is the same binary with `BUI_GPU=1`: the Direct3D 11 renderer
+instead of the software raster. Mode `one` changes one cell per frame; `idle`
+changes nothing.
 
 | App | Cells | Mode | FPS | CPU % (1 core = 100) | CPU ms / frame | GPU 3D % | RAM working set MB | Private MB | GPU memory MB | First frame ms |
 |---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| gpui | 100 | anim | 60.1 | 20.3 | 3.38 | 5.2 | 31.7 | 35.3 | 16.1 | 257 |
-| gpui-fast | 100 | anim | 60.0 | 7.8 | 1.30 | 3.3 | 33.6 | 39.9 | 19.1 | 258 |
-| blenderui | 100 | anim | 60.0 | 30.3 | 5.05 | 0 | 19.6 | 11.4 | 0 | 6 |
-| gpui | 100 | idle | 0.0 | 0.7 | 0 | 0.0 | 31.4 | 34.9 | 16.1 | 274 |
-| gpui-fast | 100 | idle | 0.0 | 0.0 | 0 | 0.0 | 32.5 | 39.0 | 18.8 | 254 |
-| blenderui | 100 | idle | 0.0 | 0.0 | 0 | - | 17.8 | 9.5 | 0 | 6 |
-| blenderui (uncapped) | 100 | anim | 529.3 | 329.9 | 6.24 | 0 | 19.8 | 11.8 | 0 | 7 |
-| gpui | 1000 | anim | 60.1 | 88.4 | 14.73 | 6.1 | 46.0 | 51.7 | 17.1 | 275 |
-| gpui-fast | 1000 | anim | 60.0 | 40.4 | 6.74 | 7.2 | 43.4 | 50.9 | 19.9 | 262 |
-| blenderui | 1000 | anim | 59.8 | 81.8 | 13.67 | 0 | 23.4 | 15.6 | 0 | 7 |
-| gpui | 1000 | idle | 0.0 | 1.4 | 0 | 0.0 | 47.1 | 50.9 | 17.1 | 261 |
-| gpui-fast | 1000 | idle | 0.0 | 0.0 | 0 | 0.0 | 42.1 | 49.8 | 19.1 | 262 |
-| blenderui | 1000 | idle | 0.0 | 0.0 | 0 | - | 21.6 | 13.5 | 0 | 6 |
-| blenderui (uncapped) | 1000 | anim | 156.9 | 236.4 | 14.82 | 0 | 23.7 | 15.9 | 0 | 6 |
-| gpui | 3000 | anim | 18.9 | 100.5 | 53.07 | 2.5 | 75.9 | 95.4 | 20.6 | 251 |
-| gpui-fast | 3000 | anim | 50.5 | 101.2 | 20.05 | 6.6 | 63.7 | 85.3 | 23.5 | 243 |
-| blenderui | 3000 | anim | 57.5 | 157.1 | 27.33 | 0 | 31.2 | 27.9 | 0 | 6 |
-| gpui | 3000 | idle | 0.0 | 1.0 | 0 | 0.0 | 73.6 | 92.1 | 20.6 | 252 |
-| gpui-fast | 3000 | idle | 0.0 | 0.1 | 0 | 0.0 | 59.7 | 80.9 | 20.9 | 254 |
-| blenderui | 3000 | idle | 0.0 | 0.0 | 0 | - | 26.9 | 21.7 | 0 | 6 |
-| blenderui (uncapped) | 3000 | anim | 58.1 | 168.0 | 28.90 | 0 | 31.3 | 28.3 | 0 | 6 |
+| gpui | 100 | anim | 60.0 | 28.2 | 4.70 | 7.7 | 40.2 | 35.4 | 16.1 | 234 |
+| gpui-fast | 100 | anim | 60.0 | 16.0 | 2.67 | 3.8 | 46.7 | 40.4 | 19.1 | 224 |
+| blenderui | 100 | anim | 60.1 | 27.7 | 4.62 | - | 20.7 | 11.7 | - | 4 |
+| blenderui-gpu | 100 | anim | 60.1 | 7.2 | 1.19 | 8.5 | 27.9 | 21.7 | 19.3 | 5 |
+| gpui | 100 | one | 60.0 | 21.1 | 3.52 | 5.9 | 32.8 | 35.6 | 16.1 | 279 |
+| gpui-fast | 100 | one | 60.0 | 14.0 | 2.34 | 2.5 | 34.5 | 39.9 | 19.1 | 213 |
+| blenderui | 100 | one | 60.1 | 26.5 | 4.41 | - | 19.7 | 10.7 | - | 5 |
+| blenderui-gpu | 100 | one | 60.1 | 6.3 | 1.05 | 5.6 | 25.1 | 20.4 | 18.8 | 6 |
+| gpui | 100 | idle | 0.2 | 1.4 | - | 0.0 | 32.8 | 35.6 | 16.1 | 212 |
+| gpui-fast | 100 | idle | 0.0 | 0.0 | - | 0.0 | 34.0 | 39.4 | 18.9 | 197 |
+| blenderui | 100 | idle | 0.0 | 0.0 | - | - | 19.4 | 9.9 | - | 6 |
+| blenderui-gpu | 100 | idle | 0.0 | 0.0 | - | 0.0 | 25.8 | 19.1 | 18.3 | 6 |
+| blenderui (uncapped) | 100 | anim | 648.6 | 315.0 | 4.86 | - | 20.7 | 11.9 | - | 5 |
+| blenderui-gpu (uncapped) | 100 | anim | 1491.2 | 89.8 | 0.60 | 92.1 | 28.3 | 22.2 | 19.5 | 6 |
+| gpui | 1000 | anim | 36.4 | 100.9 | 27.73 | 3.8 | 47.2 | 51.6 | 17.1 | 227 |
+| gpui-fast | 1000 | anim | 49.2 | 100.9 | 20.52 | 5.5 | 44.5 | 51.2 | 19.9 | 200 |
+| blenderui | 1000 | anim | 60.0 | 61.2 | 10.20 | - | 23.8 | 14.9 | - | 5 |
+| blenderui-gpu | 1000 | anim | 60.0 | 28.2 | 4.70 | 9.0 | 34.5 | 29.2 | 21.7 | 6 |
+| gpui | 1000 | one | 35.7 | 100.9 | 28.26 | 3.6 | 47.3 | 52.3 | 17.1 | 229 |
+| gpui-fast | 1000 | one | 29.6 | 59.1 | 19.99 | 2.5 | 44.5 | 51.8 | 19.9 | 197 |
+| blenderui | 1000 | one | 60.1 | 61.4 | 10.21 | - | 24.1 | 15.9 | - | 4 |
+| blenderui-gpu | 1000 | one | 60.0 | 29.0 | 4.83 | 8.7 | 34.3 | 28.4 | 21.5 | 5 |
+| gpui | 1000 | idle | 0.0 | 0.9 | - | 0.0 | 46.4 | 50.9 | 17.1 | 204 |
+| gpui-fast | 1000 | idle | 0.2 | 0.4 | - | 0.0 | 43.4 | 50.2 | 19.9 | 212 |
+| blenderui | 1000 | idle | 0.3 | 0.9 | - | - | 23.6 | 14.2 | - | 6 |
+| blenderui-gpu | 1000 | idle | 0.0 | 0.0 | - | 0.0 | 31.8 | 27.1 | 21.7 | 5 |
+| blenderui (uncapped) | 1000 | anim | 202.4 | 233.2 | 11.52 | - | 24.5 | 15.9 | - | 4 |
+| blenderui-gpu (uncapped) | 1000 | anim | 309.1 | 101.8 | 3.29 | 42.6 | 35.4 | 29.9 | 21.8 | 4 |
+| gpui | 3000 | anim | 19.9 | 100.6 | 50.47 | 3.0 | 77.2 | 95.3 | 20.6 | 210 |
+| gpui-fast | 3000 | anim | 31.5 | 100.5 | 31.89 | 4.4 | 64.9 | 85.3 | 23.5 | 193 |
+| blenderui | 3000 | anim | 57.6 | 126.7 | 21.98 | - | 30.2 | 26.9 | - | 5 |
+| blenderui-gpu | 3000 | anim | 59.9 | 69.4 | 11.58 | 11.0 | 39.6 | 38.0 | 20.8 | 5 |
+| gpui | 3000 | one | 20.2 | 100.6 | 49.69 | 4.1 | 76.7 | 94.9 | 20.6 | 215 |
+| gpui-fast | 3000 | one | 39.2 | 100.7 | 25.71 | 6.5 | 63.6 | 85.7 | 23.5 | 209 |
+| blenderui | 3000 | one | 59.9 | 127.6 | 21.29 | - | 30.1 | 23.9 | - | 5 |
+| blenderui-gpu | 3000 | one | 60.1 | 67.3 | 11.20 | 10.2 | 39.2 | 36.4 | 20.8 | 10 |
+| gpui | 3000 | idle | 0.0 | 1.1 | - | 0.0 | 74.8 | 92.5 | 20.6 | 205 |
+| gpui-fast | 3000 | idle | 0.0 | 0.1 | - | 0.0 | 60.9 | 81.4 | 20.9 | 202 |
+| blenderui | 3000 | idle | 0.0 | 0.1 | - | - | 27.9 | 21.4 | - | 5 |
+| blenderui-gpu | 3000 | idle | 0.0 | 0.1 | - | 0.0 | 36.0 | 34.2 | 19.6 | 8 |
+| blenderui (uncapped) | 3000 | anim | 75.5 | 166.4 | 22.04 | - | 30.5 | 26.2 | - | 4 |
+| blenderui-gpu (uncapped) | 3000 | anim | 94.0 | 101.1 | 10.75 | 14.7 | 39.7 | 36.8 | 20.8 | 9 |
 
-blenderui has no GPU counter instances (shown as 0): it draws on the CPU. `CPU %`
-counts all threads, so above 100 means more than one core.
+The software raster has no GPU counter instances (shown as -). `CPU %` counts
+all threads, so above 100 means more than one core. `CPU ms / frame` excludes
+GPU work for every app, so read it together with the GPU column.
 
 ## What it says
 
-| Animated cells | blenderui | gpui-fast | gpui |
-|---|---:|---:|---:|
-| 100 | 60 fps, 5.1 ms CPU/frame (529 uncapped) | 60 fps, **1.3 ms** + GPU | 60 fps, 3.4 ms + GPU |
-| 1000 | 60 fps, 13.7 ms (157 uncapped) | 60 fps, **6.7 ms** + GPU | 60 fps, 14.7 ms + GPU |
-| 3000 | **57.5 fps**, 27.3 ms | 50.5 fps, **20.1 ms** + GPU | 18.9 fps, 53.1 ms + GPU |
-| RAM working set (3000) | **31 MB** | 64 MB + 24 MB GPU | 76 MB + 21 MB GPU |
-| First frame | **~6 ms** | ~250 ms | ~260 ms |
-| Idle CPU | **0.0 %** | 0.0-0.1 % | 0.7-1.4 % |
+| Animated cells | blenderui-gpu | blenderui (CPU raster) | gpui-fast | gpui |
+|---|---:|---:|---:|---:|
+| 100 | 60 fps, **1.19 ms** CPU/frame (1491 fps uncapped) | 60 fps, 4.62 ms | 60 fps, 2.67 ms | 60 fps, 4.70 ms |
+| 1000 | **60 fps, 4.70 ms** (309 uncapped) | 60 fps, 10.2 ms | 49.2 fps, 20.5 ms | 36.4 fps, 27.7 ms |
+| 3000 | **59.9 fps, 11.6 ms** (94 uncapped) | 57.6 fps, 22.0 ms | 31.5 fps, 31.9 ms | 19.9 fps, 50.5 ms |
+| GPU 3D % (100 / 1000 / 3000) | 8.5 / 9.0 / 11.0 | - | 3.8 / 5.5 / 4.4 | 7.7 / 3.8 / 3.0 |
+| RAM working set (100 / 1000 / 3000) | 28 / 35 / 40 MB | **21 / 24 / 30 MB** | 47 / 45 / 65 MB | 40 / 47 / 77 MB |
+| GPU memory | 19-22 MB | **0** | 19-24 MB | 16-21 MB |
+| First frame | **5-10 ms** | **4-5 ms** | ~200 ms | ~220 ms |
+| Idle CPU | **0.0 %** | 0.0-0.9 % | 0.0-0.4 % | 0.9-1.4 % |
 
-- **Frame rate:** blenderui is fastest at 3000 cells in this session (57.5 vs gpui-fast 50.5; per-run ranges 57.4-58.6 vs 49.9-51.6). Smaller scenes hit the 60 Hz cap in all three. gpui-fast's 3000-cell frame rate varies a lot between sessions on this laptop (29.7, 59.8 and 50.5 fps in three sessions), so compare within a session only.
-- **CPU efficiency:** gpui-fast still does the least CPU work per frame (plus GPU work). The gap at 3000 cells has narrowed from 2.1× to 1.4×.
-- **Memory and startup:** blenderui uses about half the RAM of either gpui and no GPU memory, and starts about 40× faster.
-
-## Frame-to-frame reuse (mode `one`)
-
-Measured in a later session while the laptop was charging from a low battery,
-so everything (all three apps) ran slower than in the table above; only
-same-session comparisons are meaningful:
-
-| 3000 cells, same session | blenderui | gpui-fast | gpui |
-|---|---:|---:|---:|
-| all cells change (`anim`) | 36.8 fps, 47.7 ms CPU/frame | 31.3 fps, 27.4 ms + GPU | 11.3 fps, 89.2 ms + GPU |
-| one cell changes (`one`) | **54.0 fps, 27.5 ms** | 29.4 fps, 16.3 ms + GPU | 11.3 fps, 89.1 ms + GPU |
-
-blenderui spends 42 % less CPU per frame when little changes (38 % at 1000
-cells). gpui-fast was capped near 30 fps throughout that session (its GPU in a
-low-power state), so its frame rate there says little.
+- **blenderui-gpu beats gpui-fast on every measurement.** At 100 cells it
+  uses 2.2x less CPU per frame (1.19 vs 2.67 ms). At 1000 cells the gap is
+  4.4x (4.70 vs 20.5 ms), and at 3000 cells it is 2.8x (11.6 vs 31.9 ms) at
+  nearly twice the frame rate (59.9 vs 31.5 fps). It also uses less RAM, the
+  same GPU memory, starts about 40x faster and idles at 0 %.
+- **The GPU renderer halves blenderui's own CPU cost** (22.0 to 11.6 ms at
+  3000 cells; 4.6 to 1.2 ms at 100 cells). Rasterization moves to the GPU,
+  and what remains on the CPU is the Rust side (cascade, layout, paint list)
+  plus recording 128-byte instances. Its GPU load is a few percent of the
+  iGPU, about what gpui spends.
+- **The software raster stays the lightest on memory** (no D3D runtime or GPU
+  memory) and remains the default.
+- gpui-fast's heavy-scene frame rate varies a lot between sessions on this
+  laptop (29.7, 59.8, 50.5 and now 31.5 fps at 3000 cells), so compare within
+  one session only. The previous session's data, before the GPU renderer, is
+  in git history.
 
 ## Caveats
 
 - One laptop, one display (60 Hz caps both), the iGPU. A discrete GPU would make gpui's GPU share smaller still.
 - Laptop clocks vary between sessions. gpui's 1000-cell scene measured 51 fps in this run and 45-60 fps in earlier ones, so the medians are from runs made back to back in one session.
 - blenderui's root is wrapped in `body().m_0()` so its grid fills the window exactly like gpui's root `div`.
-- **Where gpui can't win:** gpui uses a parallel GPU, so a much larger window or a high-DPI display shifts work its way. Every blenderui pixel is CPU work (spread over up to 8 threads).
+- **Large or high-DPI windows:** the software raster's cost grows with pixels (spread over up to 8 threads); the GPU renderer's barely does. Use `BUI_GPU=1` / `.gpu(true)` there.
 - `CPU ms / frame` for gpui excludes its GPU work. Compare it together with the GPU column.
 
 ## How blenderui got here
