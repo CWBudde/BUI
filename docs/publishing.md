@@ -85,11 +85,17 @@ No API tokens are stored anywhere.
 
 ## Known gaps before 1.0
 
-- Linux and macOS wheels build in CI but haven't been exercised
-  interactively. Their window host is the stdlib Tk window, so the system
-  Python needs `tkinter` (for example `python3-tk`).
-- MSVC builds: the forced-include shim has an MSVC (`/FI`) path, but MSVC
-  isn't tested, which is why CI uses MinGW on Windows.
+- Linux wheels: the native X11 window host is compiled only when CMake finds
+  the X11 headers, and the cibuildwheel build doesn't install them, so wheels
+  from PyPI use the stdlib Tk window on Linux (built from source with
+  `libx11-dev` / `libX11-devel`, BUI uses its native X11 window). Installing
+  `libX11-devel` in `[tool.cibuildwheel.linux] before-all` would give the
+  wheels the native host.
+- macOS has no native window host yet: its wheels use the stdlib Tk window,
+  so the Python needs `tkinter` (for example from python.org or
+  `brew install python-tk`).
+- MSVC builds work (the Rust crate and the CMake build use Visual Studio's
+  toolchain), but the published Windows wheels are built with MinGW.
 - No `musllinux` or 32-bit wheels yet (skipped in `[tool.cibuildwheel]`).
 - The README's images use relative paths. PyPI shows them once
   `[project.urls]` points to the public repository and the paths are made

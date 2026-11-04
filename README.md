@@ -177,7 +177,8 @@ npx bui build app.jsx          # or ship it: app.exe, one 5 MB file
   is a DOM-like API (`createElement`, `appendChild`, `addEventListener`) with
   the same signals.
 
-Node.js 18+ or Bun, Windows x64 for now. Guide:
+Node.js 18+ or Bun. Prebuilt for Windows x64; on Linux, build the addon from
+source (`npm run build` in `bindings/node`) and windows are native. Guide:
 [docs/javascript.md](docs/javascript.md).
 
 ### Rust
@@ -348,7 +349,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | Area               | What works                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | C runtime (`kit/`) | Nodes, Tk-style geometry managers, input, Blender widget drawing, damage rendering, undo, animation, text area, canvas, scroll views                                                                                                                                                                                                                                                                                                                                                                           |
-| Windows            | A native Win32 window in C: DPI-aware, vsync-paced animation, clipboard, cursors, window-manager features                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Native windows     | Windows (Win32) and Linux (X11; Wayland through XWayland), in C: DPI-aware, frame-paced animation, clipboard, cursors, window-manager features                                                                                                                                                                                                                                                                                                                                                                    |
 | tkinter syntax     | **Complete**: every public tkinter and ttk name (7,846 of 7,846)                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Components         | 45 Blender components, including the color ramp and curve editors                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Rust               | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 90/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`/`@container`/`@font-face`/`@property`, `@keyframes` animations and transitions, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, Blender components, browser-look form controls, filters / blend modes / masks / 2D transforms, headless testing                                                                                                                                                                              |
@@ -362,10 +363,11 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Qt syntax (~25%)                                       | Model/view classes, docks, toolbars, splitters, Qt stylesheets ([details](docs/qt.md#coverage))                                                                                                                                                                                      |
 | CSS (261 of 745 W3C properties render, 129 more parse) | 3D transforms, OpenType font features, multi-column layout. Most of the remaining W3C list is drafts, speech, print and SVG ([breakdown](docs/rust.md#coverage)) |
-| Text                                                   | No text wrapping around floats; no right-to-left shaping                                                                                                                                                                                                                             |
+| Text                                                   | No text wrapping around floats; right-to-left text is reordered (bidi) but not shaped (Arabic joining), and no OpenType features                                                                                                                                                    |
 | Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                                                           |
-| JavaScript / React on Linux / macOS                    | Prebuilt for Windows x64 only (elsewhere: build from source, headless); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element                                                                           |
-| Linux / macOS                                          | They work through a fallback window (the stdlib Tk window shows BUI's frame), but they're less tested. No native window host and no GPU renderer yet                                                                                                                                 |
+| JavaScript / React packages                            | npm packages are prebuilt for Windows x64 only (on Linux, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element |
+| macOS                                                  | No native window host yet: Python apps run in the stdlib Tk window (which shows BUI's frame); Rust and JavaScript apps can only run headless there |
+| GPU renderer on Linux / macOS                          | The GPU renderer is Direct3D 11, so Windows only; Linux and macOS draw with the software raster |
 | crates.io                                              | The crates are ready to publish but not published yet; use the git dependency for now                                                                                                                                                                                                |
 
 ### 🗺️ Planned
@@ -374,7 +376,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | **WebAssembly**                  | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit; `@blender-ui/react` and the DOM-like API on top, unchanged |
 | **egui**                         | BUI panels inside egui, plus a Blender-styled theme                                                                                         |
-| **Native Linux / macOS windows** | Wayland / X11 and Cocoa hosts in C, like the Win32 one                                                                                      |
+| **Native macOS windows**         | A Cocoa host in C, like the Win32 and X11 ones (and a native Wayland host for Linux)                                                        |
 | **More GPU backends**            | Vulkan / Metal / WebGPU drawing the same instance stream as Direct3D 11                                                                     |
 | **More languages**               | C#, Go, Zig, Swift, Kotlin and Lua over the same C header; Dear ImGui; Godot, Unity and Bevy; Flutter                                       |
 
@@ -389,7 +391,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
                                          │
  renderer:       damage-driven software raster (parallel)   or   GPU (Direct3D 11, instanced, opt-in)
                                          │
- window:         native Win32 window   ·   stdlib Tk window (elsewhere)   ·   headless (tests, screenshots)
+ window:         native Win32 / X11 window   ·   stdlib Tk window (macOS)   ·   headless (tests, screenshots)
 ```
 
 - **Blender's real UI code.** Widget drawing is a C port of Blender's
@@ -611,7 +613,7 @@ cd bindings/rust && cargo test              # Rust: CSS, Tailwind, rsx!, hooks, 
 
 | Path                  | Contents                                                                                                                                                      |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kit/`                | The C runtime: nodes, input, widget drawing (the `interface_widgets.cc` port), menus, geometry managers, canvas, the Win32 host. API: `kit/include/BUI_kit.h` |
+| `kit/`                | The C runtime: nodes, input, widget drawing (the `interface_widgets.cc` port), menus, geometry managers, canvas, the Win32 and X11 window hosts. API: `kit/include/BUI_kit.h` |
 | `gpu/`                | Software raster, Direct3D 11 renderer (`gpu_d3d11.c`, `shaders/`, Slug text), text engine (stb_truetype + embedded Inter, or GDI)                             |
 | `core/`, `types/`     | Blender's `blenlib` subset and data types                                                                                                                     |
 | `ui/`, `compat/`      | Blender's original interface sources and the seams replacing Blender's application APIs                                                                       |

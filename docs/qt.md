@@ -76,7 +76,7 @@ is much lower. See [getting-started.md](getting-started.md#gpu-rendering).
 | `QVBoxLayout` / `QHBoxLayout` | Tk's packer in C, with Qt semantics: stretch factors, expanding size policies, spacing between items only, margins on top-level layouts only |
 | `QGridLayout` / `QFormLayout` | Tk's gridder in C (`setColumnStretch` maps to column weights) |
 | Signals | Plain Python (`Signal` / `pyqtSignal`). Slots that take fewer arguments than the signal sends get fewer. |
-| `QApplication.exec()` | `bui.host.run()`: a native window on Windows, a Tk-hosted window elsewhere |
+| `QApplication.exec()` | `bui.host.run()`: a native window on Windows and Linux, a Tk-hosted window on macOS |
 | `QTimer`, `QPropertyAnimation` | Window timers; animations step at 120 Hz with easing curves |
 
 ## Supported classes

@@ -1,7 +1,9 @@
 # blenderui
 
 Blender's UI for Rust, with [gpui](https://www.gpui.rs)'s syntax, every HTML
-element and CSS. Form controls are Blender's own widgets; layout is
+element and CSS. Form controls look like a browser's, or are Blender's own
+widgets inside `styled` and as the capitalized Blender components (`<NumberSlider>`,
+`<Button>` ...); layout is
 [taffy](https://github.com/DioxusLabs/taffy); drawing and input come from the
 [BUI](https://github.com/ppmpreetham/BUI) C kit (built from source, so CMake
 and a C compiler are needed).

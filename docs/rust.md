@@ -5,8 +5,9 @@ the syntax of [gpui](https://www.gpui.rs): views implement `Render`, elements
 are built with `div().flex().gap_2().child(...)`, and listeners come from
 `cx.listener(...)`. On top of gpui's model it supports **every HTML element**
 and **CSS**: `<style>` sheets, selectors, the cascade, flexbox, grid, tables,
-inline text that wraps, lists, `<details>`, and form controls that are real
-Blender widgets.
+inline text that wraps, lists, `<details>`, and form controls that look like a
+browser's, or like Blender's real widgets inside `styled` and as the
+capitalized Blender components.
 
 <p align="center"><img src="images/rust-showcase.png" width="640" alt="The Rust showcase example"></p>
 
@@ -615,23 +616,25 @@ The `gdi-text` feature uses Windows' GDI engine and system fonts.
 
 ## Limitations
 
-- **Floats** place block boxes, but text does not wrap around them; `direction: rtl`
-  lays boxes out right to left, but text itself is not shaped right to left.
+- **Floats** place block boxes, but text does not wrap around them. Right-to-left
+  text is reordered (bidi) but not shaped (no Arabic joining).
 - **Fonts**: `font-family` picks a face per element (registered, `@font-face`,
   installed or generic `monospace` / `serif`); there is no per-glyph fallback
   between faces of a list.
 - **Effects and animation**: see "Not done yet" under [Coverage](#coverage).
-- **Transforms**: `translate` only; `scale()` and `rotate()` are ignored.
+- **Transforms**: every 2D transform draws, but hit testing uses the
+  untransformed box; 3D transforms have no effect.
 - **Inline boxes** paint their background per word; borders and padding on
   inline elements (`<kbd>`, `<code>`) are not drawn.
 - **Widgets draw above page content**, so a `z-index`ed box (a `<dialog>`)
   over a form field does not cover the field.
 - **Images**: PNG only, nearest-neighbour scaling. `video`, `audio`,
   `iframe` show a placeholder.
-- **Windows** are native on Windows; elsewhere use `Application::headless()`
-  until the Linux and macOS window hosts exist.
-- `text-align: justify` aligns left; `<table>` columns are equal-width
-  (weighted by `colspan`) rather than sized to their content.
+- **Windows** are native on Windows (Win32) and Linux (X11); macOS has no
+  window host yet, so there use `Application::headless()`. The GPU renderer
+  is Windows only.
+- `text-align: justify` aligns left. Table columns are sized from their
+  widest single-line content, a simpler version of browsers' auto layout.
 
 ## How it works
 
@@ -647,7 +650,7 @@ The `gdi-text` feature uses Windows' GDI engine and system fonts.
   paint ─► one display list on a kit canvas      form controls ─► kit widget nodes,
         │  (rects, rounded rects, text, images)                 placed at their boxes
         ▼
-  C kit: input, hit testing, Blender widget drawing, damage rendering, Win32 window
+  C kit: input, hit testing, Blender widget drawing, damage rendering, Win32 / X11 window
 ```
 
 - `blenderui-sys` is the raw FFI over `kit/include/BUI_kit.h`; its build script

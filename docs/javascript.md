@@ -13,9 +13,10 @@ engine ([Standalone apps](#standalone-apps)).
 | [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native) (`bindings/node`) | A DOM-like API (`createElement`, `setAttribute`, `appendChild`, `addEventListener`, `requestAnimationFrame`) and signals |
 | [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react) (`bindings/react`) | A React 19.3 renderer; React's hooks by React's names, backed by signals |
 
-**Platforms:** prebuilt for Windows x64. On other platforms, build the addon
-from source (see [Building](#building)) and use `headless: true` for now. A
-browser (WebAssembly) build is planned.
+**Platforms:** prebuilt for Windows x64. On Linux, build the addon from
+source (see [Building](#building)); windows are native X11 windows. macOS has
+no native window host yet, so there use `headless: true`. A browser
+(WebAssembly) build is planned.
 
 ## Plain JavaScript
 

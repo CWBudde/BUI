@@ -79,7 +79,7 @@ shared (`bui.host`).
 | Variable | Effect |
 |---|---|
 | `BUIPY_BUILD_DIR` | Directory containing the built `buipy` extension |
-| `BUI_HOST=tk` | Force the stdlib-Tk window host even where the native host exists (Windows) |
+| `BUI_HOST=tk` | Force the stdlib-Tk window host even where the native host exists (Windows, Linux) |
 | `BUI_UI_SCALE` | Fix the UI scale (for example `1.5`) instead of following the monitor's DPI |
 | `BUI_GPU=1` | Draw native windows on the GPU (Direct3D 11). `BUI_GPU=0` forces the software raster. Overrides `bui.set_gpu()` / `.gpu(true)` |
 | `BUI_GPU_DEBUG=1` | Print why the GPU renderer could not start |
@@ -91,12 +91,14 @@ shared (`bui.host`).
 
 `bui.host.Window` puts a kit context in a top-level window.
 
-- **Native (Windows).** A Win32 window written in C. Input goes straight
-  into the kit, and frames are presented by blitting only the changed tiles.
-  It follows per-monitor DPI and syncs animations to vsync.
-- **Tk (everywhere else, or with `BUI_HOST=tk`).** A stdlib `tkinter`
-  window that shows the kit's frame buffer and forwards input to it.
-  The UI and the API are identical, but presenting is a little slower.
+- **Native (Windows and Linux).** A window written in C: Win32 on Windows,
+  X11 on Linux (Wayland sessions run it through XWayland). Input goes
+  straight into the kit, and frames are presented by blitting only the
+  changed tiles. It follows the display's DPI (per-monitor on Windows,
+  `Xft.dpi` on X11) and paces animations to the display's refresh rate.
+- **Tk (macOS, or with `BUI_HOST=tk`).** A stdlib `tkinter` window that
+  shows the kit's frame buffer and forwards input to it. The UI and the API
+  are identical, but presenting is a little slower.
 
 ### GPU rendering
 
@@ -126,8 +128,8 @@ Both renderers draw the same pixels. The GPU uses far less CPU per frame
 [benchmark](../bindings/rust/bench/README.md)), but the process needs about
 10 MB more RAM plus GPU memory. The device starts in the background, so the
 first frames are drawn on the CPU and the switch happens a few frames in.
-Without a GPU, or on Linux/macOS for now, windows stay on the software
-raster.
+The GPU renderer is Direct3D 11: without a GPU, and on Linux and macOS,
+windows stay on the software raster.
 
 `bui.host.run()` runs one loop for all windows, `bui.host.update()` processes
 pending events once, and `bui.host.quit()` stops the loop.
