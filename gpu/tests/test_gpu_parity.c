@@ -144,13 +144,11 @@ static int compare(const uint32_t *a, const uint32_t *b, const char *label, int 
   return bad <= W * H / 500; /* < 0.2% (edge rounding) */
 }
 
+/* BUI_gpu_slug() reads BUI_SLUG once and caches it, so setting the variable
+ * here would leave every pass on its first value: switch it directly. */
 static void set_slug(int on)
 {
-#ifdef _WIN32
-  _putenv(on ? "BUI_SLUG=1" : "BUI_SLUG=0");
-#else
-  setenv("BUI_SLUG", on ? "1" : "0", 1);
-#endif
+  BUI_gpu_set_slug(on);
 }
 
 int main(void)

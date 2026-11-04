@@ -91,9 +91,9 @@ No API tokens are stored anywhere.
   `libx11-dev` / `libX11-devel`, BUI uses its native X11 window). Installing
   `libX11-devel` in `[tool.cibuildwheel.linux] before-all` would give the
   wheels the native host.
-- macOS has no native window host yet: its wheels use the stdlib Tk window,
-  so the Python needs `tkinter` (for example from python.org or
-  `brew install python-tk`).
+- macOS: the native Cocoa window host is new and hasn't been run on a Mac
+  yet. With `BUI_HOST=tk` the wheels use the stdlib Tk window instead, which
+  needs `tkinter` (for example from python.org or `brew install python-tk`).
 - MSVC builds work (the Rust crate and the CMake build use Visual Studio's
   toolchain), but the published Windows wheels are built with MinGW.
 - No `musllinux` or 32-bit wheels yet (skipped in `[tool.cibuildwheel]`).

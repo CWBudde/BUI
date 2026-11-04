@@ -65,4 +65,11 @@ endif()
 if(WIN32)
   # gpu_raster.c: GDI glyph-run text engine + native window present.
   target_link_libraries(bui_gpu PUBLIC gdi32 user32)
+elseif(NOT APPLE)
+  # GPU renderer: OpenGL 3.3 (GLX windows, EGL offscreen) in gpu_gl.c instead
+  # of Direct3D 11. libGL / libEGL / libX11 are dlopen()ed at run time, never
+  # linked, so nothing GL is needed to build or import.
+  target_sources(bui_gpu PRIVATE intern/gpu_gl.c)
+  target_compile_definitions(bui_gpu PRIVATE BUI_GPU_GL=1)
+  target_link_libraries(bui_gpu PRIVATE ${CMAKE_DL_LIBS})
 endif()

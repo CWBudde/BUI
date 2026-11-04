@@ -121,7 +121,7 @@ shiboken build.
 Two facades speak the syntax of established toolkits on top of the C kit
 (`kit/`, exposed to Python as `buipy.KitNode` / `buipy.KitContext`): widgets
 are kit nodes, layouts are the kit's C geometry managers, and windows come
-from `bui.host` (native Win32 / X11 on Windows and Linux, Tk on macOS or with
+from `bui.host` (native Win32 / X11 / Cocoa windows, or Tk with
 `BUI_HOST=tk`):
 
 ### Qt syntax — `bui.qtsyntax`

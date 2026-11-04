@@ -52,6 +52,14 @@ fn main() {
         if target == "linux" || target.ends_with("bsd") {
             println!("cargo:rustc-link-lib=X11"); // the native window host
         }
+        if target == "macos" {
+            // the Cocoa window host (kit/intern/kit_window_cocoa.m): static
+            // libraries don't carry CMake's framework links to rustc
+            for fw in ["Cocoa", "CoreGraphics"] {
+                println!("cargo:rustc-link-lib=framework={fw}");
+            }
+            println!("cargo:rustc-link-lib=objc");
+        }
         println!("cargo:rustc-link-lib=m");
         println!("cargo:rustc-link-lib=pthread");
     }

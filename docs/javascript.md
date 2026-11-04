@@ -2,7 +2,7 @@
 
 BUI runs from JavaScript through a native addon built with napi-rs, much as
 [GPUIX](https://www.npmjs.com/package/@gpuix/react) drives GPUI. You get native
-windows drawn on the CPU or with Direct3D 11, HTML elements, CSS and Tailwind
+windows drawn on the CPU or the GPU (Direct3D 11 / OpenGL), HTML elements, CSS and Tailwind
 classes, and the same engine as the Rust crate. There's no browser and no
 Electron. It works on **Node.js** and **Bun**, and `bui build` turns an app
 into a **single executable of about 5 MB**: BUI with an embedded QuickJS
@@ -14,8 +14,9 @@ engine ([Standalone apps](#standalone-apps)).
 | [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react) (`bindings/react`) | A React 19.3 renderer; React's hooks by React's names, backed by signals |
 
 **Platforms:** prebuilt for Windows x64. On Linux, build the addon from
-source (see [Building](#building)); windows are native X11 windows. macOS has
-no native window host yet, so there use `headless: true`. A browser
+source (see [Building](#building)); windows are native X11 windows, on the CPU or
+with OpenGL. On macOS use `headless: true`: macOS only allows windows on the
+main thread, and BUI runs on a UI thread of its own in Node. A browser
 (WebAssembly) build is planned.
 
 ## Plain JavaScript

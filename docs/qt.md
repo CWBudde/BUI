@@ -65,7 +65,7 @@ app.exec()
 ## GPU rendering
 
 Call `bui.set_gpu(True)` before creating windows, or run with `BUI_GPU=1`, to
-draw them on the GPU (Direct3D 11). The pixels are the same and the CPU cost
+draw them on the GPU (Direct3D 11 on Windows, OpenGL on Linux). The pixels are the same and the CPU cost
 is much lower. See [getting-started.md](getting-started.md#gpu-rendering).
 
 ## How it maps
@@ -76,7 +76,7 @@ is much lower. See [getting-started.md](getting-started.md#gpu-rendering).
 | `QVBoxLayout` / `QHBoxLayout` | Tk's packer in C, with Qt semantics: stretch factors, expanding size policies, spacing between items only, margins on top-level layouts only |
 | `QGridLayout` / `QFormLayout` | Tk's gridder in C (`setColumnStretch` maps to column weights) |
 | Signals | Plain Python (`Signal` / `pyqtSignal`). Slots that take fewer arguments than the signal sends get fewer. |
-| `QApplication.exec()` | `bui.host.run()`: a native window on Windows and Linux, a Tk-hosted window on macOS |
+| `QApplication.exec()` | `bui.host.run()`: a native window (Win32, X11, Cocoa), or a Tk-hosted window with `BUI_HOST=tk` |
 | `QTimer`, `QPropertyAnimation` | Window timers; animations step at 120 Hz with easing curves |
 
 ## Supported classes

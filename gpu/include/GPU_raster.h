@@ -199,13 +199,19 @@ const uint8_t *BUI_text_run_mask(const BuiTextRun *run, int *r_w, int *r_h, int 
  * font folders (wasm); elsewhere it adds to them. Returns 0 on bad data. */
 int BUI_text_add_font(const char *family, int flags, const void *data, int len);
 
-/* GPU rendering (Direct3D 11 on Windows). A raster in GPU mode records its
- * primitives as instances and draws them on the GPU at present; it keeps the
- * same API, clip and damage semantics. attach() creates the device on a
- * worker thread (frames keep using the software raster meanwhile) unless
- * `wait`; poll() switches over once it is ready and returns 1 when the
- * renderer changed, so the caller must redraw the whole frame. A NULL window
- * renders offscreen (BUI_raster_pixels reads the frame back). */
+/* GPU rendering (Direct3D 11 on Windows, OpenGL 3.3 on Linux). A raster in
+ * GPU mode records its primitives as instances and draws them on the GPU at
+ * present; it keeps the same API, clip and damage semantics. attach() creates
+ * the device on a worker thread (frames keep using the software raster
+ * meanwhile) unless `wait`; poll() switches over once it is ready and returns
+ * 1 when the renderer changed, so the caller must redraw the whole frame. A
+ * NULL window renders offscreen (BUI_raster_pixels reads the frame back).
+ * `window_handle` is an HWND on Windows; on X11 it points to a
+ * BuiGpuX11Window (copied during the call). */
+typedef struct BuiGpuX11Window {
+  void *display;        /* Display * the window lives on (NULL: open one) */
+  unsigned long window; /* Window */
+} BuiGpuX11Window;
 int BUI_raster_gpu_attach(BuiRaster *r, void *window_handle, int wait);
 int BUI_raster_gpu_poll(BuiRaster *r);
 int BUI_raster_is_gpu(const BuiRaster *r);

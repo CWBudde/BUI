@@ -15,6 +15,12 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/bui/_version.py" _bui_
      REGEX "^__version__")
 string(REGEX MATCH "[0-9]+[.][0-9]+[.][0-9]+" BUI_VERSION "${_bui_version_line}")
 project(bui LANGUAGES C CXX VERSION ${BUI_VERSION})
+# macOS: the kit's native window host (kit/intern/kit_window_cocoa.m) is
+# Objective-C. Enabled here, in the top directory, so every target linking
+# bui_kit knows the language.
+if(APPLE)
+  enable_language(OBJC)
+endif()
 # static libraries end up in shared modules (Python, Node) on Linux and macOS
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 

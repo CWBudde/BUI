@@ -79,9 +79,9 @@ shared (`bui.host`).
 | Variable | Effect |
 |---|---|
 | `BUIPY_BUILD_DIR` | Directory containing the built `buipy` extension |
-| `BUI_HOST=tk` | Force the stdlib-Tk window host even where the native host exists (Windows, Linux) |
+| `BUI_HOST=tk` | Force the stdlib-Tk window host even where the native host exists |
 | `BUI_UI_SCALE` | Fix the UI scale (for example `1.5`) instead of following the monitor's DPI |
-| `BUI_GPU=1` | Draw native windows on the GPU (Direct3D 11). `BUI_GPU=0` forces the software raster. Overrides `bui.set_gpu()` / `.gpu(true)` |
+| `BUI_GPU=1` | Draw native windows on the GPU (Direct3D 11 on Windows, OpenGL 3.3 on Linux). `BUI_GPU=0` forces the software raster. Overrides `bui.set_gpu()` / `.gpu(true)` |
 | `BUI_GPU_DEBUG=1` | Print why the GPU renderer could not start |
 | `BUI_FONT`, `BUI_FONT_DIR` | A font file to replace the embedded Inter UI font, and an extra font folder |
 | `BUI_SLUG` | `0` draws GPU text from a per-glyph bitmap atlas instead of glyph outlines (Slug); `1` forces Slug. Overrides `bui.set_slug()` / `.slug()` / `BUI_gpu_set_slug()` |
@@ -96,14 +96,16 @@ shared (`bui.host`).
   straight into the kit, and frames are presented by blitting only the
   changed tiles. It follows the display's DPI (per-monitor on Windows,
   `Xft.dpi` on X11) and paces animations to the display's refresh rate.
-- **Tk (macOS, or with `BUI_HOST=tk`).** A stdlib `tkinter` window that
+- **Native (macOS).** A Cocoa window (a port of Blender's GHOST code; new,
+  not yet tested on a Mac) with Retina scaling. It needs the main thread.
+- **Tk (with `BUI_HOST=tk`, or where no native host works).** A stdlib `tkinter` window that
   shows the kit's frame buffer and forwards input to it. The UI and the API
   are identical, but presenting is a little slower.
 
 ### GPU rendering
 
 Native windows draw on the CPU by default. To draw them on the GPU
-(Direct3D 11) instead, use one of these:
+(Direct3D 11 on Windows, OpenGL 3.3 on Linux) instead, use one of these:
 
 | Where | Flag |
 |---|---|
@@ -128,8 +130,9 @@ Both renderers draw the same pixels. The GPU uses far less CPU per frame
 [benchmark](../bindings/rust/bench/README.md)), but the process needs about
 10 MB more RAM plus GPU memory. The device starts in the background, so the
 first frames are drawn on the CPU and the switch happens a few frames in.
-The GPU renderer is Direct3D 11: without a GPU, and on Linux and macOS,
-windows stay on the software raster.
+The GPU renderer is Direct3D 11 on Windows and OpenGL 3.3 on Linux (libGL
+is loaded at run time). Without a GPU or OpenGL, and on macOS, windows stay
+on the software raster.
 
 `bui.host.run()` runs one loop for all windows, `bui.host.update()` processes
 pending events once, and `bui.host.quit()` stops the loop.
@@ -141,6 +144,6 @@ pending events once, and `bui.host.quit()` stops the loop.
 | `ImportError: buipy` | Build first (`cmake --build build`) or set `BUIPY_BUILD_DIR`. The extension must match your Python version: a `cp314` build needs Python 3.14. |
 | Window doesn't appear | Call `mainloop()` / `app.exec()` / `App.run()`. Without a loop, windows only show during `update()`. |
 | Blurry or tiny UI | Set `BUI_UI_SCALE`. On Windows the native host is DPI-aware by default. |
-| `gpu=True` has no effect | Run with `BUI_GPU_DEBUG=1` to see why the device failed. Windows without Direct3D 11 stay on the software raster. |
+| `gpu=True` has no effect | Run with `BUI_GPU_DEBUG=1` to see why the device failed. Machines without Direct3D 11 (Windows) or OpenGL 3.3 (Linux) stay on the software raster. |
 | Monospace/serif text uses the UI font | Install a TrueType font family (DejaVu, Liberation or Noto). The UI font itself (Inter) is embedded. |
 | A tkinter feature behaves differently | See the behaviour notes in [tkinter.md](tkinter.md#behaviour). If stdlib tkinter does something else, that is a bug; `tests/test_tk_compat.py` shows how to write a side-by-side check. |

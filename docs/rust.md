@@ -577,7 +577,7 @@ cx.open_window(WindowOptions { gpu: Some(true), ..Default::default() }, build);
 // window.is_gpu() turns true a few frames in, once the device is ready
 ```
 
-`BUI_GPU=1` / `0` overrides both. It is Direct3D 11 on Windows. Elsewhere,
+`BUI_GPU=1` / `0` overrides both. It is Direct3D 11 on Windows and OpenGL 3.3 on Linux. Elsewhere,
 or without a device, windows stay on the software raster. Every primitive
 becomes one instance of a single shader, following Blender's instanced
 widget-base batches. Text runs and images are cached in atlases. Frames
@@ -630,9 +630,9 @@ The `gdi-text` feature uses Windows' GDI engine and system fonts.
   over a form field does not cover the field.
 - **Images**: PNG only, nearest-neighbour scaling. `video`, `audio`,
   `iframe` show a placeholder.
-- **Windows** are native on Windows (Win32) and Linux (X11); macOS has no
-  window host yet, so there use `Application::headless()`. The GPU renderer
-  is Windows only.
+- **Windows** are native on Windows (Win32), Linux (X11) and macOS (Cocoa,
+  new and not yet tested on a Mac; it needs the main thread). The GPU
+  renderer runs on Windows and Linux.
 - `text-align: justify` aligns left. Table columns are sized from their
   widest single-line content, a simpler version of browsers' auto layout.
 

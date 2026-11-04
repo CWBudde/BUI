@@ -336,7 +336,8 @@ void BK_menu_row_rect(BKNode *menu, int i, int r_rect[4]);
  * "alpha", "hex", "dropper". */
 BKNode *BK_picker_part(BKNode *picker, const char *name);
 
-/* -- native window host (Win32; BK_window_supported() is 0 elsewhere) -----------------
+/* -- native window host (Win32, X11, macOS Cocoa; BK_window_supported() is 0 elsewhere,
+ * and on macOS off the main thread: AppKit is main-thread only) -----------------------
  * The window owns a raster, drives the context (input -> render -> present
  * without leaving C) and installs the host services (cursor, warp,
  * clipboard, tooltip timer); BKHost.emit set before is kept for callbacks. */
@@ -374,7 +375,7 @@ int BK_window_timer(BKWindow *win, int ms); /* one-shot; returns its id */
  * `vsync`, consecutive frames are paced to the display's refresh. */
 void BK_window_request_frame(BKWindow *win, int vsync);
 void BK_window_cancel_timer(BKWindow *win, int id);
-void *BK_window_handle(BKWindow *win);       /* HWND */
+void *BK_window_handle(BKWindow *win);       /* HWND / X11 Window / NSWindow * */
 /* Window-manager requests (Tk's wm): "pos" (x, y), "minsize"/"maxsize" (w, h),
  * "resizable" (w, h), "topmost" (a), "alpha" (a), "override" (a), "state"
  * (0 normal, 1 iconic, 2 withdrawn, 3 zoomed), "lift", "lower", "focus". */

@@ -3,7 +3,9 @@
  * The same BK_window_* API as kit_window_win32.c, on Xlib: input events go
  * straight to BK_* input (button and key mapping after Blender's
  * GHOST_SystemX11), redraw requests coalesce into one render per loop turn,
- * and the damaged rectangles of the CPU raster are put with XPutImage.
+ * and the damaged rectangles of the CPU raster are put with XPutImage (or,
+ * with BUI_GPU / BK_window_set_gpu, the raster draws with OpenGL and presents
+ * through GLX on the same connection).
  * Timers, the cross-thread wake (a pipe) and frame pacing run in the select()
  * loop.
  *
@@ -385,8 +387,27 @@ static void host_emit(void *data, BKNode *node, int kind, void *ref, double a, d
 
 /* -- rendering -- */
 
+/* Moves the window's raster to the GPU (OpenGL through GLX on our Display);
+ * BUI_raster_gpu_poll switches over at the next render, and failures leave
+ * it on the software raster. */
+static void gpu_attach(BKWindow *win)
+{
+  if (win->xid) {
+    BuiGpuX11Window target = {g_dpy, (unsigned long)win->xid};
+    BUI_raster_gpu_attach(win->raster, &target, 0);
+  }
+}
+
 static void present(BKWindow *win, int all)
 {
+  if (BUI_raster_is_gpu(win->raster)) {
+    BUI_raster_present_native(win->raster, NULL, all);
+    if (!BUI_raster_is_gpu(win->raster)) {
+      win->full = 1; /* device lost: the software raster redraws everything */
+      win->render_pending = 1;
+    }
+    return;
+  }
   const int w = BUI_raster_width(win->raster), h = BUI_raster_height(win->raster);
   if (!win->image || win->image->width != w || win->image->height != h) {
     if (win->image) {
@@ -418,12 +439,16 @@ static void do_render(BKWindow *win)
 {
   const int w = BK_MAX(1, win->w), h = BK_MAX(1, win->h);
   const int resized = BUI_raster_width(win->raster) != w || BUI_raster_height(win->raster) != h;
-  const int regions = BK_render(win->ctx, win->raster, w, h, win->full || resized);
-  if (regions || resized || win->full) {
-    present(win, resized || win->full);
+  if (BUI_raster_gpu_poll(win->raster)) {
+    win->full = 1; /* the renderer changed: its frame starts empty */
+  }
+  const int full = win->full || resized;
+  win->full = 0;
+  const int regions = BK_render(win->ctx, win->raster, w, h, full);
+  if (regions || full) {
+    present(win, full);
     win->frames++;
   }
-  win->full = 0;
 }
 
 static double refresh_ms(void)
@@ -649,6 +674,9 @@ BKWindow *BK_window_new(BKContext *ctx, const char *title, int width, int height
   win->next = g_windows;
   g_windows = win;
   g_open++;
+  if (BUI_gpu_default()) {
+    gpu_attach(win);
+  }
   BKHost host = {win,           host_request,       host_set_cursor, host_warp,
                  host_clipboard_get, host_clipboard_set, host_schedule, host_emit};
   BK_context_set_host(ctx, &host);
@@ -743,13 +771,15 @@ BuiRaster *BK_window_raster(BKWindow *win)
 
 void BK_window_set_gpu(BKWindow *win, int on)
 {
-  (void)win;
-  (void)on; /* the X11 host presents the CPU raster */
+  if (win && on) {
+    gpu_attach(win);
+    host_request(win);
+  }
 }
 
 int BK_window_gpu(BKWindow *win)
 {
-  return 0;
+  return win && BUI_raster_is_gpu(win->raster);
 }
 
 int BK_window_frames(BKWindow *win)

@@ -42,7 +42,7 @@ application code; everything it needs arrives through `types/`, `gpu/`, or
 | `gpu/` | The draw surface used by the toolkit (`GPU_*`, `imm*`) behind seam headers + a null backend that *records and forwards*: with a sink installed it emits screen-space primitives (`GPU_backend_sink.h`); without one it discards them. Theme colors reach the GPU layer through function-pointer hooks. | **Builds + tested** |
 | `compat/` | Seam headers carrying upstream API names (`RNA_access.hh`, `BLF_api.hh`, …) with BUI-owned opaque types and stub implementations (`intern/bui_stubs.cc`). | **Builds** |
 | `ui/` | The toolkit sources from `editors/interface`: interface.cc family, widgets, handlers, regions, view2d, views, textbox. Option-gated (`-DBUI_BUILD_UI=ON`). | **Compiles + links** |
-| `kit/` | Blender's UI as a retained-mode C runtime: node tree, uiLayout-style layout, `interface_handlers.cc` interaction rules, widget drawing ported from `interface_widgets.cc` (widget-base shader parameters rendered by `gpu/` raster), menus, color picker, views, editors; Tk-style pack/grid/place geometry managers, canvas display list, multi-line text area; UI undo/redo, Tab field traversal, vertical multi-drag, panel animation; damage-driven rendering; native window hosts for Win32 and X11 (`kit_window_win32.c`, `kit_window_x11.c`; `kit_window_null.c` elsewhere). C API: `kit/include/BUI_kit.h`. | **Builds + tested** |
+| `kit/` | Blender's UI as a retained-mode C runtime: node tree, uiLayout-style layout, `interface_handlers.cc` interaction rules, widget drawing ported from `interface_widgets.cc` (widget-base shader parameters rendered by `gpu/` raster), menus, color picker, views, editors; Tk-style pack/grid/place geometry managers, canvas display list, multi-line text area; UI undo/redo, Tab field traversal, vertical multi-drag, panel animation; damage-driven rendering; native window hosts for Win32, X11 and Cocoa (`kit_window_win32.c`, `kit_window_x11.c`, `kit_window_cocoa.m`; `kit_window_null.c` elsewhere). C API: `kit/include/BUI_kit.h`. | **Builds + tested** |
 | `api/` | `bui_c_api.h` — small stable C ABI: version info + sink/viewport plumbing for hosts and bindings. | **Builds + tested** |
 | `bindings/python/` | `buipy` CPython extension (no third-party deps) + `bui` package: `bui.components` (Blender component library), `bui.qtsyntax` / `bui.tksyntax` (Qt / tkinter APIs as thin facades over the kit), `bui.host` (native or Tk windows), `SvgSink` headless renderer, `bui.qt.BuiCanvas` PySide6/PyQt6 widget. | **Builds + tested** |
 | `backends/qt/` | C++ Qt backend: `BUI::QtSink` (BuiGpuSink → QPainter) + `BUI::BuiWidget` (QWidget host, no moc needed). Gate: `-DBUI_BUILD_QT_BACKEND=ON`. | **Shipped** (builds where Qt exists) |
@@ -72,9 +72,12 @@ The kit itself draws through `GPU_raster.h`:
   quadratic curves with horizontal and vertical bands, and the pixel shader
   integrates exact coverage. With `BUI_SLUG=0`, it uses glyph bitmaps from
   the shared glyph cache in the mask atlas instead.
-- **GPU renderer** (`gpu/intern/gpu_d3d11.c`, `gpu/shaders/bui_ui.hlsl`):
-  opt-in with `BUI_GPU=1`, `BUI_gpu_set_default`, Rust `.gpu(true)` or
-  tkinter `Tk(gpu=True)`.
+- **GPU renderer**: Direct3D 11 on Windows (`gpu/intern/gpu_d3d11.c`,
+  `gpu/shaders/bui_ui.hlsl`) and OpenGL 3.3 core on Linux
+  (`gpu/intern/gpu_gl.c`: the same instances, atlases and Slug textures, the
+  uber-shader translated to GLSL, GLX on the X11 window or EGL offscreen,
+  libGL loaded at run time). Opt-in with `BUI_GPU=1`, `BUI_gpu_set_default`,
+  Rust `.gpu(true)` or tkinter `Tk(gpu=True)`.
 
 In GPU mode the same `BUI_raster_*` calls record one 128-byte instance per
 primitive, after the same clip test. This follows Blender's

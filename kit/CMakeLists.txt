@@ -38,6 +38,14 @@ if(NOT MSVC)
 endif()
 if(WIN32)
   target_link_libraries(bui_kit PRIVATE user32 gdi32)
+elseif(APPLE)
+  # Native windows on macOS: an AppKit host after Blender's GHOST Cocoa backend.
+  # Objective-C (enable_language(OBJC) is in the top-level CMakeLists.txt) with
+  # manual retain/release, as GHOST; kit_window_null.c compiles to nothing.
+  target_sources(bui_kit PRIVATE intern/kit_window_cocoa.m)
+  set_source_files_properties(intern/kit_window_cocoa.m PROPERTIES COMPILE_OPTIONS "-fno-objc-arc")
+  target_compile_definitions(bui_kit PRIVATE BUI_WINDOW_COCOA)
+  target_link_libraries(bui_kit PUBLIC "-framework Cocoa" "-framework CoreGraphics" objc)
 elseif(UNIX AND NOT APPLE)
   # Native windows on X11 (Wayland sessions run it through XWayland).
   # Only the headers are needed: libX11 is dlopen()ed at run time, so builds

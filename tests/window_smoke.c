@@ -56,7 +56,7 @@ int main(void)
   const int frames = BK_window_frames(win);
   int w, h;
   BK_window_get_size(win, &w, &h);
-  printf("frames %d ticks %d size %dx%d\n", frames, g_ticks, w, h);
+  printf("frames %d ticks %d size %dx%d gpu %d\n", frames, g_ticks, w, h, BK_window_gpu(win));
   BK_window_free(win);
   BK_context_free(ctx);
   BK_node_free(ed);

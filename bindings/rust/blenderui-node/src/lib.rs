@@ -154,7 +154,11 @@ impl NativeApp {
             Some(o) => (o.gpu, o.slug, o.headless.unwrap_or(false)),
             None => (None, None, false),
         };
-        let headless = headless || !blenderui::native_windows();
+        // macOS: AppKit only runs on the main thread, which here is the
+        // JavaScript thread (libuv's loop), while BUI runs on its own
+        // "bui-ui" thread; the Cocoa host refuses windows there, so stay
+        // headless instead of starting a native loop that would end at once.
+        let headless = headless || !blenderui::native_windows() || cfg!(target_os = "macos");
         let (ltx, lrx) = mpsc::channel::<Link>();
         std::thread::Builder::new().name("bui-ui".into()).spawn(move || {
             let mut a = if headless { Application::headless() } else { Application::new().keep_alive(true) };

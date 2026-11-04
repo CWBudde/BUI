@@ -281,7 +281,7 @@ Build from source with CMake (see [Building from source](#building-from-source))
 ### ⚡ Fast by design
 
 - **Damage rendering**: an idle UI costs 0% CPU, and a hover redraws only the widget it touches.
-- **Opt-in GPU renderer** (Direct3D 11), modeled on Blender's instanced widget drawing. It draws the same pixels as the CPU raster.
+- **Opt-in GPU renderer** (Direct3D 11 on Windows, OpenGL 3.3 on Linux), modeled on Blender's instanced widget drawing. It draws the same pixels as the CPU raster.
 - In the benchmark, **2–4× less CPU per frame than gpui-fast**, with **less RAM** and a **~5 ms first frame**.
 - **Blender's text**: Inter (Blender's UI font) is embedded, so text looks the same on every platform. On the GPU, glyphs are drawn from their outlines with [Slug](https://github.com/EricLengyel/Slug), falling back to a per-glyph atlas like Blender's.
 
@@ -348,18 +348,25 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 
 |                       | Windows                       | Linux                                              | macOS                                         |
 | --------------------- | ----------------------------- | -------------------------------------------------- | --------------------------------------------- |
-| Window                | Native (Win32)                | Native (X11; Wayland through XWayland)             | Python: the stdlib Tk window. Rust / JS: headless only (a native Cocoa host is in progress) |
-| Python (`pip install`) | ✅ wheels                     | ✅ wheels                                           | ✅ wheels (Tk window)                          |
-| Rust                  | ✅                             | ✅ (build from source)                              | headless (tests, screenshots)                 |
-| JavaScript / React    | ✅ prebuilt on npm             | ✅ build the addon from source (`npm run build`)    | headless                                      |
-| C                     | ✅                             | ✅                                                  | headless                                      |
-| Renderer              | CPU raster, or GPU (Direct3D 11) | CPU raster                                      | CPU raster                                    |
-| HiDPI                 | Per-monitor DPI               | `Xft.dpi`                                          | -                                             |
+| Window                | Native (Win32)                | Native (X11; Wayland through XWayland)             | Native (Cocoa) 🧪                             |
+| Python (`pip install`) | ✅ wheels                     | ✅ wheels                                           | ✅ wheels                                      |
+| Rust                  | ✅                             | ✅ (build from source)                              | ✅ 🧪                                          |
+| JavaScript / React    | ✅ prebuilt on npm             | ✅ build the addon from source (`npm run build`)    | headless (see below)                          |
+| C                     | ✅                             | ✅                                                  | ✅ 🧪                                          |
+| Renderer              | CPU raster, or GPU (Direct3D 11) | CPU raster, or GPU (OpenGL 3.3)                 | CPU raster                                    |
+| HiDPI                 | Per-monitor DPI               | `Xft.dpi`                                          | Retina (backing scale)                        |
 
-On Linux, libX11 is loaded when the first window opens, so BUI also imports
-and renders headless on servers and in containers without X11. Building from
-source needs the X11 headers (`libx11-dev` / `libX11-devel`); the C, Python
-and window tests pass on Linux.
+🧪 The macOS window host is new: it's a port of Blender's Cocoa code (GHOST),
+written but not yet run on a Mac. Python can still use the stdlib Tk window
+there (`BUI_HOST=tk`). Node runs BUI on its own UI thread and macOS only allows
+windows on the main thread, so JavaScript stays headless on macOS for now.
+
+On Linux, libX11 and libGL are loaded when the first window opens, so BUI
+also imports and renders headless on servers and in containers without them,
+and falls back to the CPU raster where OpenGL is missing. Building from source
+needs the X11 headers (`libx11-dev` / `libX11-devel`); no GL headers are
+needed. The C, Python, window and GPU parity tests pass on Linux, on Mesa's
+software OpenGL and on an NVIDIA GPU.
 
 ## Status: what's done and what's not
 
@@ -372,7 +379,7 @@ and window tests pass on Linux.
 | tkinter syntax     | **Complete**: every public tkinter and ttk name (7,846 of 7,846)                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Components         | 45 Blender components, including the color ramp and curve editors                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Rust               | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 90/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`/`@container`/`@font-face`/`@property`, `@keyframes` animations and transitions, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, Blender components, browser-look form controls, filters / blend modes / masks / 2D transforms, headless testing                                                                                                                                                                              |
-| Rendering          | Software raster (parallel, damage-tracked), GPU renderer (Direct3D 11), portable text engine                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Rendering          | Software raster (parallel, damage-tracked), GPU renderer (Direct3D 11 on Windows, OpenGL 3.3 on Linux), portable text engine                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | JavaScript / React | `@blender-ui/native`: a DOM-like API over napi-rs, with its own UI thread, only changes crossing the boundary, vsync-paced `requestAnimationFrame` and signals. `@blender-ui/react`: a React 19.3 renderer whose hooks (`useState`, `useMemo`, `useEffect` ...) hold signals that update nodes without re-renders. Both on Node.js and Bun, with headless testing. `bui build` makes standalone executables: about 5 MB with the embedded QuickJS runtime, or Bun's with `--bun` ([guide](docs/javascript.md)) |
 | Packaging          | [`blenderui` on PyPI](https://pypi.org/project/blenderui/), with a CI workflow for wheels on all platforms; [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react) and [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native) on npm                                                                                                                                                                                                                                                                                                                                                                                                     |
 
@@ -385,8 +392,7 @@ and window tests pass on Linux.
 | Text                                                   | No text wrapping around floats; right-to-left text is reordered (bidi) but not shaped (Arabic joining), and no OpenType features                                                                                                                                                    |
 | Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                                                           |
 | JavaScript / React packages                            | npm packages are prebuilt for Windows x64 only (on Linux, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element |
-| macOS                                                  | No native window host yet: Python apps run in the stdlib Tk window (which shows BUI's frame); Rust and JavaScript apps can only run headless there |
-| GPU renderer on Linux / macOS                          | The GPU renderer is Direct3D 11, so Windows only; Linux and macOS draw with the software raster |
+| macOS                                                  | The native Cocoa window host is written but not yet tested on a Mac; JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet |
 | crates.io                                              | The crates are ready to publish but not published yet; use the git dependency for now                                                                                                                                                                                                |
 
 ### 🗺️ Planned
@@ -395,8 +401,8 @@ and window tests pass on Linux.
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | **WebAssembly**                  | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit; `@blender-ui/react` and the DOM-like API on top, unchanged |
 | **egui**                         | BUI panels inside egui, plus a Blender-styled theme                                                                                         |
-| **Native macOS windows**         | A Cocoa host in C, like the Win32 and X11 ones (and a native Wayland host for Linux)                                                        |
-| **More GPU backends**            | Vulkan / Metal / WebGPU drawing the same instance stream as Direct3D 11                                                                     |
+| **macOS GPU and JavaScript windows** | The GPU renderer on Metal (or the OpenGL backend), and Node windows on the main thread                                                  |
+| **More GPU backends**            | Vulkan / WebGPU drawing the same instance stream as Direct3D 11 and OpenGL                                                                  |
 | **More languages**               | C#, Go, Zig, Swift, Kotlin and Lua over the same C header; Dear ImGui; Godot, Unity and Bevy; Flutter                                       |
 
 ## How it works
@@ -408,9 +414,9 @@ and window tests pass on Linux.
                                          │                                       │
  C kit (kit/):   node tree · geometry · input & interaction · Blender widget drawing · undo · animation
                                          │
- renderer:       damage-driven software raster (parallel)   or   GPU (Direct3D 11, instanced, opt-in)
+ renderer:       damage-driven software raster (parallel)   or   GPU (Direct3D 11 / OpenGL 3.3, instanced, opt-in)
                                          │
- window:         native Win32 / X11 window   ·   stdlib Tk window (macOS)   ·   headless (tests, screenshots)
+ window:         native Win32 / X11 / Cocoa window   ·   stdlib Tk window   ·   headless (tests, screenshots)
 ```
 
 - **Blender's real UI code.** Widget drawing is a C port of Blender's
@@ -467,7 +473,7 @@ time an app causes: the CPU it spends starting up, and the CPU it uses over 20
 seconds while the window sits idle (what drains a battery while an app is
 open). BUI redraws only when something changes and otherwise sleeps, so idle
 use is near zero on either renderer. The GPU renderer starts a little slower
-and uses more memory (the Direct3D device), and pays off on large, animated
+and uses more memory (the GPU device), and pays off on large, animated
 scenes (below). Node's event loop accounts for the JavaScript idle figure,
 Python's times include starting the interpreter, and memory doesn't count GPU
 memory. Run it yourself with `py -3 bench/run.py` (the script lists what to
@@ -698,7 +704,7 @@ cd bindings/rust && cargo test              # Rust: CSS, Tailwind, rsx!, hooks, 
 | Path                  | Contents                                                                                                                                                      |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `kit/`                | The C runtime: nodes, input, widget drawing (the `interface_widgets.cc` port), menus, geometry managers, canvas, the Win32 and X11 window hosts. API: `kit/include/BUI_kit.h` |
-| `gpu/`                | Software raster, Direct3D 11 renderer (`gpu_d3d11.c`, `shaders/`, Slug text), text engine (stb_truetype + embedded Inter, or GDI)                             |
+| `gpu/`                | Software raster, GPU renderer on Direct3D 11 (`gpu_d3d11.c`, `shaders/`) and OpenGL 3.3 (`gpu_gl.c`), Slug text, text engine (stb_truetype + embedded Inter, or GDI) |
 | `core/`, `types/`     | Blender's `blenlib` subset and data types                                                                                                                     |
 | `ui/`, `compat/`      | Blender's original interface sources and the seams replacing Blender's application APIs                                                                       |
 | `api/`                | Stable C ABI for render-sink hosts                                                                                                                            |

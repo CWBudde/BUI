@@ -2,8 +2,9 @@
 
 :class:`Window` shows a ``buipy.KitContext`` in a top-level window:
 
-* **native** (Windows): ``buipy.KitWindow`` — input, layout, rendering and
-  presenting all stay in C; Python only runs callbacks.
+* **native** (Windows, Linux/X11, macOS/Cocoa): ``buipy.KitWindow`` — input,
+  layout, rendering and presenting all stay in C; Python only runs callbacks.
+  On macOS it needs the main thread (AppKit); elsewhere the Tk host is used.
 * **tk** (elsewhere, or ``BUI_HOST=tk``): a stdlib Tk window with
   :class:`bui._surface.TkSurface` blitting the raster.
 
@@ -17,6 +18,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
 import os
+import sys
 from typing import Callable, Optional
 
 import buipy
@@ -81,6 +83,23 @@ def _tk():
     return _tk_root
 
 
+def _tk_owns_nsapp() -> None:
+    """macOS: start the hidden Tk root before the first Cocoa window.
+
+    Tk makes NSApp an instance of its own NSApplication subclass and fails if
+    a plain NSApplication exists already, which the native host would create.
+    BUI still uses the real Tk on the side (file dialogs, fonts, PhotoImage),
+    so Tk goes first; the native host then reuses Tk's NSApp. Without tkinter
+    nothing is needed. ``BUI_MAC_TK=0`` skips it.
+    """
+    if _tk_root is not None or os.environ.get("BUI_MAC_TK", "1") == "0":
+        return
+    try:
+        _tk()
+    except Exception:  # no tkinter / no Tcl: nothing can clash
+        pass
+
+
 class Window:
     def __init__(self, ctx, title: str = "BUI", size=(640, 480), native: bool = None,
                  gpu: bool = None):
@@ -92,6 +111,8 @@ class Window:
         self._win = None
         self._top = self._surface = None
         if self.native:
+            if sys.platform == "darwin":
+                _tk_owns_nsapp()
             self._win = buipy.KitWindow(ctx, title, *self._size)
             self._win.on_close = self._close_requested
             if gpu:  # None: buipy.set_gpu() / BUI_GPU decide
