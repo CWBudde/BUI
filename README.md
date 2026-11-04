@@ -45,8 +45,44 @@ You can drive it five ways, and all of them share the same C runtime:
 | **tkinter** code, even existing programs, unchanged                       | Blender-styled apps; every tkinter and ttk API                                                                 | ✅ Complete      |
 | **Qt-style** Python (`QWidget`, layouts, `clicked.connect`)               | The common subset of Qt widgets                                                                                | 🟡 Partial       |
 | **Blender components** in Python (`Panel`, `NumberSlider`, `PieMenu` ...) | 45 native Blender widgets and editors                                                                          | ✅ Complete      |
-| **Rust**: HTML + CSS + Tailwind, JSX (`rsx!`), hooks, or gpui syntax      | A web-like framework rendered with Blender widgets                                                             | ✅ Working       |
-| **JavaScript / React** on Node.js or Bun: a DOM-like API or JSX           | The same engine in native windows, over napi-rs; React's hooks backed by signals ([guide](docs/javascript.md)) | ✅ Working       |
+| **Rust**: HTML + CSS + Tailwind, JSX (`rsx!`), hooks, or gpui syntax      | A web-like framework: HTML that looks like a browser's, Blender's look with `styled`, and Blender components (`<NumberSlider>`, `<Button>` ...) | ✅ Working       |
+| **JavaScript / React** on Node.js or Bun: a DOM-like API or JSX           | The same engine and components in native windows, over napi-rs; React's hooks backed by signals ([guide](docs/javascript.md)) | ✅ Working       |
+
+### HTML, Blender, or both
+
+In Rust and JavaScript you pick the look per element:
+
+| You write                                                            | You get                                                                                   |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Plain HTML: `<button>`, `<input type="range">`, `<select>` ...      | Exactly what a browser draws: black serif text on white, Chrome's form controls           |
+| `styled` on any element: `<div styled>`, `div().styled()`            | Blender's look for it and everything inside: dark theme, UI font, Blender widgets         |
+| **Blender components** (capitalized): `<NumberSlider>`, `<Button>` ... | Blender's widgets and interaction everywhere (drag to scrub, Ctrl+Z, Blender's color picker) |
+
+The components are `Button`, `Checkbox`, `Radio`, `NumberField`, `NumberSlider`,
+`TextField`, `TextArea`, `ColorSwatch`, `Dropdown` and `ProgressBar`. Each one
+is the HTML element it stands for, so every attribute, style and event works on
+it:
+
+```rust
+rsx! {
+    <main class="p-4 flex gap-2">                          // browser look
+        <input type="range" />                             // Chrome's slider
+        <NumberSlider min={0.0} max={10.0} value="2.5" />  // Blender's slider
+        <div styled><button>"Apply"</button></div>         // Blender's look inside
+    </main>
+}
+div().child(Checkbox().checked(true)).child(Button().child("Apply"))   // gpui syntax
+```
+
+```jsx
+import { render, NumberSlider, Button } from "@blender-ui/react"
+// <NumberSlider min={0} max={10} onChange={...} />, <Button onClick={...}>Apply</Button>
+// DOM API: win.createElement("NumberSlider")
+```
+
+`cargo run --example forms` shows all three side by side. Python's
+[Blender components](docs/components.md) (`Panel`, `PieMenu`, the node editor
+...) are a separate, larger set.
 
 ## Quick start
 
@@ -103,14 +139,15 @@ npm install @blender-ui/react react     # or: bun add @blender-ui/react react
 
 ```jsx
 /** @jsxImportSource @blender-ui/react */
-import { render, useState } from "@blender-ui/react"
+import { render, useState, NumberSlider } from "@blender-ui/react"
 
 function Counter() {
   const [count, setCount] = useState(0) // React's hook, holding a signal
   return (
-    <main className="p-6 flex flex-col gap-3">
+    <main styled className="p-6 flex flex-col gap-3">  {/* `styled`: Blender's look */}
       <span>Clicks: {count}</span>
       <button onClick={() => setCount((c) => c + 1)}>Add one</button>
+      <NumberSlider min={0} max={10} />             {/* a Blender component */}
     </main>
   )
 }
@@ -125,6 +162,8 @@ npx bui build app.jsx          # or ship it: app.exe, one 5 MB file
 
 - **React 19.3, natively.** Host components are HTML elements, styled with
   CSS and Tailwind classes, with events, Suspense, transitions and actions.
+  Blender's widgets are components too: `<NumberSlider>`, `<Button>`,
+  `<Dropdown>` ...
   BUI draws them, on the CPU or the GPU; there's no browser and no webview.
 - **React's hooks, by React's names.** `useState`, `useMemo`, `useEffect` ...
   hold signals. Pass one into JSX (`{count}`) and a change updates that one
@@ -228,7 +267,7 @@ Build from source with CMake (see [Building from source](#building-from-source))
 
 ### 🦀 Rust: the web platform, natively
 
-- **All 113 HTML elements**; form controls are real Blender widgets.
+- **All 113 HTML elements**, drawn like a browser draws them; `styled` gives any subtree Blender's look, and **Blender components** (`<NumberSlider>`, `<Button>`, `<ColorSwatch>` ...) are real Blender widgets.
 - **Modern CSS**: flexbox, grid with named areas, `calc()` and every math function, `var()`, `oklch()` and `color-mix()`, `:has()`, nesting, `@layer`, `@media` ranges, `::before`/`::after`.
 - **Tailwind CSS v4**: `class="md:hover:bg-sky-500/50"` or bare attributes (`<div p-4 bg-[#4772b3]>`), with **"did you mean" compile errors**.
 - **`rsx!` / `view!`** JSX, **`#[component]`**, and **hooks** in zopra, React or Leptos style (`use_state`, `signal`, `Memo`, `Effect`, context).
@@ -248,7 +287,7 @@ Build from source with CMake (see [Building from source](#building-from-source))
 
 ### ⚛️ JavaScript and React
 
-- **React 19.3** renders to BUI: HTML host components, CSS and Tailwind, events, Suspense, transitions, actions.
+- **React 19.3** renders to BUI: HTML host components, CSS and Tailwind, events, Suspense, transitions, actions, and Blender components (`<NumberSlider>`, `<Button>` ...).
 - **React's hooks, by React's names**, holding signals: a change updates one node without re-rendering. A conformance suite checks each against React's own.
 - **`@blender-ui/native`**: a DOM-like API with signals, for apps without React.
 - **Node.js and Bun**, through a napi-rs addon, with headless mode for tests.
@@ -312,7 +351,7 @@ error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` o
 | Windows            | A native Win32 window in C: DPI-aware, vsync-paced animation, clipboard, cursors, window-manager features                                                                                                                                                                                                                                                                                                                                                                                                      |
 | tkinter syntax     | **Complete**: every public tkinter and ttk name (7,846 of 7,846)                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Components         | 45 Blender components, including the color ramp and curve editors                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Rust               | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 90/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`/`@container`/`@font-face`/`@property`, `@keyframes` animations and transitions, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, headless testing                                                                                                                                                                              |
+| Rust               | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 90/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer`/`@media`/`@supports`/`@scope`/`@container`/`@font-face`/`@property`, `@keyframes` animations and transitions, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, Blender components, browser-look form controls, filters / blend modes / masks / 2D transforms, headless testing                                                                                                                                                                              |
 | Rendering          | Software raster (parallel, damage-tracked), GPU renderer (Direct3D 11), portable text engine                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | JavaScript / React | `@blender-ui/native`: a DOM-like API over napi-rs, with its own UI thread, only changes crossing the boundary, vsync-paced `requestAnimationFrame` and signals. `@blender-ui/react`: a React 19.3 renderer whose hooks (`useState`, `useMemo`, `useEffect` ...) hold signals that update nodes without re-renders. Both on Node.js and Bun, with headless testing. `bui build` makes standalone executables: about 5 MB with the embedded QuickJS runtime, or Bun's with `--bun` ([guide](docs/javascript.md)) |
 | Packaging          | [`blenderui` on PyPI](https://pypi.org/project/blenderui/), with a CI workflow for wheels on all platforms; [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react) and [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native) on npm                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -547,6 +586,7 @@ Method, the memory breakdown and how to rerun:
 | [`examples/kit_hello.c`](examples/kit_hello.c)                 | The C kit: a slider and a button in a native window               |
 | [`hello.rs`](bindings/rust/blenderui/examples/hello.rs)        | Rust: a component, hooks and Tailwind attributes                  |
 | [`showcase.rs`](bindings/rust/blenderui/examples/showcase.rs)  | Rust: HTML, a stylesheet, flex/grid, tables, Blender form widgets |
+| [`forms.rs`](bindings/rust/blenderui/examples/forms.rs)        | Rust: form controls as plain HTML, inside `styled`, and as Blender components |
 
 </details>
 
