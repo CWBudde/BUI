@@ -33,6 +33,7 @@ typedef struct TAData {
   int nlines, caplines;
   Span *spans;
   int nspans;
+  bool rows_set; /* "rows" was given (the browser look defaults to 2) */
 } TAData;
 
 #define TA(n) ((TAData *)(n)->ext)
@@ -40,6 +41,32 @@ typedef struct TAData {
 static int line_h(void)
 {
   return bk_iround(0.8f * bk_unit());
+}
+
+/* Browser look (Chrome's <textarea>): 1px border + 2px padding, 15px lines of
+ * 13.33px text. Blender look: the text-field margins and 0.8 unit lines. */
+static int ta_line_h(const BKNode *n)
+{
+  return BK_HTML(n) ? bk_iround(bk_hpx(15.0f)) : line_h();
+}
+static int ta_pad_x(const BKNode *n)
+{
+  return BK_HTML(n) ? bk_iround(bk_hpx(3.0f)) : bk_pad();
+}
+static int ta_pad_y(const BKNode *n)
+{
+  return BK_HTML(n) ? bk_iround(bk_hpx(3.0f)) : bk_pad() / 2;
+}
+
+/* Events measure text at the size it is drawn with. */
+static float ta_font_begin(const BKNode *n)
+{
+  const float saved = bk_text_scale;
+  if (BK_HTML(n)) {
+    bk_text_scale = (n->font_scale > 0.0f ? n->font_scale : 1.0f) * BK_HTML_FONT;
+    bk_html_text_scale = bk_text_scale;
+  }
+  return saved;
 }
 
 static void ta_reindex(TAData *t)
@@ -205,7 +232,7 @@ void BK_textarea_set_spans(BKNode *n, const BKTextSpan *spans, int count)
 
 static int visible_lines(const BKNode *n)
 {
-  return BK_MAX(1, (n->h - bk_pad()) / line_h());
+  return BK_MAX(1, (n->h - 2 * ta_pad_y(n)) / ta_line_h(n));
 }
 
 static void ta_view(BKNode *n, int axis, int *first, int *vis, int *total)
@@ -279,13 +306,17 @@ static int col_at(const TAData *t, int line, float px)
 static int offset_at(BKNode *n, int x, int y)
 {
   TAData *t = TA(n);
-  const int line = BK_CLAMP((y - n->y - bk_pad() / 2) / line_h() + t->scroll, 0, t->nlines - 1);
-  return col_at(t, line, (float)(x - n->x - bk_pad()));
+  const int line = BK_CLAMP((y - n->y - ta_pad_y(n)) / ta_line_h(n) + t->scroll, 0,
+                            t->nlines - 1);
+  return col_at(t, line, (float)(x - n->x - ta_pad_x(n)));
 }
 
 int BK_textarea_index_at(BKNode *n, int x, int y)
 {
-  return offset_at(n, x, y);
+  const float saved = ta_font_begin(n);
+  const int off = offset_at(n, x, y);
+  bk_text_scale = saved;
+  return off;
 }
 
 static float caret_x(const TAData *t, int off)
@@ -509,6 +540,105 @@ static void ta_measure(BKNode *n, int *rw, int *rh)
 }
 
 static void draw_line_spans(TAData *t, int a, int b, float x, const BKRect *line,
+                            const uchar def[4]);
+
+/* Handlers that measure text, at the size it is drawn with. */
+#define TA_SCALED(name, impl) \
+  static int name(BKNode *n, BKEvent *e) \
+  { \
+    const float saved = ta_font_begin(n); \
+    const int r = impl(n, e); \
+    bk_text_scale = saved; \
+    return r; \
+  }
+TA_SCALED(ta_press_s, ta_press)
+TA_SCALED(ta_dbl_s, ta_dbl)
+TA_SCALED(ta_drag_s, ta_drag)
+TA_SCALED(ta_key_s, ta_key)
+
+static int ta_set_num(BKNode *n, const char *key, double v)
+{
+  if (strcmp(key, "rows") == 0) {
+    n->rows = (int)v;
+    TA(n)->rows_set = true;
+    bk_relayout(n);
+    return 1;
+  }
+  return 0;
+}
+
+bool bk_textarea_html_measure(BKNode *n, int *rw, int *rh)
+{
+  /* Chrome: cols=20 -> 182px; rows (default 2) x 15px + 2px padding + 1px border */
+  const int rows = TA(n)->rows_set ? BK_MAX(1, n->rows) : 2;
+  *rw = bk_iround(bk_hpx(182.0f));
+  *rh = rows * ta_line_h(n) + 2 * ta_pad_y(n);
+  return true;
+}
+
+void bk_textarea_html_draw(BKNode *n)
+{
+  TAData *t = TA(n);
+  BKContext *ctx = bk_ctx(n);
+  const bool focused = ctx && ctx->focus == n;
+  const bool enabled = NODE_ENABLED(n), hover = enabled && bk_hovered(n);
+  const float rad = bk_hpx(2.0f), bw = BK_MAX(1.0f, floorf(bk_hpx(1.0f)));
+  float fill[4], border[4];
+  if (!enabled) { /* lighten layer, translucent white, faded border */
+    bk_argb(0x33A9A9A9u, fill);
+    bk_html_box(n->x, n->y, n->w, n->h, rad, fill, NULL, 0);
+  }
+  bk_argb(enabled ? 0xFFFFFFFFu : 0x99FFFFFFu, fill);
+  bk_argb(!enabled ? 0x4D767676u : (hover ? 0xFF4F4F4Fu : 0xFF767676u), border);
+  bk_html_box(n->x, n->y, n->w, n->h, rad, fill, border, bw);
+  if (focused) { /* the 2px focus ring, 1px outside */
+    const float o = bk_hpx(1.0f);
+    float ring[4];
+    bk_argb(0xFF101010u, ring);
+    bk_html_box(n->x - o, n->y - o, n->w + 2 * o, n->h + 2 * o, rad + o, NULL, ring,
+                bk_hpx(2.0f));
+  }
+  static const uchar black[4] = {0, 0, 0, 255}, gray[4] = {0x54, 0x54, 0x54, 255},
+                     white[4] = {255, 255, 255, 255};
+  const uchar *tc = enabled ? black : gray;
+  const int px = ta_pad_x(n), py = ta_pad_y(n), lh = ta_line_h(n);
+  const int b = (int)bw;
+  bk_clip_push(n->x + b, n->y + b, n->w - 2 * b, n->h - 2 * b);
+  t->scroll = BK_CLAMP(t->scroll, 0, BK_MAX(0, t->nlines - 1));
+  int sa = -1, sb = -1;
+  const bool sel = BK_textarea_selection(n, &sa, &sb);
+  const float x0 = (float)(n->x + px);
+  for (int line = t->scroll; line < t->nlines; line++) {
+    const int y = n->y + py + (line - t->scroll) * lh;
+    if (y > n->y + n->h) {
+      break;
+    }
+    const int la = t->lines[line], lb = line_end(t, line);
+    const BKRect lr = bk_rect(n->x, y, n->w, lh);
+    draw_line_spans(t, la, lb, x0, &lr, tc);
+    if (sel && sa < lb + 1 && sb > la) { /* #3390ff behind white text */
+      const int s0 = BK_MAX(sa, la), s1 = BK_MIN(sb, lb);
+      const float sx = x0 + bk_text_width(t->text + la, s0 - la, false);
+      float sw = bk_text_width(t->text + s0, s1 - s0, false);
+      if (sb > lb) {
+        sw += bk_font_size() * 0.4f; /* the newline */
+      }
+      float sc[4];
+      bk_argb(0xFF3390FFu, sc);
+      bk_fill_f(sx, (float)y, sw, (float)lh, sc);
+      bk_clip_push((int)floorf(sx), y, (int)ceilf(sw) + 1, lh);
+      bk_text(x0, bk_text_baseline(&lr), t->text + la, lb - la, white, false);
+      bk_clip_pop();
+    }
+    if (focused && !sel && t->caret >= la && t->caret <= lb) {
+      const float cx = x0 + bk_text_width(t->text + la, t->caret - la, false);
+      bk_fill(floorf(cx), (float)y, bw, (float)lh, tc);
+    }
+  }
+  bk_clip_pop();
+}
+
+static void draw_line_spans(TAData *t, int a, int b, float x, const BKRect *line,
                             const uchar def[4])
 {
   for (int i = 0; i < t->nspans; i++) { /* backgrounds first */
@@ -601,11 +731,12 @@ const BKClass bk_cls_textarea = {.name = "textarea",
                                  .free_ext = ta_free,
                                  .measure = ta_measure,
                                  .draw = ta_draw,
-                                 .press = ta_press,
-                                 .dbl = ta_dbl,
-                                 .drag = ta_drag,
+                                 .press = ta_press_s,
+                                 .dbl = ta_dbl_s,
+                                 .drag = ta_drag_s,
                                  .wheel = ta_wheel,
-                                 .key = ta_key,
+                                 .key = ta_key_s,
+                                 .set_num = ta_set_num,
                                  .cursor_at = ta_cursor,
                                  .finish_edit = ta_finish,
                                  .view = ta_view,

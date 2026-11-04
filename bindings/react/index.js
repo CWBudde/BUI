@@ -339,7 +339,18 @@ function act (fn) {
 const reactHooks = {}
 for (const k of Object.keys(React)) if (/^use([A-Z]|$)/.test(k)) reactHooks[k] = React[k]
 
+// Blender's widgets as components: `<NumberSlider min={0} max={10} />`,
+// `<Button onClick={..}>Apply</Button>`. Always Blender widgets; their
+// lowercase HTML counterparts look like a browser's (Blender's inside `styled`).
+const blenderComponents = {}
+for (const name of Object.keys(native.BLENDER_COMPONENTS)) {
+  const C = (props) => React.createElement(name, props)
+  Object.defineProperty(C, 'name', { value: name })
+  blenderComponents[name] = C
+}
+
 module.exports = {
+  ...blenderComponents,
   ...reactHooks,
   ...hooks,
   render,

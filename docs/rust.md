@@ -240,10 +240,12 @@ The document is wrapped in `<html><body>` unless your root already is one, so
 
 ### Blender styling: `styled`
 
-Plain elements get the browsers' defaults: black text on white, 16 px,
-`#0000ee` links. Mark an element `styled` and it, and everything inside it,
-gets Blender's look instead: the `#303030` background, `#e6e6e6` 13 px text,
-blue links, dark `code` / `pre`, themed tables, fieldsets and dialogs.
+Plain elements look exactly like they do in a browser: black serif text
+(Times New Roman) on white, 16 px, `#0000ee` links, and Chrome's form
+controls. Mark an element `styled` and it, and everything inside it, gets
+Blender's look instead: the `#303030` background, `#e6e6e6` 13 px UI-font
+text, blue links, dark `code` / `pre`, themed tables, fieldsets and dialogs,
+and Blender's widgets for the form controls.
 
 ```rust
 body().styled().child(h1().child("Blender look"))     // gpui syntax
@@ -251,10 +253,31 @@ rsx! { <div styled class="p-4">"Blender look"</div> } // rsx! / view! (Leptos-st
 div().styled().child(div().attr("styled", "false"))   // opt a subtree back out
 ```
 
-Your own CSS still wins over either set of defaults. Form controls (`button`,
-`input`, `select`, `textarea`, `progress` ...) are Blender widgets and look
-the same inside or outside `styled`. From JavaScript use
+Your own CSS still wins over either set of defaults. From JavaScript use
 `el.setAttribute('styled', '')`, or `<div styled>` in JSX.
+
+### Blender components
+
+The capitalized components are Blender's widgets, always, inside `styled` or
+not: `Button`, `Checkbox`, `Radio`, `NumberField` (drag to scrub),
+`NumberSlider`, `TextField`, `TextArea`, `ColorSwatch` (Blender's color
+picker), `Dropdown` and `ProgressBar`. Each is the element it stands for, so
+every element method and attribute works on it:
+
+```rust
+rsx! {
+    <NumberSlider min={0.0} max={10.0} value="2.5" onChange={|e: &ChangeEvent| println!("{:?}", e.number)} />
+    <Button onClick={|| println!("apply")}>"Apply"</Button>
+    <Dropdown><option>"Cube"</option><option>"Sphere"</option></Dropdown>
+}
+div().child(Checkbox().checked(true)).child(Button().child("Apply"))   // gpui syntax
+```
+
+In JavaScript they're exported from `@blender-ui/react` (`<NumberSlider min={0} max={10} />`)
+and work as tag names with the DOM API (`win.createElement('NumberSlider')`).
+The lowercase HTML elements (`button`, `input type="range"` ...) look like a
+browser's controls, and like Blender inside `styled`. Run
+`cargo run --example forms` to see all three side by side.
 
 ## Styling
 
@@ -328,10 +351,20 @@ Layout is computed with [taffy](https://github.com/DioxusLabs/taffy):
 - **Flexbox** and **grid**: every property of both modules (except
   `grid-template-areas`), including `repeat()`, `minmax()`, `fr`,
   `auto-fill` / `auto-fit`, spans and line placement.
-- **Tables**: rows and cells share the width (`colspan` weights cells),
-  `border-spacing`, `border-collapse` and `caption-side` apply.
+- **Tables**: columns are as wide as their widest content and line up across
+  rows; a table with an auto width shrinks to its columns (up to its
+  container), like a browser's auto layout. `table-layout: fixed` takes the
+  first row's widths. `colspan`, `border-spacing`, `border-collapse`,
+  `caption-side` and `empty-cells` apply.
 - **Positioning**: `relative`, `absolute` (and `fixed` as absolute), `inset`
-  properties, `z-index` for painting and hit testing, `transform: translate()`.
+  properties, `z-index` for painting and hit testing, and every 2D transform
+  (`translate`, `scale`, `rotate`, `skew`, `matrix`, `transform-origin`, the
+  individual `rotate` / `scale` / `translate` properties).
+- **Bidirectional text**: Hebrew and Arabic runs are reordered inside
+  left-to-right text (a compact Unicode Bidirectional Algorithm), `direction: rtl`
+  and `unicode-bidi: bidi-override` apply.
+- **Scroll snapping**: `scroll-snap-type` (`x` / `y` / `both`, `mandatory` /
+  `proximity`) and `scroll-snap-align` on the children.
 - **Overflow**: `hidden` / `clip` clip, `scroll` / `auto` scroll with the
   wheel (Shift for horizontal) and show overlay scrollbars.
 - **Lists**: `list-style-type` (`disc`, `circle`, `square`, `decimal`,
@@ -341,8 +374,11 @@ Layout is computed with [taffy](https://github.com/DioxusLabs/taffy):
 
 ## Form controls
 
-Form elements are Blender's widgets, with Blender's interaction (drag to
-scrub numbers, Ctrl+Z, double-click to type, Escape to cancel):
+Outside `styled`, form elements look and behave like Chrome's (its colors and
+shapes, typed number fields with spin buttons, a range thumb that jumps to
+the click). Inside `styled`, and as the capitalized Blender components, they
+are Blender's widgets, with Blender's interaction (drag to scrub numbers,
+Ctrl+Z, double-click to type, Escape to cancel):
 
 | HTML                                              | Blender widget                       | `ChangeEvent`                         |
 | ------------------------------------------------- | ------------------------------------ | ------------------------------------- |
@@ -427,9 +463,9 @@ From `cargo test --test parity -- --nocapture`:
 | Area                                  | Coverage                                                                         |
 | ------------------------------------- | -------------------------------------------------------------------------------- |
 | HTML elements (WHATWG index)          | **113 / 113** constructible, plus `svg` / `math` roots; 9 are Blender widgets     |
-| CSS properties                        | **226** change layout or rendering; **169** more parse but have no effect         |
-| W3C property index (745 properties)   | **223** rendered (30%), **161** parsed without effect (22%), **361** not recognized (48%): most of these are drafts, speech, paged media and SVG |
-| CSS 2.1, screen properties            | **88 / 90** rendered, 90 / 90 parsed                                              |
+| CSS properties                        | **271** change layout or rendering; **137** more parse but have no effect         |
+| W3C property index (745 properties)   | **261** rendered (35%), **129** parsed without effect (17%), **355** not recognized (48%): most of these are drafts, speech, paged media and SVG |
+| CSS 2.1, screen properties            | **90 / 90** rendered, 90 / 90 parsed                                              |
 | Flexbox                               | **12 / 12**                                                                       |
 | Grid                                  | **23 / 23** (including `grid-template-areas` and named lines)                     |
 | Tailwind CSS v4                       | Classes compile on first use (v4 theme, variants, arbitrary values); `tw!` checks them at compile time |
@@ -445,9 +481,22 @@ div().class(tw!("grid grid-cols-3 gap-4 md:grid-cols-6 hover:bg-sky-500/50"))
 div().style("width: calc(100% - 2 * var(--gap)); background: color-mix(in oklch, var(--brand) 60%, white)")
 ```
 
-The CSS 2.1 properties that parse without effect: `table-layout` (tables always share width like `fixed`) and `unicode-bidi` (no bidi reordering).
+Every CSS 2.1 screen property renders.
 
-Also rendered: every `border-style` and `outline-style` (`dashed`, `dotted`, `double`, `groove`, `ridge`, `inset`, `outset`; corners of styled borders are square), `text-decoration-style` (including `wavy`), `-thickness` and `text-underline-offset`, `background-clip` / `background-origin` (`border-box`, `padding-box`, `content-box`), `background-attachment: fixed`, `clip: rect()` on absolutely positioned boxes, counters (`counter-reset` / `-increment` / `-set` with `counter()` and `counters()` in `content`), `empty-cells`, `list-style-image`, `word-break: break-all`, `overflow-wrap: anywhere | break-word` (in text that mixes inline elements, long words break only with `break-all`) and `tab-size`.
+**Effects** work on the element's pixels: `filter` and `backdrop-filter`
+(`blur`, `brightness`, `contrast`, `grayscale`, `hue-rotate`, `invert`,
+`opacity`, `saturate`, `sepia`, `drop-shadow`), `mix-blend-mode` (all 16 modes
+and `plus-lighter`), `clip-path` (`inset()`, `circle()`, `ellipse()`,
+`polygon()`, reference boxes), `mask` / `mask-image` (gradients and PNGs,
+alpha or luminance, with size, position and repeat) and rotate / skew / scale
+/ matrix transforms. The element's subtree is drawn offscreen with the
+canvas' own drawing code, filtered, clipped, masked and resampled (bilinear,
+like Blender's image transform), then composited back with the W3C formulas;
+the result is cached, so a page that doesn't change costs nothing.
+`border-image` (gradients and PNGs, slice, width, outset, `stretch` /
+`repeat` / `round` / `space`, `fill`) draws the nine slices.
+
+Also rendered: every `border-style` and `outline-style` (`dashed`, `dotted`, `double`, `groove`, `ridge`, `inset`, `outset`, following rounded corners with Blender's corner tessellation), `text-decoration-style` (including `wavy`), `-thickness` and `text-underline-offset`, `background-clip` / `background-origin` (`border-box`, `padding-box`, `content-box`), `background-attachment: fixed`, `clip: rect()` on absolutely positioned boxes, counters (`counter-reset` / `-increment` / `-set` with `counter()` and `counters()` in `content`), `empty-cells`, `list-style-image`, `word-break: break-all`, `overflow-wrap: anywhere | break-word` and `tab-size`.
 
 Also supported: `background-image: url()` (PNG) with `background-size` / `-position` (`-x` / `-y`) / `-repeat`, `object-fit` / `object-position`, logical border longhands (`border-inline-width` ...), `text-wrap-mode`, `white-space-collapse`, `scale`, `all`, `@container` size queries (`container-type`, `container-name`), `@font-face` (local font files) and `@property` initial values.
 
@@ -456,11 +505,11 @@ How much is left, against all 745 properties in the
 
 | | Properties | Share |
 |---|---:|---:|
-| Change layout or rendering | 223 | 30% |
-| Parsed, no effect yet | 161 | 22% |
-| Not recognized | 361 | 48% |
+| Change layout or rendering | 261 | 35% |
+| Parsed, no effect yet | 129 | 17% |
+| Not recognized | 355 | 48% |
 
-The 361 unrecognized properties break down as:
+The 355 unrecognized properties break down as:
 
 | Group | Properties |
 |---|---:|
@@ -473,14 +522,31 @@ The 361 unrecognized properties break down as:
 | Everything else | ~100 |
 
 The everyday screen CSS is much further along: Flexbox 12/12, Grid 23/23 and
-CSS 2.1 88/90. The largest remaining gaps among common properties are visual
-effects (transforms, filters, blend modes, `clip-path`, masks) and
-animations and transitions.
+CSS 2.1 90/90. The largest remaining gaps among common properties are 3D
+transforms, OpenType font features and multi-column layout.
+
+**Animations and transitions** run like a browser's: `@keyframes` (percent
+lists, `from` / `to`, inside `@media`, per-keyframe
+`animation-timing-function`), every `animation-*` longhand and the shorthand
+(lists of animations, negative delays, `infinite`, every direction, fill mode
+and play state), and `transition` / `transition-*` (`all` or property lists,
+`transition-behavior: allow-discrete`; an interrupted transition starts from its
+current value, and one sent back to where it came from takes only as long as it
+ran). Easing: `linear`, `ease*`, `cubic-bezier()`, `steps()` with every jump
+position, `step-start` / `-end` and `linear()` points. Lengths, percentages,
+numbers, colors (in premultiplied sRGB), `box-shadow`, `text-shadow`,
+`transform` (function by function), `rotate`, `scale`, `filter` /
+`backdrop-filter` (function by function), `visibility` and `z-index` interpolate; other
+properties flip at 50%. A window renders frames only while something moves:
+finished or paused animations cost no CPU. Headless windows run on a virtual
+clock that `App::advance_clock` moves, so tests step animations exactly.
 
 Not done yet:
-- **Parsed, not applied:** `@keyframes`, transitions and animations; scroll snapping and OpenType font features.
+- **Parsed, not applied:** OpenType font features (`font-feature-settings`, `font-variant-numeric` ...): the text engine has no shaping, and Blender's text library doesn't either. Multi-column layout (`columns`), `writing-mode`, `scroll-padding` / `scroll-margin`.
+- **3D transforms:** `perspective`, `rotateX` / `rotateY`, `matrix3d` have no effect; 2D transforms don't change hit testing (clicks use the untransformed box).
+- **Animations:** no `animationend` / `transitionend` events, no animations on `::before` / `::after`, and an element starts transitions only when it already had a `transition` in the previous frame (e.g. not when `transition` appears only under `:hover` on the first hover). Lengths mixing units that resolve differently (`50%` to `100px`, `auto`) flip at 50% instead of going through `calc()`.
 - **`@container` timing:** queries use the container's size from the previous layout; when it changes, the window renders once more.
-- **Rendering effects:** 2D/3D `rotate` / `skew` transforms, `filter` / `backdrop-filter`, blend modes, `clip-path`, masks and `border-image`.
+- **Effects:** `filter: url(#svg)`, `clip-path: path()`, and `mix-blend-mode` across stacking contexts (it blends with what was painted before it).
 - **The rest of the W3C property index:** about 360 entries this engine doesn't know, mostly drafts, speech, paged media and SVG.
 - **Box sizing:** the default is `border-box` (like Tailwind's preflight), not CSS's `content-box`.
 

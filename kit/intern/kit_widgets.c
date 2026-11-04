@@ -105,6 +105,23 @@ static int item_icon(const BKNode *n, int i)
   return (n->item_icons && i >= 0 && i < n->item_icons_s.n) ? n->item_icons[i] : 0;
 }
 
+/* Browser look interaction (defined in the "Browser look" section below). */
+static int html_number_press(BKNode *n, BKEvent *e);
+static int html_number_dbl(BKNode *n, BKEvent *e);
+static int html_number_drag(BKNode *n, BKEvent *e);
+static int html_number_release(BKNode *n, BKEvent *e);
+static int html_number_key(BKNode *n, BKEvent *e);
+static int html_number_move(BKNode *n, BKEvent *e);
+static int html_number_cursor(BKNode *n, int x, int y);
+static int html_range_press(BKNode *n, BKEvent *e);
+static int html_range_drag(BKNode *n, BKEvent *e);
+static int html_range_release(BKNode *n, BKEvent *e);
+static int html_range_key(BKNode *n, BKEvent *e);
+static void html_number_spin(BKNode *n, int dir);
+static float html_font_begin(const BKNode *n);
+static float hp(float css);
+#define HTML_GROUP_PREFIX '\x01' /* dropdown item that is an <optgroup> label */
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -1624,8 +1641,21 @@ static void bool_reset(BKNode *n, bool zero)
 
 static int bool_press(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) { /* browsers toggle on click (release inside), no drag-toggle */
+    bk_invalidate(n);
+    return 1;
+  }
   bool_toggle(n);
   bk_start_drag_toggle(bk_ctx(n), DRAG_GROUP_TOGGLE, n->value != 0);
+  return 1;
+}
+
+static int bool_release(BKNode *n, BKEvent *e)
+{
+  if (BK_HTML(n) && e->inside && NODE_ENABLED(n)) {
+    bool_toggle(n);
+  }
+  bk_invalidate(n);
   return 1;
 }
 
@@ -1661,7 +1691,7 @@ static void checkbox_draw(BKNode *n)
 
 #define BOOL_CLASS_COMMON \
   .flags = CLS_INTERACTIVE | CLS_VALUE, .drag_group = DRAG_GROUP_TOGGLE, .press = bool_press, \
-  .to_text = bool_to_text, .from_text = bool_from_text, .step = bool_step, \
+  .release = bool_release, .to_text = bool_to_text, .from_text = bool_from_text, .step = bool_step, \
   .reset = bool_reset, .activate = bool_toggle
 
 const BKClass bk_cls_checkbox = {.name = "checkbox",
@@ -1794,6 +1824,9 @@ static void number_finish(BKNode *n, bool confirm)
 
 static int number_cursor_at(BKNode *n, int x, int y)
 {
+  if (BK_HTML(n)) {
+    return n->cls == &bk_cls_slider ? BK_CURSOR_DEFAULT : html_number_cursor(n, x, y);
+  }
   return n->edit ? BK_CURSOR_TEXT : BK_CURSOR_EW;
 }
 
@@ -1926,6 +1959,9 @@ static void drag_origin(BKNode *n, BKEvent *e)
 
 static int number_press(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) {
+    return n->cls == &bk_cls_slider ? html_range_press(n, e) : html_number_press(n, e);
+  }
   if (n->edit) {
     bk_te_click(n->edit, (float)(e->lx - bk_pad()), EV_SHIFT(e));
     bk_invalidate(n);
@@ -1947,6 +1983,10 @@ static int number_press(BKNode *n, BKEvent *e)
 static void number_cancel(BKNode *n)
 {
   BKContext *ctx = bk_ctx(n);
+  if (BK_HTML(n)) { /* a range drag keeps its value (Chrome has no cancel) */
+    n->dragmode = 0;
+    return;
+  }
   if (n->dragmode >= 2 && ctx) {
     for (int i = 0; i < ctx->nmulti; i++) {
       bk_set_value(ctx->multi[i], ctx->multi_start[i]);
@@ -2013,6 +2053,9 @@ static int multi_drag(BKNode *n, BKEvent *e)
 
 static int number_dbl(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) {
+    return n->cls == &bk_cls_slider ? html_range_press(n, e) : html_number_dbl(n, e);
+  }
   if (n->edit) {
     bk_te_select_word(n->edit, bk_te_index_at(n->edit, (float)(e->lx - bk_pad())));
     bk_invalidate(n);
@@ -2023,6 +2066,9 @@ static int number_dbl(BKNode *n, BKEvent *e)
 
 static int number_drag(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) {
+    return n->cls == &bk_cls_slider ? html_range_drag(n, e) : html_number_drag(n, e);
+  }
   if (n->edit) {
     bk_te_drag(n->edit, (float)(e->lx - bk_pad()));
     bk_invalidate(n);
@@ -2074,6 +2120,9 @@ static int arrow_w(const BKNode *n)
 
 static int number_release(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) {
+    return n->cls == &bk_cls_slider ? html_range_release(n, e) : html_number_release(n, e);
+  }
   BKContext *ctx = bk_ctx(n);
   if (ctx && n->dragmode >= 2) {
     for (int i = 0; i < ctx->nmulti; i++) {
@@ -2113,14 +2162,30 @@ static int number_release(BKNode *n, BKEvent *e)
 
 static int number_key(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) {
+    return n->cls == &bk_cls_slider ? html_range_key(n, e) : html_number_key(n, e);
+  }
   if (n->edit) {
     return bk_edit_key(n, e);
   }
   return bk_value_key(n, e);
 }
 
+static int number_wheel(BKNode *n, BKEvent *e)
+{
+  /* Chrome: the wheel steps a focused number input */
+  if (BK_HTML(n) && n->cls == &bk_cls_number && n->edit && NODE_ENABLED(n)) {
+    html_number_spin(n, e->delta > 0 ? 1 : -1);
+    return 1;
+  }
+  return bk_value_wheel(n, e);
+}
+
 static int number_move(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) {
+    return n->cls == &bk_cls_number ? html_number_move(n, e) : 0;
+  }
   if (n->cls != &bk_cls_number) {
     return 0;
   }
@@ -2200,6 +2265,7 @@ static void number_draw(BKNode *n)
   .drag_cursor = BK_CURSOR_NONE, .measure = number_measure, .press = number_press, \
   .dbl = number_dbl, .drag = number_drag, .release = number_release, .key = number_key, \
   .move = number_move, .leave = number_leave, .cursor_at = number_cursor_at, \
+  .wheel = number_wheel, \
   .cancel = number_cancel, \
   .finish_edit = number_finish, .to_text = number_to_text, .from_text = number_from_text, \
   .step = number_step, .reset = number_reset, .negate = number_negate, \
@@ -2285,15 +2351,20 @@ static void text_finish(BKNode *n, bool confirm)
 
 static float text_x(BKNode *n, BKEvent *e)
 {
+  if (BK_HTML(n)) { /* Chrome: 2px border + 2px padding before the text */
+    return (float)e->lx - hp(4.0f);
+  }
   return (float)(e->lx - bk_pad() - text_inset(n));
 }
 
 static int text_press(BKNode *n, BKEvent *e)
 {
+  const float saved = BK_HTML(n) ? html_font_begin(n) : bk_text_scale;
   if (!n->edit) {
     bk_begin_edit(n, n->text ? n->text : "", false);
   }
   bk_te_click(n->edit, text_x(n, e), EV_SHIFT(e));
+  bk_text_scale = saved;
   bk_invalidate(n);
   return 1;
 }
@@ -2303,7 +2374,9 @@ static int text_dbl(BKNode *n, BKEvent *e)
   if (!n->edit) {
     return text_press(n, e);
   }
+  const float saved = BK_HTML(n) ? html_font_begin(n) : bk_text_scale;
   bk_te_select_word(n->edit, bk_te_index_at(n->edit, text_x(n, e)));
+  bk_text_scale = saved;
   bk_invalidate(n);
   return 1;
 }
@@ -2311,7 +2384,9 @@ static int text_dbl(BKNode *n, BKEvent *e)
 static int text_drag(BKNode *n, BKEvent *e)
 {
   if (n->edit) {
+    const float saved = BK_HTML(n) ? html_font_begin(n) : bk_text_scale;
     bk_te_drag(n->edit, text_x(n, e));
+    bk_text_scale = saved;
     bk_invalidate(n);
   }
   return 1;
@@ -2624,6 +2699,7 @@ static void dropdown_activate(BKNode *n)
   if (!ctx || !n->items.n) {
     return;
   }
+  const bool html = BK_HTML(n);
   BKMenuSpec *items = (BKMenuSpec *)calloc((size_t)n->items.n, sizeof(BKMenuSpec));
   for (int i = 0; i < n->items.n; i++) {
     items[i].text = n->items.v[i];
@@ -2632,10 +2708,20 @@ static void dropdown_activate(BKNode *n)
     items[i].enabled = 1;
     items[i].fn = NULL;
     items[i].data = (void *)(intptr_t)i; /* picked index (handled by the menu) */
+    if (html && items[i].text && items[i].text[0] == HTML_GROUP_PREFIX) {
+      items[i].text++; /* <optgroup> label: bold, not selectable (kit_menus.c) */
+      items[i].checked = -2;
+      items[i].enabled = 0;
+    }
   }
-  BKNode *menu = bk_menu_new(items, n->items.n, n->label && n->label[0] ? n->label : NULL,
+  BKNode *menu = bk_menu_new(items, n->items.n,
+                             (!html && n->label && n->label[0]) ? n->label : NULL,
                              item_text(n, (int)n->value));
   free(items);
+  if (html) {
+    menu->flags |= NF_HTML;
+    menu->hot = BK_CLAMP((int)n->value, -1, n->items.n - 1); /* the selected option */
+  }
   bk_open_popup(ctx, menu, n, NULL);
   (void)dropdown_pick;
 }
@@ -2695,12 +2781,39 @@ static void dropdown_draw(BKNode *n)
   bk_text_icon(&r, s, item_icon(n, i), w.text, BK_ALIGN_LEFT, NODE_ENABLED(n));
 }
 
+static int dropdown_key(BKNode *n, BKEvent *e)
+{
+  if (BK_HTML(n)) {
+    /* Chrome (Windows): arrows change a closed select, Space / F4 / Alt+Down open it */
+    const bool down = bk_keysym_is(e->keysym, "Down"), up = bk_keysym_is(e->keysym, "Up");
+    if ((down && EV_ALT(e)) || bk_keysym_is(e->keysym, "space") || bk_keysym_is(e->keysym, "F4")) {
+      dropdown_activate(n);
+      return 1;
+    }
+    const bool home = bk_keysym_is(e->keysym, "Home"), end = bk_keysym_is(e->keysym, "End");
+    if (down || up || home || end) {
+      /* step to the next option, skipping <optgroup> labels; Home/End: first/last */
+      const int cnt = n->items.n, dir = (down || home) ? 1 : -1;
+      int i = home ? -1 : (end ? cnt : (int)n->value);
+      for (i += dir; i >= 0 && i < cnt; i += dir) {
+        if (n->items.v[i][0] != HTML_GROUP_PREFIX) {
+          bk_set_value(n, i);
+          break;
+        }
+      }
+      return 1;
+    }
+  }
+  return bk_value_key(n, e);
+}
+
 const BKClass bk_cls_dropdown = {.name = "dropdown",
                                  .flags = CLS_INTERACTIVE | CLS_VALUE,
                                  .init = choice_init,
                                  .measure = dropdown_measure,
                                  .draw = dropdown_draw,
                                  .press = dropdown_press,
+                                 .key = dropdown_key,
                                  .to_text = choice_to_text,
                                  .from_text = choice_from_text,
                                  .step = choice_step,
@@ -3179,5 +3292,970 @@ const BKClass bk_cls_menubar = {.name = "menubar",
                                 .measure = menubar_measure,
                                 .arrange = menubar_arrange,
                                 .draw = menubar_draw};
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Browser look ("html" property)
+ *
+ * Chrome's default form controls since the 2020 "form controls refresh"
+ * (Windows, light scheme). Colors are Chromium's
+ * CompleteDefaultWebNativeRendererColorIdsDefinition (ui/color/
+ * color_provider_utils.cc), shapes follow NativeThemeBase (ui/native_theme/
+ * native_theme_base.cc: PaintButton, PaintTextField, PaintCheckbox,
+ * PaintRadio, PaintSliderTrack/Thumb, PaintProgressBar, PaintMenuList) and the
+ * metrics come from Blink's html.css (2px borders + 1px 2px padding on text
+ * inputs, 1px 6px on buttons, 13.33px text, 13px checkboxes with
+ * 3px 3px 3px 4px margins, ...). All sizes are CSS px scaled by bk_scale_fac.
+ * \{ */
+
+/* NativeTheme::State order: the per-state color tables are indexed by it */
+enum { HS_DISABLED = 0, HS_HOVER, HS_NORMAL, HS_PRESSED };
+
+/* kColorWebNativeControl{Border,Accent,Fill,CheckboxBackground,Slider,SliderBorder} */
+static const uint32_t kHtmlBorder[4] = {0x4D767676u, 0xFF4F4F4Fu, 0xFF767676u, 0xFF8D8D8Du};
+static const uint32_t kHtmlAccent[4] = {0x4D767676u, 0xFF005CC8u, 0xFF0075FFu, 0xFF3793FFu};
+static const uint32_t kHtmlFill[4] = {0x4DEFEFEFu, 0xFFE5E5E5u, 0xFFEFEFEFu, 0xFFF5F5F5u};
+static const uint32_t kHtmlCheckBg[4] = {0x99FFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
+static const uint32_t kHtmlSlider[4] = {0xFFCBCBCBu, 0xFF005CC8u, 0xFF0075FFu, 0xFF3793FFu};
+static const uint32_t kHtmlSliderBorder[4] = {0x4D767676u, 0x804F4F4Fu, 0x80767676u,
+                                              0x808D8D8Du};
+#define HTML_LIGHTEN 0x33A9A9A9u    /* kColorWebNativeControlLightenLayer (disabled) */
+#define HTML_FOCUS_RING 0xFF101010u /* -webkit-focus-ring-color (light) */
+#define HTML_SELECTION 0xFF3390FFu  /* text selection behind white text */
+/* spin buttons: kColorWebNativeControlScrollbarArrow{Background,Foreground}* */
+#define HTML_SPIN_BG 0xFFF1F1F1u
+#define HTML_SPIN_BG_HOVER 0xFFD2D2D2u
+#define HTML_SPIN_BG_PRESSED 0xFF787878u
+#define HTML_SPIN_FG 0xFF505050u
+#define HTML_SPIN_FG_HOVER 0xFF000000u
+#define HTML_SPIN_FG_PRESSED 0xFFFFFFFFu
+#define HTML_SPIN_FG_DISABLED 0x4D505050u
+
+static const uchar kHtmlText[4] = {0, 0, 0, 255};                       /* FieldText */
+static const uchar kHtmlTextDisabled[4] = {16, 16, 16, 77};            /* rgba(16,16,16,.3) */
+static const uchar kHtmlFieldTextDisabled[4] = {0x54, 0x54, 0x54, 255}; /* input:disabled */
+static const uchar kHtmlPlaceholder[4] = {0x75, 0x75, 0x75, 255};      /* ::placeholder */
+
+float bk_hpx(float css)
+{
+  return css * bk_scale_fac;
+}
+
+static float hp(float css)
+{
+  return css * bk_scale_fac;
+}
+
+static int hpi(float css)
+{
+  return bk_iround(css * bk_scale_fac);
+}
+
+/* Chrome's 1px borders stay one device pixel wide at fractional zoom. */
+static float html_bw(void)
+{
+  return BK_MAX(1.0f, floorf(hp(1.0f)));
+}
+
+/* Text at 13.33px for this node (its own font scale on top). */
+static float html_font_begin(const BKNode *n)
+{
+  const float saved = bk_text_scale;
+  bk_text_scale = (n->font_scale > 0.0f ? n->font_scale : 1.0f) * BK_HTML_FONT;
+  bk_html_text_scale = bk_text_scale; /* text in this bracket uses the form-control font */
+  return saved;
+}
+
+static int html_state(const BKNode *n)
+{
+  if (!NODE_ENABLED(n)) {
+    return HS_DISABLED;
+  }
+  const BKContext *ctx = bk_ctx(n);
+  if (ctx && ctx->grab == n && (ctx->hover == n || ctx->dragging)) {
+    return HS_PRESSED;
+  }
+  return bk_hovered(n) ? HS_HOVER : HS_NORMAL;
+}
+
+static void html_box(float x, float y, float w, float h, float rad, uint32_t fill,
+                     uint32_t border, float bw)
+{
+  float f[4], b[4];
+  bk_argb(fill, f);
+  bk_argb(border, b);
+  bk_html_box(x, y, w, h, rad, (fill >> 24) ? f : NULL, (border >> 24) ? b : NULL, bw);
+}
+
+static void html_box_r(const BKRect *r, float rad, uint32_t fill, uint32_t border, float bw)
+{
+  html_box((float)r->xmin, (float)r->ymin, (float)bk_rw(r), (float)bk_rh(r), rad, fill, border,
+           bw);
+}
+
+static BKRect html_inset(const BKRect *r, float l, float t, float rr, float b)
+{
+  BKRect o = {r->xmin + hpi(l), r->ymin + hpi(t), r->xmax - hpi(rr), r->ymax - hpi(b)};
+  if (o.xmax < o.xmin) {
+    o.xmax = o.xmin;
+  }
+  if (o.ymax < o.ymin) {
+    o.ymax = o.ymin;
+  }
+  return o;
+}
+
+/* The focus ring of text controls (outline: auto 1px -webkit-focus-ring-color,
+ * outline-offset 0): a 2px dark ring over the border, 1px outside it. */
+static void html_focus_ring(const BKRect *r, float rad)
+{
+  const float o = hp(1.0f);
+  float c[4];
+  bk_argb(HTML_FOCUS_RING, c);
+  bk_html_box(r->xmin - o, r->ymin - o, bk_rw(r) + 2 * o, bk_rh(r) + 2 * o, rad + o, NULL, c,
+              hp(2.0f));
+}
+
+/* One line of text clipped (not ellipsized) to `cr`, vertically centered. */
+static void html_text(const BKRect *cr, const char *s, int len, const uchar c[4], int align,
+                      bool bold)
+{
+  if (!s || !s[0]) {
+    return;
+  }
+  const float tw = bk_text_width(s, len, bold);
+  float x = (float)cr->xmin;
+  if (align == BK_ALIGN_CENTER) {
+    x += (bk_rw(cr) - tw) * 0.5f;
+  }
+  else if (align == BK_ALIGN_RIGHT) {
+    x = cr->xmax - tw;
+  }
+  const int m = hpi(3); /* room for ascenders/descenders */
+  bk_clip_push(cr->xmin, cr->ymin - m, bk_rw(cr), bk_rh(cr) + 2 * m);
+  bk_text(floorf(x + 0.5f), bk_text_baseline(cr), s, len, c, bold);
+  bk_clip_pop();
+}
+
+void bk_html_te_draw(BKTextEdit *te, const BKRect *cr, const uchar color[4])
+{
+  const float inner = BK_MAX(1.0f, (float)bk_rw(cr) - 1.0f);
+  const float caret_px = bk_masked_width(te->text, te->caret, te->mask, false);
+  if (caret_px - te->scroll > inner) {
+    te->scroll = caret_px - inner;
+  }
+  else if (caret_px - te->scroll < 0) {
+    te->scroll = caret_px;
+  }
+  const float tx = cr->xmin - te->scroll;
+  const int m = hpi(3), h = bk_rh(cr);
+  char buf[1024];
+  const char *s = te->text;
+  int len = te->len;
+  if (te->mask[0]) {
+    len = bk_mask_text(te->text, te->len, te->mask, buf, sizeof(buf));
+    s = buf;
+  }
+  const float base = bk_text_baseline(cr);
+  bk_clip_push(cr->xmin, cr->ymin - m, bk_rw(cr) + 1, h + 2 * m);
+  bk_text(tx, base, s, len, color, false);
+  if (te->anchor >= 0 && te->anchor != te->caret) {
+    const int a = BK_MIN(te->anchor, te->caret), b = BK_MAX(te->anchor, te->caret);
+    const float sx = tx + bk_masked_width(te->text, a, te->mask, false);
+    const float sw = bk_masked_width(te->text, b, te->mask, false) -
+                     bk_masked_width(te->text, a, te->mask, false);
+    float sel[4];
+    bk_argb(HTML_SELECTION, sel);
+    bk_fill_f(sx, (float)cr->ymin, sw, (float)h, sel);
+    static const uchar white[4] = {255, 255, 255, 255};
+    bk_clip_push((int)floorf(sx), cr->ymin - m, (int)ceilf(sw) + 1, h + 2 * m);
+    bk_text(tx, base, s, len, white, false);
+    bk_clip_pop();
+  }
+  else { /* Chrome hides the caret over a range selection */
+    bk_fill(floorf(tx + caret_px), (float)cr->ymin, html_bw(), (float)h, color);
+  }
+  bk_clip_pop();
+}
+
+/* -- buttons (push buttons, toggles, color input frame) -- */
+
+static void html_button_frame(const BKRect *r, int hs)
+{
+  const float rad = hp(2.0f), bw = html_bw();
+  if (hs == HS_DISABLED) {
+    html_box_r(r, rad, HTML_LIGHTEN, 0, 0); /* PaintLightenLayer */
+  }
+  html_box_r(r, rad, kHtmlFill[hs], kHtmlBorder[hs], bw);
+}
+
+static void html_button_measure(BKNode *n, const char *s, int *rw, int *rh)
+{
+  const BKImage *img = (const BKImage *)n->image;
+  if (img) {
+    *rw = img->w + hpi(16);
+    *rh = BK_MAX(hpi(21), img->h + hpi(6));
+    return;
+  }
+  /* padding 1px 6px + 2px borders; line-height normal of 13.33px = 15px */
+  *rw = (int)ceilf(bk_text_width(s ? s : "", -1, false)) + hpi(16);
+  *rh = hpi(21);
+}
+
+static void html_button_draw(BKNode *n, const char *s, bool on)
+{
+  BKRect r = bk_node_rect(n);
+  int hs = html_state(n);
+  if (on && hs != HS_DISABLED) {
+    hs = HS_PRESSED; /* a toggle that is on looks pressed */
+  }
+  html_button_frame(&r, hs);
+  const BKImage *img = (const BKImage *)n->image;
+  if (img) {
+    bk_image_draw(img, r.xmin + (bk_rw(&r) - img->w) / 2, r.ymin + (bk_rh(&r) - img->h) / 2,
+                  img->w, img->h, NODE_ENABLED(n) ? 1.0f : 0.5f);
+    return;
+  }
+  const BKRect cr = html_inset(&r, 8, 3, 8, 3);
+  BKRect tr = {r.xmin + hpi(2), cr.ymin, r.xmax - hpi(2), cr.ymax}; /* may overflow the padding */
+  html_text(&tr, s, -1, hs == HS_DISABLED ? kHtmlTextDisabled : kHtmlText, BK_ALIGN_CENTER,
+            false);
+}
+
+/* -- checkbox / radio -- */
+
+/* 13x13 box after the 4px left / 3px top margins (vertically centered when the
+ * node is taller than its natural 19px). */
+static void html_check_box(const BKNode *n, float *x, float *y, float *s)
+{
+  *s = (float)hpi(13);
+  *x = (float)(n->x + hpi(4));
+  *y = (float)(n->y + (n->h - hpi(19)) / 2 + hpi(3));
+}
+
+static void html_check_label(const BKNode *n)
+{
+  if (n->label && n->label[0]) {
+    BKRect lr = bk_rect(n->x + hpi(20), n->y, BK_MAX(0, n->w - hpi(20)), n->h);
+    html_text(&lr, n->label, -1, NODE_ENABLED(n) ? kHtmlText : kHtmlTextDisabled,
+              BK_ALIGN_LEFT, false);
+  }
+}
+
+static void html_checkbox_draw(BKNode *n)
+{
+  float x, y, s;
+  html_check_box(n, &x, &y, &s);
+  const int hs = html_state(n);
+  const bool checked = n->value != 0, mixed = n->value < 0; /* value -1: indeterminate */
+  const float rad = hp(2.0f), bw = html_bw();
+  if (hs == HS_DISABLED) {
+    html_box(x, y, s, s, rad, HTML_LIGHTEN, 0, 0);
+  }
+  /* PaintCheckboxRadioCommon: background, then the border unless checked */
+  html_box(x, y, s, s, rad, kHtmlCheckBg[hs], checked ? 0 : kHtmlBorder[hs], bw);
+  if (checked) {
+    html_box(x, y, s, s, rad, kHtmlAccent[hs], 0, 0);
+    float c[4];
+    bk_argb(kHtmlCheckBg[hs], c);
+    if (mixed) { /* the 8x2 dash */
+      html_box(x + s * (2.5f / 13.0f), y + s * (5.5f / 13.0f), s * (8.0f / 13.0f),
+               s * (2.0f / 13.0f), rad, kHtmlCheckBg[hs], 0, 0);
+    }
+    else {
+      const float pts[3][2] = {{x + s * 0.2f, y + s * 0.5f},
+                               {x + s * 0.4f, y + s * 0.7f},
+                               {x + s * 0.8f, y + s * 0.2f}};
+      bk_html_polyline(pts, 3, c, s * 0.16f);
+    }
+  }
+  html_check_label(n);
+}
+
+static void html_radio_draw(BKNode *n)
+{
+  float x, y, s;
+  html_check_box(n, &x, &y, &s);
+  const int hs = html_state(n);
+  const bool checked = n->value != 0;
+  const float cx = x + s * 0.5f, cy = y + s * 0.5f, rad = s * 0.5f, bw = html_bw();
+  float c[4];
+  if (hs == HS_DISABLED) {
+    bk_argb(HTML_LIGHTEN, c);
+    bk_circle(cx, cy, rad, c);
+  }
+  bk_argb(kHtmlCheckBg[hs], c);
+  bk_circle(cx, cy, rad - 0.2f * bw, c);
+  bk_argb(checked ? kHtmlAccent[hs] : kHtmlBorder[hs], c);
+  bk_ring(cx, cy, rad - bw * 0.5f, c, bw);
+  if (checked) { /* the dot, inset 20% each side */
+    bk_circle(cx, cy, rad * 0.6f, c);
+  }
+  html_check_label(n);
+}
+
+static void html_check_measure(BKNode *n, int *rw, int *rh)
+{
+  *rw = hpi(20); /* 13 + margins 4 + 3 */
+  *rh = hpi(19); /* 13 + margins 3 + 3 */
+  if (n->label && n->label[0]) {
+    *rw += (int)ceilf(bk_text_width(n->label, -1, false));
+  }
+}
+
+/* -- text fields -- */
+
+static void html_field_frame(const BKRect *r, int hs, bool focused)
+{
+  const float rad = hp(2.0f), bw = html_bw();
+  if (hs == HS_DISABLED) {
+    html_box_r(r, rad, HTML_LIGHTEN, 0, 0);
+  }
+  html_box_r(r, rad, kHtmlCheckBg[hs], kHtmlBorder[hs == HS_PRESSED ? HS_HOVER : hs], bw);
+  if (focused) {
+    html_focus_ring(r, rad);
+  }
+}
+
+static void html_text_draw(BKNode *n)
+{
+  const BKRect r = bk_node_rect(n);
+  const int hs = html_state(n);
+  html_field_frame(&r, hs, n->edit != NULL);
+  const BKRect cr = html_inset(&r, 4, 3, 4, 3);
+  const uchar *tc = hs == HS_DISABLED ? kHtmlFieldTextDisabled : kHtmlText;
+  if (n->edit) {
+    bk_html_te_draw(n->edit, &cr, tc);
+    return;
+  }
+  const char *shown = n->text ? n->text : "";
+  char masked[512];
+  if (!shown[0]) {
+    html_text(&cr, n->placeholder, -1, kHtmlPlaceholder, BK_ALIGN_LEFT, false);
+    return;
+  }
+  if (n->mask[0]) {
+    bk_mask_text(shown, (int)strlen(shown), n->mask, masked, sizeof(masked));
+    shown = masked;
+  }
+  html_text(&cr, shown, -1, tc, BK_ALIGN_LEFT, false);
+}
+
+/* -- number: a text field with an inner spin button -- */
+
+static BKRect html_spin_rect(const BKNode *n)
+{
+  /* ::-webkit-inner-spin-button: 15px wide, stretched over the content box */
+  const BKRect r = bk_node_rect(n);
+  const BKRect cr = html_inset(&r, 4, 3, 4, 3);
+  return bk_rect(cr.xmax - hpi(15), cr.ymin, hpi(15), bk_rh(&cr));
+}
+
+/* 1: up half, 2: down half, 0: elsewhere */
+static int html_spin_part(const BKNode *n, int x, int y)
+{
+  const BKRect s = html_spin_rect(n);
+  if (x < s.xmin || x >= s.xmax || y < s.ymin || y >= s.ymax) {
+    return 0;
+  }
+  return y < s.ymin + bk_rh(&s) / 2 ? 1 : 2;
+}
+
+static void html_spin_draw(BKNode *n, int hs)
+{
+  const BKRect s = html_spin_rect(n);
+  const BKContext *ctx = bk_ctx(n);
+  const int pressed = (ctx && ctx->grab == n && n->dragmode >= 11) ? n->dragmode - 10 : 0;
+  const int hh = bk_rh(&s) / 2;
+  for (int part = 1; part <= 2; part++) {
+    const BKRect pr = part == 1 ? bk_rect(s.xmin, s.ymin, bk_rw(&s), hh) :
+                                  bk_rect(s.xmin, s.ymin + hh, bk_rw(&s), bk_rh(&s) - hh);
+    uint32_t bg = HTML_SPIN_BG, fg = HTML_SPIN_FG;
+    if (hs == HS_DISABLED) {
+      fg = HTML_SPIN_FG_DISABLED;
+    }
+    else if (pressed == part) {
+      bg = HTML_SPIN_BG_PRESSED;
+      fg = HTML_SPIN_FG_PRESSED;
+    }
+    else if (n->hot == part) {
+      bg = HTML_SPIN_BG_HOVER;
+      fg = HTML_SPIN_FG_HOVER;
+    }
+    float c[4];
+    bk_argb(bg, c);
+    bk_fill_f((float)pr.xmin, (float)pr.ymin, (float)bk_rw(&pr), (float)bk_rh(&pr), c);
+    /* a 7x4 arrow, like Windows' up/down control */
+    const float aw = BK_MIN(hp(7.0f), bk_rw(&pr) - hp(4.0f)), ah = aw * 0.5f;
+    const float cx = pr.xmin + bk_rw(&pr) * 0.5f, cy = pr.ymin + bk_rh(&pr) * 0.5f;
+    const float dy = part == 1 ? ah * 0.5f : -ah * 0.5f;
+    const float tri[3][2] = {{cx - aw * 0.5f, cy + dy}, {cx + aw * 0.5f, cy + dy}, {cx, cy - dy}};
+    bk_argb(fg, c);
+    bk_polygon(tri, 3, c);
+  }
+}
+
+static void html_number_draw(BKNode *n)
+{
+  const BKRect r = bk_node_rect(n);
+  const int hs = html_state(n);
+  html_field_frame(&r, hs, n->edit != NULL);
+  BKRect cr = html_inset(&r, 4, 3, 4, 3);
+  cr.xmax = BK_MAX(cr.xmin, cr.xmax - hpi(15)); /* the spin button's space is always kept */
+  const uchar *tc = hs == HS_DISABLED ? kHtmlFieldTextDisabled : kHtmlText;
+  if (n->edit) {
+    bk_html_te_draw(n->edit, &cr, tc);
+  }
+  else {
+    char buf[128];
+    format_number(n, n->value, buf, sizeof(buf));
+    html_text(&cr, buf, -1, tc, BK_ALIGN_LEFT, false);
+  }
+  /* :enabled:-webkit-any(:focus, :hover)::-webkit-inner-spin-button { opacity: 1 } */
+  if (hs != HS_DISABLED && (n->edit || bk_hovered(n))) {
+    html_spin_draw(n, hs);
+  }
+}
+
+static void html_number_set_edit_text(BKNode *n)
+{
+  char buf[128];
+  format_number(n, n->value, buf, sizeof(buf));
+  BKTextEdit *te = bk_te_new(buf, false);
+  memcpy(te->mask, n->edit->mask, sizeof(te->mask));
+  bk_te_free(n->edit);
+  n->edit = te;
+}
+
+/* stepUp / stepDown: from a value off the step grid, go to the next grid value */
+static void html_number_spin(BKNode *n, int dir)
+{
+  if (n->edit) {
+    number_from_text(n, n->edit->text); /* what was typed is the base */
+  }
+  const double st = n->step > 0 ? n->step : 1.0;
+  const double base = (n->flags & NF_HAS_MIN) ? n->vmin : 0.0;
+  const double k = (n->value - base) / st;
+  const double kk = dir > 0 ? floor(k + 1e-9) + 1.0 : ceil(k - 1e-9) - 1.0;
+  double v = base + kk * st;
+  v = round(v * 1e9) / 1e9; /* 0.1 * 3 -> 0.3 */
+  bk_set_value(n, v);
+  if (n->edit) {
+    html_number_set_edit_text(n);
+  }
+  bk_invalidate(n);
+}
+
+static void html_number_begin(BKNode *n)
+{
+  char buf[128];
+  format_number(n, n->value, buf, sizeof(buf));
+  bk_begin_edit(n, buf, false);
+}
+
+static int html_number_press(BKNode *n, BKEvent *e)
+{
+  const int part = html_spin_part(n, e->x, e->y);
+  if (part) { /* Chrome steps on mouse down and focuses the field */
+    if (!n->edit) {
+      html_number_begin(n);
+    }
+    n->dragmode = 10 + part;
+    html_number_spin(n, part == 1 ? 1 : -1);
+    return 1;
+  }
+  const float saved = html_font_begin(n);
+  if (!n->edit) {
+    html_number_begin(n);
+  }
+  bk_te_click(n->edit, (float)e->lx - hp(4.0f), EV_SHIFT(e));
+  bk_text_scale = saved;
+  n->dragmode = 1; /* a drag selects text */
+  bk_invalidate(n);
+  return 1;
+}
+
+static int html_number_dbl(BKNode *n, BKEvent *e)
+{
+  if (!n->edit || html_spin_part(n, e->x, e->y)) {
+    return html_number_press(n, e);
+  }
+  const float saved = html_font_begin(n);
+  bk_te_select_word(n->edit, bk_te_index_at(n->edit, (float)e->lx - hp(4.0f)));
+  bk_text_scale = saved;
+  n->dragmode = 0;
+  bk_invalidate(n);
+  return 1;
+}
+
+static int html_number_drag(BKNode *n, BKEvent *e)
+{
+  if (n->edit && n->dragmode == 1) {
+    const float saved = html_font_begin(n);
+    bk_te_drag(n->edit, (float)e->lx - hp(4.0f));
+    bk_text_scale = saved;
+    bk_invalidate(n);
+  }
+  return 1;
+}
+
+static int html_number_release(BKNode *n, BKEvent *e)
+{
+  n->dragmode = 0;
+  bk_invalidate(n);
+  return 1;
+}
+
+static int html_number_key(BKNode *n, BKEvent *e)
+{
+  const bool up = bk_keysym_is(e->keysym, "Up"), down = bk_keysym_is(e->keysym, "Down");
+  if ((up || down) && NODE_ENABLED(n)) {
+    html_number_spin(n, up ? 1 : -1);
+    return 1;
+  }
+  if (n->edit) {
+    return bk_edit_key(n, e);
+  }
+  return bk_value_key(n, e);
+}
+
+static int html_number_move(BKNode *n, BKEvent *e)
+{
+  const int part = html_spin_part(n, e->x, e->y);
+  if (part != n->hot) {
+    n->hot = part;
+    bk_invalidate(n);
+    return 1;
+  }
+  return 0;
+}
+
+static int html_number_cursor(BKNode *n, int x, int y)
+{
+  return html_spin_part(n, x, y) ? BK_CURSOR_DEFAULT : BK_CURSOR_TEXT;
+}
+
+/* -- range -- */
+
+static double html_range_snap(const BKNode *n, double v)
+{
+  double st = n->step;
+  if ((n->flags & NF_INTEGER) && st < 1.0) {
+    st = 1.0;
+  }
+  if (st > 0) { /* the step base is the minimum */
+    v = n->vmin + round((v - n->vmin) / st) * st;
+    if (v > n->vmax + 1e-9) {
+      v -= st;
+    }
+    v = round(v * 1e9) / 1e9;
+  }
+  return BK_CLAMP(v, n->vmin, n->vmax);
+}
+
+static float html_range_frac(const BKNode *n)
+{
+  const double span = n->vmax - n->vmin;
+  return span > 0 ? (float)BK_CLAMP((n->value - n->vmin) / span, 0.0, 1.0) : 0.0f;
+}
+
+/* The thumb's center follows the pointer: absolute, not Blender's relative scrub. */
+static void html_range_set_from(BKNode *n, int x)
+{
+  const float th = hp(16.0f), avail = BK_MAX(1.0f, n->w - th);
+  const double f = BK_CLAMP((x - n->x - th * 0.5f) / avail, 0.0f, 1.0f);
+  bk_set_value(n, html_range_snap(n, n->vmin + f * (n->vmax - n->vmin)));
+}
+
+static int html_range_press(BKNode *n, BKEvent *e)
+{
+  html_range_set_from(n, e->x);
+  n->dragmode = 20;
+  bk_invalidate(n);
+  return 1;
+}
+
+static int html_range_drag(BKNode *n, BKEvent *e)
+{
+  if (n->dragmode == 20) {
+    html_range_set_from(n, e->x);
+  }
+  return 1;
+}
+
+static int html_range_release(BKNode *n, BKEvent *e)
+{
+  n->dragmode = 0;
+  bk_invalidate(n);
+  return 1;
+}
+
+static int html_range_key(BKNode *n, BKEvent *e)
+{
+  const char *k = e->keysym;
+  if (!NODE_ENABLED(n)) {
+    return 0;
+  }
+  double st = n->step > 0 ? n->step : (n->vmax - n->vmin) / 100.0;
+  if ((n->flags & NF_INTEGER) && st < 1.0) {
+    st = 1.0;
+  }
+  /* Blink's SliderThumbElement: PageUp/Down move by max(step, range / 10) */
+  const double page = BK_MAX(st, (n->vmax - n->vmin) / 10.0);
+  double v;
+  if (bk_keysym_is(k, "Right") || bk_keysym_is(k, "Up")) {
+    v = n->value + st;
+  }
+  else if (bk_keysym_is(k, "Left") || bk_keysym_is(k, "Down")) {
+    v = n->value - st;
+  }
+  else if (bk_keysym_is(k, "Prior")) {
+    v = n->value + page;
+  }
+  else if (bk_keysym_is(k, "Next")) {
+    v = n->value - page;
+  }
+  else if (bk_keysym_is(k, "Home")) {
+    v = n->vmin;
+  }
+  else if (bk_keysym_is(k, "End")) {
+    v = n->vmax;
+  }
+  else {
+    return bk_value_key(n, e);
+  }
+  bk_set_value(n, html_range_snap(n, v));
+  return 1;
+}
+
+static void html_range_draw(BKNode *n)
+{
+  const int hs = html_state(n);
+  const float th = hp(16.0f), thick = hp(8.0f), bw = html_bw();
+  const float cy = n->y + n->h * 0.5f;
+  const float thumb_x = html_range_frac(n) * BK_MAX(0.0f, n->w - th);
+  /* AlignSliderTrack: centered, 8px thick, inset 1px at both ends */
+  const float tx = n->x + hp(1.0f), tw = n->w - 2 * hp(1.0f);
+  const float ty = cy - thick * 0.5f, rad = thick * 0.5f;
+  html_box(tx, ty, tw, thick, rad, kHtmlFill[hs], 0, 0);
+  /* the value part: the track clipped to the thumb center + half the thickness */
+  const int vx1 = (int)ceilf(n->x + thumb_x + thick * 0.5f);
+  bk_clip_push(n->x, (int)floorf(ty) - 1, vx1 - n->x, (int)ceilf(thick) + 2);
+  html_box(tx, ty, tw, thick, rad, kHtmlSlider[hs], 0, 0);
+  bk_clip_pop();
+  html_box(tx, ty, tw, thick, rad, 0, kHtmlSliderBorder[hs], bw);
+  /* the 16px round thumb (drawn inset 0.5px, like Chrome) */
+  float c[4];
+  bk_argb(kHtmlSlider[hs], c);
+  bk_circle(n->x + thumb_x + th * 0.5f, cy, th * 0.5f - hp(0.5f), c);
+}
+
+/* -- select -- */
+
+static const char *html_item(const BKNode *n, int i)
+{
+  const char *s = item_text(n, i);
+  return s[0] == HTML_GROUP_PREFIX ? s + 1 : s;
+}
+
+static void html_select_measure(BKNode *n, int *rw, int *rh)
+{
+  float widest = 0;
+  for (int i = 0; i < n->items.n; i++) {
+    if (n->items.v[i][0] != HTML_GROUP_PREFIX) {
+      widest = BK_MAX(widest, bk_text_width(n->items.v[i], -1, false));
+    }
+  }
+  /* 1px borders, 4px internal start padding, 1px + the arrow box (17px) at the end */
+  *rw = (int)ceilf(widest) + hpi(1 + 4 + 18 + 1);
+  *rh = hpi(19); /* 15px line + 1px internal padding + 1px borders */
+}
+
+static void html_select_draw(BKNode *n)
+{
+  const BKRect r = bk_node_rect(n);
+  int hs = html_state(n);
+  if (hs != HS_DISABLED && bk_owns_popup(bk_ctx(n), n)) {
+    hs = HS_PRESSED;
+  }
+  /* PaintMenuList without a CSS radius: PaintTextField, then the arrow */
+  html_field_frame(&r, hs, false);
+  const uchar *tc = hs == HS_DISABLED ? kHtmlTextDisabled : kHtmlText;
+  const BKRect cr = html_inset(&r, 5, 2, 19, 2);
+  html_text(&cr, html_item(n, (int)n->value), -1, tc, BK_ALIGN_LEFT, false);
+  /* the "v" chevron: 2:1, stroked in the text color, centered in the arrow box */
+  const float aw = hp(8.0f), ah = floorf(aw * 0.5f);
+  const float acx = r.xmax - hp(1.0f) - hp(18.0f) * 0.5f, acy = r.ymin + bk_rh(&r) * 0.5f;
+  const float pts[3][2] = {{acx - aw * 0.5f, acy - ah * 0.5f},
+                           {acx, acy + ah * 0.5f},
+                           {acx + aw * 0.5f, acy - ah * 0.5f}};
+  float c[4];
+  bk_rgba(tc, c);
+  bk_html_polyline(pts, 3, c, hp(2.0f)); /* PaintMenuList: stroke width 2 */
+}
+
+/* -- color input -- */
+
+static void html_color_draw(BKNode *n)
+{
+  const BKRect r = bk_node_rect(n);
+  int hs = html_state(n);
+  if (hs != HS_DISABLED && bk_owns_popup(bk_ctx(n), n)) {
+    hs = HS_PRESSED;
+  }
+  html_button_frame(&r, hs);
+  /* padding 1px 2px + swatch wrapper 4px 2px, swatch border 1px #777777 */
+  const BKRect sr = html_inset(&r, 5, 6, 5, 6);
+  const float c[4] = {n->color[0], n->color[1], n->color[2], 1.0f};
+  float b[4];
+  bk_argb(0xFF777777u, b);
+  bk_html_box((float)sr.xmin, (float)sr.ymin, (float)bk_rw(&sr), (float)bk_rh(&sr), 0.0f, c, b,
+              html_bw());
+  if (hs == HS_DISABLED) { /* the swatch dims with the control */
+    html_box_r(&sr, 0.0f, 0xB3FAFAFAu, 0, 0);
+  }
+}
+
+/* -- progress / meter -- */
+
+static void html_progress_draw(BKNode *n)
+{
+  /* PaintProgressBar: the track is 8/16 of the height, a pill */
+  const float thick = n->h * 0.5f, rad = thick * 0.5f;
+  const float x = (float)n->x, w = (float)n->w, y = n->y + (n->h - thick) * 0.5f;
+  html_box(x, y, w, thick, rad, kHtmlFill[HS_NORMAL], 0, 0);
+  const double f = n->factor;
+  if (f >= 0.0) { /* determinate: a rect clipped to the pill, at least 2px */
+    const float vw = (float)BK_MAX(f > 0 ? hp(2.0f) : 0.0f, BK_MIN(1.0, f) * w);
+    if (vw > 0) {
+      bk_clip_push(n->x, (int)floorf(y) - 1, (int)ceilf(vw), (int)ceilf(thick) + 2);
+      html_box(x, y, w, thick, rad, kHtmlAccent[HS_NORMAL], 0, 0);
+      bk_clip_pop();
+    }
+  }
+  else { /* indeterminate (factor < 0): a rounded segment (static) */
+    html_box(x + w * 0.1f, y, w * 0.3f, thick, rad, kHtmlAccent[HS_NORMAL], 0, 0);
+  }
+  html_box(x, y, w, thick, rad, 0, kHtmlSliderBorder[HS_NORMAL], html_bw());
+}
+
+typedef struct MeterData {
+  double low, high, optimum;
+  unsigned has; /* 1 low, 2 high, 4 optimum */
+} MeterData;
+
+#define METER(n) ((MeterData *)(n)->ext)
+
+static void meter_init(BKNode *n)
+{
+  n->vmin = 0.0;
+  n->vmax = 1.0;
+  n->flags |= NF_HAS_MIN | NF_HAS_MAX;
+  n->ext = calloc(1, sizeof(MeterData));
+}
+
+static void meter_free(BKNode *n)
+{
+  free(n->ext);
+  n->ext = NULL;
+}
+
+static int meter_set_num(BKNode *n, const char *key, double v)
+{
+  MeterData *m = METER(n);
+  if (strcmp(key, "low") == 0) {
+    m->low = v;
+    m->has |= 1u;
+  }
+  else if (strcmp(key, "high") == 0) {
+    m->high = v;
+    m->has |= 2u;
+  }
+  else if (strcmp(key, "optimum") == 0) {
+    m->optimum = v;
+    m->has |= 4u;
+  }
+  else {
+    return 0;
+  }
+  bk_invalidate(n);
+  return 1;
+}
+
+/* The HTML spec's clamped low / high / optimum. */
+static int meter_get_num(BKNode *n, const char *key, double *r_v)
+{
+  const MeterData *m = METER(n);
+  const double lo = n->vmin, hi = BK_MAX(n->vmin, n->vmax);
+  const double low = (m->has & 1u) ? BK_CLAMP(m->low, lo, hi) : lo;
+  const double high = (m->has & 2u) ? BK_CLAMP(m->high, low, hi) : hi;
+  if (strcmp(key, "low") == 0) {
+    *r_v = low;
+  }
+  else if (strcmp(key, "high") == 0) {
+    *r_v = high;
+  }
+  else if (strcmp(key, "optimum") == 0) {
+    *r_v = (m->has & 4u) ? BK_CLAMP(m->optimum, lo, hi) : (lo + hi) * 0.5;
+  }
+  else {
+    return 0;
+  }
+  return 1;
+}
+
+/* The gauge region: 0 optimum, 1 suboptimum, 2 even less good. */
+static int meter_region(BKNode *n)
+{
+  double low, high, opt;
+  meter_get_num(n, "low", &low);
+  meter_get_num(n, "high", &high);
+  meter_get_num(n, "optimum", &opt);
+  const double v = BK_CLAMP(n->value, n->vmin, BK_MAX(n->vmin, n->vmax));
+  if (opt < low) { /* the low region is optimal */
+    return v <= low ? 0 : (v <= high ? 1 : 2);
+  }
+  if (opt > high) { /* the high region is optimal */
+    return v >= high ? 0 : (v >= low ? 1 : 2);
+  }
+  return (v >= low && v <= high) ? 0 : 1; /* the middle is optimal */
+}
+
+static void html_meter_draw(BKNode *n)
+{
+  /* ::-webkit-meter-bar: the middle half of the height (grid rows 1fr 2fr 1fr),
+   * #efefef, border-radius 20px, thin rgba(118,118,118,.3) border; the value
+   * fills it from the start, clipped by the bar's rounded overflow */
+  static const uint32_t kRegion[3] = {0xFF107C10u, 0xFFFFB900u, 0xFFD83B01u};
+  const float bh = n->h * 0.5f, rad = bh * 0.5f;
+  const float x = (float)n->x, w = (float)n->w, y = n->y + (n->h - bh) * 0.5f;
+  html_box(x, y, w, bh, rad, 0xFFEFEFEFu, 0, 0);
+  const double span = n->vmax - n->vmin;
+  const double f = span > 0 ? BK_CLAMP((n->value - n->vmin) / span, 0.0, 1.0) : 0.0;
+  const float bw = html_bw(), inner = w - 2 * bw;
+  if (f > 0 && inner > 0) {
+    bk_clip_push(n->x, (int)floorf(y) - 1, (int)ceilf(bw + f * inner), (int)ceilf(bh) + 2);
+    html_box(x + bw, y + bw, inner, bh - 2 * bw, rad - bw, kRegion[meter_region(n)], 0, 0);
+    bk_clip_pop();
+  }
+  html_box(x, y, w, bh, rad, 0, 0x4D767676u, bw);
+}
+
+static void meter_draw(BKNode *n)
+{
+  /* Blender look: a progress bar of the value */
+  BKRect r = bk_node_rect(n);
+  BKWCol w;
+  bk_widget_state(&w, &bk_theme.progress, NODE_ENABLED(n) ? 0 : ST_DISABLED);
+  const double span = n->vmax - n->vmin;
+  bk_widget_progress(&w, &r, n->corners,
+                     span > 0 ? (float)BK_CLAMP((n->value - n->vmin) / span, 0.0, 1.0) : 0.0f);
+}
+
+const BKClass bk_cls_meter = {.name = "meter",
+                              .init = meter_init,
+                              .free_ext = meter_free,
+                              .measure = progress_measure,
+                              .draw = meter_draw,
+                              .set_num = meter_set_num,
+                              .get_num = meter_get_num};
+
+/* -- dispatch from the core (bk_natural / bk_draw_tree) -- */
+
+bool bk_html_measure(BKNode *n, int *rw, int *rh)
+{
+  const BKClass *c = n->cls;
+  const float saved = html_font_begin(n);
+  bool ok = true;
+  if (c == &bk_cls_button) {
+    html_button_measure(n, n->text, rw, rh);
+  }
+  else if (c == &bk_cls_toggle) {
+    html_button_measure(n, n->label, rw, rh);
+  }
+  else if (c == &bk_cls_checkbox || c == &bk_cls_radio) {
+    html_check_measure(n, rw, rh);
+  }
+  else if (c == &bk_cls_text || c == &bk_cls_search || c == &bk_cls_number) {
+    *rw = hpi(153); /* size=20 at 13.33px + 2px borders + 2px padding */
+    *rh = hpi(21);
+  }
+  else if (c == &bk_cls_slider) {
+    *rw = hpi(129);
+    *rh = hpi(16);
+  }
+  else if (c == &bk_cls_dropdown) {
+    html_select_measure(n, rw, rh);
+  }
+  else if (c == &bk_cls_swatch) {
+    *rw = hpi(50);
+    *rh = hpi(27);
+  }
+  else if (c == &bk_cls_progress) {
+    *rw = hpi(160); /* 10em x 1em at 16px */
+    *rh = hpi(16);
+  }
+  else if (c == &bk_cls_meter) {
+    *rw = hpi(80); /* 5em x 1em at 16px */
+    *rh = hpi(16);
+  }
+  else if (c == &bk_cls_textarea) {
+    ok = bk_textarea_html_measure(n, rw, rh);
+  }
+  else {
+    ok = false;
+  }
+  bk_text_scale = saved;
+  return ok;
+}
+
+bool bk_html_draw(BKNode *n)
+{
+  const BKClass *c = n->cls;
+  const float saved = html_font_begin(n);
+  bool ok = true;
+  if (c == &bk_cls_button) {
+    html_button_draw(n, n->text, false);
+  }
+  else if (c == &bk_cls_toggle) {
+    html_button_draw(n, n->label, n->value != 0);
+  }
+  else if (c == &bk_cls_checkbox) {
+    html_checkbox_draw(n);
+  }
+  else if (c == &bk_cls_radio) {
+    html_radio_draw(n);
+  }
+  else if (c == &bk_cls_text || c == &bk_cls_search) {
+    html_text_draw(n);
+  }
+  else if (c == &bk_cls_number) {
+    html_number_draw(n);
+  }
+  else if (c == &bk_cls_slider) {
+    html_range_draw(n);
+  }
+  else if (c == &bk_cls_dropdown) {
+    html_select_draw(n);
+  }
+  else if (c == &bk_cls_swatch) {
+    html_color_draw(n);
+  }
+  else if (c == &bk_cls_progress) {
+    html_progress_draw(n);
+  }
+  else if (c == &bk_cls_meter) {
+    html_meter_draw(n);
+  }
+  else if (c == &bk_cls_textarea) {
+    bk_textarea_html_draw(n);
+  }
+  else {
+    ok = false;
+  }
+  bk_text_scale = saved;
+  return ok;
+}
 
 /** \} */

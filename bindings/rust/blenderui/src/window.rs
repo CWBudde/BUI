@@ -613,6 +613,19 @@ impl App {
         (pw as usize, ph as usize, px)
     }
 
+    /// Move every window's CSS animation clock forward by `d`. Headless
+    /// windows' clocks stand still otherwise, so tests step animations and
+    /// transitions deterministically; native windows add `d` to real time.
+    pub fn advance_clock(&mut self, d: std::time::Duration) {
+        for w in self.windows.iter_mut().flatten() {
+            w.clock.advance(d);
+            if w.caches.anim.any() {
+                w.dirty = true;
+            }
+        }
+        self.flush();
+    }
+
     /// Bounds (logical pixels) of the element with `.id(id)`.
     pub fn element_bounds(&mut self, window: WindowId, id: &str) -> Option<Bounds<f32>> {
         self.flush();
@@ -782,6 +795,8 @@ pub struct Window {
     dirty: bool,
     timer_pending: bool,
     animation_frame: bool,
+    /// CSS animation time (virtual in headless windows).
+    clock: crate::anim::Clock,
     vsync: bool,
     closed: bool,
     title: String,
@@ -836,6 +851,7 @@ impl Window {
                 dirty: true,
                 timer_pending: false,
                 animation_frame: false,
+                clock: crate::anim::Clock::new(!headless),
                 vsync: true,
                 closed: false,
                 title: title.to_owned(),
@@ -894,6 +910,18 @@ impl Window {
     /// frames render as fast as the CPU allows (benchmarks).
     pub fn set_vsync(&mut self, on: bool) {
         self.vsync = on;
+    }
+
+    /// Whether CSS animations or transitions were running at the last
+    /// render (the window keeps requesting frames while they are).
+    pub fn is_animating(&self) -> bool {
+        self.caches.anim.running()
+    }
+
+    /// Whether the window will render again (something changed or is
+    /// animating). False for an idle window.
+    pub fn needs_render(&self) -> bool {
+        self.dirty
     }
 
     /// Frames presented to the native window so far.
@@ -992,15 +1020,19 @@ impl Window {
         let (canvas, scale) = (self.canvas, self.scale);
         let widgets = &mut self.widgets;
         let recycle = self.frame.take().unwrap_or_default();
+        self.caches.anim.begin(self.clock.now());
         let frame = layout(root, vp, &self.state, &mut self.caches, recycle,
                            &mut |key, spec| widgets.ensure(canvas, key, spec, scale));
+        // CSS animations / transitions still moving: render again next frame
+        // (nothing running: no frames, so an idle window costs no CPU)
+        let animating = self.caches.anim.end();
         // `@container`: sizes changed under a query: render once more
         let container_changed = self.caches.after_layout(&frame);
         let p = &mut self.painter;
         p.reset();
         {
             let _s = span(Phase::Paint);
-            paint_frame(&frame, &self.caches.styles, &mut self.caches.text, p, vp);
+            paint_frame(&frame, &self.caches.styles, &mut self.caches.text, p, vp, self.scale);
         }
         {
             let _s = span(Phase::Flush);
@@ -1033,6 +1065,9 @@ impl Window {
         crate::hooks::end();
         if container_changed {
             self.dirty = true;
+        }
+        if animating {
+            self.request_animation_frame();
         }
     }
 
@@ -1263,6 +1298,7 @@ impl Window {
             } else {
                 (sx, (sy + dy).clamp(0.0, ry))
             };
+            let (nx, ny) = snap(f, &self.caches.styles, i, (sx, sy), (nx, ny));
             if (nx, ny) != (sx, sy) {
                 self.state.scroll.insert(*key, (nx, ny));
                 self.dirty = true;
@@ -1314,3 +1350,75 @@ impl Window {
 /// Marker so `Window` is not `Send` (it holds raw kit pointers).
 #[allow(dead_code)]
 struct NotSend(PhantomData<*const ()>);
+
+/// `scroll-snap-type`: the scroll position `to` (moving from `from`) of
+/// container `i` moved to its children's snap positions: the next one in
+/// the direction of travel (`mandatory`), or the nearest when it's within a
+/// third of the view (`proximity`).
+fn snap(f: &crate::layout::Frame, styles: &crate::layout::StyleStore, i: usize, from: (f32, f32), to: (f32, f32))
+        -> (f32, f32) {
+    let n = &f.nodes[i];
+    let c = &styles[n.style];
+    if c.snap_axes == 0 {
+        return to;
+    }
+    let (rx, ry) = n.scroll_range;
+    let view = n.bounds;
+    let mut out = to;
+    for axis in 0..2 {
+        if c.snap_axes & (1 << axis) == 0 {
+            continue;
+        }
+        let (cur, target, range, view_len) = if axis == 0 {
+            (from.0, to.0, rx, view.size.width)
+        } else {
+            (from.1, to.1, ry, view.size.height)
+        };
+        if target == cur {
+            continue;
+        }
+        // snap positions of the children, in scroll coordinates
+        let mut points: Vec<f32> = Vec::new();
+        for k in f.children_of(i) {
+            let kc = &styles[f.nodes[k].style];
+            let align = if axis == 0 { kc.snap_align.0 } else { kc.snap_align.1 };
+            if align == 0 {
+                continue;
+            }
+            let b = f.nodes[k].bounds;
+            let (start, len, vstart) = if axis == 0 {
+                (b.origin.x + cur, b.size.width, view.origin.x)
+            } else {
+                (b.origin.y + cur, b.size.height, view.origin.y)
+            };
+            let rel = start - vstart;
+            let p = match align {
+                1 => rel,
+                2 => rel + len / 2.0 - view_len / 2.0,
+                _ => rel + len - view_len,
+            };
+            points.push(p.clamp(0.0, range));
+        }
+        if points.is_empty() {
+            continue;
+        }
+        let forward = target > cur;
+        let pick = if c.snap_mandatory {
+            if forward {
+                points.iter().copied().filter(|p| *p > cur + 0.5).fold(f32::INFINITY, f32::min)
+            } else {
+                points.iter().copied().filter(|p| *p < cur - 0.5).fold(f32::NEG_INFINITY, f32::max)
+            }
+        } else {
+            let near = points.iter().copied().min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs()));
+            near.filter(|p| (p - target).abs() <= view_len / 3.0).unwrap_or(target)
+        };
+        let v = if pick.is_finite() { pick } else { target };
+        if axis == 0 {
+            out.0 = v;
+        } else {
+            out.1 = v;
+        }
+    }
+    out
+}

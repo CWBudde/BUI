@@ -322,6 +322,9 @@ pub struct Computed {
     pub clip_rect: Option<[Option<Length>; 4]>,
     /// `counter-*` operations (None: none).
     pub counters: Option<Box<CounterOps>>,
+    /// Filters, blending, clip-path, masks, transforms beyond translate and
+    /// border-image (None: none).
+    pub effects: Option<Box<crate::effects::Effects>>,
     pub opacity: f32,
     pub z_index: Option<i32>,
     pub translate: (Length, Length),
@@ -356,6 +359,16 @@ pub struct Computed {
     pub border_spacing: (f32, f32),
     pub border_collapse: bool,
     pub caption_bottom: bool,
+    /// `table-layout: fixed` (not inherited).
+    pub table_fixed: bool,
+    /// `unicode-bidi: bidi-override | isolate-override`: characters are laid
+    /// out in `direction` order, ignoring their own directionality.
+    pub bidi_override: bool,
+    /// `scroll-snap-type`: axes (1 = x, 2 = y) and strictness.
+    pub snap_axes: u8,
+    pub snap_mandatory: bool,
+    /// `scroll-snap-align` per axis (x, y): 0 none, 1 start, 2 center, 3 end.
+    pub snap_align: (u8, u8),
     pub marker_inside: bool,
     /// `quotes`: None = the default curly quotes.
     pub quotes: Option<(String, String)>,
@@ -380,6 +393,8 @@ pub struct Computed {
     pub vars: u32,
     /// `content` (for `::before` / `::after`): None = `normal` / `none`.
     pub content: Option<Box<[ContentPart]>>,
+    /// `animation-*` / `transition-*` (None: none). Not inherited.
+    pub anim: Option<Box<crate::anim::AnimSpec>>,
 }
 
 /// One piece of generated content.
@@ -418,6 +433,7 @@ impl Default for Computed {
             bg_origin: BoxEdge::Padding,
             clip_rect: None,
             counters: None,
+            effects: None,
             opacity: 1.0,
             z_index: None,
             translate: (Length::Px(0.0), Length::Px(0.0)),
@@ -449,6 +465,11 @@ impl Default for Computed {
             border_spacing: (0.0, 0.0),
             border_collapse: false,
             caption_bottom: false,
+            table_fixed: false,
+            bidi_override: false,
+            snap_axes: 0,
+            snap_mandatory: false,
+            snap_align: (0, 0),
             marker_inside: false,
             quotes: None,
             text_shadow: None,
@@ -463,6 +484,7 @@ impl Default for Computed {
             tab_size: 8,
             vars: 0,
             content: None,
+            anim: None,
         }
     }
 }
@@ -513,6 +535,10 @@ impl Computed {
             layout: Style { display: Display::Block, direction: parent.layout.direction, ..Default::default() },
             ..Computed::default()
         }
+    }
+
+    pub(crate) fn effects_mut(&mut self) -> &mut crate::effects::Effects {
+        self.effects.get_or_insert_with(Default::default)
     }
 
     fn images_mut(&mut self) -> &mut ImageStyle {
@@ -607,19 +633,14 @@ pub(crate) fn prop_index(name: &str) -> Prop {
 /// Standard properties that parse and are accepted but have no effect in this
 /// renderer (floats, bidi, generated content, background images, animation ...).
 pub const ACCEPTED: &[&str] = &[
-    "clip-path", "unicode-bidi", "writing-mode", "table-layout",
-    "filter", "backdrop-filter", "mix-blend-mode", "isolation",
-    "transition", "transition-property", "transition-duration", "transition-timing-function",
-    "transition-delay", "animation", "animation-name", "animation-duration", "animation-delay",
-    "animation-iteration-count", "animation-direction", "animation-fill-mode",
-    "animation-timing-function", "animation-play-state", "will-change",
-    "user-select", "resize", "appearance", "caret-color", "scroll-behavior", "scroll-snap-type",
-    "scroll-snap-align", "overscroll-behavior", "touch-action", "hyphens",
+    "writing-mode", "will-change",
+    "user-select", "resize", "appearance", "caret-color", "scroll-behavior",
+    "overscroll-behavior", "touch-action", "hyphens",
     "font-feature-settings", "font-kerning",
     "font-stretch", "text-rendering", "-webkit-font-smoothing", "-moz-osx-font-smoothing",
     "orphans", "widows", "page-break-before", "page-break-after", "page-break-inside",
     "break-before", "break-after", "break-inside", "columns", "column-count", "column-width",
-    "column-rule", "rotate", "transform-origin", "perspective", "backface-visibility",
+    "column-rule", "perspective", "backface-visibility",
     "box-decoration-break", "image-rendering", "shape-outside",
     "text-justify", "line-break",
     "all",
@@ -647,14 +668,14 @@ pub const ACCEPTED: &[&str] = &[
     // sizing / containment / rendering hints
     "contain-intrinsic-size", "contain-intrinsic-width", "contain-intrinsic-height",
     "contain-intrinsic-block-size", "contain-intrinsic-inline-size", "content-visibility",
-    "field-sizing", "interpolate-size", "transition-behavior", "color-scheme", "forced-color-adjust",
+    "field-sizing", "interpolate-size", "color-scheme", "forced-color-adjust",
     "print-color-adjust", "color-adjust", "image-orientation", "image-resolution",
     "transform-box", "transform-style", "perspective-origin", "zoom", "caret", "caret-shape",
     "background-blend-mode", "column-span", "column-fill", "column-rule-color", "column-rule-style",
     "column-rule-width",
     // masking
-    "mask", "mask-image", "mask-mode", "mask-repeat", "mask-position", "mask-clip", "mask-origin",
-    "mask-size", "mask-composite", "mask-type", "mask-border", "mask-border-source",
+    "mask-clip", "mask-origin",
+    "mask-composite", "mask-type", "mask-border", "mask-border-source",
     "mask-border-slice", "mask-border-width", "mask-border-outset", "mask-border-repeat",
     "mask-border-mode",
 ];
@@ -1224,7 +1245,7 @@ fn grid_line(v: &[Tok]) -> Option<Line<GridPlacement<Ident>>> {
 
 // -- backgrounds, shadows, fonts -----------------------------------------------------------
 
-fn gradient(ctx: &Ctx, t: &Tok) -> Option<Gradient> {
+pub(crate) fn gradient(ctx: &Ctx, t: &Tok) -> Option<Gradient> {
     let Tok::Func(fx) = t else { return None };
     let (f, args) = (&fx.name, &fx.args);
     let radial = f.contains("radial");
@@ -1472,6 +1493,204 @@ fn list_style(s: &str) -> Option<ListStyle> {
         "upper-roman" => ListStyle::UpperRoman,
         _ => return None,
     })
+}
+
+/// An angle in radians (`45deg`, `0.5turn`, `1rad`, `100grad`, a bare 0).
+fn angle(t: &Tok) -> Option<f32> {
+    match t {
+        Tok::Num(n) if *n == 0.0 => Some(0.0),
+        Tok::Dim(v, u) => Some(match u.as_ref() {
+            "deg" => v.to_radians(),
+            "rad" => *v,
+            "turn" => v * std::f32::consts::TAU,
+            "grad" => v * std::f32::consts::PI / 200.0,
+            _ => return None,
+        }),
+        _ => None,
+    }
+}
+
+fn add_len(a: Length, b: Length) -> Length {
+    match (a, b) {
+        (Length::Px(x), Length::Px(y)) => Length::Px(x + y),
+        (Length::Px(x), o) | (o, Length::Px(x)) if x == 0.0 => o,
+        (_, o) => o,
+    }
+}
+
+/// A `transform` function list.
+fn transform_list(c: &Ctx, v: &[Tok]) -> Option<Vec<crate::effects::TransformFn>> {
+    use crate::effects::TransformFn as T;
+    let mut out = Vec::new();
+    for t in v {
+        let Tok::Func(fx) = t else { return None };
+        let args: Vec<&Tok> = fx.args.iter().flatten().filter(|t| !matches!(t, Tok::Comma)).collect();
+        let num = |i: usize| args.get(i).and_then(|t| number(t));
+        let len = |i: usize| args.get(i).and_then(|t| length(t));
+        let ang = |i: usize| args.get(i).and_then(|t| angle(t));
+        let _ = c;
+        out.push(match fx.name.as_ref() {
+            "translate" | "translate3d" => T::Translate(len(0)?, len(1).unwrap_or(Length::Px(0.0))),
+            "translatex" => T::Translate(len(0)?, Length::Px(0.0)),
+            "translatey" => T::Translate(Length::Px(0.0), len(0)?),
+            "translatez" => continue,
+            "scale" | "scale3d" => {
+                let x = num(0).or_else(|| match args.first() { Some(Tok::Pct(p)) => Some(p / 100.0), _ => None })?;
+                T::Scale(x, num(1).unwrap_or(x))
+            }
+            "scalex" => T::Scale(num(0)?, 1.0),
+            "scaley" => T::Scale(1.0, num(0)?),
+            "scalez" => continue,
+            "rotate" | "rotatez" => T::Rotate(ang(0)?),
+            "skew" => T::Skew(ang(0)?, ang(1).unwrap_or(0.0)),
+            "skewx" => T::Skew(ang(0)?, 0.0),
+            "skewy" => T::Skew(0.0, ang(0)?),
+            "matrix" => {
+                let m: Option<Vec<f32>> = (0..6).map(num).collect();
+                let m = m?;
+                T::Matrix([m[0], m[1], m[2], m[3], m[4], m[5]])
+            }
+            // 3D functions without a 2D meaning: no effect on the 2D plane
+            "perspective" | "rotatex" | "rotatey" | "rotate3d" | "matrix3d" => continue,
+            _ => return None,
+        });
+    }
+    Some(out)
+}
+
+/// A `filter` / `backdrop-filter` value.
+fn filter_list(c: &Ctx, v: &[Tok]) -> Option<Vec<crate::effects::Filter>> {
+    use crate::effects::Filter as F;
+    if kw(v) == Some("none") {
+        return Some(Vec::new());
+    }
+    let mut out = Vec::new();
+    for t in v {
+        let Tok::Func(fx) = t else { return None };
+        let args: Vec<&Tok> = fx.args.iter().flatten().filter(|t| !matches!(t, Tok::Comma)).collect();
+        // amounts: numbers or percentages, default 1
+        let amount = |d: f32| match args.first() {
+            None => Some(d),
+            Some(Tok::Num(n)) => Some(*n),
+            Some(Tok::Pct(p)) => Some(p / 100.0),
+            _ => None,
+        };
+        out.push(match fx.name.as_ref() {
+            "blur" => F::Blur(args.first().map_or(Some(0.0), |t| length(t).map(|l| px(c, l)))?),
+            "brightness" => F::Brightness(amount(1.0)?),
+            "contrast" => F::Contrast(amount(1.0)?),
+            "grayscale" => F::Grayscale(amount(1.0)?),
+            "invert" => F::Invert(amount(1.0)?),
+            "opacity" => F::Opacity(amount(1.0)?),
+            "saturate" => F::Saturate(amount(1.0)?),
+            "sepia" => F::Sepia(amount(1.0)?),
+            "hue-rotate" => F::HueRotate(args.first().map_or(Some(0.0), |t| angle(t))?.to_degrees()),
+            "drop-shadow" => {
+                let lens: Vec<f32> = args.iter().filter_map(|t| match t {
+                    Tok::Dim(..) | Tok::Num(_) | Tok::Calc(_) => length(t).map(|l| px(c, l)),
+                    _ => None,
+                }).collect();
+                let color = args.iter().find_map(|t| match t {
+                    Tok::Dim(..) | Tok::Num(_) => None,
+                    t => color(t, c.c.color),
+                }).unwrap_or(c.c.color);
+                match lens.as_slice() {
+                    [x, y] => F::DropShadow { x: *x, y: *y, blur: 0.0, color },
+                    [x, y, b, ..] => F::DropShadow { x: *x, y: *y, blur: *b, color },
+                    _ => return None,
+                }
+            }
+            _ => return None, // url(#svg-filter): not supported
+        });
+    }
+    Some(out)
+}
+
+/// A `clip-path` basic shape.
+fn clip_shape(c: &Ctx, t: &Tok) -> Option<crate::effects::ClipShape> {
+    use crate::effects::{ClipShape as S, ShapeRadius as R};
+    let Tok::Func(fx) = t else { return None };
+    let flat: Vec<Tok> = fx.args.iter().flatten().cloned().collect();
+    // split at `at` (circle / ellipse) and `round` (inset)
+    let split = |word: &str| -> (Vec<Tok>, Vec<Tok>) {
+        match flat.iter().position(|t| t.ident() == Some(word)) {
+            Some(k) => (flat[..k].to_vec(), flat[k + 1..].to_vec()),
+            None => (flat.clone(), Vec::new()),
+        }
+    };
+    let radius = |t: &Tok| match t.ident() {
+        Some("closest-side") => Some(R::Closest),
+        Some("farthest-side") => Some(R::Farthest),
+        _ => length(t).map(R::Len),
+    };
+    let center = |rest: &[Tok]| if rest.is_empty() { Some([Pos::CENTER; 2]) } else { position(c, rest) };
+    Some(match fx.name.as_ref() {
+        "inset" => {
+            let (sides, round) = split("round");
+            let l: Option<Vec<Length>> = sides.iter().map(length).collect();
+            let s = four(&l?)?;
+            let r = round.first().and_then(length).unwrap_or(Length::Px(0.0));
+            S::Inset(s, r)
+        }
+        "circle" => {
+            let (r, at) = split("at");
+            S::Circle(r.first().map_or(Some(R::Closest), radius)?, center(&at)?)
+        }
+        "ellipse" => {
+            let (r, at) = split("at");
+            let rx = r.first().map_or(Some(R::Closest), radius)?;
+            let ry = r.get(1).map_or(Some(R::Closest), radius)?;
+            S::Ellipse(rx, ry, center(&at)?)
+        }
+        "polygon" => {
+            let mut pts = Vec::new();
+            for group in &fx.args {
+                let ls: Vec<Length> = group.iter().filter_map(length).collect();
+                if let [x, y] = ls.as_slice() {
+                    pts.push((*x, *y));
+                }
+            }
+            if pts.len() < 3 {
+                return None;
+            }
+            S::Polygon(pts)
+        }
+        _ => return None,
+    })
+}
+
+/// A mask / border-image source: a gradient or `url()` (PNG).
+fn image_source(c: &Ctx, t: &Tok) -> Option<crate::effects::ImageSource> {
+    if let Tok::Func(fx) = t {
+        if fx.name == "url" {
+            if let Some(Tok::Str(u)) = fx.args.first().and_then(|a| a.first()) {
+                return Some(crate::effects::ImageSource::Url(u.as_ref().into()));
+            }
+            return None;
+        }
+    }
+    gradient(c, t).map(crate::effects::ImageSource::Gradient)
+}
+
+fn four_sides<T: Copy>(v: &[T]) -> Option<[T; 4]> {
+    Some(match v {
+        [a] => [*a; 4],
+        [a, b] => [*a, *b, *a, *b],
+        [a, b, c] => [*a, *b, *c, *b],
+        [a, b, c, d] => [*a, *b, *c, *d],
+        _ => return None,
+    })
+}
+
+/// `border-image-width` / `-outset`: numbers (border widths), lengths, `auto`.
+fn side_values(v: &[Tok]) -> Option<[crate::effects::Side; 4]> {
+    use crate::effects::Side;
+    let vals: Option<Vec<Side>> = v.iter().map(|t| match t {
+        Tok::Ident(k) if k.as_ref() == "auto" => Some(Side::Auto),
+        Tok::Num(n) => Some(Side::Num(*n)),
+        t => length(t).map(Side::Len),
+    }).collect();
+    four_sides(&vals?)
 }
 
 fn deco_style(s: &str) -> Option<DecoStyle> {
@@ -2178,41 +2397,271 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         }),
         h("box-shadow", |c, v| shadows(c, v).map(|s| c.c.shadows = s).is_some()),
         h("transform", |c, v| {
-            let mut ok = true;
+            if kw(v) == Some("none") {
+                c.c.translate = (Length::Px(0.0), Length::Px(0.0));
+                c.c.scale = 1.0;
+                if let Some(e) = c.c.effects.as_mut() {
+                    e.transform.clear();
+                }
+                return true;
+            }
+            let Some(fns) = transform_list(c, v) else { return false };
+            use crate::effects::TransformFn as T;
+            // translations alone stay a layout offset; anything else is drawn
+            // through the element's layer
+            if fns.iter().all(|f| matches!(f, T::Translate(..))) {
+                let mut t = (Length::Px(0.0), Length::Px(0.0));
+                for f in &fns {
+                    if let T::Translate(x, y) = f {
+                        t = (add_len(t.0, *x), add_len(t.1, *y));
+                    }
+                }
+                c.c.translate = t;
+                if let Some(e) = c.c.effects.as_mut() {
+                    e.transform.clear();
+                }
+            } else {
+                c.c.translate = (Length::Px(0.0), Length::Px(0.0));
+                c.c.effects_mut().transform = fns;
+            }
+            true
+        }),
+        h("scale", |c, v| {
+            let nums: Vec<f32> = v.iter().filter_map(|t| match t {
+                Tok::Num(n) => Some(*n),
+                Tok::Pct(p) => Some(*p / 100.0),
+                _ => None,
+            }).collect();
+            let (x, y) = match (kw(v), nums.as_slice()) {
+                (Some("none"), _) => (1.0, 1.0),
+                (_, [s]) => (*s, *s),
+                (_, [x, y, ..]) => (*x, *y),
+                _ => return false,
+            };
+            c.c.scale = 1.0;
+            c.c.effects_mut().scale2 = ((x, y) != (1.0, 1.0)).then_some((x, y));
+            true
+        }),
+        h("rotate", |c, v| match (kw(v), v.last().and_then(angle)) {
+            (Some("none"), _) => {
+                c.c.effects_mut().rotate = 0.0;
+                true
+            }
+            (_, Some(a)) => {
+                c.c.effects_mut().rotate = a;
+                true
+            }
+            _ => false,
+        }),
+        h("transform-origin", |c, v| {
+            let xy: Vec<Tok> = v.iter().take(2).cloned().collect();
+            position(c, &xy).map(|p| c.c.effects_mut().origin = Some(p)).is_some()
+        }),
+        // -- filters, blending, clipping, masking -------------------------------------
+        h("filter", |c, v| filter_list(c, v).map(|f| c.c.effects_mut().filter = f).is_some()),
+        h("backdrop-filter", |c, v| filter_list(c, v).map(|f| c.c.effects_mut().backdrop = f).is_some()),
+        h("-webkit-backdrop-filter", |c, v| delegate(c, "backdrop-filter", v)),
+        h("mix-blend-mode", |c, v| kw(v).and_then(crate::effects::Blend::parse)
+            .map(|b| c.c.effects_mut().blend = b).is_some()),
+        h("isolation", |c, v| match kw(v) {
+            Some(k @ ("auto" | "isolate")) => {
+                c.c.effects_mut().isolate = k == "isolate";
+                true
+            }
+            _ => false,
+        }),
+        h("clip-path", |c, v| {
+            if kw(v) == Some("none") {
+                c.c.effects_mut().clip_path = None;
+                return true;
+            }
+            let mut shape = None;
+            let mut edge = BoxEdge::Border;
             for t in v {
                 match t {
-                    Tok::Func(fx) => {
-                        let (f, args) = (&fx.name, &fx.args);
-                        let arg = |i: usize| args.get(i).and_then(|a| a.first()).and_then(length);
-                        match f.as_ref() {
-                            "translate" => {
-                                c.c.translate = (arg(0).unwrap_or_default(), arg(1).unwrap_or(Length::Px(0.0)))
-                            }
-                            "translatex" => c.c.translate.0 = arg(0).unwrap_or_default(),
-                            "translatey" => c.c.translate.1 = arg(0).unwrap_or_default(),
-                            "scale" => {
-                                c.c.scale = args.first().and_then(|a| a.first()).and_then(number).unwrap_or(1.0)
-                            }
-                            _ => ok = false, // rotate/skew/matrix: not drawn
-                        }
-                    }
-                    Tok::Ident(s) if s == "none" => {
-                        c.c.translate = (Length::Px(0.0), Length::Px(0.0));
-                        c.c.scale = 1.0;
-                    }
-                    _ => ok = false,
+                    Tok::Ident(k) => match BoxEdge::parse(k) {
+                        Some(e) => edge = e,
+                        None if matches!(k.as_ref(), "margin-box" | "fill-box" | "stroke-box" | "view-box") => {}
+                        None => return false,
+                    },
+                    Tok::Func(_) => match clip_shape(c, t) {
+                        Some(sh) => shape = Some(sh),
+                        None => return false,
+                    },
+                    _ => return false,
+                }
+            }
+            c.c.effects_mut().clip_path = Some((shape.unwrap_or(crate::effects::ClipShape::Box), edge));
+            true
+        }),
+        h("-webkit-clip-path", |c, v| delegate(c, "clip-path", v)),
+        h("mask-image", |c, v| {
+            let first = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            let src = match first {
+                [Tok::Ident(k)] if k.as_ref() == "none" => None,
+                [t] => match image_source(c, t) {
+                    Some(src) => Some(src),
+                    None => return false,
+                },
+                _ => return false,
+            };
+            c.c.effects_mut().mask.get_or_insert_with(Default::default).image = src;
+            true
+        }),
+        h("mask-mode", |c, v| match kw(v) {
+            Some(k @ ("alpha" | "luminance" | "match-source")) => {
+                c.c.effects_mut().mask.get_or_insert_with(Default::default).luminance = k == "luminance";
+                true
+            }
+            _ => false,
+        }),
+        h("mask-size", |c, v| {
+            // reuse background-size's parser on a scratch style
+            let mut tmp = Computed::default();
+            let parent = Computed::default();
+            let mut cx = Ctx { c: &mut tmp, parent: &parent, u: c.u };
+            if !delegate(&mut cx, "background-size", v) {
+                return false;
+            }
+            let size = tmp.images.map(|i| i.bg_size).unwrap_or_default();
+            c.c.effects_mut().mask.get_or_insert_with(Default::default).size = size;
+            true
+        }),
+        h("mask-position", |c, v| {
+            let first = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            position(c, first).map(|p| c.c.effects_mut().mask.get_or_insert_with(Default::default).position = p)
+                .is_some()
+        }),
+        h("mask-repeat", |c, v| {
+            let words: Vec<&str> = v.iter().take_while(|t| !matches!(t, Tok::Comma)).filter_map(Tok::ident).collect();
+            let rep = |w: &str| matches!(w, "repeat" | "space" | "round");
+            let r = match words.as_slice() {
+                ["repeat-x"] => (true, false),
+                ["repeat-y"] => (false, true),
+                [a] => (rep(a), rep(a)),
+                [a, b] => (rep(a), rep(b)),
+                _ => return false,
+            };
+            c.c.effects_mut().mask.get_or_insert_with(Default::default).repeat = r;
+            true
+        }),
+        h("mask", |c, v| {
+            if kw(v) == Some("none") {
+                c.c.effects_mut().mask = None;
+                return true;
+            }
+            let layer = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            let mut ok = false;
+            for t in layer {
+                if let Ok(src) = image_source(c, t).ok_or(()) {
+                    c.c.effects_mut().mask.get_or_insert_with(Default::default).image = Some(src);
+                    ok = true;
+                }
+            }
+            if let Some(k) = layer.iter().position(|t| matches!(t, Tok::Slash)) {
+                let size: Vec<Tok> = layer[k + 1..].iter().take_while(|t| length(t).is_some()
+                    || matches!(t.ident(), Some("auto" | "cover" | "contain"))).cloned().take(2).collect();
+                delegate(c, "mask-size", &size);
+            }
+            let pos: Vec<Tok> = layer.iter().take_while(|t| !matches!(t, Tok::Slash))
+                .filter(|t| length(t).is_some() && !matches!(t, Tok::Num(_))
+                    || matches!(t.ident(), Some("left" | "right" | "top" | "bottom" | "center")))
+                .cloned().collect();
+            if !pos.is_empty() {
+                delegate(c, "mask-position", &pos);
+            }
+            let reps: Vec<Tok> = layer.iter().filter(|t| matches!(t.ident(),
+                Some("repeat" | "no-repeat" | "repeat-x" | "repeat-y" | "space" | "round"))).cloned().collect();
+            if !reps.is_empty() {
+                delegate(c, "mask-repeat", &reps);
+            }
+            for k in layer.iter().filter_map(Tok::ident) {
+                if matches!(k, "alpha" | "luminance") {
+                    c.c.effects_mut().mask.get_or_insert_with(Default::default).luminance = k == "luminance";
                 }
             }
             ok
         }),
-        h("scale", |c, v| {
-            c.c.scale = match (kw(v), v.first()) {
-                (Some("none"), _) => 1.0,
-                (_, Some(Tok::Num(n))) => *n,
-                (_, Some(Tok::Pct(p))) => *p / 100.0,
+        h("-webkit-mask", |c, v| delegate(c, "mask", v)),
+        h("-webkit-mask-image", |c, v| delegate(c, "mask-image", v)),
+        h("-webkit-mask-size", |c, v| delegate(c, "mask-size", v)),
+        h("-webkit-mask-position", |c, v| delegate(c, "mask-position", v)),
+        h("-webkit-mask-repeat", |c, v| delegate(c, "mask-repeat", v)),
+        // -- border-image ---------------------------------------------------------------
+        h("border-image-source", |c, v| match v {
+            [Tok::Ident(k)] if k.as_ref() == "none" => {
+                c.c.effects_mut().border_image.get_or_insert_with(Default::default).source = None;
+                true
+            }
+            [t] => image_source(c, t).map(|s| c.c.effects_mut().border_image.get_or_insert_with(Default::default)
+                .source = Some(s)).is_some(),
+            _ => false,
+        }),
+        h("border-image-slice", |c, v| {
+            let fill = v.iter().any(|t| t.ident() == Some("fill"));
+            let vals: Option<Vec<crate::effects::Side>> = v.iter().filter(|t| t.ident() != Some("fill"))
+                .map(|t| match t {
+                    Tok::Num(n) => Some(crate::effects::Side::Num(*n)),
+                    Tok::Pct(p) => Some(crate::effects::Side::Len(Length::Percent(*p))),
+                    _ => None,
+                }).collect();
+            let Some(sides) = vals.as_deref().and_then(four_sides) else { return false };
+            let b = c.c.effects_mut().border_image.get_or_insert_with(Default::default);
+            b.slice = sides;
+            b.fill = fill;
+            true
+        }),
+        h("border-image-width", |c, v| side_values(v).map(|s| c.c.effects_mut().border_image
+            .get_or_insert_with(Default::default).width = s).is_some()),
+        h("border-image-outset", |c, v| side_values(v).map(|s| c.c.effects_mut().border_image
+            .get_or_insert_with(Default::default).outset = s).is_some()),
+        h("border-image-repeat", |c, v| {
+            let tile = |w: &str| Some(match w {
+                "stretch" => crate::effects::Tile::Stretch,
+                "repeat" => crate::effects::Tile::Repeat,
+                "round" => crate::effects::Tile::Round,
+                "space" => crate::effects::Tile::Space,
+                _ => return None,
+            });
+            let words: Option<Vec<crate::effects::Tile>> = v.iter().map(|t| t.ident().and_then(tile)).collect();
+            let r = match words.as_deref() {
+                Some([a]) => (*a, *a),
+                Some([a, b]) => (*a, *b),
                 _ => return false,
             };
+            c.c.effects_mut().border_image.get_or_insert_with(Default::default).repeat = r;
             true
+        }),
+        h("border-image", |c, v| {
+            if kw(v) == Some("none") {
+                c.c.effects_mut().border_image = None;
+                return true;
+            }
+            // <source> || <slice> [/ <width> [/ <outset>]] || <repeat>
+            let mut ok = false;
+            let mut rest: Vec<Tok> = Vec::new();
+            for t in v {
+                if matches!(t, Tok::Func(_)) && image_source(c, t).is_some() {
+                    ok |= delegate(c, "border-image-source", std::slice::from_ref(t));
+                } else if matches!(t.ident(), Some("stretch" | "repeat" | "round" | "space")) {
+                    let reps: Vec<Tok> = v.iter().filter(|t| matches!(t.ident(),
+                        Some("stretch" | "repeat" | "round" | "space"))).cloned().collect();
+                    delegate(c, "border-image-repeat", &reps);
+                } else {
+                    rest.push(t.clone());
+                }
+            }
+            let parts: Vec<&[Tok]> = rest.split(|t| matches!(t, Tok::Slash)).collect();
+            if let Some(slice) = parts.first().filter(|p| !p.is_empty()) {
+                ok &= delegate(c, "border-image-slice", slice);
+            }
+            if let Some(w) = parts.get(1).filter(|p| !p.is_empty()) {
+                delegate(c, "border-image-width", w);
+            }
+            if let Some(o) = parts.get(2).filter(|p| !p.is_empty()) {
+                delegate(c, "border-image-outset", o);
+            }
+            ok
         }),
         h("translate", |c, v| {
             let l = lengths(v).unwrap_or_default();
@@ -2490,6 +2939,57 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             }
             true
         }),
+        h("scroll-snap-type", |c, v| {
+            let words: Vec<&str> = v.iter().filter_map(Tok::ident).collect();
+            if words == ["none"] {
+                c.c.snap_axes = 0;
+                return true;
+            }
+            let axes = match words.first() {
+                Some(&"x" | &"inline") => 1,
+                Some(&"y" | &"block") => 2,
+                Some(&"both") => 3,
+                _ => return false,
+            };
+            c.c.snap_axes = axes;
+            c.c.snap_mandatory = words.get(1) == Some(&"mandatory");
+            true
+        }),
+        h("scroll-snap-align", |c, v| {
+            let one = |w: &str| Some(match w {
+                "none" => 0,
+                "start" => 1,
+                "center" => 2,
+                "end" => 3,
+                _ => return None,
+            });
+            let words: Option<Vec<u8>> = v.iter().map(|t| t.ident().and_then(one)).collect();
+            // one value: both axes; two: block (y) then inline (x)
+            c.c.snap_align = match words.as_deref() {
+                Some([a]) => (*a, *a),
+                Some([y, x]) => (*x, *y),
+                _ => return false,
+            };
+            true
+        }),
+        h("unicode-bidi", |c, v| match kw(v) {
+            Some("normal" | "embed" | "isolate" | "plaintext") => {
+                c.c.bidi_override = false;
+                true
+            }
+            Some("bidi-override" | "isolate-override") => {
+                c.c.bidi_override = true;
+                true
+            }
+            _ => false,
+        }),
+        h("table-layout", |c, v| match kw(v) {
+            Some(k @ ("auto" | "fixed")) => {
+                c.c.table_fixed = k == "fixed";
+                true
+            }
+            _ => false,
+        }),
         h("border-collapse", |c, v| match kw(v) {
             Some(k @ ("collapse" | "separate")) => {
                 c.c.border_collapse = k == "collapse";
@@ -2680,6 +3180,22 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             }
             _ => v.first().and_then(|t| color(t, c.c.color)).map(|col| c.c.accent = Some(col)).is_some(),
         }),
+        // -- animations and transitions (run by anim.rs) -----------------------------------
+        h("animation", crate::anim::h_animation),
+        h("animation-name", crate::anim::h_animation_name),
+        h("animation-duration", crate::anim::h_animation_duration),
+        h("animation-timing-function", crate::anim::h_animation_timing),
+        h("animation-delay", crate::anim::h_animation_delay),
+        h("animation-iteration-count", crate::anim::h_animation_iterations),
+        h("animation-direction", crate::anim::h_animation_direction),
+        h("animation-fill-mode", crate::anim::h_animation_fill),
+        h("animation-play-state", crate::anim::h_animation_play_state),
+        h("transition", crate::anim::h_transition),
+        h("transition-property", crate::anim::h_transition_property),
+        h("transition-duration", crate::anim::h_transition_duration),
+        h("transition-timing-function", crate::anim::h_transition_timing),
+        h("transition-delay", crate::anim::h_transition_delay),
+        h("transition-behavior", crate::anim::h_transition_behavior),
     ]
 };
 

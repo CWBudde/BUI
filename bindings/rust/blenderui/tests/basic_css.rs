@@ -153,7 +153,7 @@ fn empty_cells_hide() {
         let (_, at) = page(cx, 200.0, 100.0, "
             html, body { margin: 0; background: #000 }
             table { width: 100px; empty-cells: hide; border-spacing: 0 }
-            td { height: 30px; background: #0f0; padding: 0 }
+            td { width: 50px; height: 30px; background: #0f0; padding: 0 }
         ", || {
             body().child(table().child(tr().child(td().child("x")).child(td().child(" "))))
         });

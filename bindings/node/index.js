@@ -356,6 +356,15 @@ class Window {
   }
 
   createElement (tag) {
+    // Blender's widgets: capitalized tags are always Blender widgets; their
+    // lowercase HTML counterparts look like a browser's (Blender's inside `styled`)
+    const blender = BLENDER_COMPONENTS[tag]
+    if (blender) {
+      const el = this.createElement(blender[0])
+      if (blender[1]) el.setAttribute('type', blender[1])
+      el.setAttribute('bui-blender', '')
+      return el
+    }
     const id = this._next++
     const el = new Element(this, id, tag)
     this._nodes.set(id, el)
@@ -550,4 +559,19 @@ class App {
   }
 }
 
-module.exports = { App, Window, Element, TextNode, Node, BuiEvent, styleText, BUTTONS, native, ...signals }
+/** Capitalized Blender widgets for `createElement`: [HTML tag, input type]. */
+const BLENDER_COMPONENTS = {
+  Button: ['button'],
+  Checkbox: ['input', 'checkbox'],
+  Radio: ['input', 'radio'],
+  NumberField: ['input', 'number'],
+  NumberSlider: ['input', 'range'],
+  TextField: ['input', 'text'],
+  TextArea: ['textarea'],
+  ColorSwatch: ['input', 'color'],
+  Dropdown: ['select'],
+  ProgressBar: ['progress'],
+}
+
+module.exports = {
+  BLENDER_COMPONENTS, App, Window, Element, TextNode, Node, BuiEvent, styleText, BUTTONS, native, ...signals }

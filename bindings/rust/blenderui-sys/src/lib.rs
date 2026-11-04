@@ -186,6 +186,10 @@ unsafe extern "C" {
     pub fn BK_canvas_set_item(canvas: *mut BKNode, item: *const BKCanvasItem);
     pub fn BK_canvas_add_item(canvas: *mut BKNode, item: *const BKCanvasItem);
     pub fn BK_canvas_put_item(canvas: *mut BKNode, index: c_int, item: *const BKCanvasItem);
+    /// Offscreen: `items` (device pixels) drawn into a `w` x `h` straight-alpha
+    /// RGBA8 buffer whose top left is at (`x0`, `y0`). 1 on success.
+    pub fn BK_canvas_rasterize(items: *const BKCanvasItem, n: c_int, x0: f32, y0: f32, w: c_int, h: c_int,
+                               rgba: *mut u8) -> c_int;
     pub fn BK_canvas_truncate(canvas: *mut BKNode, count: c_int);
     pub fn BK_canvas_delete(canvas: *mut BKNode, id: c_int);
     pub fn BK_canvas_count(canvas: *mut BKNode) -> c_int;

@@ -2578,7 +2578,7 @@ typedef struct FamilyFiles {
 } FamilyFiles;
 
 static const FamilyFiles g_families[] = {
-    {"|sans|sans-serif|inter|segoe ui|system-ui|helvetica|arial|dejavu sans|liberation sans|noto "
+    {"|sans|sans-serif|inter|segoe ui|system-ui|helvetica|dejavu sans|liberation sans|noto "
      "sans|tkdefaultfont|tktextfont|tkheadingfont|tkcaptionfont|tkmenufont|",
      {"segoeui.ttf|DejaVuSans.ttf|LiberationSans-Regular.ttf|NotoSans-Regular.ttf|Arial.ttf|"
       "arial.ttf|Helvetica.ttc|SFNS.ttf",
@@ -2605,6 +2605,12 @@ static const FamilyFiles g_families[] = {
       "New Roman Italic.ttf",
       "timesbi.ttf|DejaVuSerif-BoldItalic.ttf|LiberationSerif-BoldItalic.ttf|NotoSerif-"
       "BoldItalic.ttf|Times New Roman Bold Italic.ttf"}},
+    /* browsers' form-control font on Windows (HTML-look widgets) */
+    {"|arial|",
+     {"arial.ttf|Arial.ttf|LiberationSans-Regular.ttf|DejaVuSans.ttf|Helvetica.ttc",
+      "arialbd.ttf|Arial Bold.ttf|LiberationSans-Bold.ttf|DejaVuSans-Bold.ttf",
+      "ariali.ttf|Arial Italic.ttf|LiberationSans-Italic.ttf|DejaVuSans-Oblique.ttf",
+      "arialbi.ttf|Arial Bold Italic.ttf|LiberationSans-BoldItalic.ttf|DejaVuSans-BoldOblique.ttf"}},
 };
 
 static int family_index(const char *family)

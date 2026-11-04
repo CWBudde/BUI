@@ -96,7 +96,7 @@ const char *BK_icon_list_name(int i);
 /* Types: column row grid box panel tabs sidetabs scroll label separator
  * progress button toggle checkbox decorator text search hotkey number slider
  * dropdown enum swatch popover menubutton menubar list tree gridview ramp
- * curve normal histogram */
+ * curve normal histogram radio textarea meter */
 BKNode *BK_node_new(const char *type);
 void BK_node_free(BKNode *node);
 const char *BK_node_type(const BKNode *node);
@@ -113,7 +113,25 @@ void BK_node_invalidate(BKNode *node); /* redraw */
 void BK_node_relayout(BKNode *node);   /* size/structure changed */
 
 /* Properties by name (see kit_props in kit_core.c for the list). Return 0 when
- * the key is unknown for this node. */
+ * the key is unknown for this node.
+ *
+ * "html" (number, any node, default 0): 1 switches the node to the browser
+ * look — Chrome's default form controls (2020+ refresh, Windows, light) —
+ * for drawing, natural size and interaction; 0 keeps Blender's. Values,
+ * events and the other properties behave the same in both. It may change at
+ * any time (the node relayouts). Classes with a browser look: button, toggle
+ * (as a button, pressed while on), checkbox, radio, text, search, number
+ * (typed, with spin buttons), slider (<input type=range>: absolute drag),
+ * dropdown (<select>; its popup too), swatch (<input type=color>), progress
+ * ("factor" < 0: indeterminate), meter, textarea. Others ignore it.
+ * Natural sizes at scale 1: text/number 153x21, button text+16 x 21,
+ * checkbox/radio 20x19 (13px box + 3px 3px 3px 4px margins, label after it),
+ * range 129x16, select widest+24 x 19, color 50x27, progress 160x16,
+ * meter 80x16, textarea 182 x (rows*15+6) with rows 2 unless "rows" is set.
+ * Dropdown items starting with '\x01' are <optgroup> labels in the html look
+ * (bold, not selectable, the following options indented).
+ * "meter" nodes: value in min..max (default 0..1) plus "low", "high",
+ * "optimum" (the HTML meter's green / yellow / red regions). */
 int BK_set_num(BKNode *node, const char *key, double value);
 int BK_set_str(BKNode *node, const char *key, const char *value);
 int BK_set_color(BKNode *node, const char *key, const float rgba[4]);

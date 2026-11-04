@@ -165,6 +165,15 @@ float bk_content_width(const char *s, int icon, bool bold);
 void bk_tria(float cx, float cy, char dir, const float c[4], float size);
 void bk_chevron_down(float cx, float cy, const uchar c[4]);
 
+/* Browser-look primitives (kit_draw.c). Colors are 0xAARRGGBB. */
+void bk_argb(uint32_t argb, float r_out[4]);
+/* Rounded box: `fill` (may be NULL) under a `bw` wide border inside the edge
+ * (`border` may be NULL). */
+void bk_html_box(float x, float y, float w, float h, float rad, const float fill[4],
+                 const float border[4], float bw);
+/* Open polyline stroked `width` wide with round joins (check marks, chevrons). */
+void bk_html_polyline(const float (*pts)[2], int n, const float c[4], float width);
+
 /* Icons (kit_icons.c). */
 int bk_icons_lookup(const char *name);
 void bk_icons_draw(int id, float x, float y, float s, const float color[4]);
@@ -287,7 +296,10 @@ enum {
   NF_NOSCROLLBAR = 1 << 22, /* an external scrollbar drives the view */
   NF_CONFIGURED = 1 << 23,  /* geometry changed since the host was told (BK_EV_CONFIGURE) */
   NF_OPAQUE = 1 << 24,      /* root: the host paints every pixel, skip the region clear */
+  NF_HTML = 1 << 25,        /* "html": Chrome's default form-control look and interaction */
 };
+
+#define BK_HTML(n) (((n)->flags & NF_HTML) != 0)
 
 typedef struct BKStrs {
   char **v;
@@ -548,6 +560,21 @@ extern const BKClass bk_cls_column, bk_cls_row, bk_cls_split, bk_cls_grid, bk_cl
     bk_cls_hsv_circle, bk_cls_hsv_square, bk_cls_hue_strip, bk_cls_value_strip, bk_cls_menu,
     bk_cls_pie, bk_cls_popover_panel, bk_cls_picker, bk_cls_eyedropper, bk_cls_frame,
     bk_cls_radio, bk_cls_canvas, bk_cls_textarea, bk_cls_image;
+
+/* Browser look ("html" property, kit_widgets.c): Chrome's 2020+ form controls
+ * (Windows, light). The core calls these for NF_HTML nodes before the class's
+ * own measure/draw; they return false for classes without a browser look. */
+#define BK_HTML_FONT (40.0f / 33.0f) /* 13.333px text over the 11px UI text */
+extern float bk_html_text_scale;
+bool bk_html_measure(BKNode *n, int *r_w, int *r_h);
+bool bk_html_draw(BKNode *n);
+/* CSS px -> device px */
+float bk_hpx(float css);
+/* Chrome's text field content: text, selection (#3390ff / white text) and caret. */
+void bk_html_te_draw(BKTextEdit *te, const BKRect *content, const uchar color[4]);
+extern const BKClass bk_cls_meter;
+bool bk_textarea_html_measure(BKNode *n, int *r_w, int *r_h); /* kit_textarea.c */
+void bk_textarea_html_draw(BKNode *n);
 
 /* Small utilities */
 #define BK_MIN(a, b) ((a) < (b) ? (a) : (b))

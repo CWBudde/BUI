@@ -1586,6 +1586,81 @@ static void canvas_draw(BKNode *n)
   bk_clip_pop();
 }
 
+/* Offscreen rasterization for CSS effects (filters, blend modes, masks,
+ * clip-path, rotate/skew): draws `items` (device pixels, as BK_canvas_put_item
+ * takes them) with the canvas' own item code into a w x h buffer whose top
+ * left is at (x0, y0), and writes straight-alpha RGBA8 to `rgba`. The CPU
+ * raster has no alpha channel, so the items are drawn on black and on white:
+ * alpha = 1 - (white - black), colour = black / alpha (exact for coverage
+ * antialiasing). Declared in the Rust sys crate, not in BUI_kit.h.
+ * Returns 1 on success. */
+int BK_canvas_rasterize(const BKCanvasItem *items, int n, float x0, float y0, int w, int h,
+                        unsigned char *rgba)
+{
+  if (w <= 0 || h <= 0 || w > 8192 || h > 8192 || !rgba) {
+    return 0;
+  }
+  CItem *ci = (CItem *)calloc((size_t)BK_MAX(n, 1), sizeof(CItem));
+  if (!ci) {
+    return 0;
+  }
+  for (int i = 0; i < n; i++) {
+    citem_assign(&ci[i], &items[i]);
+  }
+  BuiRaster *r = BUI_raster_create(w, h);
+  uint32_t *black = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)w * (size_t)h);
+  int ok = r && black;
+  for (int pass = 0; ok && pass < 2; pass++) {
+    const float bg[4] = {(float)pass, (float)pass, (float)pass, 1.0f};
+    BUI_raster_begin_frame(r, w, h);
+    BUI_raster_set_clip(r, 0, 0, w, h);
+    BUI_raster_fill_rect(r, 0, 0, (float)w, (float)h, bg);
+    for (int i = 0; i < n; i++) {
+      const BKCanvasItem *it = &ci[i].it;
+      if (it->clip_on) {
+        BUI_raster_set_clip(r, (int)floorf(it->clip[0] - x0), (int)floorf(it->clip[1] - y0),
+                            (int)ceilf(it->clip[2]), (int)ceilf(it->clip[3]));
+      }
+      canvas_item_draw(r, &ci[i], -x0, -y0, NULL);
+      if (it->clip_on) {
+        BUI_raster_set_clip(r, 0, 0, w, h);
+      }
+    }
+    BUI_raster_end_frame(r);
+    const uint32_t *px = BUI_raster_pixels(r);
+    if (pass == 0) {
+      memcpy(black, px, sizeof(uint32_t) * (size_t)w * (size_t)h);
+      continue;
+    }
+    for (size_t k = 0; k < (size_t)w * (size_t)h; k++) {
+      const uint32_t b = black[k], wt = px[k];
+      unsigned char *o = rgba + 4 * k;
+      /* per channel: white - black = 255 * (1 - alpha); use the mean */
+      const int dr = (int)((wt >> 16) & 255) - (int)((b >> 16) & 255);
+      const int dg = (int)((wt >> 8) & 255) - (int)((b >> 8) & 255);
+      const int db = (int)(wt & 255) - (int)(b & 255);
+      const int a = BK_CLAMP(255 - (dr + dg + db) / 3, 0, 255);
+      o[3] = (unsigned char)a;
+      if (a == 0) {
+        o[0] = o[1] = o[2] = 0;
+        continue;
+      }
+      o[0] = (unsigned char)BK_MIN(255, (int)((b >> 16) & 255) * 255 / a);
+      o[1] = (unsigned char)BK_MIN(255, (int)((b >> 8) & 255) * 255 / a);
+      o[2] = (unsigned char)BK_MIN(255, (int)(b & 255) * 255 / a);
+    }
+  }
+  free(black);
+  if (r) {
+    BUI_raster_free(r);
+  }
+  for (int i = 0; i < n; i++) {
+    citem_free(&ci[i]);
+  }
+  free(ci);
+  return ok;
+}
+
 /* create_window: place-managed children sit at canvas coordinates, scrolled
  * with the items. */
 static void canvas_arrange(BKNode *n)

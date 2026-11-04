@@ -93,3 +93,18 @@ declare module 'react' {
     buiSignal: ReadSignal<unknown>
   }
 }
+
+/** Blender's widgets as components: always drawn and handled like Blender.
+ *  Their lowercase HTML counterparts look like a browser's form controls
+ *  (and like Blender inside an element with the `styled` attribute). */
+type BlenderProps = Record<string, unknown> & { children?: ReactNode }
+export function Button (props: BlenderProps): ReactNode
+export function Checkbox (props: BlenderProps): ReactNode
+export function Radio (props: BlenderProps): ReactNode
+export function NumberField (props: BlenderProps): ReactNode
+export function NumberSlider (props: BlenderProps): ReactNode
+export function TextField (props: BlenderProps): ReactNode
+export function TextArea (props: BlenderProps): ReactNode
+export function ColorSwatch (props: BlenderProps): ReactNode
+export function Dropdown (props: BlenderProps): ReactNode
+export function ProgressBar (props: BlenderProps): ReactNode

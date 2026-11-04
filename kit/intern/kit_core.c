@@ -152,7 +152,7 @@ static const BKClass *const g_classes[] = {
     &bk_cls_menubutton, &bk_cls_menubar, &bk_cls_list,       &bk_cls_tree,
     &bk_cls_gridview, &bk_cls_ramp,      &bk_cls_curve,      &bk_cls_normal,
     &bk_cls_histogram, &bk_cls_frame,     &bk_cls_radio,      &bk_cls_canvas,
-    &bk_cls_textarea,  &bk_cls_image,
+    &bk_cls_textarea,  &bk_cls_image,     &bk_cls_meter,
 };
 
 const BKClass *bk_class_find(const char *name)
@@ -396,10 +396,12 @@ void bk_natural(BKNode *n, int *r_w, int *r_h)
 {
   if (n->nat_gen != g_gen) {
     int w = 4 * bk_unit(), h = bk_unit();
-    if (n->cls->measure) {
+    if (n->cls->measure || BK_HTML(n)) {
       const float saved = bk_text_scale;
       bk_text_scale = n->font_scale > 0.0f ? n->font_scale : 1.0f;
-      n->cls->measure(n, &w, &h);
+      if (!(BK_HTML(n) && bk_html_measure(n, &w, &h)) && n->cls->measure) {
+        n->cls->measure(n, &w, &h);
+      }
       if (bk_text_scale > 1.0f) { /* taller text needs a taller widget */
         h = BK_MAX(h, (int)(h * bk_text_scale + 0.5f));
       }
@@ -456,7 +458,9 @@ void bk_draw_tree(BKNode *n)
   if (n->cls->draw) {
     const float saved = bk_text_scale;
     bk_text_scale = n->font_scale > 0.0f ? n->font_scale : 1.0f;
-    n->cls->draw(n);
+    if (!(BK_HTML(n) && bk_html_draw(n))) {
+      n->cls->draw(n);
+    }
     bk_text_scale = saved;
   }
   for (int i = 0; i < n->nkids; i++) {
@@ -761,6 +765,7 @@ static const struct {
     {"events", NF_EVENTS, false},      {"nopropagate", NF_NOPROPAGATE, true},
     {"viewevents", NF_VIEWEVENTS, false}, {"noscrollbar", NF_NOSCROLLBAR, true},
     {"opaque", NF_OPAQUE, false},
+    {"html", NF_HTML, true}, /* Chrome's form-control look (kit_widgets.c) */
 };
 
 static int g_view_watchers; /* > 0 once any node asked for view events */
@@ -2136,7 +2141,7 @@ static void update_cursor(BKContext *ctx)
   if (ctx->modal) {
     name = ctx->modal->cls->cursor ? ctx->modal->cls->cursor : BK_CURSOR_CROSSHAIR;
   }
-  else if (ctx->grab && ctx->dragging && ctx->grab->cls->drag_cursor) {
+  else if (ctx->grab && ctx->dragging && ctx->grab->cls->drag_cursor && !BK_HTML(ctx->grab)) {
     name = ctx->grab->cls->drag_cursor;
   }
   else {
@@ -2160,7 +2165,7 @@ static void update_cursor(BKContext *ctx)
 
 static bool continuous(BKContext *ctx)
 {
-  return ctx->host.warp && ctx->grab && ctx->dragging &&
+  return ctx->host.warp && ctx->grab && ctx->dragging && !BK_HTML(ctx->grab) &&
          ctx->grab->cls->drag_cursor == BK_CURSOR_NONE;
 }
 

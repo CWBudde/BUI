@@ -99,6 +99,14 @@ float bk_px(void)
   return (float)BK_MAX(1, bk_dpi() / 64); /* U.pixelsize */
 }
 float bk_text_scale = 1.0f;
+/* The text scale browser-look widgets draw at (html_font_begin): text at
+ * exactly this scale uses the browsers' form-control font. */
+float bk_html_text_scale = -1.0f;
+
+static const char *text_family(void)
+{
+  return bk_text_scale == bk_html_text_scale ? "arial" : g_font_family;
+}
 
 const char *bk_font_family(void)
 {
@@ -279,6 +287,32 @@ void bk_checker(float x, float y, float w, float h)
     for (float xx = x + ((row & 1) ? cell : 0); xx < x + w; xx += 2 * cell) {
       bk_fill_f(xx, yy, fminf(cell, x + w - xx), fminf(cell, y + h - yy), light);
     }
+  }
+}
+
+void bk_argb(uint32_t c, float o[4])
+{
+  o[0] = ((c >> 16) & 0xff) / 255.0f;
+  o[1] = ((c >> 8) & 0xff) / 255.0f;
+  o[2] = (c & 0xff) / 255.0f;
+  o[3] = ((c >> 24) & 0xff) / 255.0f;
+}
+
+void bk_html_box(float x, float y, float w, float h, float rad, const float fill[4],
+                 const float border[4], float bw)
+{
+  rad = fminf(rad, 0.5f * fminf(w, h));
+  BUI_raster_widget(bk_draw.r, x, y, w, h, rad, CNR_ALL, fill, fill, border, border ? bw : 0.0f,
+                    NULL);
+}
+
+void bk_html_polyline(const float (*pts)[2], int n, const float c[4], float width)
+{
+  for (int i = 0; i + 1 < n; i++) {
+    bk_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], c, width);
+  }
+  for (int i = 1; i + 1 < n; i++) { /* round joins */
+    bk_circle(pts[i][0], pts[i][1], width * 0.5f, c);
   }
 }
 
@@ -1076,13 +1110,14 @@ float bk_text_width(const char *s, int len, bool bold)
     return 0.0f;
   }
   const float size = bk_font_size();
-  const uint64_t h = hash_str(s, len, bold);
+  const char *fam = text_family();
+  const uint64_t h = hash_str(s, len, bold) ^ (fam != g_font_family ? 0x9e3779b97f4a7c15ull : 0);
   MeasureSlot *slot = &g_measure[h & (MEASURE_SLOTS - 1)];
   if (slot->hash == h && slot->size == size) {
     return slot->width;
   }
   float w = 0.0f;
-  if (!BUI_text_measure(g_font_family, bold ? BUI_FONT_BOLD : 0, size, s, len, &w)) {
+  if (!BUI_text_measure(fam, bold ? BUI_FONT_BOLD : 0, size, s, len, &w)) {
     w = len * size * 0.55f;
   }
   slot->hash = h;
@@ -1113,7 +1148,7 @@ void bk_text_f(float x, float baseline, const char *s, int len, const float c[4]
   if (len == 0) {
     return;
   }
-  BUI_raster_set_font(bk_draw.r, g_font_family, bold ? BUI_FONT_BOLD : 0);
+  BUI_raster_set_font(bk_draw.r, text_family(), bold ? BUI_FONT_BOLD : 0);
   const float px = floorf(x + 0.5f), py = floorf(baseline + 0.5f);
   if (bk_text_shadow == 1) {
     const float sc[4] = {0.0f, 0.0f, 0.0f, 0.5f * c[3]};

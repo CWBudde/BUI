@@ -335,9 +335,14 @@ pub(crate) struct LayoutCaches {
     recon: Recon,
     /// Measured text leaves: key -> box index, this frame.
     text_box: FnvMap<Key, usize>,
+    /// Content widths of blocks with `overflow-wrap: anywhere` from the last
+    /// layout: their long words are split to fit before layout.
+    wrap_widths: FnvMap<Key, f32>,
     tw: TwJit,
     /// `@container`: query containers' content sizes from the last layout.
     containers: Containers,
+    /// CSS animations and transitions by element key.
+    pub(crate) anim: crate::anim::Animations,
 }
 
 impl LayoutCaches {
@@ -345,7 +350,23 @@ impl LayoutCaches {
     /// window must render again (an `@container` query may match differently).
     pub(crate) fn after_layout(&mut self, frame: &Frame) -> bool {
         let queried = self.author.sheet.has_container_queries();
-        self.containers.update(frame, &self.styles, queried)
+        let mut again = self.containers.update(frame, &self.styles, queried);
+        // overflow-wrap: blocks whose width changed lay out their words again
+        for n in &frame.nodes {
+            let c = &self.styles[n.style];
+            if c.wrap_anywhere && n.taffy.is_some() && !c.display.is_inline_level()
+                && matches!(n.content, Content::Element) {
+                let w = crate::paint::content_box(c, n.bounds).size.width;
+                if self.wrap_widths.get(&n.key).is_none_or(|old| (old - w).abs() > 0.5) {
+                    self.wrap_widths.insert(n.key, w);
+                    again = true;
+                }
+            }
+        }
+        if self.wrap_widths.len() > 4096 {
+            self.wrap_widths.clear();
+        }
+        again
     }
 }
 
@@ -416,8 +437,10 @@ impl Default for LayoutCaches {
             matched: MatchCache::default(),
             recon: Recon::default(),
             text_box: FnvMap::default(),
+            wrap_widths: FnvMap::default(),
             tw: TwJit::default(),
             containers: Containers::default(),
+            anim: Default::default(),
         }
     }
 }
@@ -450,6 +473,18 @@ struct Builder<'a> {
     /// CSS counters in scope: name, value, and the box whose subtree the
     /// instance is scoped to (dropped when that box is finished).
     counters: Vec<(Box<str>, i32, usize)>,
+    /// Column widths of each table (by box), computed before its cells.
+    table_cols: FnvMap<usize, TableCols>,
+    wrap_widths: &'a FnvMap<Key, f32>,
+    anim: &'a mut crate::anim::Animations,
+}
+
+/// A table's columns: widths in px, and whether the table sizes to them.
+struct TableCols {
+    widths: Vec<f32>,
+    /// the table's width is auto: it shrinks to its columns
+    fit: bool,
+    fixed: bool,
 }
 
 /// Child box indices / layout nodes being assembled: on the stack for the usual few.
@@ -825,6 +860,33 @@ impl<'a> Builder<'a> {
         id
     }
 
+    /// CSS animations and transitions of element `i` (`anim.rs`): a private
+    /// copy of its shared style `style` with the animated values on top.
+    /// Never cached, so the shared styles stay what the cascade made them.
+    fn animate(&mut self, i: usize, div: &Div, parent: StyleId, style: StyleId) -> StyleId {
+        let key = self.nodes[i].key;
+        if !self.anim.wants(key, &self.styles[style]) {
+            return style;
+        }
+        let important: smallvec::SmallVec<[Prop; 8]> = {
+            let (ua, au) = self.matched_rules(i);
+            self.declared(i, div, &ua, &au).iter().filter(|d| d.important).map(|d| d.prop).collect()
+        };
+        let base = &self.styles[style];
+        let env = crate::anim::Env {
+            parent: &self.styles[parent],
+            viewport: self.viewport,
+            vars: self.styles.vars.get(base.vars),
+            sheet: self.author,
+            media: &self.au_media,
+            important: &important,
+        };
+        match self.anim.apply(key, base, &env) {
+            Some(c) => self.styles.add(c),
+            None => style,
+        }
+    }
+
     /// The UA and author rules matching element `i`: from the memo when an
     /// element with the same fingerprint was matched before.
     fn matched_rules(&mut self, i: usize) -> (crate::css::Matches<'static>, crate::css::Matches<'a>) {
@@ -1103,6 +1165,7 @@ impl<'a> Builder<'a> {
             self.pop();
             return None;
         }
+        let style = self.animate(i, &div, parent_style, style);
         self.nodes[i].style = style;
         self.counter_ops(style, parent.unwrap_or(usize::MAX));
         // attributes moved into ElData: widgets read them back through the arena
@@ -1111,7 +1174,10 @@ impl<'a> Builder<'a> {
             TagKind::Widget => {
                 let spec = WidgetSpec::from_element(&div, self.els.last().map(|e| &e.attrs[..]).unwrap_or(&[]),
                                                     key, self.state);
-                if let Some(spec) = spec {
+                if let Some(mut spec) = spec {
+                    // browser-look controls in plain HTML; Blender widgets inside
+                    // `styled` and for the Blender components (`bui-blender`)
+                    spec.html = !self.nodes[i].styled && self.attr(i, "bui-blender").is_none();
                     self.nodes[i].content = Content::Widget(spec);
                 } else {
                     self.children(i, div.children);
@@ -1373,13 +1439,181 @@ impl<'a> Builder<'a> {
             _ if c.layout.display == Display::FlowRoot => Display::FlowRoot,
             _ => Display::Block,
         };
+        if c.display == DisplayKind::Table {
+            if let Some(tc) = self.table_cols.get(&i).filter(|t| t.fit && !t.widths.is_empty()) {
+                // auto width: the table shrinks to its columns (up to its container)
+                let sp = if c.border_collapse { 0.0 } else { c.border_spacing.0 };
+                let w: f32 = tc.widths.iter().sum::<f32>() + sp * (tc.widths.len() + 1) as f32;
+                let pad = |v: LengthPercentage| match v.into_raw() {
+                    r if r.tag() == taffy::CompactLength::LENGTH_TAG => r.value(),
+                    _ => 0.0,
+                };
+                let extra = pad(s.padding.left) + pad(s.padding.right) + pad(s.border.left) + pad(s.border.right);
+                s.size.width = Dimension::length((w + extra).ceil());
+                if s.max_size.width == LengthPercentageAuto::auto() {
+                    s.max_size.width = LengthPercentageAuto::percent(1.0);
+                }
+            }
+        }
         if c.display == DisplayKind::TableCell && s.size.width == Dimension::auto() {
-            let span = self.attr(i, "colspan").and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.0);
-            s.flex_grow = span;
-            s.flex_shrink = 1.0;
-            s.flex_basis = Dimension::percent(0.0);
+            let span = self.attr(i, "colspan").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1);
+            match self.cell_columns(i, span) {
+                // every cell of a column gets the column's width: rows line up
+                Some((w, fit, fixed)) if w > 0.0 || fixed => {
+                    s.flex_basis = Dimension::length(w);
+                    s.flex_grow = if fit && !fixed { 0.0 } else { w.max(1.0) };
+                    s.flex_shrink = w.max(1.0);
+                    if fixed {
+                        s.min_size.width = LengthPercentageAuto::length(0.0); // fixed tables don't widen for content
+                    }
+                }
+                _ => {
+                    s.flex_grow = span as f32;
+                    s.flex_shrink = 1.0;
+                    s.flex_basis = Dimension::percent(0.0);
+                }
+            }
         }
         s
+    }
+
+    /// The rows of table `t` (in row groups or directly inside).
+    fn table_rows(&self, t: usize) -> Vec<usize> {
+        let mut rows = Vec::new();
+        for k in kids(&self.nodes, t) {
+            if !matches!(self.nodes[k].content, Content::Element) {
+                continue;
+            }
+            match self.st(k).display {
+                DisplayKind::TableRow => rows.push(k),
+                DisplayKind::TableRowGroup => rows.extend(kids(&self.nodes, k)
+                    .filter(|&r| matches!(self.nodes[r].content, Content::Element)
+                            && self.st(r).display == DisplayKind::TableRow)),
+                _ => {}
+            }
+        }
+        rows
+    }
+
+    fn row_cells(&self, r: usize) -> Vec<usize> {
+        kids(&self.nodes, r).filter(|&c| matches!(self.nodes[c].content, Content::Element | Content::Widget(_))
+                                     && self.st(c).display == DisplayKind::TableCell).collect()
+    }
+
+    /// The single-line width of everything in box `k` (its text, in its fonts).
+    fn max_content(&mut self, k: usize) -> f32 {
+        let mut w = 0.0f32;
+        let list: Vec<usize> = kids(&self.nodes, k).collect();
+        for c in list {
+            match &self.nodes[c].content {
+                Content::Text(t) => {
+                    let st = &self.styles[self.nodes[c].style];
+                    let (size, flags) = (st.font_size, text::flags(st));
+                    let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                    w += self.text.width(&t, size, flags) + st.letter_spacing * t.chars().count() as f32;
+                }
+                Content::Element => {
+                    let inner = self.max_content(c);
+                    let st = self.st(c);
+                    let u = self.units(st.font_size);
+                    let px = |v: LengthPercentage| match v.into_raw() {
+                        r if r.tag() == taffy::CompactLength::LENGTH_TAG => r.value(),
+                        _ => 0.0,
+                    };
+                    let edges = px(st.layout.padding.left) + px(st.layout.padding.right)
+                        + px(st.layout.border.left) + px(st.layout.border.right);
+                    let explicit = match st.layout.size.width.into_raw() {
+                        r if r.tag() == taffy::CompactLength::LENGTH_TAG => Some(r.value()),
+                        _ => None,
+                    };
+                    let _ = u;
+                    let own = explicit.unwrap_or(inner + edges);
+                    // blocks stack; inline content continues the line
+                    if st.display.is_inline_level() || st.display == DisplayKind::Inline {
+                        w += own;
+                    } else {
+                        w = w.max(own);
+                    }
+                }
+                _ => {}
+            }
+        }
+        w
+    }
+
+    /// Column widths of table `t`: the widest single-line content of each
+    /// column (auto layout), or the first row's cell widths (fixed).
+    fn table_columns(&mut self, t: usize) {
+        let fixed = self.st(t).table_fixed;
+        let fit = self.st(t).layout.size.width == Dimension::auto();
+        let mut widths: Vec<f32> = Vec::new();
+        let rows = self.table_rows(t);
+        for (ri, r) in rows.iter().enumerate() {
+            if fixed && ri > 0 {
+                break;
+            }
+            let mut col = 0usize;
+            for c in self.row_cells(*r) {
+                let span = self.attr(c, "colspan").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1);
+                let st = self.st(c);
+                let px = |v: LengthPercentage| match v.into_raw() {
+                    r if r.tag() == taffy::CompactLength::LENGTH_TAG => r.value(),
+                    _ => 0.0,
+                };
+                let edges = px(st.layout.padding.left) + px(st.layout.padding.right)
+                    + px(st.layout.border.left) + px(st.layout.border.right);
+                let explicit = match st.layout.size.width.into_raw() {
+                    r if r.tag() == taffy::CompactLength::LENGTH_TAG => Some(r.value()),
+                    _ => None,
+                };
+                let w = if fixed { explicit.unwrap_or(0.0) } else { explicit.unwrap_or(0.0).max(self.max_content(c) + edges) };
+                if widths.len() < col + span {
+                    widths.resize(col + span, 0.0);
+                }
+                if span == 1 {
+                    widths[col] = widths[col].max(w.ceil());
+                }
+                col += span;
+            }
+        }
+        if fixed {
+            // unspecified columns share what the specified ones leave
+            let given: f32 = widths.iter().sum();
+            let free = widths.iter().filter(|w| **w == 0.0).count();
+            if free > 0 {
+                let total = match self.st(t).layout.size.width.into_raw() {
+                    r if r.tag() == taffy::CompactLength::LENGTH_TAG => r.value(),
+                    _ => self.viewport.0,
+                };
+                let each = ((total - given) / free as f32).max(0.0);
+                widths.iter_mut().filter(|w| **w == 0.0).for_each(|w| *w = each);
+            }
+        }
+        self.table_cols.insert(t, TableCols { widths, fit, fixed });
+    }
+
+    /// The width (px) of the columns cell `c` spans, and its table's mode.
+    fn cell_columns(&self, c: usize, span: usize) -> Option<(f32, bool, bool)> {
+        let row = self.nodes[c].parent?;
+        let mut t = self.nodes[row].parent?;
+        if self.st(t).display == DisplayKind::TableRowGroup {
+            t = self.nodes[t].parent?;
+        }
+        let tc = self.table_cols.get(&t)?;
+        let mut col = 0usize;
+        for k in self.row_cells(row) {
+            if k == c {
+                break;
+            }
+            col += self.attr(k, "colspan").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1);
+        }
+        let end = (col + span).min(tc.widths.len());
+        if col >= end {
+            return None;
+        }
+        let sp = self.st(t).border_spacing.0;
+        let w = tc.widths[col..end].iter().sum::<f32>() + sp * (end - col - 1) as f32;
+        Some((w, tc.fit, tc.fixed))
     }
 
     /// Make line-container style: a wrapping flex row aligned per text-align.
@@ -1450,10 +1684,14 @@ impl<'a> Builder<'a> {
     /// Replace the text of box `k` by its whitespace-processed, transformed form.
     fn transform_text(&mut self, k: usize, c: StyleId) {
         let (tt, ws, tab) = (self.styles[c].text_transform, self.styles[c].white_space, self.styles[c].tab_size);
+        let (rtl, ovr) = (self.styles[c].layout.direction == taffy::style::Direction::Rtl, self.styles[c].bidi_override);
         if let Content::Text(t) = &self.nodes[k].content {
-            if let std::borrow::Cow::Owned(s) = transform(t, tt, ws, tab) {
-                self.nodes[k].content = Content::Text(s);
-            }
+            let t = match transform(t, tt, ws, tab) {
+                std::borrow::Cow::Owned(s) => s,
+                std::borrow::Cow::Borrowed(s) => s.to_owned(),
+            };
+            let t = text::bidi_visual(&t, rtl, ovr).unwrap_or(t);
+            self.nodes[k].content = Content::Text(t);
         }
     }
 
@@ -1483,6 +1721,9 @@ impl<'a> Builder<'a> {
     }
 
     fn layout_node_inner(&mut self, i: usize) -> NodeId {
+        if self.st(i).display == DisplayKind::Table {
+            self.table_columns(i);
+        }
         let mut base = self.base_style(i);
         if i == 0 {
             // the root fills the viewport
@@ -1717,6 +1958,11 @@ impl<'a> Builder<'a> {
             std::borrow::Cow::Borrowed(_) => raw,
             std::borrow::Cow::Owned(s) => s,
         };
+        // bidirectional text: laid out in visual order
+        let (rtl, ovr) = (c.layout.direction == taffy::style::Direction::Rtl, c.bidi_override);
+        if let Some(v) = text::bidi_visual(&text, rtl, ovr) {
+            text = v;
+        }
         if ws == WhiteSpace::NoWrap {
             text = collapse(&text);
         }
@@ -1758,6 +2004,41 @@ impl<'a> Builder<'a> {
                     pieces.push((a, b, j + 1 < words.len() || trail, false));
                 }
             }
+        }
+        // overflow-wrap: a word wider than its block (as laid out last
+        // frame) is cut where it has to be
+        let anywhere = self.styles[sid].wrap_anywhere && !break_all
+            && ws != WhiteSpace::NoWrap && ws != WhiteSpace::Pre;
+        if anywhere {
+            let mut blk = owner;
+            while self.st(blk).display.is_inline_level() || self.st(blk).display == DisplayKind::Inline {
+                match self.nodes[blk].parent {
+                    Some(p) => blk = p,
+                    None => break,
+                }
+            }
+            let max = self.wrap_widths.get(&self.nodes[blk].key).copied().unwrap_or(self.viewport.0).max(1.0);
+            let mut out: smallvec::SmallVec<[(usize, usize, bool, bool); 16]> = smallvec::SmallVec::new();
+            for &(a, b, trailing, brk) in &pieces {
+                let piece = &text[a..b];
+                if self.text.width(piece, size, flags) <= max {
+                    out.push((a, b, trailing, brk));
+                    continue;
+                }
+                let mut start = a;
+                let mut acc = String::new();
+                for (o, ch) in piece.char_indices() {
+                    acc.push(ch);
+                    if self.text.width(&acc, size, flags) > max && acc.chars().count() > 1 {
+                        out.push((start, a + o, false, false));
+                        start = a + o;
+                        acc.clear();
+                        acc.push(ch);
+                    }
+                }
+                out.push((start, b, trailing, brk));
+            }
+            pieces = out;
         }
         if break_all && ws != WhiteSpace::NoWrap && ws != WhiteSpace::Pre {
             let mut chars: smallvec::SmallVec<[(usize, usize, bool, bool); 16]> = smallvec::SmallVec::new();
@@ -1912,7 +2193,8 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         caches.matched.map.clear();
         caches.matched.author = caches.author.hash;
     }
-    let LayoutCaches { styles, text, images, author, taffy, box_of, acc, matched, recon, text_box, containers, .. } = caches;
+    let LayoutCaches { styles, text, images, author, taffy, box_of, acc, matched, recon, text_box, containers,
+                       wrap_widths, anim, .. } = caches;
     let mut b = Builder {
         nodes,
         els,
@@ -1924,6 +2206,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         recon,
         text_box,
         containers,
+        wrap_widths,
         changed: false,
         next_tpos: (1, 1),
         author: &author.sheet,
@@ -1936,6 +2219,8 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         title,
         widgets,
         counters: Vec::new(),
+        table_cols: FnvMap::default(),
+        anim,
     };
     // the document: <html><body> unless the app built them itself
     let root_div = match root {
@@ -2217,6 +2502,12 @@ impl Frame {
 
     pub(crate) fn attr(&self, i: usize, name: &str) -> Option<&str> {
         el_attr(&self.nodes, &self.els, i, name)
+    }
+
+    /// Element children of box `i`.
+    pub(crate) fn children_of(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
+        kids(&self.nodes, i).filter(|&k| matches!(self.nodes[k].content, Content::Element | Content::Widget(_)
+                                                  | Content::Replaced(_)))
     }
 
     /// Box `i` has no content (only collapsible whitespace): `empty-cells`.

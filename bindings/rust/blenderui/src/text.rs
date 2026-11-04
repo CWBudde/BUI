@@ -189,3 +189,148 @@ impl TextCache {
         chars[..lo].iter().collect::<String>() + "\u{2026}"
     }
 }
+
+// ==========================================================================
+// Bidirectional text: a compact Unicode Bidirectional Algorithm (UAX #9)
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Class {
+    L,
+    R,
+    /// European / Arabic digits
+    N,
+    /// whitespace and punctuation
+    Neutral,
+}
+
+fn class(c: char) -> Class {
+    let u = c as u32;
+    if matches!(u, 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF) {
+        Class::R
+    } else if c.is_ascii_digit() || matches!(u, 0x0660..=0x0669 | 0x06F0..=0x06F9) {
+        Class::N
+    } else if c.is_alphabetic() {
+        Class::L
+    } else {
+        Class::Neutral
+    }
+}
+
+/// `s` in visual (left-to-right display) order. `rtl`: the paragraph's
+/// direction; `override_`: `unicode-bidi: bidi-override` (every character
+/// takes the paragraph's direction). Returns None when nothing moves (pure
+/// left-to-right text, the common case).
+pub(crate) fn bidi_visual(s: &str, rtl: bool, override_: bool) -> Option<String> {
+    if override_ {
+        return rtl.then(|| s.chars().rev().collect());
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let classes: Vec<Class> = chars.iter().map(|&c| class(c)).collect();
+    if !rtl && !classes.contains(&Class::R) {
+        return None;
+    }
+    let base: u8 = rtl as u8;
+    // resolved levels: R odd, L even (W/I rules simplified: digits take the
+    // level above the base, so they stay left-to-right inside RTL text)
+    let mut levels: Vec<u8> = classes.iter().map(|c| match (c, base) {
+        (Class::R, _) => 1,
+        (Class::L, 0) => 0,
+        (Class::L, _) => 2,
+        (Class::N, 0) => 0,
+        (Class::N, _) => 2,
+        (Class::Neutral, _) => u8::MAX,
+    }).collect();
+    // digits right after RTL text in an LTR paragraph sit inside it
+    if base == 0 {
+        let mut prev_r = false;
+        for k in 0..levels.len() {
+            match classes[k] {
+                Class::R => prev_r = true,
+                Class::L => prev_r = false,
+                Class::N if prev_r => levels[k] = 2,
+                _ => {}
+            }
+        }
+    }
+    // neutrals (N1/N2): between two strong runs of the same direction they
+    // take it; otherwise the paragraph's level
+    let dir = |l: u8| l % 2;
+    let n = levels.len();
+    let mut k = 0;
+    while k < n {
+        if levels[k] != u8::MAX {
+            k += 1;
+            continue;
+        }
+        let start = k;
+        while k < n && levels[k] == u8::MAX {
+            k += 1;
+        }
+        let before = if start == 0 { base } else { levels[start - 1] };
+        let after = if k == n { base } else { levels[k] };
+        let l = match (dir(before), dir(after)) {
+            (1, 1) => 1,
+            (0, 0) => if base == 0 { 0 } else { 2 },
+            _ => base,
+        };
+        for lv in &mut levels[start..k] {
+            *lv = l;
+        }
+    }
+    // trailing whitespace goes back to the paragraph level (L1)
+    for k in (0..n).rev() {
+        if chars[k].is_whitespace() {
+            levels[k] = base;
+        } else {
+            break;
+        }
+    }
+    // L2: from the highest level down to the lowest odd one, reverse every
+    // run at that level or above
+    let max = levels.iter().copied().max().unwrap_or(0);
+    let min_odd = levels.iter().copied().filter(|l| l % 2 == 1).min().unwrap_or(1);
+    let mut order: Vec<usize> = (0..n).collect();
+    let mut lvl = max;
+    while lvl >= min_odd && lvl > 0 {
+        let mut k = 0;
+        while k < n {
+            if levels[order[k]] >= lvl {
+                let start = k;
+                while k < n && levels[order[k]] >= lvl {
+                    k += 1;
+                }
+                order[start..k].reverse();
+            } else {
+                k += 1;
+            }
+        }
+        lvl -= 1;
+    }
+    // mirrored brackets in RTL runs
+    let mirror = |c: char| match c {
+        '(' => ')', ')' => '(', '[' => ']', ']' => '[', '{' => '}', '}' => '{', '<' => '>', '>' => '<',
+        c => c,
+    };
+    let out: String = order.iter().map(|&k| if levels[k] % 2 == 1 { mirror(chars[k]) } else { chars[k] }).collect();
+    (out != s).then_some(out)
+}
+
+#[cfg(test)]
+mod bidi_tests {
+    use super::bidi_visual;
+
+    #[test]
+    fn reorders_rtl_runs() {
+        // Hebrew inside English: the Hebrew run is reversed, the rest stays
+        assert_eq!(bidi_visual("abc \u{05d0}\u{05d1}\u{05d2} def", false, false).as_deref(),
+                   Some("abc \u{05d2}\u{05d1}\u{05d0} def"));
+        // pure LTR: untouched
+        assert_eq!(bidi_visual("hello world", false, false), None);
+        // RTL paragraph: English words keep their order inside, runs swap
+        assert_eq!(bidi_visual("abc \u{05d0}\u{05d1}", true, false).as_deref(), Some("\u{05d1}\u{05d0} abc"));
+        // numbers stay left-to-right inside RTL text
+        assert_eq!(bidi_visual("\u{05d0} 123", true, false).as_deref(), Some("123 \u{05d0}"));
+        // override
+        assert_eq!(bidi_visual("abc", true, true).as_deref(), Some("cba"));
+    }
+}

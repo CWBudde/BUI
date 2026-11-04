@@ -94,7 +94,10 @@ pub use blenderui_macros::rsx as view;
 /// `Option<T>` fields and `children`, and names missing required ones.
 pub use blenderui_macros::Props;
 
+pub mod anim;
 pub mod calc;
+pub mod components;
+pub mod effects;
 pub mod color;
 mod color4;
 pub mod css;
@@ -177,6 +180,9 @@ pub mod prelude {
     };
     pub use blenderui_macros::{component, Props};
     pub use crate::color::*;
+    pub use crate::components::{
+        Button, Checkbox, ColorSwatch, Dropdown, NumberField, NumberSlider, ProgressBar, Radio, TextArea, TextField,
+    };
     pub use crate::element::*;
     pub use crate::events::*;
     pub use crate::geometry::{point, px, relative, rems, size, Bounds, Length, Pixels, Point, Rems, Size};

@@ -25,6 +25,7 @@ pub(crate) enum WKind {
     Select,
     TextArea,
     Progress,
+    Meter,
 }
 
 impl WKind {
@@ -40,6 +41,7 @@ impl WKind {
             WKind::Select => c"dropdown",
             WKind::TextArea => c"textarea",
             WKind::Progress => c"progress",
+            WKind::Meter => c"meter",
         }
     }
 
@@ -49,7 +51,7 @@ impl WKind {
             WKind::Text { .. } | WKind::Number | WKind::Slider => (150.0, 20.0),
             WKind::Select => (120.0, 20.0),
             WKind::TextArea => (240.0, 64.0),
-            WKind::Progress => (160.0, 20.0),
+            WKind::Progress | WKind::Meter => (160.0, 20.0),
             WKind::Color => (40.0, 20.0),
             WKind::Checkbox | WKind::Radio => (20.0, 20.0),
             WKind::Button => (20.0, 20.0),
@@ -72,6 +74,54 @@ pub(crate) struct WidgetSpec {
     pub placeholder: String,
     pub disabled: bool,
     pub name: Option<String>,
+    /// Drawn like a browser's form control (plain HTML outside `styled`);
+    /// false: a Blender widget (inside `styled`, or a Blender component).
+    pub html: bool,
+    /// `<optgroup>` labels: (index of the option they come before, label).
+    pub groups: Vec<(usize, String)>,
+    /// `<meter>`'s low, high and optimum.
+    pub meter: [Option<f64>; 3],
+}
+
+impl WidgetSpec {
+    /// The kit's item list: options, with group labels (marked `\x01`) in
+    /// the browser look.
+    fn kit_items(&self) -> Vec<String> {
+        if !self.html || self.groups.is_empty() {
+            return self.items.clone();
+        }
+        let mut out = Vec::with_capacity(self.items.len() + self.groups.len());
+        let mut g = self.groups.iter().peekable();
+        for (k, it) in self.items.iter().enumerate() {
+            while let Some((at, label)) = g.next_if(|(at, _)| *at <= k) {
+                let _ = at;
+                out.push(format!("\u{1}{label}"));
+            }
+            out.push(it.clone());
+        }
+        out.extend(g.map(|(_, l)| format!("\u{1}{l}")));
+        out
+    }
+
+    /// Option index to the kit's item index, and back.
+    fn to_kit(&self, option: f64) -> f64 {
+        if !self.html {
+            return option;
+        }
+        option + self.groups.iter().filter(|(at, _)| (*at as f64) <= option).count() as f64
+    }
+    fn from_kit(&self, item: f64) -> f64 {
+        if !self.html {
+            return item;
+        }
+        let mut labels = 0.0;
+        for (at, _) in &self.groups {
+            if (*at as f64) + labels <= item {
+                labels += 1.0;
+            }
+        }
+        item - labels
+    }
 }
 
 fn text_of(children: &[AnyElement]) -> Option<String> {
@@ -104,6 +154,9 @@ impl WidgetSpec {
             placeholder: attr(attrs, "placeholder").unwrap_or("").to_owned(),
             disabled: attr(attrs, "disabled").is_some(),
             name: attr(attrs, "name").map(str::to_owned),
+            html: false,
+            groups: Vec::new(),
+            meter: [None; 3],
         }
     }
 
@@ -176,19 +229,22 @@ impl WidgetSpec {
                 s = WidgetSpec::new(WKind::Select, attrs);
                 let mut selected = None;
                 let want = attr(attrs, "value");
-                fn options<'a>(c: &'a [AnyElement], out: &mut Vec<&'a Div>) {
+                fn options<'a>(c: &'a [AnyElement], out: &mut Vec<&'a Div>, groups: &mut Vec<(usize, String)>) {
                     for e in c {
                         if let AnyElement::Element(d) = e {
                             match d.tag {
                                 "option" => out.push(d),
-                                "optgroup" => options(&d.children, out),
+                                "optgroup" => {
+                                    groups.push((out.len(), d.get_attr("label").unwrap_or("").to_owned()));
+                                    options(&d.children, out, groups)
+                                }
                                 _ => {}
                             }
                         }
                     }
                 }
                 let mut opts = Vec::new();
-                options(&d.children, &mut opts);
+                options(&d.children, &mut opts, &mut s.groups);
                 for (k, o) in opts.iter().enumerate() {
                     let label = text_of(&o.children).unwrap_or_default();
                     let value = o.get_attr("value").map(str::to_owned).unwrap_or_else(|| label.clone());
@@ -207,12 +263,22 @@ impl WidgetSpec {
                         _ => None,
                     }).collect()));
             }
-            "progress" | "meter" => {
+            "progress" => {
                 s = WidgetSpec::new(WKind::Progress, attrs);
-                let min = if d.tag == "meter" { num("min").unwrap_or(0.0) } else { 0.0 };
                 let max = num("max").unwrap_or(1.0);
-                let v = num("value").unwrap_or(0.0);
-                s.value = Some(((v - min) / (max - min).max(1e-9)).clamp(0.0, 1.0));
+                // no value: indeterminate (a negative factor)
+                s.value = Some(match num("value") {
+                    Some(v) => (v / max.max(1e-9)).clamp(0.0, 1.0),
+                    None => -1.0,
+                });
+                s.label = text_of(&d.children).unwrap_or_default();
+            }
+            "meter" => {
+                s = WidgetSpec::new(WKind::Meter, attrs);
+                s.min = num("min").unwrap_or(0.0);
+                s.max = num("max").unwrap_or(1.0);
+                s.value = Some(num("value").unwrap_or(0.0).clamp(s.min, s.max));
+                s.meter = [num("low"), num("high"), num("optimum")];
                 s.label = text_of(&d.children).unwrap_or_default();
             }
             _ => return None,
@@ -279,7 +345,8 @@ impl Widgets {
         let mut nat = [0i32; 2];
         // SAFETY: valid node, two-int out array.
         unsafe { sys::BK_node_natural(entry.node, nat.as_mut_ptr()) };
-        let (mw, mh) = spec.kind.min_size();
+        // browser-look controls keep the browser's sizes
+        let (mw, mh) = if spec.html { (0.0, 0.0) } else { spec.kind.min_size() };
         ((nat[0] as f32 / scale).max(mw), (nat[1] as f32 / scale).max(mh))
     }
 
@@ -328,11 +395,11 @@ impl Widgets {
                     checked: num != 0.0,
                     number: num,
                 },
-                WKind::Select => ChangeEvent {
-                    value: w.spec.items.get(num as usize).cloned().unwrap_or_default(),
-                    checked: false,
-                    number: num,
-                },
+                WKind::Select => {
+                    let num = w.spec.from_kit(num);
+                    ChangeEvent { value: w.spec.items.get(num as usize).cloned().unwrap_or_default(), checked: false,
+                                  number: num }
+                }
                 WKind::Color => {
                     let mut c = [0f32; 4];
                     sys::BK_get_color(n, c"value".as_ptr(), c.as_mut_ptr());
@@ -379,6 +446,9 @@ fn sync(n: *mut sys::BKNode, old: Option<&WidgetSpec>, spec: &WidgetSpec) {
     unsafe {
         let set_num = |k: &CStr, v: f64| { sys::BK_set_num(n, k.as_ptr(), v); };
         let set_str = |k: &CStr, v: &str| { let c = cstr(v); sys::BK_set_str(n, k.as_ptr(), c.as_ptr()); };
+        if old.is_none_or(|o| o.html != spec.html) {
+            set_num(c"html", spec.html as i32 as f64);
+        }
         if old.is_none_or(|o| o.disabled != spec.disabled) {
             set_num(c"enabled", (!spec.disabled) as i32 as f64);
         }
@@ -396,6 +466,15 @@ fn sync(n: *mut sys::BKNode, old: Option<&WidgetSpec>, spec: &WidgetSpec) {
                 set_num(c"mask", 1.0);
             }
         }
+        if spec.kind == WKind::Meter && old.is_none_or(|o| (o.min, o.max, o.meter) != (spec.min, spec.max, spec.meter)) {
+            set_num(c"min", spec.min);
+            set_num(c"max", spec.max);
+            for (k, v) in [c"low", c"high", c"optimum"].iter().zip(spec.meter) {
+                if let Some(v) = v {
+                    set_num(k, v);
+                }
+            }
+        }
         if old.is_none_or(|o| (o.min, o.max, o.step) != (spec.min, spec.max, spec.step))
             && matches!(spec.kind, WKind::Number | WKind::Slider)
         {
@@ -410,18 +489,27 @@ fn sync(n: *mut sys::BKNode, old: Option<&WidgetSpec>, spec: &WidgetSpec) {
                 set_num(c"precision", 0.0);
             }
         }
-        if old.is_none_or(|o| o.items != spec.items) && spec.kind == WKind::Select {
-            let cs: Vec<CString> = spec.items.iter().map(|s| cstr(s)).collect();
+        if old.is_none_or(|o| (&o.items, &o.groups, o.html) != (&spec.items, &spec.groups, spec.html))
+            && spec.kind == WKind::Select {
+            let items = spec.kit_items();
+            let cs: Vec<CString> = items.iter().map(|s| cstr(s)).collect();
             let ptrs: Vec<*const std::ffi::c_char> = cs.iter().map(|c| c.as_ptr()).collect();
             sys::BK_set_strs(n, c"items".as_ptr(), ptrs.as_ptr(), ptrs.len() as i32);
         }
         if old.is_none_or(|o| o.text != spec.text) {
             if let Some(t) = &spec.text {
-                set_str(c"text", t);
+                // the textarea takes its whole text as "value"
+                set_str(if spec.kind == WKind::TextArea { c"value" } else { c"text" }, t);
             }
         }
-        if old.is_none_or(|o| o.value != spec.value) {
+        if old.is_none_or(|o| (o.value, o.html) != (spec.value, spec.html)) {
             if let Some(v) = spec.value {
+                let v = match spec.kind {
+                    WKind::Select => spec.to_kit(v),
+                    // indeterminate progress exists in the browser look only
+                    WKind::Progress if !spec.html => v.max(0.0),
+                    _ => v,
+                };
                 set_num(if spec.kind == WKind::Progress { c"factor" } else { c"value" }, v);
             }
         }

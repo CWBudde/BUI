@@ -7,7 +7,7 @@ use std::sync::Arc;
 use taffy::prelude::*;
 
 use crate::color::Rgba;
-use crate::geometry::{rect, Bounds, Units};
+use crate::geometry::{rect, Bounds, Length, Units};
 use crate::layout::{BoxNode, Content, Frame, Replaced, StyleStore};
 use crate::style::{BorderStyle, BoxEdge, Computed, DecoStyle, DisplayKind, TextAlign, WhiteSpace};
 use crate::text::{self, TextCache};
@@ -248,82 +248,79 @@ impl Painter {
         self.clip = saved;
     }
 
-    /// Replace the canvas display list with these items, scaled to device pixels.
-    pub(crate) fn flush(&self, canvas: *mut sys::BKNode, scale: f32) {
-        let mut heap: Vec<f32> = Vec::new();
-        let mut count: i32 = 0;
-        for it in &self.items {
-            let src = it.coords.as_slice();
-            let mut inline = [0.0f32; 4];
-            let coords: &mut [f32] = if src.len() <= 4 {
-                for (d, s) in inline.iter_mut().zip(src) {
-                    *d = s * scale;
-                }
-                &mut inline[..src.len()]
-            } else {
-                heap.clear();
-                heap.extend(src.iter().map(|v| v * scale));
-                &mut heap[..]
-            };
-            let mut ncoords = coords.len();
-            let mut ci = sys::BKCanvasItem { fill: it.fill.to_array(), ..Default::default() };
-            let mut _keep_px = None;
-            match &it.kind {
-                Kind::Rect { radius, outline, width } => {
-                    ci.type_ = if *radius > 0.0 { sys::BK_ITEM_ROUNDRECT } else { sys::BK_ITEM_RECT };
-                    ci.radius = radius * scale;
-                    if *width > 0.0 {
-                        ci.outline = outline.to_array();
-                        ci.width = (width * scale).max(1.0);
-                    }
-                }
-                Kind::Oval { outline, width } => {
-                    ci.type_ = sys::BK_ITEM_OVAL;
-                    if *width > 0.0 {
-                        ci.outline = outline.to_array();
-                        ci.width = (width * scale).max(1.0);
-                    }
-                }
-                Kind::Line { width } => {
-                    ci.type_ = sys::BK_ITEM_LINE;
+    /// The kit item for `it`, scaled to device pixels; its coordinates go
+    /// into `coords` (point `ci.coords` at them once filled) and image
+    /// pixels into `keep`. None: nothing to draw.
+    fn build_item(&self, it: &Item, scale: f32, coords: &mut Vec<f32>, keep: &mut Option<Vec<u8>>)
+                  -> Option<sys::BKCanvasItem> {
+        coords.clear();
+        coords.extend(it.coords.as_slice().iter().map(|v| v * scale));
+        let mut ci = sys::BKCanvasItem { fill: it.fill.to_array(), ..Default::default() };
+        match &it.kind {
+            Kind::Rect { radius, outline, width } => {
+                ci.type_ = if *radius > 0.0 { sys::BK_ITEM_ROUNDRECT } else { sys::BK_ITEM_RECT };
+                ci.radius = radius * scale;
+                if *width > 0.0 {
+                    ci.outline = outline.to_array();
                     ci.width = (width * scale).max(1.0);
                 }
-                Kind::Polygon => ci.type_ = sys::BK_ITEM_POLYGON,
-                Kind::Arc { start, extent } => {
-                    ci.type_ = sys::BK_ITEM_ARC;
-                    ci.start = *start;
-                    ci.extent = *extent;
-                }
-                Kind::Text { start, size, flags } => {
-                    ci.type_ = sys::BK_ITEM_TEXT;
-                    ci.size = size * scale;
-                    (ci.family, ci.text_flags) = crate::text::family(*flags);
-                    ci.anchor = sys::BK_ANCHOR_N | sys::BK_ANCHOR_W;
-                    ci.text = self.text[*start as usize..].as_ptr().cast();
-                }
-                Kind::Image(img) => {
-                    let w = (coords[2] - coords[0]).round().max(1.0) as u32;
-                    let h = (coords[3] - coords[1]).round().max(1.0) as u32;
-                    if img.width == 0 || img.height == 0 {
-                        continue;
-                    }
-                    let px = img.resized(w, h);
-                    ci.type_ = sys::BK_ITEM_IMAGE;
-                    ci.anchor = sys::BK_ANCHOR_N | sys::BK_ANCHOR_W;
-                    ci.rgba = px.as_ptr();
-                    ci.iw = w as i32;
-                    ci.ih = h as i32;
-                    ncoords = 2;
-                    _keep_px = Some(px);
+            }
+            Kind::Oval { outline, width } => {
+                ci.type_ = sys::BK_ITEM_OVAL;
+                if *width > 0.0 {
+                    ci.outline = outline.to_array();
+                    ci.width = (width * scale).max(1.0);
                 }
             }
-            if let Some(c) = it.clip {
-                ci.clip_on = 1;
-                ci.clip = [c.origin.x * scale, c.origin.y * scale, c.size.width * scale,
-                           c.size.height * scale];
+            Kind::Line { width } => {
+                ci.type_ = sys::BK_ITEM_LINE;
+                ci.width = (width * scale).max(1.0);
             }
+            Kind::Polygon => ci.type_ = sys::BK_ITEM_POLYGON,
+            Kind::Arc { start, extent } => {
+                ci.type_ = sys::BK_ITEM_ARC;
+                ci.start = *start;
+                ci.extent = *extent;
+            }
+            Kind::Text { start, size, flags } => {
+                ci.type_ = sys::BK_ITEM_TEXT;
+                ci.size = size * scale;
+                (ci.family, ci.text_flags) = crate::text::family(*flags);
+                ci.anchor = sys::BK_ANCHOR_N | sys::BK_ANCHOR_W;
+                ci.text = self.text[*start as usize..].as_ptr().cast();
+            }
+            Kind::Image(img) => {
+                let w = (coords[2] - coords[0]).round().max(1.0) as u32;
+                let h = (coords[3] - coords[1]).round().max(1.0) as u32;
+                if img.width == 0 || img.height == 0 {
+                    return None;
+                }
+                let px = img.resized(w, h);
+                ci.type_ = sys::BK_ITEM_IMAGE;
+                ci.anchor = sys::BK_ANCHOR_N | sys::BK_ANCHOR_W;
+                ci.rgba = px.as_ptr();
+                ci.iw = w as i32;
+                ci.ih = h as i32;
+                coords.truncate(2);
+                *keep = Some(px);
+            }
+        }
+        if let Some(c) = it.clip {
+            ci.clip_on = 1;
+            ci.clip = [c.origin.x * scale, c.origin.y * scale, c.size.width * scale, c.size.height * scale];
+        }
+        ci.ncoords = coords.len() as i32;
+        Some(ci)
+    }
+
+    /// Replace the canvas display list with these items, scaled to device pixels.
+    pub(crate) fn flush(&self, canvas: *mut sys::BKNode, scale: f32) {
+        let mut coords: Vec<f32> = Vec::new();
+        let mut count: i32 = 0;
+        for it in &self.items {
+            let mut keep = None;
+            let Some(mut ci) = self.build_item(it, scale, &mut coords, &mut keep) else { continue };
             ci.coords = coords.as_ptr();
-            ci.ncoords = ncoords as i32;
             // SAFETY: every pointer in `ci` outlives the call; the kit copies
             // them into the slot's existing buffers.
             unsafe { sys::BK_canvas_put_item(canvas, count, &ci) };
@@ -331,6 +328,66 @@ impl Painter {
         }
         // SAFETY: `canvas` is a live kit canvas node owned by the window.
         unsafe { sys::BK_canvas_truncate(canvas, count) };
+    }
+
+    /// Draw the items offscreen into a `w` x `h` device-pixel region whose
+    /// top left is (`x0`, `y0`) (CSS effects).
+    pub(crate) fn rasterize(&self, scale: f32, x0: f32, y0: f32, w: usize, h: usize)
+                            -> Option<crate::effects::Pixels> {
+        if w == 0 || h == 0 || w > 8192 || h > 8192 {
+            return None;
+        }
+        let mut coords: Vec<Vec<f32>> = Vec::with_capacity(self.items.len());
+        let mut keep: Vec<Option<Vec<u8>>> = Vec::with_capacity(self.items.len());
+        let mut items: Vec<sys::BKCanvasItem> = Vec::with_capacity(self.items.len());
+        for it in &self.items {
+            let (mut c, mut k) = (Vec::new(), None);
+            if let Some(ci) = self.build_item(it, scale, &mut c, &mut k) {
+                items.push(ci);
+                coords.push(c);
+                keep.push(k);
+            }
+        }
+        for (ci, c) in items.iter_mut().zip(&coords) {
+            ci.coords = c.as_ptr();
+        }
+        let mut rgba = vec![0u8; w * h * 4];
+        // SAFETY: `items` point into `coords`, `keep` and `self.text`, all alive here.
+        let ok = unsafe {
+            sys::BK_canvas_rasterize(items.as_ptr(), items.len() as i32, x0, y0, w as i32, h as i32,
+                                     rgba.as_mut_ptr())
+        };
+        drop(keep);
+        (ok != 0).then(|| crate::effects::Pixels::from_rgba8(w, h, &rgba))
+    }
+
+    /// A hash of everything drawn (layer caching).
+    fn content_hash(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        for it in &self.items {
+            for v in it.coords.as_slice() {
+                v.to_bits().hash(h);
+            }
+            it.fill.to_array().map(f32::to_bits).hash(h);
+            match &it.kind {
+                Kind::Rect { radius, outline, width } => {
+                    (0u8, radius.to_bits(), outline.to_array().map(f32::to_bits), width.to_bits()).hash(h)
+                }
+                Kind::Oval { outline, width } => (1u8, outline.to_array().map(f32::to_bits), width.to_bits()).hash(h),
+                Kind::Line { width } => (2u8, width.to_bits()).hash(h),
+                Kind::Polygon => 3u8.hash(h),
+                Kind::Arc { start, extent } => (4u8, start.to_bits(), extent.to_bits()).hash(h),
+                Kind::Text { start, size, flags } => {
+                    let t = &self.text[*start as usize..];
+                    let end = t.iter().position(|&b| b == 0).unwrap_or(t.len());
+                    (5u8, &t[..end], size.to_bits(), flags).hash(h)
+                }
+                Kind::Image(img) => (6u8, Arc::as_ptr(img) as usize).hash(h),
+            }
+            if let Some(c) = it.clip {
+                (c.origin.x.to_bits(), c.origin.y.to_bits(), c.size.width.to_bits(), c.size.height.to_bits()).hash(h);
+            }
+        }
     }
 }
 
@@ -359,24 +416,370 @@ fn radius_px(c: &Computed, b: Bounds<f32>, vp: (f32, f32)) -> f32 {
     c.radius.iter().map(|r| r.resolve(&u, m)).fold(0.0, f32::max).min(m / 2.0)
 }
 
-/// Paint every box of `frame`, in stacking order.
+/// Paint every box of `frame`, in stacking order. `scale`: device pixels
+/// per logical pixel (for elements whose effects work on pixels).
 pub(crate) fn paint_frame(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, p: &mut Painter,
-                          vp: (f32, f32)) {
+                          vp: (f32, f32), scale: f32) {
     let mut order: Vec<usize> = (0..frame.nodes.len()).collect();
     if frame.nodes.iter().any(|n| styles[n.style].z_index.is_some()) {
         order.sort_by_key(|&i| frame.z_of(i, styles)); // stable: tree order within a level
     }
-    for i in order {
-        let n = &frame.nodes[i];
-        if !n.visible || n.opacity <= 0.0 {
-            continue;
+    let has_effects = frame.nodes.iter().any(|n| styles[n.style].effects.is_some());
+    if !has_effects {
+        for i in order {
+            let n = &frame.nodes[i];
+            if !n.visible || n.opacity <= 0.0 {
+                continue;
+            }
+            p.opacity = n.opacity;
+            p.clip = n.clip;
+            paint_node(frame, styles, tc, i, p, vp);
         }
-        p.opacity = n.opacity;
-        p.clip = n.clip;
-        paint_node(frame, styles, tc, i, p, vp);
+    } else {
+        let mut cx = LayerCx { frame, styles, tc, vp, scale, done: vec![false; frame.nodes.len()] };
+        paint_list(&mut cx, &order, p, None, 1.0);
+        LAYERS.with(|l| l.borrow_mut().end_frame());
     }
     p.opacity = 1.0;
     p.clip = None;
+}
+
+struct LayerCx<'a> {
+    frame: &'a Frame,
+    styles: &'a StyleStore,
+    tc: &'a mut TextCache,
+    vp: (f32, f32),
+    scale: f32,
+    done: Vec<bool>,
+}
+
+/// Rendered layers by content hash, kept while they're used (frames that
+/// don't change reuse them: no rasterizing, no filtering).
+#[derive(Default)]
+struct LayerCache {
+    map: HashMap<u64, (Arc<Image>, Bounds<f32>, bool)>,
+}
+
+impl LayerCache {
+    fn get(&mut self, k: u64) -> Option<(Arc<Image>, Bounds<f32>)> {
+        self.map.get_mut(&k).map(|e| {
+            e.2 = true;
+            (e.0.clone(), e.1)
+        })
+    }
+    fn put(&mut self, k: u64, img: Arc<Image>, b: Bounds<f32>) {
+        self.map.insert(k, (img, b, true));
+    }
+    fn end_frame(&mut self) {
+        self.map.retain(|_, e| std::mem::replace(&mut e.2, false));
+    }
+}
+
+thread_local! {
+    static LAYERS: std::cell::RefCell<LayerCache> = std::cell::RefCell::new(LayerCache::default());
+}
+
+fn is_inside(frame: &Frame, mut k: usize, root: usize) -> bool {
+    loop {
+        if k == root {
+            return true;
+        }
+        match frame.nodes[k].parent {
+            Some(p) => k = p,
+            None => return false,
+        }
+    }
+}
+
+/// Paint `list` (in stacking order) into `p`; elements whose effects need
+/// pixels are painted with their subtree into a layer. `root`: the layer
+/// being painted (its own effects were applied by the caller); `base`: its
+/// opacity (descendants paint relative to it: the layer takes it as a group).
+fn paint_list(cx: &mut LayerCx, list: &[usize], p: &mut Painter, root: Option<usize>, base: f32) {
+    for (idx, &i) in list.iter().enumerate() {
+        if cx.done[i] {
+            continue;
+        }
+        let n = &cx.frame.nodes[i];
+        if !n.visible || n.opacity <= 0.0 {
+            continue;
+        }
+        let fx = cx.styles[n.style].effects.as_deref();
+        if fx.is_some_and(|e| !e.backdrop.is_empty()) && Some(i) != root {
+            paint_backdrop(cx, i, p);
+        }
+        if fx.is_some_and(|e| e.needs_layer()) && Some(i) != root {
+            let sub: Vec<usize> = list[idx..].iter().copied()
+                .filter(|&k| !cx.done[k] && is_inside(cx.frame, k, i)).collect();
+            // the layer's own pass paints these; mark them after
+            paint_layer(cx, i, &sub, p, base);
+            for &k in &sub {
+                cx.done[k] = true;
+            }
+            continue;
+        }
+        cx.done[i] = true;
+        p.opacity = (n.opacity / base.max(1e-6)).min(1.0);
+        p.clip = n.clip;
+        let (frame, styles, vp) = (cx.frame, cx.styles, cx.vp);
+        paint_node(frame, styles, cx.tc, i, p, vp);
+    }
+}
+
+/// The logical-pixel area a layer's content can cover: its boxes, their
+/// outlines and shadows, and how far its filters spread.
+fn layer_area(cx: &LayerCx, list: &[usize], fx: &crate::effects::Effects) -> Bounds<f32> {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for &k in list {
+        let n = &cx.frame.nodes[k];
+        let c = &cx.styles[n.style];
+        let mut grow = c.outline.0 + c.outline.2.max(0.0);
+        for sh in c.shadows.iter().filter(|s| !s.inset) {
+            grow = grow.max(sh.x.abs().max(sh.y.abs()) + sh.blur + sh.spread.max(0.0));
+        }
+        if let Some(bi) = c.effects.as_ref().and_then(|e| e.border_image.as_ref()) {
+            for o in bi.outset {
+                if let crate::effects::Side::Len(Length::Px(v)) = o {
+                    grow = grow.max(v);
+                }
+            }
+        }
+        let b = n.bounds;
+        x0 = x0.min(b.origin.x - grow);
+        y0 = y0.min(b.origin.y - grow);
+        x1 = x1.max(b.origin.x + b.size.width + grow);
+        y1 = y1.max(b.origin.y + b.size.height + grow);
+    }
+    let g = crate::effects::filter_outset(&fx.filter);
+    rect(x0 - g, y0 - g, (x1 - x0 + 2.0 * g).max(0.0), (y1 - y0 + 2.0 * g).max(0.0))
+}
+
+/// Device-pixel rectangle covering `b`: (x0, y0, w, h).
+fn device_rect(b: Bounds<f32>, scale: f32) -> (f32, f32, usize, usize) {
+    let x0 = (b.origin.x * scale).floor();
+    let y0 = (b.origin.y * scale).floor();
+    let x1 = ((b.origin.x + b.size.width) * scale).ceil();
+    let y1 = ((b.origin.y + b.size.height) * scale).ceil();
+    (x0, y0, (x1 - x0).max(0.0) as usize, (y1 - y0).max(0.0) as usize)
+}
+
+/// Paint element `root` and its subtree `list` through its effects.
+fn paint_layer(cx: &mut LayerCx, root: usize, list: &[usize], p: &mut Painter, base: f32) {
+    use crate::effects as fx;
+    use std::hash::{Hash, Hasher};
+    let n = &cx.frame.nodes[root];
+    let c = &cx.styles[n.style];
+    let Some(e) = c.effects.as_deref().cloned() else { return };
+    let rel_opacity = (n.opacity / base.max(1e-6)).min(1.0);
+    // the content, painted at full opacity relative to the root
+    let mut sub = Painter::new();
+    paint_list(cx, list, &mut sub, Some(root), n.opacity);
+    let n = &cx.frame.nodes[root];
+    let c = &cx.styles[n.style];
+    let screen = rect(-cx.vp.0, -cx.vp.1, cx.vp.0 * 3.0, cx.vp.1 * 3.0);
+    let area = layer_area(cx, list, &e).intersect(&screen);
+    let (x0, y0, w, h) = device_rect(area, cx.scale);
+    if w == 0 || h == 0 {
+        return;
+    }
+    let b = n.bounds;
+    let u = Units { font_size: c.font_size, viewport: cx.vp };
+    // the transform, in device pixels about transform-origin
+    let mut m = fx::IDENTITY;
+    if e.rotate != 0.0 {
+        m = fx::mul(&m, &[e.rotate.cos(), e.rotate.sin(), -e.rotate.sin(), e.rotate.cos(), 0.0, 0.0]);
+    }
+    if let Some((sx, sy)) = e.scale2 {
+        m = fx::mul(&m, &[sx, 0.0, 0.0, sy, 0.0, 0.0]);
+    }
+    if !e.transform.is_empty() {
+        m = fx::mul(&m, &fx::matrix_of(&e.transform, b.size.width, b.size.height, &u));
+    }
+    let transformed = m != fx::IDENTITY;
+    let origin = e.origin.unwrap_or([crate::style::Pos::CENTER; 2]);
+    let (ox, oy) = ((b.origin.x + origin[0].at(b.size.width)) * cx.scale,
+                    (b.origin.y + origin[1].at(b.size.height)) * cx.scale);
+    let m_dev = {
+        let lin = [m[0], m[1], m[2], m[3], m[4] * cx.scale, m[5] * cx.scale];
+        fx::mul(&fx::mul(&[1.0, 0.0, 0.0, 1.0, ox, oy], &lin), &[1.0, 0.0, 0.0, 1.0, -ox, -oy])
+    };
+    let key = {
+        let mut hh = Fnv64::default();
+        sub.content_hash(&mut hh);
+        format!("{e:?}").hash(&mut hh);
+        (x0.to_bits(), y0.to_bits(), w, h, cx.scale.to_bits(), rel_opacity.to_bits(),
+         b.origin.x.to_bits(), b.origin.y.to_bits(), b.size.width.to_bits(), b.size.height.to_bits()).hash(&mut hh);
+        hh.finish()
+    };
+    let blend = e.blend;
+    let emit = |p: &mut Painter, img: Arc<Image>, at: Bounds<f32>| {
+        p.opacity = 1.0;
+        p.clip = n.clip;
+        p.image(at, &img);
+    };
+    if blend == fx::Blend::Normal {
+        if let Some((img, at)) = LAYERS.with(|l| l.borrow_mut().get(key)) {
+            emit(p, img, at);
+            return;
+        }
+    }
+    let Some(mut px) = sub.rasterize(cx.scale, x0, y0, w, h) else { return };
+    for f in &e.filter {
+        fx::apply_filter(&mut px, f, cx.scale);
+    }
+    if let Some((shape, edge)) = &e.clip_path {
+        let mut mp = Painter::new();
+        clip_shape(&mut mp, shape, *edge, c, b, &u);
+        if let Some(mask) = mp.rasterize(cx.scale, x0, y0, w, h) {
+            fx::apply_mask(&mut px, &mask, false);
+        }
+    }
+    if let Some(mask) = e.mask.as_ref().filter(|m| m.image.is_some()) {
+        let mut mp = Painter::new();
+        paint_source(&mut mp, mask.image.as_ref().unwrap(), b, Some(mask), cx.vp);
+        if let Some(mk) = mp.rasterize(cx.scale, x0, y0, w, h) {
+            fx::apply_mask(&mut px, &mk, mask.luminance);
+        }
+    }
+    if rel_opacity < 1.0 {
+        px.px.iter_mut().for_each(|q| q.iter_mut().for_each(|v| *v *= rel_opacity));
+    }
+    let (mut px, (mut tx, mut ty)) = (px, (x0, y0));
+    if transformed {
+        match fx::transform(&px, (x0, y0), &m_dev) {
+            Some((out, at)) => {
+                px = out;
+                (tx, ty) = at;
+            }
+            None => return, // a degenerate matrix draws nothing
+        }
+    }
+    if blend != fx::Blend::Normal {
+        if let Some(back) = p.rasterize(cx.scale, tx, ty, px.w, px.h) {
+            px = fx::composite(&back, &px, blend);
+        }
+    }
+    let img = Arc::new(Image { width: px.w as u32, height: px.h as u32, rgba: px.to_rgba8() });
+    let at = rect(tx / cx.scale, ty / cx.scale, px.w as f32 / cx.scale, px.h as f32 / cx.scale);
+    if blend == fx::Blend::Normal {
+        LAYERS.with(|l| l.borrow_mut().put(key, img.clone(), at));
+    }
+    emit(p, img, at);
+}
+
+/// `backdrop-filter`: what's already painted under the element's border
+/// box, filtered and clipped to its rounded box.
+fn paint_backdrop(cx: &mut LayerCx, i: usize, p: &mut Painter) {
+    use crate::effects as fx;
+    let n = &cx.frame.nodes[i];
+    let c = &cx.styles[n.style];
+    let Some(e) = c.effects.as_deref() else { return };
+    let b = n.bounds;
+    let g = fx::filter_outset(&e.backdrop);
+    let grown = rect(b.origin.x - g, b.origin.y - g, b.size.width + 2.0 * g, b.size.height + 2.0 * g);
+    let (x0, y0, w, h) = device_rect(grown, cx.scale);
+    let Some(mut px) = p.rasterize(cx.scale, x0, y0, w, h) else { return };
+    for f in &e.backdrop {
+        fx::apply_filter(&mut px, f, cx.scale);
+    }
+    let mut mp = Painter::new();
+    mp.quad(b, radius_px(c, b, cx.vp), Rgba { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, Rgba::TRANSPARENT, 0.0);
+    if let Some(mask) = mp.rasterize(cx.scale, x0, y0, w, h) {
+        fx::apply_mask(&mut px, &mask, false);
+    }
+    let img = Arc::new(Image { width: w as u32, height: h as u32, rgba: px.to_rgba8() });
+    p.opacity = 1.0;
+    p.clip = n.clip;
+    p.image(rect(x0 / cx.scale, y0 / cx.scale, w as f32 / cx.scale, h as f32 / cx.scale), &img);
+}
+
+/// The coverage of a `clip-path` shape, painted white.
+fn clip_shape(p: &mut Painter, shape: &crate::effects::ClipShape, edge: crate::style::BoxEdge, c: &Computed,
+              b: Bounds<f32>, u: &Units) {
+    use crate::effects::{ClipShape as S, ShapeRadius as R};
+    let white = Rgba { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    let bw = border_widths(c, b.size.width);
+    let rb = match edge {
+        crate::style::BoxEdge::Border => b,
+        crate::style::BoxEdge::Padding => rect(b.origin.x + bw[3], b.origin.y + bw[0],
+                                                (b.size.width - bw[1] - bw[3]).max(0.0),
+                                                (b.size.height - bw[0] - bw[2]).max(0.0)),
+        crate::style::BoxEdge::Content => content_box(c, b),
+    };
+    let (x, y, w, h) = (rb.origin.x, rb.origin.y, rb.size.width, rb.size.height);
+    let radius = |r: &R, cx: f32, cy: f32, horizontal: Option<bool>| -> f32 {
+        let (dx, dy) = (cx.min(w - cx), cy.min(h - cy));
+        let (fx_, fy) = (cx.max(w - cx), cy.max(h - cy));
+        match (r, horizontal) {
+            (R::Len(l), Some(true)) => l.resolve(u, w),
+            (R::Len(l), Some(false)) => l.resolve(u, h),
+            // circle: percentages of the box's normalised diagonal
+            (R::Len(l), None) => l.resolve(u, (w * w + h * h).sqrt() / std::f32::consts::SQRT_2),
+            (R::Closest, Some(true)) => dx,
+            (R::Closest, Some(false)) => dy,
+            (R::Closest, None) => dx.min(dy),
+            (R::Farthest, Some(true)) => fx_,
+            (R::Farthest, Some(false)) => fy,
+            (R::Farthest, None) => fx_.max(fy),
+        }
+    };
+    match shape {
+        S::Box => p.fill(rb, white),
+        S::Inset(s, r) => {
+            let (t, rr, bb, l) = (s[0].resolve(u, h), s[1].resolve(u, w), s[2].resolve(u, h), s[3].resolve(u, w));
+            let ib = rect(x + l, y + t, (w - l - rr).max(0.0), (h - t - bb).max(0.0));
+            p.quad(ib, r.resolve(u, ib.size.width.min(ib.size.height)), white, Rgba::TRANSPARENT, 0.0);
+        }
+        S::Circle(r, at) => {
+            let (cx_, cy) = (at[0].at(w), at[1].at(h));
+            let rad = radius(r, cx_, cy, None);
+            p.oval(rect(x + cx_ - rad, y + cy - rad, 2.0 * rad, 2.0 * rad), white, Rgba::TRANSPARENT, 0.0);
+        }
+        S::Ellipse(rx, ry, at) => {
+            let (cx_, cy) = (at[0].at(w), at[1].at(h));
+            let (a, bb) = (radius(rx, cx_, cy, Some(true)), radius(ry, cx_, cy, Some(false)));
+            p.oval(rect(x + cx_ - a, y + cy - bb, 2.0 * a, 2.0 * bb), white, Rgba::TRANSPARENT, 0.0);
+        }
+        S::Polygon(pts) => {
+            let pts: Vec<(f32, f32)> = pts.iter().map(|(px_, py)| (x + px_.resolve(u, w), y + py.resolve(u, h))).collect();
+            p.polygon(&pts, white);
+        }
+    }
+}
+
+/// A mask or border-image source painted over `area` (sized, positioned and
+/// tiled like a background when `mask` gives the placement).
+fn paint_source(p: &mut Painter, src: &crate::effects::ImageSource, area: Bounds<f32>,
+                mask: Option<&crate::effects::Mask>, _vp: (f32, f32)) {
+    match src {
+        crate::effects::ImageSource::Gradient(g) => p.with_clip(area, |p| paint_gradient(p, g, area)),
+        crate::effects::ImageSource::Url(u) => {
+            let mut st = crate::style::ImageStyle { bg_url: Some(u.clone()), ..Default::default() };
+            if let Some(m) = mask {
+                st.bg_size = m.size;
+                st.bg_position = m.position;
+                st.bg_repeat = m.repeat;
+            }
+            paint_background_image(p, &st, area, area);
+        }
+    }
+}
+
+/// FNV-1a for layer keys.
+#[derive(Default)]
+struct Fnv64(u64);
+
+impl std::hash::Hasher for Fnv64 {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = if self.0 == 0 { 0xcbf29ce484222325 } else { self.0 };
+        for b in bytes {
+            h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+        }
+        self.0 = h;
+    }
 }
 
 /// A background that repaints exactly the pixels already under it: an opaque
@@ -633,7 +1036,12 @@ fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_ba
     let uniform = visible.len() == 4 && bw.iter().all(|w| *w == bw[0])
         && c.border_color.iter().all(|x| *x == c.border_color[0]);
     let styled = visible.iter().any(|&k| c.border_style[k] != BorderStyle::Solid);
-    if styled {
+    let border_image = c.effects.as_ref().and_then(|e| e.border_image.as_ref()).filter(|bi| bi.source.is_some());
+    if let Some(bi) = border_image {
+        paint_border_image(p, bi, b, &bw, &Units { font_size: c.font_size, viewport: vp });
+    } else if styled && uniform && r > 0.0 && c.border_style.iter().all(|s| *s == c.border_style[0]) {
+        paint_rounded_styled(p, b, r, bw[0], c.border_color[0], c.border_style[0]);
+    } else if styled {
         let styles: [BorderStyle; 4] = std::array::from_fn(|k| c.border_style[k]);
         let widths: [f32; 4] = std::array::from_fn(|k| if visible.contains(&k) { bw[k] } else { 0.0 });
         paint_edges(p, b, widths, c.border_color, styles);
@@ -662,6 +1070,275 @@ fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_ba
         let g = off + ow / 2.0;
         p.quad(rect(b.origin.x - g, b.origin.y - g, b.size.width + 2.0 * g, b.size.height + 2.0 * g),
                r + g, Rgba::TRANSPARENT, oc, ow);
+    }
+}
+
+/// Blender's rounded-box corner tessellation (`cornervec`,
+/// interface_widgets.cc): 9 points from the start of a quarter circle to its
+/// end, as fractions of the radius.
+const CORNERVEC: [[f32; 2]; 9] = [
+    [0.0, 0.0], [0.195, 0.02], [0.383, 0.067], [0.55, 0.169], [0.707, 0.293], [0.831, 0.45], [0.924, 0.617],
+    [0.98, 0.805], [1.0, 1.0],
+];
+
+/// A closed rounded rectangle outline as points (clockwise from the top
+/// edge's start), with each point's outward normal direction: 0 top,
+/// 1 right, 2 bottom, 3 left (corners split at their middle).
+fn rounded_path(b: Bounds<f32>, r: f32) -> Vec<(f32, f32, usize)> {
+    let (x0, y0, x1, y1) = (b.origin.x, b.origin.y, b.origin.x + b.size.width, b.origin.y + b.size.height);
+    let r = r.min(b.size.width / 2.0).min(b.size.height / 2.0).max(0.0);
+    let mut pts = Vec::with_capacity(40);
+    // top-right, bottom-right, bottom-left, top-left corners, like Blender's round_box edges
+    for (k, v) in CORNERVEC.iter().enumerate() {
+        pts.push((x1 - r + v[0] * r, y0 + r - (1.0 - v[1]) * r, if k < 5 { 0 } else { 1 }));
+    }
+    for (k, v) in CORNERVEC.iter().enumerate() {
+        pts.push((x1 - r + (1.0 - v[1]) * r, y1 - r + v[0] * r, if k < 5 { 1 } else { 2 }));
+    }
+    for (k, v) in CORNERVEC.iter().enumerate() {
+        pts.push((x0 + r - v[0] * r, y1 - r + (1.0 - v[1]) * r, if k < 5 { 2 } else { 3 }));
+    }
+    for (k, v) in CORNERVEC.iter().enumerate() {
+        pts.push((x0 + r - (1.0 - v[1]) * r, y0 + r - v[0] * r, if k < 5 { 3 } else { 0 }));
+    }
+    pts
+}
+
+/// Non-solid uniform borders on a rounded box: dashes and dots follow the
+/// curve, `double` is two rounded lines, and groove / ridge / inset / outset
+/// shade each side's part of the path.
+fn paint_rounded_styled(p: &mut Painter, b: Bounds<f32>, r: f32, w: f32, col: Rgba, style: BorderStyle) {
+    let inset = |d: f32| rect(b.origin.x + d, b.origin.y + d, (b.size.width - 2.0 * d).max(0.0),
+                              (b.size.height - 2.0 * d).max(0.0));
+    match style {
+        BorderStyle::Double if w >= 3.0 => {
+            let t = w / 3.0;
+            p.quad(inset(t / 2.0), (r - t / 2.0).max(0.0), Rgba::TRANSPARENT, col, t);
+            p.quad(inset(w - t / 2.0), (r - w + t / 2.0).max(0.0), Rgba::TRANSPARENT, col, t);
+        }
+        BorderStyle::Dashed | BorderStyle::Dotted => {
+            let mut path = rounded_path(inset(w / 2.0), (r - w / 2.0).max(0.0));
+            path.push(path[0]);
+            let total: f32 = path.windows(2).map(|q| ((q[1].0 - q[0].0).powi(2) + (q[1].1 - q[0].1).powi(2)).sqrt()).sum();
+            let dotted = style == BorderStyle::Dotted;
+            let (on, gap) = if dotted { (w, w) } else { (w * 3.0, w * 3.0) };
+            let n = ((total / (on + gap)).floor()).max(1.0);
+            let period = total / n; // an even number of segments around the box
+            let on = on.min(period);
+            // walk the path, emitting [start, start + on) of every period
+            let point_at = |d: f32| -> (f32, f32) {
+                let mut acc = 0.0;
+                for q in path.windows(2) {
+                    let len = ((q[1].0 - q[0].0).powi(2) + (q[1].1 - q[0].1).powi(2)).sqrt();
+                    if acc + len >= d && len > 0.0 {
+                        let t = (d - acc) / len;
+                        return (q[0].0 + (q[1].0 - q[0].0) * t, q[0].1 + (q[1].1 - q[0].1) * t);
+                    }
+                    acc += len;
+                }
+                (path[0].0, path[0].1)
+            };
+            for k in 0..n as usize {
+                let start = k as f32 * period;
+                if dotted {
+                    let (cx, cy) = point_at(start + on / 2.0);
+                    p.oval(rect(cx - w / 2.0, cy - w / 2.0, w, w), col, Rgba::TRANSPARENT, 0.0);
+                } else {
+                    let steps = 6;
+                    let pts: Vec<(f32, f32)> = (0..=steps).map(|j| point_at(start + on * j as f32 / steps as f32)).collect();
+                    p.line(&pts, col, w);
+                }
+            }
+        }
+        _ => {
+            // shaded styles: the path in two halves of the width, coloured per side
+            let dark = shade(col, 0.5);
+            let side_col = |side: usize, outer: bool| -> Rgba {
+                let lit = side == 0 || side == 3;
+                match style {
+                    BorderStyle::Inset => if lit { dark } else { col },
+                    BorderStyle::Outset => if lit { col } else { dark },
+                    BorderStyle::Groove => if lit == outer { dark } else { col },
+                    BorderStyle::Ridge => if lit == outer { col } else { dark },
+                    _ => col,
+                }
+            };
+            let halves: &[(f32, bool)] = if matches!(style, BorderStyle::Groove | BorderStyle::Ridge) {
+                &[(w / 4.0, true), (w * 3.0 / 4.0, false)]
+            } else {
+                &[(w / 2.0, true)]
+            };
+            let lw = if halves.len() == 2 { w / 2.0 } else { w };
+            for &(d, outer) in halves {
+                let mut path = rounded_path(inset(d), (r - d).max(0.0));
+                path.push(path[0]);
+                for q in path.windows(2) {
+                    p.line(&[(q[0].0, q[0].1), (q[1].0, q[1].1)], side_col(q[0].2, outer), lw);
+                }
+            }
+        }
+    }
+}
+
+/// Border-image source pixels, cached per source and size.
+fn border_image_source(src: &crate::effects::ImageSource, w: f32, h: f32) -> Option<Arc<Image>> {
+    match src {
+        crate::effects::ImageSource::Url(u) => background_file(u),
+        crate::effects::ImageSource::Gradient(g) => {
+            thread_local! {
+                static GRADIENTS: std::cell::RefCell<HashMap<String, Arc<Image>>> =
+                    std::cell::RefCell::new(HashMap::new());
+            }
+            let (iw, ih) = (w.ceil().max(1.0) as usize, h.ceil().max(1.0) as usize);
+            let key = format!("{g:?}{iw}x{ih}");
+            if let Some(i) = GRADIENTS.with(|m| m.borrow().get(&key).cloned()) {
+                return Some(i);
+            }
+            let mut gp = Painter::new();
+            let area = rect(0.0, 0.0, iw as f32, ih as f32);
+            gp.with_clip(area, |gp| paint_gradient(gp, g, area));
+            let px = gp.rasterize(1.0, 0.0, 0.0, iw, ih)?;
+            let img = Arc::new(Image { width: iw as u32, height: ih as u32, rgba: px.to_rgba8() });
+            GRADIENTS.with(|m| {
+                let mut m = m.borrow_mut();
+                if m.len() > 64 {
+                    m.clear();
+                }
+                m.insert(key, img.clone());
+            });
+            Some(img)
+        }
+    }
+}
+
+/// A sub-rectangle of an image (whole pixels), cached.
+fn crop(img: &Arc<Image>, x: u32, y: u32, w: u32, h: u32) -> Option<Arc<Image>> {
+    if w == 0 || h == 0 || x + w > img.width || y + h > img.height {
+        return None;
+    }
+    thread_local! {
+        static CROPS: std::cell::RefCell<HashMap<(usize, [u32; 4]), Arc<Image>>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
+    let key = (Arc::as_ptr(img) as usize, [x, y, w, h]);
+    if let Some(c) = CROPS.with(|m| m.borrow().get(&key).cloned()) {
+        return Some(c);
+    }
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for row in y..y + h {
+        let s = ((row * img.width + x) * 4) as usize;
+        rgba.extend_from_slice(&img.rgba[s..s + (w * 4) as usize]);
+    }
+    let c = Arc::new(Image { width: w, height: h, rgba });
+    CROPS.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.len() > 512 {
+            m.clear();
+        }
+        m.insert(key, c.clone());
+    });
+    Some(c)
+}
+
+/// `border-image`: the source cut into nine parts by `slice`; corners go in
+/// the corners of the border-image area, edges are stretched or tiled along
+/// the sides, and the middle is drawn with `fill`.
+fn paint_border_image(p: &mut Painter, bi: &crate::effects::BorderImage, b: Bounds<f32>, bw: &[f32; 4], u: &Units) {
+    use crate::effects::{Side, Tile};
+    let resolve = |v: Side, k: usize, basis: f32| -> f32 {
+        match v {
+            Side::Num(n) => n * bw[k],
+            Side::Len(l) => l.resolve(u, basis),
+            Side::Auto => bw[k],
+        }
+    };
+    let out: [f32; 4] = std::array::from_fn(|k| resolve(bi.outset[k], k, 0.0));
+    let area = rect(b.origin.x - out[3], b.origin.y - out[0], b.size.width + out[1] + out[3],
+                    b.size.height + out[0] + out[2]);
+    let Some(src) = bi.source.as_ref().and_then(|s| border_image_source(s, area.size.width, area.size.height)) else {
+        return;
+    };
+    let (iw, ih) = (src.width as f32, src.height as f32);
+    // slices in image pixels (numbers are pixels; percentages of the image)
+    let sl: [f32; 4] = std::array::from_fn(|k| {
+        let basis = if k % 2 == 0 { ih } else { iw };
+        match bi.slice[k] {
+            Side::Num(n) => n,
+            Side::Len(Length::Percent(pc)) => basis * pc / 100.0,
+            Side::Len(l) => l.resolve(u, basis),
+            Side::Auto => 0.0,
+        }.clamp(0.0, basis)
+    });
+    // widths in CSS px (numbers: multiples of the border width; auto: the slice)
+    let mut wd: [f32; 4] = std::array::from_fn(|k| match bi.width[k] {
+        Side::Auto => sl[k],
+        v => resolve(v, k, if k % 2 == 0 { area.size.height } else { area.size.width }),
+    });
+    // scale down when opposite widths overlap
+    let f = (area.size.width / (wd[1] + wd[3]).max(1e-6)).min(area.size.height / (wd[0] + wd[2]).max(1e-6)).min(1.0);
+    wd.iter_mut().for_each(|v| *v *= f);
+    let (ax, ay, aw, ah) = (area.origin.x, area.origin.y, area.size.width, area.size.height);
+    let (sx, sy) = ([0.0, sl[3], iw - sl[1], iw], [0.0, sl[0], ih - sl[2], ih]);
+    let (dx, dy) = ([ax, ax + wd[3], ax + aw - wd[1], ax + aw], [ay, ay + wd[0], ay + ah - wd[2], ay + ah]);
+    for j in 0..3 {
+        for i in 0..3 {
+            if i == 1 && j == 1 && !bi.fill {
+                continue;
+            }
+            let (cx, cy) = (sx[i].round() as u32, sy[j].round() as u32);
+            let (cw, ch) = ((sx[i + 1] - sx[i]).round() as u32, (sy[j + 1] - sy[j]).round() as u32);
+            let dest = rect(dx[i], dy[j], dx[i + 1] - dx[i], dy[j + 1] - dy[j]);
+            if dest.size.width <= 0.0 || dest.size.height <= 0.0 {
+                continue;
+            }
+            let Some(part) = crop(&src, cx, cy, cw, ch) else { continue };
+            // edges tile along their length; corners always stretch
+            let tile_x = if j != 1 || i == 1 { if i == 1 { bi.repeat.0 } else { Tile::Stretch } } else { Tile::Stretch };
+            let tile_y = if i != 1 || j == 1 { if j == 1 { bi.repeat.1 } else { Tile::Stretch } } else { Tile::Stretch };
+            // the tile's size: scaled to the edge's thickness
+            let (mut tw, mut th) = (dest.size.width, dest.size.height);
+            if tile_x != Tile::Stretch && i == 1 {
+                tw = cw as f32 * (dest.size.height / ch.max(1) as f32);
+            }
+            if tile_y != Tile::Stretch && j == 1 {
+                th = ch as f32 * (dest.size.width / cw.max(1) as f32);
+            }
+            let fit = |len: f32, t: f32, mode: Tile| -> (f32, usize, f32) {
+                if mode == Tile::Stretch || t <= 0.0 {
+                    return (len, 1, 0.0);
+                }
+                match mode {
+                    Tile::Round => {
+                        let n = (len / t).round().max(1.0);
+                        (len / n, n as usize, 0.0)
+                    }
+                    Tile::Space => {
+                        let n = (len / t).floor();
+                        if n < 1.0 { (t, 0, 0.0) } else { (t, n as usize, (len - n * t) / (n + 1.0)) }
+                    }
+                    _ => {
+                        // repeat: centred, partial tiles at both ends
+                        let n = (len / t).ceil() as usize + 1;
+                        (t, n, 0.0)
+                    }
+                }
+            };
+            let (tw2, nx, gx) = fit(dest.size.width, tw, if i == 1 { tile_x } else { Tile::Stretch });
+            let (th2, ny, gy) = fit(dest.size.height, th, if j == 1 { tile_y } else { Tile::Stretch });
+            let start = |len: f32, t: f32, n: usize, g: f32, mode: Tile| -> f32 {
+                if mode == Tile::Repeat { (len - n as f32 * t) / 2.0 } else { g }
+            };
+            let x0 = dest.origin.x + start(dest.size.width, tw2, nx, gx, if i == 1 { tile_x } else { Tile::Stretch });
+            let y0 = dest.origin.y + start(dest.size.height, th2, ny, gy, if j == 1 { tile_y } else { Tile::Stretch });
+            p.with_clip(dest, |p| {
+                for yy in 0..ny {
+                    for xx in 0..nx {
+                        let at = rect(x0 + xx as f32 * (tw2 + gx), y0 + yy as f32 * (th2 + gy), tw2, th2);
+                        p.image(at, &part);
+                    }
+                }
+            });
+        }
     }
 }
 

@@ -1154,6 +1154,8 @@ pub struct FontFace {
 pub struct Keyframes {
     pub name: String,
     pub frames: Vec<(Vec<f32>, Vec<Decl>)>,
+    /// The enclosing `@media` queries (indices into the sheet's media results).
+    pub(crate) media: smallvec::SmallVec<[u16; 2]>,
 }
 
 /// `@property`: a registered custom property.
@@ -1382,7 +1384,8 @@ impl Stylesheet {
                     frames.push((offs, parse_declarations(&rest[open + 1..close.min(rest.len())])));
                     rest = &rest[(close + 1).min(rest.len())..];
                 }
-                self.keyframes.push(Keyframes { name: q.trim().trim_matches(['"', '\'']).to_string(), frames });
+                self.keyframes.push(Keyframes { name: q.trim().trim_matches(['"', '\'']).to_string(), frames,
+                                                media: ctx.media.clone() });
             }
             "property" => {
                 let decls = raw_decls(body);

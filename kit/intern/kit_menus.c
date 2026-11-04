@@ -147,14 +147,26 @@ static BKMenuSpec *menu_items(BKNode *n, int *r_count)
   return m->all;
 }
 
-static int menu_pad(void)
+static int menu_pad_blender(void)
 {
   return bk_iround(0.2f * u()); /* UI_MENU_PADDING */
 }
-static int menu_sep_h(void)
+/* Browser look (a <select>'s popup, Chrome on Windows): a 1px border around
+ * 17px option rows (13.33px text, padding 0 2px 1px, min-height 1.2em). */
+static int menu_pad_n(const BKNode *n)
 {
-  return bk_iround(0.5f * u());
+  return BK_HTML(n) ? BK_MAX(1, (int)floorf(bk_hpx(1.0f))) : menu_pad_blender();
 }
+#define menu_pad() menu_pad_n(n)
+static int menu_row_h(const BKNode *n)
+{
+  return BK_HTML(n) ? bk_iround(bk_hpx(17.0f)) : u();
+}
+static int menu_sep_h_n(const BKNode *n)
+{
+  return BK_HTML(n) ? bk_iround(bk_hpx(9.0f)) : bk_iround(0.5f * u());
+}
+#define menu_sep_h() menu_sep_h_n(n)
 static int menu_title_h(BKNode *n)
 {
   return (MENU(n)->title || MENU(n)->query[0]) ? u() : 0;
@@ -166,7 +178,7 @@ static void menu_row_geom(BKNode *n, int row, int *r_y, int *r_h)
   BKMenuSpec *items = menu_items(n, &count);
   int y = menu_pad() + menu_title_h(n);
   for (int i = 0; i < count; i++) {
-    const int h = is_sep(&items[i]) ? menu_sep_h() : u();
+    const int h = is_sep(&items[i]) ? menu_sep_h() : menu_row_h(n);
     if (i == row) {
       *r_y = n->y + y;
       *r_h = h;
@@ -202,8 +214,120 @@ static bool menu_has_icons(BKMenuSpec *items, int count)
   return false;
 }
 
+/* -- browser look: a <select> popup -- */
+
+#define HTML_GROUP_LABEL (-2) /* BKMenuSpec.checked of an <optgroup> label row */
+
+static float html_menu_font_begin(void)
+{
+  const float saved = bk_text_scale;
+  bk_text_scale = BK_HTML_FONT;
+  bk_html_text_scale = bk_text_scale;
+  return saved;
+}
+
+/* option text start: padding-inline 2px + 2px (Chrome's popup), +16px under an <optgroup> */
+static float html_menu_text_x(const BKMenuSpec *items, int i)
+{
+  if (items[i].checked == HTML_GROUP_LABEL) {
+    return bk_hpx(4.0f);
+  }
+  for (int k = i - 1; k >= 0; k--) {
+    if (items[k].checked == HTML_GROUP_LABEL) {
+      return bk_hpx(20.0f);
+    }
+  }
+  return bk_hpx(4.0f);
+}
+
+static void html_menu_measure(BKNode *n, int *rw, int *rh)
+{
+  int count;
+  BKMenuSpec *items = menu_items(n, &count);
+  const float saved = html_menu_font_begin();
+  float w = 0;
+  int h = 0;
+  for (int i = 0; i < count; i++) {
+    if (is_sep(&items[i])) {
+      h += menu_sep_h();
+      continue;
+    }
+    h += menu_row_h(n);
+    w = BK_MAX(w, html_menu_text_x(items, i) +
+                      bk_text_width(items[i].text, -1, items[i].checked == HTML_GROUP_LABEL) +
+                      bk_hpx(4.0f));
+  }
+  bk_text_scale = saved;
+  *rw = (int)ceilf(w) + 2 * menu_pad();
+  *rh = BK_MAX(h, menu_row_h(n)) + 2 * menu_pad();
+}
+
+static void html_menu_draw(BKNode *n)
+{
+  const float saved = html_menu_font_begin();
+  float c[4];
+  bk_argb(0xFFFFFFFFu, c);
+  float b[4];
+  bk_argb(0xFF767676u, b);
+  bk_html_box(n->x, n->y, n->w, n->h, 0.0f, c, b, (float)menu_pad());
+  int count;
+  BKMenuSpec *items = menu_items(n, &count);
+  const int p = menu_pad();
+  bk_clip_push(n->x + p, n->y + p, n->w - 2 * p, n->h - 2 * p);
+  for (int i = 0; i < count; i++) {
+    int ry, rh;
+    menu_row_geom(n, i, &ry, &rh);
+    const BKMenuSpec *it = &items[i];
+    const BKRect row = bk_rect(n->x + p, ry, n->w - 2 * p, rh);
+    if (is_sep(it)) { /* <hr> in a select */
+      bk_argb(0xFFC0C0C0u, c);
+      bk_fill_f(row.xmin + bk_hpx(4.0f), ry + rh / 2, bk_rw(&row) - bk_hpx(8.0f),
+                BK_MAX(1.0f, floorf(bk_hpx(1.0f))), c);
+      continue;
+    }
+    const bool group = it->checked == HTML_GROUP_LABEL;
+    const bool hot = i == n->hot && it->enabled && !group;
+    static const uchar black[4] = {0, 0, 0, 255}, white[4] = {255, 255, 255, 255},
+                       gray[4] = {16, 16, 16, 77};
+    if (hot) { /* the highlighted option: Highlight / HighlightText */
+      bk_argb(0xFF1E90FFu, c);
+      bk_fill_f(row.xmin, row.ymin, bk_rw(&row), rh, c);
+    }
+    const uchar *tc = hot ? white : ((it->enabled || group) ? black : gray);
+    bk_text(row.xmin + html_menu_text_x(items, i), bk_text_baseline(&row), it->text, -1, tc,
+            group);
+  }
+  bk_clip_pop();
+  bk_text_scale = saved;
+}
+
+/* Typeahead: a printable key moves to the next option starting with it. */
+static int html_menu_typeahead(BKNode *n, BKEvent *e)
+{
+  if (!e->text || (unsigned char)e->text[0] < 0x20 || EV_CTRL(e)) {
+    return 0;
+  }
+  int count;
+  BKMenuSpec *items = menu_items(n, &count);
+  const int ch = tolower((unsigned char)e->text[0]);
+  for (int k = 1; k <= count; k++) {
+    const int i = ((n->hot < 0 ? -1 : n->hot) + k + count) % count;
+    const BKMenuSpec *it = &items[i];
+    if (!is_sep(it) && it->enabled && tolower((unsigned char)it->text[0]) == ch) {
+      n->hot = i;
+      bk_invalidate(n);
+      break;
+    }
+  }
+  return 1;
+}
+
 static void menu_measure(BKNode *n, int *rw, int *rh)
 {
+  if (BK_HTML(n)) {
+    html_menu_measure(n, rw, rh);
+    return;
+  }
   int count;
   BKMenuSpec *items = menu_items(n, &count);
   const float uu = (float)u();
@@ -377,6 +501,9 @@ static void menu_filter(BKNode *n)
 static int menu_move(BKNode *n, BKEvent *e)
 {
   const int hot = menu_row_at(n, e->y);
+  if (BK_HTML(n) && (hot < 0 || !bk_contains(n, e->x, e->y))) {
+    return 0; /* the highlight stays on the last option (Chrome) */
+  }
   if (hot == n->hot) {
     return 0;
   }
@@ -469,6 +596,18 @@ static int menu_key(BKNode *n, BKEvent *e)
     bk_close_popups_after(bk_ctx(n), n->parent);
     return 1;
   }
+  if (BK_HTML(n)) {
+    if (bk_keysym_is(e->keysym, "Home") || bk_keysym_is(e->keysym, "End")) {
+      n->hot = -1;
+      menu_step(n, bk_keysym_is(e->keysym, "Home") ? 1 : -1);
+      return 1;
+    }
+    if (bk_keysym_is(e->keysym, "space") || bk_keysym_is(e->keysym, "Tab")) {
+      menu_pick(n, n->hot); /* Chrome: Space / Tab accept the highlighted option */
+      return 1;
+    }
+    return html_menu_typeahead(n, e);
+  }
   /* typing always searches from the top menu (Blender menu search) */
   return menu_search_key(menu_root(n), e);
 }
@@ -484,6 +623,10 @@ static void menu_check_icon(float cx, float cy, bool on)
 
 static void menu_draw(BKNode *n)
 {
+  if (BK_HTML(n)) {
+    html_menu_draw(n);
+    return;
+  }
   MenuData *m = MENU(n);
   BKRect r = bk_node_rect(n);
   bk_widget_menu_back(&r, CNR_ALL);
@@ -653,9 +796,9 @@ void BK_menu_row_rect(BKNode *menu, int i, int r[4])
   }
   int ry, rh;
   menu_row_geom(menu, i, &ry, &rh);
-  r[0] = menu->x + menu_pad();
+  r[0] = menu->x + menu_pad_n(menu);
   r[1] = ry;
-  r[2] = menu->w - 2 * menu_pad();
+  r[2] = menu->w - 2 * menu_pad_n(menu);
   r[3] = rh;
 }
 

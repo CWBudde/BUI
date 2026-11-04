@@ -204,10 +204,15 @@ impl P<'_> {
             return Ok(fragment(kids));
         }
         let tag = self.name()?;
-        let component = tag.chars().next().is_some_and(|c| c.is_ascii_uppercase())
-            || !tag.contains('-') && !tag.contains(':') && !HTML_TAGS.contains(&tag.as_str());
+        // Blender's widget components (`<Button>`, `<NumberSlider>` ...) are
+        // elements: their attributes work like on any HTML element
+        let blender = BLENDER_COMPONENTS.contains(&tag.as_str());
+        let component = !blender && (tag.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+            || !tag.contains('-') && !tag.contains(':') && !HTML_TAGS.contains(&tag.as_str()));
         let mut base = if component {
             TokenStream::new()
+        } else if blender {
+            ts(&format!("::blenderui::components::{tag}::__builder()"))
         } else if tag.contains('-') || tag.contains(':') {
             ts(&format!("::blenderui::element::Div::new({tag:?})"))
         } else {
@@ -465,6 +470,12 @@ const HTML_TAGS: &[&str] = &[
     "option", "optgroup", "textarea", "progress", "meter", "datalist", "img", "iframe", "embed", "object",
     "video", "audio", "head", "title", "base", "link", "meta", "style", "script", "template", "source",
     "track", "area", "br", "wbr",
+];
+
+/// Blender's widgets (`blenderui::components`): capitalized, used like elements.
+const BLENDER_COMPONENTS: &[&str] = &[
+    "Button", "Checkbox", "Radio", "NumberField", "NumberSlider", "TextField", "TextArea", "ColorSwatch",
+    "Dropdown", "ProgressBar",
 ];
 
 /// HTML boolean attributes: bare, they stay attributes even where a
