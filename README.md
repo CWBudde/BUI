@@ -366,6 +366,55 @@ More: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Performance
 
+### Start time and battery
+
+The same small settings window (a label, text field, checkbox, slider and
+button) written each of the five ways, from [`bench/apps`](bench/apps), on
+BUI's CPU renderer (the default) and its GPU renderer (`BUI_GPU=1`). The last
+rows are one gpui-syntax source file,
+[`settings.rs`](bindings/rust/bench/common/settings.rs), compiled unchanged
+against blenderui, Zed's [gpui](https://crates.io/crates/gpui) and
+[gpui-fast](https://github.com/longbridge/gpui-fast). gpui has no form widgets,
+so there the controls are styled divs.
+
+Median of 10 launches, from process start until the first frame is on screen.
+Ryzen 7 5800U laptop, Windows 11, on AC power, Python 3.14, Node 22:
+
+|                                | Renderer | Start time | CPU used to start | Memory (idle) | Idle CPU per minute |
+| ------------------------------ | -------- | ---------: | ----------------: | ------------: | ------------------: |
+| Rust (HTML + CSS)              | CPU      |  **38 ms** |         **27 ms** |     **13 MB** |            **0 ms** |
+|                                | GPU      |      42 ms |             61 ms |         31 MB |              1.8 ms |
+| JavaScript (React, Node.js)    | CPU      |      94 ms |            100 ms |         48 MB |               68 ms |
+|                                | GPU      |      99 ms |            131 ms |         60 MB |               71 ms |
+| Blender components (Python)    | CPU      |     112 ms |             86 ms |         23 MB |                0 ms |
+|                                | GPU      |     116 ms |            125 ms |         32 MB |              1.7 ms |
+| tkinter syntax (Python)        | CPU      |     139 ms |            112 ms |         25 MB |              0.2 ms |
+|                                | GPU      |     159 ms |            157 ms |         43 MB |              2.4 ms |
+| Qt syntax (Python)             | CPU      |     156 ms |            123 ms |         27 MB |                0 ms |
+|                                | GPU      |     161 ms |            160 ms |         36 MB |              1.2 ms |
+| **Same gpui code:** blenderui  | CPU      |  **40 ms** |         **27 ms** |     **15 MB** |            **0 ms** |
+| blenderui                      | GPU      |      43 ms |             60 ms |         31 MB |              2.1 ms |
+| gpui                           | GPU      |     231 ms |            226 ms |         29 MB |              743 ms |
+| gpui-fast                      | GPU      |     226 ms |            217 ms |         31 MB |              2.5 ms |
+
+On the same code, blenderui shows its first frame about 5× sooner than gpui
+and gpui-fast, spends about 8× less CPU getting there, and on the CPU renderer
+uses half the memory. Idle, gpui keeps about 1.2 % of a core busy; blenderui
+uses none.
+
+Laptops can't report energy per app, so battery cost is measured by the CPU
+time an app causes: the CPU it spends starting up, and the CPU it uses over 20
+seconds while the window sits idle (what drains a battery while an app is
+open). BUI redraws only when something changes and otherwise sleeps, so idle
+use is near zero on either renderer. The GPU renderer starts a little slower
+and uses more memory (the Direct3D device), and pays off on large, animated
+scenes (below). Node's event loop accounts for the JavaScript idle figure,
+Python's times include starting the interpreter, and memory doesn't count GPU
+memory. Run it yourself with `py -3 bench/run.py` (the script lists what to
+build first).
+
+### Frame times
+
 Python and C, on the full component demo (520×900):
 
 | Frame                                     | Time     |

@@ -1,0 +1,148 @@
+{
+  "runs": 10,
+  "idle_seconds": 20.0,
+  "python": "3.14.0",
+  "cpu": "AMD Ryzen 7 5800U with Radeon Graphics",
+  "results": [
+    {
+      "name": "tkinter syntax (Python), CPU",
+      "start_ms": 138.6,
+      "start_best_ms": 129.6,
+      "start_cpu_ms": 112.4,
+      "memory_mb": 25.2,
+      "memory_idle_mb": 25.1,
+      "idle_cpu_pct": 0.0004,
+      "idle_cpu_ms_per_min": 0.2
+    },
+    {
+      "name": "tkinter syntax (Python), GPU",
+      "start_ms": 159.2,
+      "start_best_ms": 147.3,
+      "start_cpu_ms": 157.0,
+      "memory_mb": 33.0,
+      "memory_idle_mb": 43.3,
+      "idle_cpu_pct": 0.004,
+      "idle_cpu_ms_per_min": 2.4
+    },
+    {
+      "name": "Qt syntax (Python), CPU",
+      "start_ms": 155.6,
+      "start_best_ms": 152.1,
+      "start_cpu_ms": 122.9,
+      "memory_mb": 27.0,
+      "memory_idle_mb": 27.4,
+      "idle_cpu_pct": 0.0,
+      "idle_cpu_ms_per_min": 0.0
+    },
+    {
+      "name": "Qt syntax (Python), GPU",
+      "start_ms": 161.3,
+      "start_best_ms": 154.2,
+      "start_cpu_ms": 160.4,
+      "memory_mb": 34.6,
+      "memory_idle_mb": 35.6,
+      "idle_cpu_pct": 0.002,
+      "idle_cpu_ms_per_min": 1.2
+    },
+    {
+      "name": "Blender components (Python), CPU",
+      "start_ms": 111.8,
+      "start_best_ms": 105.4,
+      "start_cpu_ms": 86.0,
+      "memory_mb": 23.0,
+      "memory_idle_mb": 23.1,
+      "idle_cpu_pct": 0.0,
+      "idle_cpu_ms_per_min": 0.0
+    },
+    {
+      "name": "Blender components (Python), GPU",
+      "start_ms": 116.1,
+      "start_best_ms": 105.5,
+      "start_cpu_ms": 124.8,
+      "memory_mb": 30.1,
+      "memory_idle_mb": 31.8,
+      "idle_cpu_pct": 0.0028,
+      "idle_cpu_ms_per_min": 1.7
+    },
+    {
+      "name": "Rust (HTML + CSS), CPU",
+      "start_ms": 37.7,
+      "start_best_ms": 27.8,
+      "start_cpu_ms": 26.6,
+      "memory_mb": 12.0,
+      "memory_idle_mb": 12.6,
+      "idle_cpu_pct": 0.0,
+      "idle_cpu_ms_per_min": 0.0
+    },
+    {
+      "name": "Rust (HTML + CSS), GPU",
+      "start_ms": 42.3,
+      "start_best_ms": 36.8,
+      "start_cpu_ms": 60.8,
+      "memory_mb": 16.6,
+      "memory_idle_mb": 30.7,
+      "idle_cpu_pct": 0.003,
+      "idle_cpu_ms_per_min": 1.8
+    },
+    {
+      "name": "JavaScript (React on Node.js), CPU",
+      "start_ms": 93.9,
+      "start_best_ms": 88.0,
+      "start_cpu_ms": 100.4,
+      "memory_mb": 48.4,
+      "memory_idle_mb": 47.8,
+      "idle_cpu_pct": 0.1136,
+      "idle_cpu_ms_per_min": 68.2
+    },
+    {
+      "name": "JavaScript (React on Node.js), GPU",
+      "start_ms": 98.6,
+      "start_best_ms": 88.5,
+      "start_cpu_ms": 131.4,
+      "memory_mb": 52.5,
+      "memory_idle_mb": 60.3,
+      "idle_cpu_pct": 0.1188,
+      "idle_cpu_ms_per_min": 71.3
+    },
+    {
+      "name": "gpui scene: blenderui, CPU",
+      "start_ms": 40.0,
+      "start_best_ms": 35.6,
+      "start_cpu_ms": 27.3,
+      "memory_mb": 11.9,
+      "memory_idle_mb": 14.5,
+      "idle_cpu_pct": 0.0,
+      "idle_cpu_ms_per_min": 0.0
+    },
+    {
+      "name": "gpui scene: blenderui, GPU",
+      "start_ms": 43.4,
+      "start_best_ms": 35.9,
+      "start_cpu_ms": 60.1,
+      "memory_mb": 17.3,
+      "memory_idle_mb": 30.6,
+      "idle_cpu_pct": 0.0036,
+      "idle_cpu_ms_per_min": 2.1
+    },
+    {
+      "name": "gpui scene: gpui",
+      "start_ms": 230.6,
+      "start_best_ms": 227.8,
+      "start_cpu_ms": 226.3,
+      "memory_mb": 27.7,
+      "memory_idle_mb": 29.3,
+      "idle_cpu_pct": 1.238,
+      "idle_cpu_ms_per_min": 742.8
+    },
+    {
+      "name": "gpui scene: gpui-fast",
+      "start_ms": 225.5,
+      "start_best_ms": 214.6,
+      "start_cpu_ms": 217.4,
+      "memory_mb": 29.7,
+      "memory_idle_mb": 31.2,
+      "idle_cpu_pct": 0.0042,
+      "idle_cpu_ms_per_min": 2.5
+    }
+  ]
+}
