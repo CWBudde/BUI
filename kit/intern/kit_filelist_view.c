@@ -178,8 +178,9 @@ static void draw_background(const BKNode *n, const FBLayout *l, int first, int r
 
 static void draw_row(const BKNode *n, const FBLayout *l, int i)
 {
-  const FBEntry *e = fb_vis_entry(FB(n), i);
+  FBEntry *e = fb_vis_entry(FB(n), i);
   const BKRect t = tile_rect(n, l, i);
+  fb_entry_details(FB(n), e);
   const bool editing = n->edit && i == n->rename_row;
   const int padx = (int)(0.1f * u());
   if (!editing) {
@@ -464,26 +465,61 @@ static int list_release(BKNode *n, BKEvent *e)
   return 1;
 }
 
-static int list_move(BKNode *n, BKEvent *e)
+/* The left edge of the strip the scroller can cover (widened, plus its margin). */
+static int scroller_edge(const BKNode *n)
+{
+  return n->x + n->w - (int)(0.45f * u() + 2 * bk_px()) - (int)(0.3f * u());
+}
+
+/* Redraw one row's band (hover changes), clipped to the view so the header is kept. */
+static void dirty_row(BKNode *n, const FBLayout *l, int i)
+{
+  BKContext *ctx = bk_ctx(n);
+  const BKRect v = view_rect(n, l);
+  const int y = tile_rect(n, l, i).ymin - l->border_y;
+  if (ctx && i >= 0) {
+    bk_ctx_dirty_rect(ctx, (BKRect){n->x, BK_MAX(y, v.ymin), n->x + n->w,
+                                    BK_MIN(y + l->item_h, v.ymax)});
+  }
+}
+
+static void dirty_scroller(BKNode *n, const FBLayout *l)
+{
+  BKContext *ctx = bk_ctx(n);
+  const BKRect v = view_rect(n, l);
+  if (ctx) {
+    bk_ctx_dirty_rect(ctx, (BKRect){scroller_edge(n), v.ymin, v.xmax, v.ymax});
+  }
+}
+
+/* Hover: only the rows and the scroller that change are redrawn. */
+static void set_hover(BKNode *n, const FBLayout *l, int hot, bool on_scroller)
 {
   FBData *f = FB(n);
-  const FBLayout l = list_layout(n);
-  const int edge = n->x + n->w - (int)(0.45f * u() + 2 * bk_px()) - (int)(0.3f * u());
-  const bool on_scroller = has_scroller(n, &l) && e->y >= n->y + l.header_h && e->x >= edge;
-  const int hot = on_scroller ? -1 : row_at(n, &l, e->y);
-  if (hot != n->hot || on_scroller != f->scroller_hot) {
+  if (hot != n->hot) {
+    dirty_row(n, l, n->hot);
+    dirty_row(n, l, hot);
     n->hot = hot;
-    f->scroller_hot = on_scroller;
-    bk_invalidate(n);
   }
+  if (on_scroller != f->scroller_hot) {
+    dirty_scroller(n, l);
+    f->scroller_hot = on_scroller;
+  }
+}
+
+static int list_move(BKNode *n, BKEvent *e)
+{
+  const FBLayout l = list_layout(n);
+  const bool on_scroller = has_scroller(n, &l) && e->y >= n->y + l.header_h &&
+                           e->x >= scroller_edge(n);
+  set_hover(n, &l, on_scroller ? -1 : row_at(n, &l, e->y), on_scroller);
   return 0;
 }
 
 static int list_leave(BKNode *n)
 {
-  n->hot = -1;
-  FB(n)->scroller_hot = false;
-  bk_invalidate(n);
+  const FBLayout l = list_layout(n);
+  set_hover(n, &l, -1, false);
   return 0;
 }
 
@@ -495,8 +531,8 @@ static int list_wheel(BKNode *n, BKEvent *e)
     return 0;
   }
   n->scroll = ns;
+  bk_invalidate(n); /* first, so the hover rows below merge into it (one region) */
   list_move(n, e);
-  bk_invalidate(n);
   return 1;
 }
 

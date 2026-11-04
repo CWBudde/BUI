@@ -104,7 +104,6 @@ bool fb_os_read_dir(FBData *f)
     e->kind = (ok && S_ISDIR(st.st_mode)) ? FB_KIND_DIR : FB_KIND_FILE;
     e->size = (ok || lok) ? (long long)use->st_size : 0;
     e->mtime = (ok || lok) ? use->st_mtime : 0;
-    fb_entry_finish(e);
   }
   closedir(d);
   return true;

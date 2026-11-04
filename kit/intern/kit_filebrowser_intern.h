@@ -67,6 +67,8 @@ typedef struct FBEntry {
   bool hidden, link, sel;
   long long size;
   time_t mtime;
+  /* draw_data: filled the first time the row is drawn (fb_entry_details) */
+  bool has_details;
   int icon;
   char date[40];
   char size_str[16];
@@ -107,6 +109,7 @@ typedef struct FBData {
   FBFilter *filters; /* the selected one is filter_dd's value */
   int nfilters;
   bool scroller_hot; /* pointer over the list's scroller */
+  struct tm today, yesterday; /* for "Today" / "Yesterday" dates, from the last read */
 
   /* folder_history.cc */
   char *back[FB_HISTORY], *fwd[FB_HISTORY];
@@ -168,7 +171,7 @@ void fb_os_read_system(FBData *f);  /* System and Volumes places */
 /* kit_filelist.c */
 
 FBEntry *fb_entry_add(FBData *f, const char *name);
-void fb_entry_finish(FBEntry *e);
+void fb_entry_details(const FBData *f, FBEntry *e); /* icon, date and size strings, cached */
 void fb_entries_free(FBData *f);
 void fb_read_dir(FBData *f);
 void fb_filter_sort(FBData *f);

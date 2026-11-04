@@ -108,7 +108,6 @@ bool fb_os_read_dir(FBData *f)
     e->link = (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
     e->size = ((long long)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
     e->mtime = filetime_to_time(fd.ftLastWriteTime);
-    fb_entry_finish(e);
   } while (FindNextFileW(h, &fd));
   FindClose(h);
   return true;

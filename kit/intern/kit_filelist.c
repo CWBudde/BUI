@@ -102,16 +102,15 @@ static const char *file_icon_name(const char *name)
  * \{ */
 
 /* date_string::datetime with "Today" / "Yesterday" */
-static void format_datetime(time_t t, char *buf, size_t size)
+static void format_datetime(const FBData *f, time_t t, char *buf, size_t size)
 {
-  struct tm tm, today, yesterday;
+  struct tm tm;
   fb_os_localtime(t, &tm);
-  fb_os_localtime(time(NULL), &today);
-  fb_os_localtime(time(NULL) - 86400, &yesterday);
   char hm[16];
   strftime(hm, sizeof(hm), "%H:%M", &tm);
-  const bool is_today = tm.tm_year == today.tm_year && tm.tm_yday == today.tm_yday;
-  const bool is_yesterday = tm.tm_year == yesterday.tm_year && tm.tm_yday == yesterday.tm_yday;
+  const bool is_today = tm.tm_year == f->today.tm_year && tm.tm_yday == f->today.tm_yday;
+  const bool is_yesterday = tm.tm_year == f->yesterday.tm_year &&
+                            tm.tm_yday == f->yesterday.tm_yday;
   if (is_today || is_yesterday) {
     snprintf(buf, size, "%s %s", is_today ? "Today" : "Yesterday", hm);
   }
@@ -132,20 +131,25 @@ FBEntry *fb_entry_add(FBData *f, const char *name)
   return e;
 }
 
-/* filelist_geticon_file_type_ex + filelist_get_details_column_string */
-void fb_entry_finish(FBEntry *e)
+/* filelist_geticon_file_type_ex + filelist_get_details_column_string: computed when the row is
+ * first drawn and kept in the entry, like Blender's FileDirEntry draw_data. */
+void fb_entry_details(const FBData *f, FBEntry *e)
 {
   static const char *const kind_icons[] = {NULL, "FILE_FOLDER", "FILE_PARENT"};
+  if (e->has_details) {
+    return;
+  }
   const char *icon = e->kind == FB_KIND_FILE ? file_icon_name(e->name) :
                      (e->kind == FB_KIND_DIR && e->link) ? "FOLDER_REDIRECT" :
                                                             kind_icons[e->kind];
   e->icon = bk_icons_lookup(icon);
   if (e->kind != FB_KIND_PARENT) {
-    format_datetime(e->mtime, e->date, sizeof(e->date));
+    format_datetime(f, e->mtime, e->date, sizeof(e->date));
   }
   if (e->kind == FB_KIND_FILE) {
     BLI_str_format_byte_unit(e->size_str, e->size, true);
   }
+  e->has_details = true;
 }
 
 void fb_entries_free(FBData *f)
@@ -163,10 +167,10 @@ void fb_read_dir(FBData *f)
 {
   fb_entries_free(f);
   f->error[0] = '\0';
+  fb_os_localtime(time(NULL), &f->today);
+  fb_os_localtime(time(NULL) - 86400, &f->yesterday);
   if (!fb_os_path_is_root(f->dir)) {
-    FBEntry *e = fb_entry_add(f, "..");
-    e->kind = FB_KIND_PARENT;
-    fb_entry_finish(e);
+    fb_entry_add(f, "..")->kind = FB_KIND_PARENT;
   }
   if (!fb_os_read_dir(f)) {
     snprintf(f->error, sizeof(f->error), "Cannot open directory");
@@ -303,23 +307,24 @@ static bool matches_filter(const FBData *f, const FBEntry *e)
   return any;
 }
 
-static bool entry_visible(const FBData *f, const FBEntry *e)
+/* `pat` is the search as "*search*" (filter_search), or NULL without one. */
+static bool entry_visible(const FBData *f, const FBEntry *e, const char *pat)
 {
-  char pat[300];
-  snprintf(pat, sizeof(pat), "*%s*", f->search); /* filter_search is matched as "*search*" */
   return e->kind == FB_KIND_PARENT ||
          ((!e->hidden || fb_show_hidden(f)) &&               /* is_hidden_dot_filename */
           (f->mode != FB_MODE_DIRECTORY || e->kind == FB_KIND_DIR) &&
-          (!f->search[0] || glob_match(pat, e->name)) && matches_filter(f, e));
+          (!pat || glob_match(pat, e->name)) && matches_filter(f, e));
 }
 
 void fb_filter_sort(FBData *f)
 {
+  char pat[300];
+  snprintf(pat, sizeof(pat), "*%s*", f->search);
   free(f->vis);
   f->vis = (int *)malloc(sizeof(int) * (size_t)(f->nall > 0 ? f->nall : 1));
   f->nvis = 0;
   for (int i = 0; i < f->nall; i++) {
-    const bool shown = entry_visible(f, &f->all[i]);
+    const bool shown = entry_visible(f, &f->all[i], f->search[0] ? pat : NULL);
     f->all[i].sel &= shown;
     if (shown) {
       f->vis[f->nvis++] = i;
