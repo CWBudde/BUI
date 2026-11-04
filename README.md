@@ -15,9 +15,11 @@ the real Blender widgets, driven by the tkinter or Qt code you already know, by 
 
 [Quick start](#quick-start) ·
 [What it can do](#what-it-can-do) ·
+[Platforms](#platforms) ·
 [Status](#status-whats-done-and-whats-not) ·
 [Docs](#documentation) ·
 [Performance](#performance) ·
+[Benchmarks](#run-the-benchmarks-yourself) ·
 [Contributing](#contributing)
 
 <img src="https://raw.githubusercontent.com/ppmpreetham/BUI/main/docs/images/components.png" width="330" alt="BUI's Blender components: panels, number sliders, vector fields, checkboxes and a color swatch">
@@ -342,6 +344,23 @@ rsx! {
 error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` or `bg-sky-50` or `bg-sky-100`?
 ```
 
+## Platforms
+
+|                       | Windows                       | Linux                                              | macOS                                         |
+| --------------------- | ----------------------------- | -------------------------------------------------- | --------------------------------------------- |
+| Window                | Native (Win32)                | Native (X11; Wayland through XWayland)             | Python: the stdlib Tk window. Rust / JS: headless only (a native Cocoa host is in progress) |
+| Python (`pip install`) | ✅ wheels                     | ✅ wheels                                           | ✅ wheels (Tk window)                          |
+| Rust                  | ✅                             | ✅ (build from source)                              | headless (tests, screenshots)                 |
+| JavaScript / React    | ✅ prebuilt on npm             | ✅ build the addon from source (`npm run build`)    | headless                                      |
+| C                     | ✅                             | ✅                                                  | headless                                      |
+| Renderer              | CPU raster, or GPU (Direct3D 11) | CPU raster                                      | CPU raster                                    |
+| HiDPI                 | Per-monitor DPI               | `Xft.dpi`                                          | -                                             |
+
+On Linux, libX11 is loaded when the first window opens, so BUI also imports
+and renders headless on servers and in containers without X11. Building from
+source needs the X11 headers (`libx11-dev` / `libX11-devel`); the C, Python
+and window tests pass on Linux.
+
 ## Status: what's done and what's not
 
 ### ✅ Done
@@ -559,6 +578,71 @@ What this means:
 
 Method, the memory breakdown and how to rerun:
 [docs/javascript.md](docs/javascript.md#performance).
+
+### Run the benchmarks yourself
+
+Every number above comes from a tool in this repo. Build in release mode, close
+other heavy apps, and plug the laptop in.
+
+**Start time and battery: the five ways and gpui** (`bench/`, Windows). The
+same settings window written each way, on the CPU and the GPU renderer, plus
+one gpui-syntax file compiled for blenderui, gpui and gpui-fast. It reports
+start time, CPU used to start, memory and idle CPU, and writes
+`bench/results.json`.
+
+```sh
+cmake -S . -B build && cmake --build build --config Release --target buipy  # Python extension
+cd bindings/node && npm run build && cd ../..                                # Node addon
+cd bindings/rust && cargo build --release --example bench_app && cd ../..    # Rust app
+cd bindings/rust/bench && cargo build --release --bins && cd ../../..        # gpui comparison
+py -3 bench/run.py 10 20        # launches per app, seconds of idle measurement
+```
+
+**Frame cost: 100, 1,000 and 3,000 animated cells, against gpui and
+gpui-fast** (`bindings/rust/bench/`, Windows). A 1000×800 window filled
+with N rounded, numbered cells, in three modes:
+- **anim:** every cell changes every frame, the worst case.
+- **one:** one cell changes per frame, like a hover or a ticking value.
+- **idle:** nothing changes.
+
+Each app measures its own CPU cycles, frames and memory, and `run.py` adds
+GPU utilisation and GPU memory from Windows' performance counters.
+
+```sh
+cd bindings/rust/bench
+set GPUI_FXC_PATH=C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\fxc.exe   # gpui needs fxc.exe
+cargo build --release
+py run.py --reps 3                                   # all apps, 100 / 1000 / 3000 cells, about 12 minutes
+py run.py --cells 3000 --apps blenderui,blenderui-gpu --reps 1
+target\release\bui-bench --cells 3000 --mode anim   # one run by hand (--mode one / idle, --uncapped)
+set BUI_GPU=1 && target\release\bui-bench --cells 3000 --mode anim   # on the GPU renderer
+```
+
+Method and full results: [bindings/rust/bench/README.md](bindings/rust/bench/README.md).
+
+**JavaScript: the same cells, and startup** (`bindings/node/bench/`):
+
+```sh
+cd bindings/node
+node bench/cells.js 3000                       # DOM-like API, one cell changing per frame
+node bench/cells.js 3000 --react               # React re-rendering the grid
+node bench/cells.js 3000 --react --signals     # React with signals: no re-render
+node bench/cells.js 3000 --gpu                 # on the GPU renderer
+bun bench/cells.js 3000                        # on Bun
+node cli.js run bench/cells.js -- 3000         # on the 5 MB QuickJS runtime
+node bench/startup.js                          # launch to first frame: Node, Bun and both executables
+```
+
+**tkinter: canvas frame cost** (headless, any platform):
+
+```sh
+py bindings/python/bench/tk_canvas_bench.py 3000 all    # move 3,000 canvas items every frame
+py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
+```
+
+**Inside any app:** run it with `BUI_PROFILE=1` to print per-phase frame times
+(layout, paint, raster, present), and with `BUI_GPU=1` / `BUI_GPU=0` to pick
+the renderer.
 
 ## Documentation
 
