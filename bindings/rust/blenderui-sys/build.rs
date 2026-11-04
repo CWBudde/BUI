@@ -49,6 +49,9 @@ fn main() {
             println!("cargo:rustc-link-lib={lib}");
         }
     } else {
+        if target == "linux" || target.ends_with("bsd") {
+            println!("cargo:rustc-link-lib=X11"); // the native window host
+        }
         println!("cargo:rustc-link-lib=m");
         println!("cargo:rustc-link-lib=pthread");
     }

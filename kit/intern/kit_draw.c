@@ -556,7 +556,8 @@ static void shape_preset_trias_from_rect_menu(WidgetTrias *tria, const BKRect *r
 
 static void draw_menu_chevron(const WidgetTrias *t, const float c[4])
 {
-  const float s = t->size * 0.42f, lw = BK_MAX(1.2f, 0.075f * bk_unit());
+  /* ROUNDBOX_TRIA_MENU: bars 0.17 thick at 0.8 of the tria size */
+  const float s = t->size * 0.42f, lw = BK_MAX(1.0f, 0.17f * 0.8f * t->size);
   const float cx = t->center[0], cy = t->center[1];
   BUI_raster_line(bk_draw.r, cx - s, cy - s * 0.4f, cx, cy + s * 0.5f, lw, c);
   BUI_raster_line(bk_draw.r, cx, cy + s * 0.5f, cx + s, cy - s * 0.4f, lw, c);

@@ -254,6 +254,8 @@ enum {
   CLS_INTERACTIVE = 1 << 0,
   CLS_VALUE = 1 << 1, /* has the value shortcuts and context menu */
   CLS_POPUP = 1 << 2,
+  CLS_BUTTONS = 1 << 3, /* middle / right presses arrive as press, drag, release with
+                         * BK_BUTTON2 / BK_BUTTON3 in the event's mods (editors) */
 };
 
 enum { DRAG_GROUP_TOGGLE = 1, DRAG_GROUP_PANEL = 2 };
@@ -461,6 +463,7 @@ struct BKContext {
   bool dragging;
   int press_x, press_y, off_x, off_y, skip_x, skip_y;
   int ungrab_x, ungrab_y; /* where a continuous drag puts the pointer back */
+  int press_button;       /* the button that started the grab (1, 2, 3) */
   bool has_ungrab;
   bool has_skip;
   int pointer_x, pointer_y;
@@ -533,6 +536,7 @@ BKMenuSpec *bk_menuspec_copy(const BKMenuSpec *items, int n);
 int bk_tree_columns_from_icons(BKNode *n);
 
 /* Classes (kit_widgets.c, kit_views.c, kit_color.c, kit_menus.c) */
+extern const BKClass bk_cls_nodeeditor, bk_cls_graphnode, bk_cls_areaheader;
 extern const BKClass bk_cls_column, bk_cls_row, bk_cls_split, bk_cls_grid, bk_cls_box, bk_cls_panel,
     bk_cls_tabs, bk_cls_sidetabs, bk_cls_sidebar, bk_cls_scroll, bk_cls_scrollbar, bk_cls_label, bk_cls_separator,
     bk_cls_progress, bk_cls_button, bk_cls_toggle, bk_cls_checkbox, bk_cls_decorator,

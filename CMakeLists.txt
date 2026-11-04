@@ -15,6 +15,8 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/bui/_version.py" _bui_
      REGEX "^__version__")
 string(REGEX MATCH "[0-9]+[.][0-9]+[.][0-9]+" BUI_VERSION "${_bui_version_line}")
 project(bui LANGUAGES C CXX VERSION ${BUI_VERSION})
+# static libraries end up in shared modules (Python, Node) on Linux and macOS
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(BUI_BUILD_TESTS "Build BUI test executables" ON)
 option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
@@ -56,6 +58,11 @@ if(BUI_BUILD_TESTS)
   enable_testing()
   add_subdirectory(core/tests)
   add_subdirectory(gpu/tests)
+  # the native window host (Win32 / X11): exits 77 (skipped) without a display
+  add_executable(bui_window_smoke tests/window_smoke.c)
+  target_link_libraries(bui_window_smoke PRIVATE bui::kit)
+  add_test(NAME bui_window_smoke COMMAND bui_window_smoke)
+  set_tests_properties(bui_window_smoke PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
 endif()
 
 if(BUI_BUILD_PYTHON_BINDINGS)

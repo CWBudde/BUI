@@ -10,6 +10,7 @@
 #  include <windows.h>
 #else
 #  include <time.h>
+#  include <unistd.h> /* sysconf */
 #endif
 
 void BLI_system_backtrace(FILE *fp)

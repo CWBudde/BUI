@@ -65,4 +65,7 @@ endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(bui_core PUBLIC Threads::Threads)
+if(UNIX)
+  target_link_libraries(bui_core PUBLIC m)
+endif()
 

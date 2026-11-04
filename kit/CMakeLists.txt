@@ -14,9 +14,12 @@ add_library(bui_kit STATIC
   intern/kit_color.c
   intern/kit_frame.c
   intern/kit_textarea.c
-  intern/kit_window.c
+  intern/kit_window_win32.c
+  intern/kit_window_x11.c
+  intern/kit_window_null.c
   intern/kit_icons_svg.c
   intern/kit_regions.c
+  intern/kit_nodes.c
   extern/nanosvg/blender_nanosvg.c
   extern/nanosvg/blender_raster.c
 )
@@ -35,4 +38,12 @@ if(NOT MSVC)
 endif()
 if(WIN32)
   target_link_libraries(bui_kit PRIVATE user32 gdi32)
+elseif(UNIX AND NOT APPLE)
+  # Native windows on X11 (Wayland sessions run it through XWayland).
+  find_package(X11)
+  if(X11_FOUND)
+    target_compile_definitions(bui_kit PRIVATE BUI_WINDOW_X11)
+    target_include_directories(bui_kit PRIVATE ${X11_INCLUDE_DIR})
+    target_link_libraries(bui_kit PUBLIC ${X11_LIBRARIES})
+  endif()
 endif()

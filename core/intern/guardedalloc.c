@@ -2,6 +2,9 @@
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #include <stdlib.h>
 #include <string.h>
+#ifdef __GLIBC__
+#  include <malloc.h> /* malloc_usable_size */
+#endif
 
 #include "BLI_compiler_attrs.h"
 #include "BLI_utildefines.h"

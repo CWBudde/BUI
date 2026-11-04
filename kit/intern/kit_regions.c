@@ -297,3 +297,87 @@ const BKClass bk_cls_sidebar = {.name = "sidebar",
                                 .wheel = sidebar_wheel};
 
 /** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Area header (ED_region_header_layout)
+ * \{ */
+
+/* HEADERY: 20 + HEADER_PADDING_Y (6), scaled */
+static int header_h(void)
+{
+  return bk_iround(26.0f * bk_scale_fac);
+}
+
+static bool is_spacer(const BKNode *c)
+{
+  return c->cls == &bk_cls_separator && c->weight > 0.0f;
+}
+
+static void areaheader_measure(BKNode *n, int *rw, int *rh)
+{
+  const int gap = bk_iround(0.2f * u());
+  int w = bk_iround(8.0f * bk_scale_fac) * 2;
+  for (int i = 0; i < n->nkids; i++) {
+    if (NODE_VISIBLE(n->kids[i]) && !is_spacer(n->kids[i])) {
+      int cw, ch;
+      bk_natural(n->kids[i], &cw, &ch);
+      w += cw + gap;
+    }
+  }
+  *rw = w;
+  *rh = header_h();
+}
+
+/* Items from UI_HEADER_OFFSET, left to right, buttons one unit tall and
+ * centered; spacers (layout.separator_spacer) share the spare width. */
+static void areaheader_arrange(BKNode *n)
+{
+  const int gap = bk_iround(0.2f * u()), ofs = bk_iround(8.0f * bk_scale_fac);
+  int used = 0, spacers = 0;
+  for (int i = 0; i < n->nkids; i++) {
+    BKNode *c = n->kids[i];
+    if (!NODE_VISIBLE(c)) {
+      continue;
+    }
+    if (is_spacer(c)) {
+      spacers++;
+      continue;
+    }
+    int cw, ch;
+    bk_natural(c, &cw, &ch);
+    used += cw + gap;
+  }
+  const int spare = BK_MAX(0, n->w - 2 * ofs - used);
+  const int y = n->y + (n->h - u()) / 2;
+  int x = n->x + ofs;
+  for (int i = 0; i < n->nkids; i++) {
+    BKNode *c = n->kids[i];
+    if (!NODE_VISIBLE(c)) {
+      continue;
+    }
+    if (is_spacer(c)) {
+      const int sw = spacers ? spare / spacers : 0;
+      bk_arrange(c, x, y, sw, u());
+      x += sw;
+      continue;
+    }
+    int cw, ch;
+    bk_natural(c, &cw, &ch);
+    bk_arrange(c, x, y, cw, u());
+    x += cw + gap;
+  }
+}
+
+static void areaheader_draw(BKNode *n)
+{
+  /* TH_HEADER of the editors (space_view3d.header and friends) */
+  const uchar c[4] = {0x30, 0x30, 0x30, 0xff};
+  bk_fill(n->x, n->y, n->w, n->h, c);
+}
+
+const BKClass bk_cls_areaheader = {.name = "areaheader",
+                                   .measure = areaheader_measure,
+                                   .arrange = areaheader_arrange,
+                                   .draw = areaheader_draw};
+
+/** \} */

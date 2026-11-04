@@ -29,7 +29,8 @@ from bui.components import (App, Box, Button, Checkbox, ColorRamp, ColorSwatch, 
                             MenuBar, MenuItem, NormalBall, NumberField, NumberSlider, Panel,
                             PathField, PieMenu, Popover, ProgressBar, Row, ScrollView,
                             SearchField, Separator, SideTabs, Split, Tabs, TextField, Toggle,
-                            TreeItem, TreeView, VectorField)
+                            TreeItem, TreeView, VectorField, Area, MenuButton, Node,
+                            NodeEditor, Spacer)
 
 
 def page(*children):
@@ -223,6 +224,31 @@ class Status(Label):
         self.text = text
 
 
+def nodes_page(status):
+    """A Geometry Node Editor area: drag sockets to link, Ctrl+RMB to cut, MMB to pan."""
+    grp_in = Node("Group Input", outputs=[("Geometry", "geometry")], location=(-420, 0),
+                  kind="group")
+    noise = Node("Noise Texture", inputs=[("Scale", "float", 5.0), ("Detail", "float", 2.0),
+                                          ("Roughness", "float", 0.5)],
+                 outputs=[("Fac", "float"), ("Color", "color")], location=(-420, 120),
+                 kind="texture")
+    setpos = Node("Set Position", inputs=[("Geometry", "geometry"), ("Offset", "vector")],
+                  outputs=[("Geometry", "geometry")], location=(-120, 0), kind="geometry")
+    combine = Node("Combine XYZ", inputs=[("X", "float", 0.0), ("Y", "float", 0.0),
+                                          ("Z", "float", 0.0)],
+                   outputs=[("Vector", "vector")], location=(-250, 180), kind="converter")
+    grp_out = Node("Group Output", inputs=[("Geometry", "geometry")], location=(140, 0),
+                   kind="group")
+    ed = NodeEditor([grp_in, noise, combine, setpos, grp_out],
+                    links=[(grp_in, 0, setpos, 0), (noise, 0, combine, 2),
+                           (combine, 0, setpos, 1), (setpos, 0, grp_out, 0)],
+                    on_links=lambda links: status.set("text", "%d links" % len(links)))
+    return Area("Geometry Node Editor", ed,
+                header=[MenuButton("View", ["Frame All"]), MenuButton("Select", ["All"]),
+                        MenuButton("Add", ["Math", "Mix"]), Spacer()],
+                on_editor=lambda name: status.set("text", "Editor: " + name))
+
+
 def build() -> App:
     status = Status("Q: pie menu · right-click values · drag panel grips", align="left",
                     icon="INFO")
@@ -268,6 +294,7 @@ def build() -> App:
         ("MATERIAL", "Material", material_page()),
         ("OUTLINER", "Outliner", outliner_page(status)),
         ("PREFERENCES", "Preferences", prefs_page(status)),
+        ("GEOMETRY_NODES", "Nodes", nodes_page(status)),
     ])
 
     app = App("BUI — Blender components", (520, 900), pages,

@@ -144,7 +144,7 @@ static int g_gen = 1; /* layout generation for the natural-size cache */
 
 static const BKClass *const g_classes[] = {
     &bk_cls_column,   &bk_cls_row,       &bk_cls_split,       &bk_cls_grid,       &bk_cls_box,
-    &bk_cls_panel,    &bk_cls_tabs,      &bk_cls_sidetabs,   &bk_cls_sidebar, &bk_cls_scroll, &bk_cls_scrollbar,
+    &bk_cls_panel,    &bk_cls_tabs,      &bk_cls_sidetabs,   &bk_cls_sidebar, &bk_cls_nodeeditor, &bk_cls_graphnode, &bk_cls_areaheader, &bk_cls_scroll, &bk_cls_scrollbar,
     &bk_cls_label,    &bk_cls_separator, &bk_cls_progress,   &bk_cls_button,
     &bk_cls_toggle,   &bk_cls_checkbox,  &bk_cls_decorator,  &bk_cls_text,
     &bk_cls_search,   &bk_cls_hotkey,    &bk_cls_number,     &bk_cls_slider,
@@ -2117,6 +2117,7 @@ static int in_BK_press(BKContext *ctx, int x, int y, int mods)
   ctx->press_y = y;
   ctx->dragging = false;
   ctx->has_ungrab = false;
+  ctx->press_button = 1;
   ctx->off_x = ctx->off_y = 0;
   if (ctx->modal) {
     BKEvent e = make_event(ctx, ctx->modal, x, y, mods);
@@ -2244,8 +2245,22 @@ static int in_BK_release(BKContext *ctx, int x, int y, int mods)
 
 static void raw_event(BKNode *n, int kind, int mods, const BKEvent *e, int button);
 
+static BKNode *buttons_target(BKContext *ctx, int x, int y)
+{
+  if (ctx->modal || ctx->npopups) {
+    return NULL;
+  }
+  BKNode *n = hit_all(ctx, x, y);
+  return n && (n->cls->flags & CLS_BUTTONS) && NODE_ENABLED(n) ? n : NULL;
+}
+
 static int in_BK_context_menu(BKContext *ctx, int x, int y, int mods)
 {
+  if (buttons_target(ctx, x, y) && !ctx->grab) { /* an editor takes the right button */
+    const int r = in_BK_press(ctx, x, y, mods | BK_BUTTON3);
+    ctx->press_button = 3;
+    return r;
+  }
   hide_tooltip(ctx);
   if (ctx->modal) {
     bk_end_modal(ctx);
@@ -3029,6 +3044,25 @@ int BK_key_release(BKContext *ctx, const char *keysym, int mods)
 
 int BK_button(BKContext *ctx, int x, int y, int button, int release, int mods)
 {
+  if (button == 2 || button == 3) { /* editors: middle drags, right drags */
+    const int bit = button == 2 ? BK_BUTTON2 : BK_BUTTON3;
+    if (!release && button == 2 && !ctx->grab && buttons_target(ctx, x, y)) {
+      ctx->in_input++;
+      in_BK_press(ctx, x, y, mods | bit);
+      ctx->press_button = button;
+      ctx->in_input--;
+      bk_views_check(ctx);
+      return 1;
+    }
+    if (release && ctx->grab && ctx->press_button == button) {
+      ctx->press_button = 0;
+      ctx->in_input++;
+      in_BK_release(ctx, x, y, mods | bit);
+      ctx->in_input--;
+      bk_views_check(ctx);
+      return 1;
+    }
+  }
   BKNode *under = hit_all(ctx, x, y);
   if (!under || !(under->flags & NF_EVENTS)) {
     return 0;

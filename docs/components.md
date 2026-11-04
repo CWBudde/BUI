@@ -177,6 +177,38 @@ item. Right-clicking a value opens its context menu (Copy, Paste, Reset).
 | `IDSelector` | `IDSelector(items, value, *, icon="MESH_DATA", fake_user=False, on_change, on_new, on_unlink)`: Blender's `template_ID` |
 | `PathField` | `PathField(label, value, *, directory=False, on_browse=None, on_change=None)` |
 
+## Node editor and areas
+
+```python
+from bui.components import Area, MenuButton, Node, NodeEditor, Spacer
+
+value = Node("Value", outputs=[("Value", "float")], location=(-200, 0), kind="input")
+math = Node("Math", inputs=[("A", "float", 0.5), ("B", "float", 0.5)],
+            outputs=[("Result", "float")], location=(0, 0), kind="converter")
+editor = NodeEditor([value, math], links=[(value, 0, math, 0)],
+                    on_links=lambda links: print(links))
+area = Area("Geometry Node Editor", editor,
+            header=[MenuButton("View", ["Frame All"]), Spacer()],
+            on_editor=print)
+```
+
+- **`Node`**:
+  - `inputs` are `(name, type)` or `(name, type, value)`; a value draws a field while the input is unlinked.
+  - `outputs` are `(name, type)`, and types color the sockets.
+  - `kind` picks the header color (`input`, `output`, `shader`, `texture`, `color`, `vector`, `converter`, `geometry`, `group` …), or pass `color=`.
+  - `on_change(node, what, value)` reports `location`, `select`, `value` and `collapsed`.
+- **`NodeEditor`**:
+  - `links` are `(from_node, output, to_node, input)`.
+  - `on_links(links)` runs after the user links, relinks or cuts.
+  - `on_delete(nodes)` runs on X / Delete; without it, the editor removes the selected nodes itself.
+- **Editing, as in Blender:**
+  - click selects (Shift toggles); dragging moves the selection (Ctrl snaps);
+  - dragging on empty space box-selects;
+  - dragging from a socket links; dragging a linked input picks its link up;
+  - Ctrl+RMB drag cuts links.
+- **View:** MMB pans, Ctrl+MMB and the wheel zoom, Ctrl/Shift+wheel pan, and Home frames everything.
+- **`Area`**: a 1.3-unit header with the editor-type menu, then the editor filling the rest. A `Spacer()` in `header` pushes the items after it to the right.
+
 ## Interactions
 
 All of these come from Blender and run in C, in every API (components,

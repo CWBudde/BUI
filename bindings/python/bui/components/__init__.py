@@ -26,11 +26,12 @@ SPDX-License-Identifier: GPL-2.0-or-later
 """
 
 from bui.components.app import App
-from bui.components.containers import (Box, Column, Grid, Panel, Row, ScrollView, Sidebar, SideTabs,
+from bui.components.containers import (Area, AreaHeader, Box, Column, Grid, Panel, Row, ScrollView, Sidebar, SideTabs,
                                        Split, Tabs, VectorField)
 from bui.components.core import Component, ValueComponent, unit
 from bui.components.editors import (ColorRamp, ColorStop, CurveMapping, Histogram, NormalBall,
                                     Popover)
+from bui.components.nodes import Node, NodeEditor
 from bui.components.menus import Menu, MenuBar, MenuButton, MenuItem, PieMenu
 from bui.components.templates import IDSelector, PathField
 from bui.components.views import GridView, ListView, TreeItem, TreeView
@@ -42,7 +43,7 @@ from bui.components.widgets import (Button, Checkbox, ColorSwatch, Decorator, Dr
 __all__ = [
     "App", "Component", "ValueComponent", "unit",
     # layout
-    "Column", "Row", "Split", "Grid", "Box", "Panel", "Tabs", "SideTabs", "Sidebar", "ScrollView",
+    "Column", "Row", "Split", "Grid", "Box", "Panel", "Tabs", "SideTabs", "Sidebar", "ScrollView", "Area", "AreaHeader",
     "VectorField",
     # widgets
     "Label", "Separator", "Spacer", "ProgressBar", "Button", "IconButton", "Toggle",
@@ -54,5 +55,5 @@ __all__ = [
     "Menu", "MenuItem", "MenuButton", "MenuBar", "PieMenu", "Popover",
     # editors & templates
     "ColorRamp", "ColorStop", "CurveMapping", "NormalBall", "Histogram",
-    "IDSelector", "PathField",
+    "IDSelector", "PathField", "NodeEditor", "Node",
 ]

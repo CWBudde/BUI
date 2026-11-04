@@ -42,6 +42,7 @@ All notable changes to **blenderui** (BUI). The format follows
   - **Threshold:** the movement inside the drag threshold is ignored, so values don't jump when a drag starts.
   - **Clicks:** Ctrl+click types a value. A drag that changed nothing counts as a click.
   - **Escape** cancels a drag and restores the values.
+- **Dropdown chevrons** are drawn as thick as the shader's menu triangle bars.
 - **Checkboxes:** the checkmark is the one Blender's widget shader draws (two 0.14-unit bars, `ROUNDBOX_TRIA_CHECK`), so it fits inside the box. Label text starts right after the box.
 - **Labels without icons** are inset one pixel instead of a text margin (`BUT_NO_TEXT_PADDING`), so right-aligned property labels line up as in Blender.
 - **`Split`** is its own `split` layout, with its columns `columnspace` (0.4 units) apart, as `Layout::split` spaces them.
@@ -51,9 +52,29 @@ All notable changes to **blenderui** (BUI). The format follows
   - header widgets start at `panel_label_offset`, and the title follows them.
 
 ### Added (components)
+- **`NodeEditor` / `Node`** (`kit/intern/kit_nodes.c`): Blender's node editor canvas, ported from `space_node` (`node_draw.cc`, `drawnode.cc`, `node_select.cc`, `node_relationships.cc`) and `view2d_ops.cc`.
+  - **Drawing:**
+    - nodes with headers in the theme's node-class colors and outlines for selected and active nodes;
+    - sockets colored by type;
+    - number fields on unlinked inputs;
+    - bezier links (`noodle_curving` 4), colored by socket type;
+    - Blender's dot grid.
+  - **Editing:** select (Shift toggles), move (Ctrl snaps), box select, drag sockets to link, drag a linked input to pick its link up, Ctrl+RMB to cut links, drag input fields to change values.
+  - **View and keys:** MMB pans and Ctrl+MMB zooms; the wheel zooms about the cursor (Ctrl/Shift+wheel pans). X / Delete deletes, A / Alt+A selects or deselects all, H collapses, Home frames all.
+- **`Area` / `AreaHeader`**: an editor area. A 1.3-unit header (`HEADERY`) with the editor-type menu, items laid out from `UI_HEADER_OFFSET`, and `Spacer()`s pushing the rest right; the editor fills the space below.
+- **Middle and right mouse buttons for editors:** classes flagged `CLS_BUTTONS` get middle and right presses as press, drag and release, with `BK_BUTTON2` / `BK_BUTTON3` in the event's modifiers.
 - **`Sidebar`**: an editor's N-panel. Panels with a `category` show under vertical tabs with rotated labels (`panel_category_tabs_draw_all`); Ctrl+Wheel cycles them.
 - **`fill=True`**: in a column, the component takes the spare height, as a region fills its area.
 - **`tools/blender_compare.py`**: renders BUI's version of a piece of Blender's UI next to a capture from a real Blender. **`tools/png_pixels.py`** reads pixels from PNGs.
+
+### Added (platforms)
+- **Linux: native windows on X11** (`kit/intern/kit_window_x11.c`, the same `BK_window_*` API as Win32). Wayland sessions run it through XWayland.
+  - **Input:** button and key mapping after Blender's `GHOST_SystemX11`; key repeat filtered.
+  - **Window:** `Xft.dpi` scale, `CLIPBOARD` copy and paste, cursors (hidden while scrubbing), pointer warp, size hints.
+  - **Loop:** timers, frame pacing and a pipe for cross-thread wakes, in one `select()` loop.
+  - **Drawing:** damaged rectangles are put with `XPutImage`.
+- The window host is now split by platform: `kit_window_win32.c`, `kit_window_x11.c` and `kit_window_null.c` (others).
+- **The C libraries and the Python module build on Linux:** missing POSIX headers fixed, `libm` linked, position-independent code. All C and Python suites pass on Linux (Kali under WSLg), including a new native-window smoke test (`tests/window_smoke.c`).
 
 ### Added (JavaScript: `@blender-ui/native` 0.2.0, `@blender-ui/react` 0.1.0)
 - **`@blender-ui/native`** (`bindings/node`, napi-rs crate `blenderui-node`): BUI from JavaScript in native windows, GPUIX style, on **Node.js and Bun**.

@@ -82,7 +82,7 @@ def test_damage_reaches_right_edge():
 def test_window_matches_buffer_after_real_events():
     """Drive the native window with real Win32 messages and compare what the
     window shows with the frame buffer."""
-    if not host.native_available():
+    if not host.native_available() or sys.platform != "win32":
         return
     import ctypes
     import time
