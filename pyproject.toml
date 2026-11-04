@@ -71,3 +71,8 @@ input = "bindings/python/bui/_version.py"
 build = "cp311-* cp312-* cp313-* cp314-*"
 skip = "*-musllinux_* *-win32 *_i686"
 test-command = "python -c \"import blenderui, buipy, blenderui.tksyntax, blenderui.components; print(blenderui.__version__)\""
+
+[tool.cibuildwheel.linux]
+# The X11 headers, so Linux wheels get the native window host. libX11 itself
+# is loaded at run time (dlopen), so the wheels still import without it.
+before-all = "dnf install -y libX11-devel || yum install -y libX11-devel || (apt-get update && apt-get install -y libx11-dev)"

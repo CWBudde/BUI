@@ -30,6 +30,133 @@
 #  include <time.h>
 #  include <unistd.h>
 
+#  include <dlfcn.h>
+
+/* libX11 is loaded when the first window opens, not linked: a build with the
+ * X11 headers (every Linux wheel) imports fine on servers and containers
+ * without X11, and draws native windows wherever X11 (or XWayland) exists.
+ * Every Xlib function below goes through a pointer filled by dlsym. */
+#  define BK_X11_FUNCS(F)   F(XAllocSizeHints) \
+  F(XChangeProperty) \
+  F(XCheckTypedWindowEvent) \
+  F(XConvertSelection) \
+  F(XCreateBitmapFromData) \
+  F(XCreateFontCursor) \
+  F(XCreateGC) \
+  F(XCreateImage) \
+  F(XCreatePixmapCursor) \
+  F(XCreateWindow) \
+  F(XDefineCursor) \
+  F(XDestroyWindow) \
+  F(XEventsQueued) \
+  F(XFlush) \
+  F(XFree) \
+  F(XFreeGC) \
+  F(XFreePixmap) \
+  F(XGetSelectionOwner) \
+  F(XGetWindowProperty) \
+  F(XGetWMNormalHints) \
+  F(XInitThreads) \
+  F(XInternAtom) \
+  F(XKeysymToString) \
+  F(XLookupString) \
+  F(XLowerWindow) \
+  F(XMapWindow) \
+  F(XMoveWindow) \
+  F(XNextEvent) \
+  F(XOpenDisplay) \
+  F(XPeekEvent) \
+  F(XPending) \
+  F(XPutImage) \
+  F(XQueryPointer) \
+  F(XRaiseWindow) \
+  F(XResizeWindow) \
+  F(XResourceManagerString) \
+  F(XrmDestroyDatabase) \
+  F(XrmGetResource) \
+  F(XrmGetStringDatabase) \
+  F(XrmInitialize) \
+  F(XSendEvent) \
+  F(XSetInputFocus) \
+  F(XSetSelectionOwner) \
+  F(XSetWMNormalHints) \
+  F(XSetWMProtocols) \
+  F(XStoreName) \
+  F(XWarpPointer)
+
+#  define BK_X11_DECL(f) static __typeof__(&f) p_##f;
+BK_X11_FUNCS(BK_X11_DECL)
+
+/* 1 when libX11 is loaded and every function resolved. */
+static int x11_load(void)
+{
+  static int state = 0; /* 0 untried, 1 loaded, -1 unavailable */
+  if (state) {
+    return state > 0;
+  }
+  void *lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
+  if (!lib) {
+    lib = dlopen("libX11.so", RTLD_NOW | RTLD_LOCAL);
+  }
+  state = -1;
+  if (!lib) {
+    return 0;
+  }
+#  define BK_X11_LOAD(f)     if (!(p_##f = (__typeof__(&f))dlsym(lib, #f))) {       return 0;     }
+  BK_X11_FUNCS(BK_X11_LOAD)
+  state = 1;
+  return 1;
+}
+
+/* From here on, the Xlib names call through the loaded pointers. */
+#  define XAllocSizeHints (*p_XAllocSizeHints)
+#  define XChangeProperty (*p_XChangeProperty)
+#  define XCheckTypedWindowEvent (*p_XCheckTypedWindowEvent)
+#  define XConvertSelection (*p_XConvertSelection)
+#  define XCreateBitmapFromData (*p_XCreateBitmapFromData)
+#  define XCreateFontCursor (*p_XCreateFontCursor)
+#  define XCreateGC (*p_XCreateGC)
+#  define XCreateImage (*p_XCreateImage)
+#  define XCreatePixmapCursor (*p_XCreatePixmapCursor)
+#  define XCreateWindow (*p_XCreateWindow)
+#  define XDefineCursor (*p_XDefineCursor)
+#  define XDestroyWindow (*p_XDestroyWindow)
+#  define XEventsQueued (*p_XEventsQueued)
+#  define XFlush (*p_XFlush)
+#  define XFree (*p_XFree)
+#  define XFreeGC (*p_XFreeGC)
+#  define XFreePixmap (*p_XFreePixmap)
+#  define XGetSelectionOwner (*p_XGetSelectionOwner)
+#  define XGetWindowProperty (*p_XGetWindowProperty)
+#  define XGetWMNormalHints (*p_XGetWMNormalHints)
+#  define XInitThreads (*p_XInitThreads)
+#  define XInternAtom (*p_XInternAtom)
+#  define XKeysymToString (*p_XKeysymToString)
+#  define XLookupString (*p_XLookupString)
+#  define XLowerWindow (*p_XLowerWindow)
+#  define XMapWindow (*p_XMapWindow)
+#  define XMoveWindow (*p_XMoveWindow)
+#  define XNextEvent (*p_XNextEvent)
+#  define XOpenDisplay (*p_XOpenDisplay)
+#  define XPeekEvent (*p_XPeekEvent)
+#  define XPending (*p_XPending)
+#  define XPutImage (*p_XPutImage)
+#  define XQueryPointer (*p_XQueryPointer)
+#  define XRaiseWindow (*p_XRaiseWindow)
+#  define XResizeWindow (*p_XResizeWindow)
+#  define XResourceManagerString (*p_XResourceManagerString)
+#  define XrmDestroyDatabase (*p_XrmDestroyDatabase)
+#  define XrmGetResource (*p_XrmGetResource)
+#  define XrmGetStringDatabase (*p_XrmGetStringDatabase)
+#  define XrmInitialize (*p_XrmInitialize)
+#  define XSendEvent (*p_XSendEvent)
+#  define XSetInputFocus (*p_XSetInputFocus)
+#  define XSetSelectionOwner (*p_XSetSelectionOwner)
+#  define XSetWMNormalHints (*p_XSetWMNormalHints)
+#  define XSetWMProtocols (*p_XSetWMProtocols)
+#  define XStoreName (*p_XStoreName)
+#  define XWarpPointer (*p_XWarpPointer)
+
 #  define MAX_TIMERS 64
 
 typedef struct Timer {
@@ -75,6 +202,9 @@ static int open_display(void)
 {
   if (g_dpy) {
     return 1;
+  }
+  if (!x11_load()) {
+    return 0; /* no libX11: headless, or the Tk host from Python */
   }
   XInitThreads();
   g_dpy = XOpenDisplay(NULL);

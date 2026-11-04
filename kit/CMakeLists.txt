@@ -40,10 +40,14 @@ if(WIN32)
   target_link_libraries(bui_kit PRIVATE user32 gdi32)
 elseif(UNIX AND NOT APPLE)
   # Native windows on X11 (Wayland sessions run it through XWayland).
-  find_package(X11)
-  if(X11_FOUND)
+  # Only the headers are needed: libX11 is dlopen()ed at run time, so builds
+  # (and wheels) run without X11 installed and open windows where it is.
+  find_path(BUI_X11_INCLUDE X11/Xlib.h)
+  if(BUI_X11_INCLUDE)
     target_compile_definitions(bui_kit PRIVATE BUI_WINDOW_X11)
-    target_include_directories(bui_kit PRIVATE ${X11_INCLUDE_DIR})
-    target_link_libraries(bui_kit PUBLIC ${X11_LIBRARIES})
+    target_include_directories(bui_kit PRIVATE ${BUI_X11_INCLUDE})
+    target_link_libraries(bui_kit PUBLIC ${CMAKE_DL_LIBS})
+  else()
+    message(STATUS "BUI: X11 headers not found; no native Linux windows (Tk / headless only)")
   endif()
 endif()
