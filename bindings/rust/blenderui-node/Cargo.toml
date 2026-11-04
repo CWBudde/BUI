@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 blenderui = { path = "../blenderui" }
+blenderui-jsview = { path = "../blenderui-jsview" }
 napi = { version = "2.16", default-features = false, features = ["napi6"] }
 napi-derive = "2.16"
 

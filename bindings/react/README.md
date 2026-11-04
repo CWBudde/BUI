@@ -1,16 +1,25 @@
 # @blender-ui/react
 
-A React 19 renderer for [BUI](https://github.com/ppmpreetham/BUI): JSX
-rendered with Blender's UI toolkit in native windows, with no browser and no
-Electron. It runs on Node.js and Bun. React's hooks are exported by their own
-names, with signals underneath, so a state change can update a single node
-without re-rendering its component.
+[![npm](https://img.shields.io/npm/v/@blender-ui/react)](https://www.npmjs.com/package/@blender-ui/react)
+[![license](https://img.shields.io/npm/l/@blender-ui/react)](https://github.com/ppmpreetham/BUI/blob/main/LICENSE)
+
+React 19 for the desktop, drawn by [BUI](https://github.com/ppmpreetham/BUI),
+Blender's UI toolkit. You write JSX with HTML elements, CSS and Tailwind
+classes, and BUI renders it in native windows on the CPU or the GPU. There's
+no browser, no webview and no Electron.
+
+- **React's hooks, by React's names, holding signals.** A change updates the
+  one node that shows it, without re-rendering the component.
+- **Node.js and Bun.**
+- **One small executable:** `bui build` makes an app of about 5 MB that
+  reaches its first frame in about 70 ms.
 
 ```sh
-npm install @blender-ui/react react
+npm install @blender-ui/react react        # or: bun add @blender-ui/react react
 ```
 
 ```jsx
+/** @jsxImportSource @blender-ui/react */
 import { render, useState } from '@blender-ui/react'
 
 function Counter () {
@@ -26,24 +35,29 @@ function Counter () {
 render(<Counter />, { title: 'Counter', width: 360, height: 200, gpu: true })
 ```
 
-Set `"jsxImportSource": "@blender-ui/react"` in your `tsconfig.json`, or in
-your bundler's JSX options. This does two things: components re-render when
-a signal they read while rendering changes, and in TypeScript, host-element
-props accept signals.
+```sh
+bun app.jsx                 # run it (Bun reads JSX as is)
+npx bui build app.jsx       # ship it: app.exe, one ~5 MB file
+```
+
+Put `"jsxImportSource": "@blender-ui/react"` in your `tsconfig.json`, or in
+your bundler's JSX options; the `/** @jsxImportSource */` comment works per
+file. Without JSX, use this package's `createElement`.
 
 ## Hooks
 
 The hooks have React's names, arguments and timing, but the state they hold
 is a **signal**:
 
-- **Passed as a prop or child** (`<span>{count}</span>`,
-  `style={styleMemo}`): a change updates that node. The component doesn't
-  re-render.
+- **Passed into JSX** (`<span>{count}</span>`, `style={styleMemo}`,
+  `style={{ color: colorSignal }}`): a change updates that node. The
+  component doesn't re-render.
 - **Read while rendering** (`count.value`; in plain JavaScript also
   `count + 1` or `count > 5`): the component re-renders when it changes, as
-  with React. TypeScript needs `.value` for arithmetic.
-- **Conditions and `===` need `.value`.** A signal is an object, so it's always
-  truthy: write `{isPending.value && <Spinner />}` and `count.value === 0`.
+  with React.
+- **Conditions and `===` need `.value`.** A signal is an object, so it's
+  always truthy: write `{isPending.value && <Spinner />}` and
+  `count.value === 0`. TypeScript also needs `.value` for arithmetic.
 
 | Hook | Returns |
 |---|---|
@@ -52,7 +66,7 @@ is a **signal**:
 | `useMemo(fn, deps?)` | a memo, recomputed when the signals it reads change |
 | `useRef(v)` | `{ current }`, observable by effects and memos |
 | `useCallback(fn, deps?)` / `useEffectEvent(fn)` | a function whose calls are batched |
-| `useEffect` / `useLayoutEffect` / `useInsertionEffect` | React's timing and deps, plus a re-run when signals the effect read change |
+| `useEffect` / `useLayoutEffect` / `useInsertionEffect` | React's timing and deps, plus a re-run when the signals the effect read change |
 | `useSyncExternalStore(subscribe, get)` | a signal following the store |
 | `useTransition()` | `[isPending, startTransition]`; signal updates run after urgent ones |
 | `useDeferredValue(value, initial?)` | a signal that follows `value` at low priority |
@@ -67,35 +81,85 @@ Also exported:
 - **Plain signals:** `signal`, `computed`, `effect`, `batch`, `untrack`,
   `startTransition`.
 
-Want React's plain-value hooks instead? Import them from `react`; they work
-here too.
+React's plain-value hooks still work: import them from `react`.
 
-Every hook is built from React's public hooks. A test suite runs each one
-beside React's original, in development and production builds and under
-StrictMode. The suite fails when a new React release adds a hook this package
-doesn't cover yet.
+Every hook is built from React's public hooks. A conformance suite runs each
+one beside React's original, in development and production builds and under
+StrictMode. It fails when a React release adds a hook this package doesn't
+cover yet.
 
 ## The renderer
 
 - **Host components are HTML elements.** `className` takes Tailwind classes,
-  `style` takes strings, objects or signals. `onClick`, `onChange` and the
-  other mouse and keyboard handlers work. Events bubble, and
+  `style` takes strings, objects or signals, and the mouse, keyboard and form
+  events work (`onClick`, `onChange` ...). Events bubble, and
   `stopPropagation` works.
 - **One native batch per commit:** only what changed crosses to BUI's UI
   thread.
-- **React 19.3 features:** `<Suspense>`, `<Activity>`, transitions, actions,
-  and `<ViewTransition>` (it commits, without animating).
+- **React 19.3:** `<Suspense>`, `<Activity>`, transitions, actions and
+  `<ViewTransition>`, which commits without animating.
 - **API:** `render(element, options)` opens a window. `createRoot(window)`
-  renders into a window you opened with
-  [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native).
-  `act(fn)` is for tests.
+  renders into one you opened with
+  [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native),
+  and `act(fn)` is for tests.
+  - Window options: `title`, `width`, `height`, `resizable`, `gpu`,
+    `headless`.
+
+## Standalone apps
+
+`bui` comes with this package, through `@blender-ui/native`:
+
+```sh
+npx bui build app.jsx              # app.exe: BUI + embedded QuickJS, ~5 MB
+npx bui build app.jsx --bun        # app.exe: Bun, with Node's APIs and a JIT, ~115 MB
+npx bui run app.jsx                # run on the QuickJS runtime, no build
+```
+
+Options:
+
+- `-o <file>`: the output file.
+- `--console`: keep a console window for logs.
+- `--dev`: React's development build.
+
+Bundling uses [Bun](https://bun.sh), so it must be installed.
+
+The default build runs your app on QuickJS, a small JavaScript engine embedded
+in BUI. It has no Node modules (`fs` and the like) and no JIT, so keep large
+lists updating through signals, or use `--bun`.
+
+## Benchmarks
+
+Ryzen 7 5800U laptop, Windows 11, GPU renderer, React's production build.
+The full method is in the [guide](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md#performance).
+
+**Startup:** a small React app that quits at its first frame; medians of 12
+launches.
+
+| | First frame | Launch to exit | RAM | Size |
+|---|---:|---:|---:|---:|
+| **`bui build`** (QuickJS) | **68 ms** | **104 ms** | **19 MB** | **4.9 MB** |
+| `bui build --bun` | 79 ms | 147 ms | 35 MB | 114 MB |
+| `bun app.js` | 80 ms | 152 ms | 35 MB | |
+| `node app.js` | 108 ms | 187 ms | 45 MB | |
+
+**Animation:** 3,000 cells, one changing per frame.
+
+- **With signals:** the changing values are signals, so the grid renders once.
+- **With state:** the grid re-renders every frame.
+
+| 3,000 cells | FPS | CPU per frame | RAM |
+|---|---:|---:|---:|
+| Bun: with signals / with state | 58.4 / 55.8 | 13.3 / 20.8 ms | 85 / 118 MB |
+| Node: with signals / with state | 56.7 / 54.8 | 14.0 / 18.9 ms | 93 / 121 MB |
+| QuickJS: with signals / with state | 58.7 / 19.7 | 14.9 / 51.0 ms | 61 / 67 MB |
+| *Rust, for reference* | 59.6 | 12.0 ms | 43 MB |
 
 ## Requirements
 
-- Windows x64 for native windows; `headless: true` renders off-screen.
-- Node.js 18 or newer, or Bun.
-- React 19.3.
+- **Windows x64** for native windows; `headless: true` renders off-screen.
+- **Node.js 18** or newer, or Bun.
+- **React 19.3.**
 
-Guide, benchmarks and internals:
-[docs/javascript.md](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md).
-License: GPL-2.0-or-later.
+Guide: [docs/javascript.md](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md) ·
+Source: [github.com/ppmpreetham/BUI](https://github.com/ppmpreetham/BUI) ·
+License: GPL-2.0-or-later

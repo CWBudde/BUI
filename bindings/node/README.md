@@ -1,13 +1,19 @@
 # @blender-ui/native
 
-Blender's UI toolkit from JavaScript: native windows drawn on the CPU or with
-Direct3D 11, HTML elements, CSS and Tailwind classes, and signals. It runs on
-Node.js and Bun through a native addon (napi-rs), with no browser and no
-Electron. For React, see
-[`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react).
+[![npm](https://img.shields.io/npm/v/@blender-ui/native)](https://www.npmjs.com/package/@blender-ui/native)
+[![license](https://img.shields.io/npm/l/@blender-ui/native)](https://github.com/ppmpreetham/BUI/blob/main/LICENSE)
+
+[BUI](https://github.com/ppmpreetham/BUI), Blender's UI toolkit, from
+JavaScript. It gives you native windows drawn on the CPU or with Direct3D 11,
+HTML elements, CSS and Tailwind classes, and signals. It runs on Node.js and
+Bun through a napi-rs addon, and `bui build` turns an app into a single
+executable of about 5 MB. There's no browser and no webview.
+
+For React, use [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react),
+which is built on this package.
 
 ```sh
-npm install @blender-ui/native
+npm install @blender-ui/native        # or: bun add @blender-ui/native
 ```
 
 ```js
@@ -30,40 +36,91 @@ win.body.appendChild(button)
 ## API
 
 - **A DOM-like tree:** `createElement`, `createTextNode`, `appendChild`,
-  `insertBefore`, `removeChild`, `setAttribute`, `className` (with Tailwind
-  classes), `style` (a string or an object), `textContent`.
+  `insertBefore`, `removeChild`, `setAttribute`, `className` (Tailwind
+  classes included), `style` (a string or an object), `textContent`.
+  - Moving nodes and the error cases behave as in the DOM.
+  - `destroy()` frees a removed subtree natively.
 - **Events:** `addEventListener` for `click`, `mousedown`, `mouseup`,
   `mousemove`, `mouseenter`, `mouseleave`, `wheel`, `keydown`, `keyup`, `input`
-  and `change`. They bubble through the tree, and `stopPropagation()` works.
-  They arrive after BUI has handled them, so `preventDefault()` only marks the
-  event.
+  and `change`.
+  - They bubble through the tree, and `stopPropagation()` works.
+  - They arrive after BUI has handled them, so `preventDefault()` only marks
+    the event.
 - **Frames and measurement:** `win.requestAnimationFrame(cb)` is paced by the
   display. `el.getBoundingClientRect()` and `win.screenshot()` return
   promises.
 - **Signals:** `signal`, `memo`, `effect`, `batch`, `untrack`,
-  `startTransition`. Pass a signal to `setAttribute`, `style`, `textContent`
-  or `createTextNode`, and its changes update that node alone. The signals are
-  also available without the addon: `require('@blender-ui/native/signals')`.
+  `startTransition`.
+  - Pass a signal to `setAttribute`, `style` (or inside a style object),
+    `textContent` or `createTextNode`, and its changes update that node
+    alone.
+  - Memos and effects track what they read, are glitch-free, and need no
+    dependency arrays.
+  - Without the addon: `require('@blender-ui/native/signals')`.
 - **Tests:** `new App({ headless: true })` renders off-screen, and
   `win.click(x, y)` simulates input.
+
+## Standalone apps
+
+```sh
+npx bui build app.js           # app.exe: BUI + embedded QuickJS, ~5 MB
+npx bui build app.js --bun     # app.exe: Bun, with Node's APIs and a JIT, ~115 MB
+npx bui run app.js             # run on the QuickJS runtime, no build
+```
+
+Options:
+
+- `-o <file>`: the output file.
+- `--console`: keep a console window for logs (Windows builds open none).
+- `--dev`: React's development build.
+
+Bundling uses [Bun](https://bun.sh), so it must be installed.
+
+**How the default build works.** It appends your bundled app to `bui-runtime`,
+BUI with the QuickJS engine embedded. That takes under a second and compiles
+nothing.
+
+- **It's fast to start:** the result reaches its first frame in about 70 ms
+  and uses 19 MB of RAM there.
+- **It's limited:** no Node modules (`fs` and the like) and no JIT. Keep
+  frequent updates on signals, or use `--bun`.
 
 ## How it's fast
 
 - **Its own UI thread:** BUI renders on a thread of its own, so it never
-  blocks Node and an idle window uses no CPU.
-- **Only changes cross:** each tick, a window sends one batch of operations
-  (an `Int32Array` and a string table) to the UI thread.
+  blocks JavaScript, and an idle window uses no CPU.
+- **Only changes cross:** each tick, a window sends one batch of operations,
+  an `Int32Array` and a string table.
 - **Styles parsed once:** a `style` value is parsed when it's set, not every
   frame.
 
+## Benchmarks
+
+Ryzen 7 5800U laptop, Windows 11, GPU renderer. Method:
+[guide](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md#performance).
+
+| Startup (small app, quits at first frame) | First frame | Launch to exit | RAM | Size |
+|---|---:|---:|---:|---:|
+| **`bui build`** (QuickJS) | **68 ms** | **104 ms** | **19 MB** | **4.9 MB** |
+| `bui build --bun` | 79 ms | 147 ms | 35 MB | 114 MB |
+| `bun app.js` | 80 ms | 152 ms | 35 MB | |
+| `node app.js` | 108 ms | 187 ms | 45 MB | |
+
+| 3,000 cells, one changing per frame | FPS | CPU per frame | RAM |
+|---|---:|---:|---:|
+| Bun | 58.8 | 13.1 ms | 80 MB |
+| Node.js | 55.8 | 14.4 ms | 88 MB |
+| QuickJS (`bui build`) | 59.1 | 16.3 ms | 56 MB |
+| *Rust, for reference* | 59.6 | 12.0 ms | 43 MB |
+
 ## Requirements
 
-- **Prebuilt for Windows x64.** On other platforms, build from a clone of the
+- **Prebuilt for Windows x64.** Elsewhere, build from a clone of the
   [repository](https://github.com/ppmpreetham/BUI) with `npm run build` in
-  `bindings/node`. That needs Rust, CMake and a C compiler; native windows
-  there are not supported yet, so use `headless: true`.
+  `bindings/node`. You need Rust, CMake and a C compiler, and native windows
+  aren't supported there yet, so use `headless: true`.
 - **Runtimes:** Node.js 18 or newer, or Bun.
 
-Guide, benchmarks and internals:
-[docs/javascript.md](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md).
-License: GPL-2.0-or-later.
+Guide: [docs/javascript.md](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md) ·
+Source: [github.com/ppmpreetham/BUI](https://github.com/ppmpreetham/BUI) ·
+License: GPL-2.0-or-later

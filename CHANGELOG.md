@@ -6,7 +6,7 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
-### Added (JavaScript)
+### Added (JavaScript: `@blender-ui/native` 0.2.0, `@blender-ui/react` 0.1.0)
 - **`@blender-ui/native`** (`bindings/node`, napi-rs crate `blenderui-node`): BUI from JavaScript in native windows, GPUIX style, on **Node.js and Bun**.
   - A DOM-like API: `createElement`, `setAttribute`, `appendChild`, `insertBefore`, `addEventListener` (events bubble; `stopPropagation` works), `requestAnimationFrame`, `getBoundingClientRect`, `screenshot`.
   - BUI runs on its own UI thread, so JavaScript is never blocked and an idle UI uses no CPU.
@@ -25,6 +25,13 @@ All notable changes to **blenderui** (BUI). The format follows
   - **Conformance suite:** runs each hook beside React's original (development and production builds, StrictMode). It fails when React adds a hook that isn't covered, which caught React 19.2's `useEffectEvent`.
   - **JSX runtime** (`"jsxImportSource": "@blender-ui/react"`): render tracking for components, and types that let host props take signals.
   - **Host components:** HTML host components, `className` / `style` objects / events, and one native batch per commit. `<Suspense>`, `<Activity>`, actions and `<ViewTransition>` (without animation) work.
+- **Standalone executables** (`bui build`, in `@blender-ui/native`):
+  - **Default:** `bui-runtime` (new crate `blenderui-qjs`), BUI with an embedded QuickJS engine (4.9 MB). It runs both packages unchanged, with JavaScript on the UI thread. An app is the runtime with its bundle appended: about 5 MB, first frame in about 70 ms at 19 MB of RAM, and no console window on Windows.
+  - **`--bun`:** compiles a Bun executable with the addon embedded.
+  - **`bui run`:** runs an app on the QuickJS runtime without building.
+- **`blenderui-jsview`** (new crate): the op decoder, mirrored tree, event listeners and window operations, shared by the napi addon and the QuickJS runtime.
+- **Style objects holding signals** (`style={{ color: colorSignal }}`) are bound: only that node's style updates.
+- **Startup benchmark** (`bench/startup.js`): first frame, launch to exit, RAM and size, for Node, Bun, the Bun executable and the QuickJS executable.
 - **Benchmarks** for JavaScript (`bindings/node/bench/cells.js`, Node or Bun) measure CPU with the process cycle counter, as the Rust benchmark does.
 - **Rust:**
   - `UiSender` / `App::ui_sender()`: run closures on the UI thread from any thread.

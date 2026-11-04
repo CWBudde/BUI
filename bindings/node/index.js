@@ -10,21 +10,26 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 'use strict'
 
-const path = require('node:path')
+// The native layer: the QuickJS runtime's built-in one (bui-runtime, apps
+// made by `bui build`), or the napi addon (Node.js, Bun).
+const native = globalThis.__BUI_NATIVE__ ?? loadAddon()
 
-const addon = process.env.BUI_NODE_ADDON ||
-  path.join(__dirname, `blenderui.${process.platform}-${process.arch}.node`)
-let native
-try {
-  native = require(addon)
-} catch (err) {
-  throw new Error(`@blender-ui/native: no native addon for ${process.platform}-${process.arch} (${addon}). ` +
-    'Prebuilt binaries are for Windows x64; elsewhere, build it from a clone of ' +
-    'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler).',
-  { cause: err })
+function loadAddon () {
+  const env = process.env.BUI_NODE_ADDON
+  try {
+    // a literal path where a prebuilt binary exists: `bun build --compile` (and
+    // other bundlers) can then embed the addon in the executable
+    if (!env && process.platform === 'win32' && process.arch === 'x64') return require('./blenderui.win32-x64.node')
+    return require(env || require('node:path').join(__dirname, `blenderui.${process.platform}-${process.arch}.node`))
+  } catch (err) {
+    throw new Error(`@blender-ui/native: no native addon for ${process.platform}-${process.arch}. ` +
+      'Prebuilt binaries are for Windows x64; elsewhere, build it from a clone of ' +
+      'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler).',
+    { cause: err })
+  }
 }
 const signals = require('./signals')
-const { isSignal, effect, unowned } = signals
+const { isSignal, effect, unowned, memo } = signals
 
 // Keep in sync with bindings/rust/blenderui-node/src/lib.rs.
 const OP = { CREATE: 0, TEXT: 1, SET_ATTR: 2, REMOVE_ATTR: 3, APPEND: 4, INSERT: 5, REMOVE: 6, SET_TEXT: 7, LISTEN: 8, FREE: 9 }
@@ -246,7 +251,13 @@ class Element extends Node {
   set className (v) { this.setAttribute('class', v) }
   get style () { return this._attrs.get('style') ?? '' }
   /** A CSS declaration string, or an object (`{ backgroundColor: 'red', width: 40 }`). */
-  set style (v) { this.setAttribute('style', typeof v === 'string' || isSignal(v) ? v : styleText(v)) }
+  set style (v) {
+    if (v == null) return this.removeAttribute('style')
+    if (typeof v === 'string' || isSignal(v)) return this.setAttribute('style', v)
+    // an object: plain values, or some signals (`{ color: colorSignal }`), then bound
+    for (const k in v) if (isSignal(v[k])) return this.setAttribute('style', memo(() => styleText(v)))
+    this.setAttribute('style', styleText(v))
+  }
   get textContent () { return super.textContent }
   set textContent (t) {
     for (const c of [...this.childNodes]) { this.removeChild(c); c.destroy() }
@@ -310,7 +321,8 @@ const UNITLESS = new Set(['opacity', 'z-index', 'flex', 'flex-grow', 'flex-shrin
 function styleText (o) {
   let s = ''
   for (const k in o) {
-    const v = o[k]
+    const raw = o[k]
+    const v = isSignal(raw) ? raw.value : raw // read: a memo around this follows it
     if (v == null || v === false || v === '') continue
     const prop = k.startsWith('--') ? k : k.replace(/[A-Z]/g, m => '-' + m.toLowerCase())
     s += `${prop}: ${typeof v === 'number' && v !== 0 && !UNITLESS.has(prop) ? v + 'px' : v}; `

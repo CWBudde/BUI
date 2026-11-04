@@ -1,9 +1,12 @@
 {
   "name": "@blender-ui/native",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Blender's UI from JavaScript: native windows (CPU or Direct3D 11), HTML elements, CSS and Tailwind classes, signals. Node.js and Bun, through napi-rs.",
   "main": "index.js",
   "types": "index.d.ts",
+  "bin": {
+    "bui": "cli.js"
+  },
   "exports": {
     ".": {
       "types": "./index.d.ts",
@@ -16,7 +19,9 @@
     "index.js",
     "signals.js",
     "index.d.ts",
+    "cli.js",
     "blenderui.*.node",
+    "bui-runtime.*",
     "README.md",
     "LICENSE"
   ],

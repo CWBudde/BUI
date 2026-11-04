@@ -1,0 +1,12 @@
+[package]
+name = "blenderui-jsview"
+description = "The JavaScript view of a blenderui window, shared by the Node.js addon and the QuickJS runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blenderui = { path = "../blenderui" }

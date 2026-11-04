@@ -1,0 +1,18 @@
+[package]
+name = "blenderui-qjs"
+description = "bui-runtime: blenderui with an embedded QuickJS engine, for small standalone JavaScript apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "bui-runtime"
+path = "src/main.rs"
+
+[dependencies]
+blenderui = { path = "../blenderui" }
+blenderui-jsview = { path = "../blenderui-jsview" }
+rquickjs = { version = "0.14", features = ["classes", "properties", "array-buffer"] }

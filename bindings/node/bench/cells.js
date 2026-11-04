@@ -2,13 +2,16 @@
 // grid of N cells; every frame (16 ms) cell 0 changes colour and label.
 //   node bench/cells.js [cells=3000] [--react [--signals]] [--gpu] [--seconds=5]
 // --signals: cell 0's style and label are BUI signals; the grid renders once.
-// --dev: React's development build. Runs on Node or Bun (`bun bench/cells.js`).
+// --dev: React's development build. Runs on Node, Bun (`bun bench/cells.js`) or
+// the QuickJS runtime (`node cli.js run bench/cells.js -- 3000 --gpu`).
 // Prints frames per second, CPU per frame (the whole process: JavaScript,
 // BUI's UI thread, the runtime) and resident memory.
 'use strict'
 const args = process.argv.slice(2)
 // React's production build, as an app ships (--dev: the development build)
-if (!args.includes('--dev')) process.env.NODE_ENV = 'production'
+// (through a variable: bundlers replace `process.env.NODE_ENV` reads)
+const env = process.env
+if (!args.includes('--dev')) env.NODE_ENV = 'production'
 const cells = Number(args.find(a => /^\d+$/.test(a)) ?? 3000)
 const useReact = args.includes('--react')
 const useSignals = args.includes('--signals')
@@ -39,7 +42,7 @@ let tick
 let app
 let win
 if (useReact) {
-  const React = require(require.resolve('react', { paths: [require('node:path').join(__dirname, '../../react')] }))
+  const React = require('react')
   const { render } = require('../../react')
   const h = React.createElement
   let setT
@@ -129,7 +132,7 @@ setTimeout(() => {
   clearInterval(sampler)
   console.log(JSON.stringify({
     app: useReact ? (useSignals ? 'blenderui-react-signals' : 'blenderui-react') : 'blenderui-js',
-    runtime: typeof Bun !== 'undefined' ? `bun ${Bun.version}` : `node ${process.versions.node}`,
+    runtime: globalThis.__BUI_NATIVE__ ? 'quickjs (bui-runtime)' : typeof Bun !== 'undefined' ? `bun ${Bun.version}` : `node ${process.versions.node}`,
     gpu,
     cells,
     fps: +(updates / wall * 1000).toFixed(1),

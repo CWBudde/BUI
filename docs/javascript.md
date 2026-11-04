@@ -4,7 +4,9 @@ BUI runs from JavaScript through a native addon built with napi-rs, much as
 [GPUIX](https://www.npmjs.com/package/@gpuix/react) drives GPUI. You get native
 windows drawn on the CPU or with Direct3D 11, HTML elements, CSS and Tailwind
 classes, and the same engine as the Rust crate. There's no browser and no
-Electron. It works on **Node.js** and **Bun**.
+Electron. It works on **Node.js** and **Bun**, and `bui build` turns an app
+into a **single executable of about 5 MB**: BUI with an embedded QuickJS
+engine ([Standalone apps](#standalone-apps)).
 
 | Package | What it is |
 |---|---|
@@ -215,6 +217,63 @@ The signals are push-pull and glitch-free:
 - **Errors:** a memo that throws rethrows on read and recovers when its
   sources change.
 
+## Standalone apps
+
+`bui build` turns an app into one executable. It ships with `@blender-ui/native`
+and needs [Bun](https://bun.sh) for bundling.
+
+```sh
+npx bui build app.jsx                # app.exe: BUI + QuickJS, about 5 MB
+npx bui build app.jsx --bun          # app.exe: a Bun executable, about 115 MB
+npx bui run app.jsx                  # run on the QuickJS runtime, no executable
+```
+
+Options:
+
+- `-o <file>`: the output file.
+- `--console`: keep a console window for logs. By default, Windows builds open
+  no console.
+- `--dev`: use React's development build.
+
+**The default build** is `bui-runtime`, BUI with an embedded
+[QuickJS](https://github.com/quickjs-ng/quickjs) engine (4.9 MB), with your
+app's bundle appended. Your code and both packages run unchanged:
+
+- **JavaScript runs on the UI thread**, as in a browser: no Node.js, no Bun,
+  no browser, no webview.
+- **What it provides:** `console`, timers, `queueMicrotask`, `performance` and
+  a `process` with `env`, `argv`, `exit` and `platform`.
+- **What it doesn't:** Node's modules (`fs`, `net` ...) aren't there. Apps that
+  need them use `--bun`.
+
+**With `--bun`** you get `bun build --compile`: the full Bun runtime with
+Node's APIs and a JIT, and `@blender-ui/native`'s addon embedded in the
+executable.
+
+| A small React app, Windows x64 | QuickJS (default) | `--bun` |
+|---|---:|---:|
+| Executable | **4.9 MB** | 114 MB |
+| First frame | **68 ms** | 79 ms |
+| Launch to exit | **104 ms** | 147 ms |
+| RAM at first frame | **19 MB** | 35 MB |
+| RAM, 3,000 animated cells | **56–67 MB** | 80–118 MB |
+| JavaScript speed | interpreter | JIT |
+
+QuickJS has no JIT, so heavy JavaScript runs several times slower than on Bun
+or Node. With BUI that matters less than it sounds:
+
+- **The renderer is native:** layout, painting and the GPU cost the same on
+  either runtime.
+- **Signals keep JavaScript light:** a change updates a node without
+  re-rendering components. Re-rendering a 3,000-element list every frame is
+  where QuickJS falls behind (see Performance), so use signals there, or
+  `--bun`.
+
+The executable is built by appending the bundle to `bui-runtime`: nothing is
+compiled per app, and a build takes well under a second. Prebuilt runtimes
+are for Windows x64. On other platforms, `npm run build` in `bindings/node`
+builds `bui-runtime` from source.
+
 ## How it works
 
 - **A UI thread.** BUI runs its own message loop on a thread of its own, so
@@ -240,10 +299,36 @@ The signals are push-pull and glitch-free:
 
 ## Performance
 
+### Startup
+
+`node bench/startup.js` launches a small React app (`bench/first-frame.js`)
+that quits as soon as its first frame is on screen. It does that 12 times for
+each way to run an app, after one warm-up launch, and reports the medians.
+
+- **First frame** is measured inside the app, from the runtime's start.
+- **Launch to exit** is wall time measured from outside, including process
+  creation and teardown.
+
+| | First frame | Launch to exit | RAM at first frame | What you ship |
+|---|---:|---:|---:|---:|
+| **QuickJS executable** (`bui build`) | **68 ms** | **104 ms** | **19 MB** | **4.9 MB** |
+| Bun executable (`bui build --bun`) | 79 ms | 147 ms | 35 MB | 114 MB |
+| Bun (`bun app.js`) | 80 ms | 152 ms | 35 MB | Bun + the app |
+| Node.js (`node app.js`) | 108 ms | 187 ms | 45 MB | Node + the app |
+| Rust, for reference (the benchmark app) | 5 ms | ~92 ms | | 3.5 MB |
+
+Timings vary by about ±20% between sessions on this laptop; the ranking
+doesn't change. The first launch of a newly written executable can take
+seconds while antivirus software scans it, which is why the warm-up launch
+isn't counted.
+
+### Animation
+
 The Rust benchmark's `one` mode: a 1000×800 window with a grid of N cells,
 where one cell changes colour and label every frame, driven from
 `requestAnimationFrame`. Command: `bench/cells.js N --gpu [--react
-[--signals]]`, run with `node` or `bun`.
+[--signals]]`, run with `node`, `bun` or `node cli.js run` (the QuickJS
+runtime).
 
 - **"React, signals":** cell 0's style and label are signals, so the grid
   renders once.
@@ -258,7 +343,8 @@ counted with the process cycle counter, as the Rust benchmark does
 that wake on each vsync.
 
 The table shows medians of 3 runs, GPU renderer, on a Ryzen 7 5800U laptop
-(Windows 11, 60 Hz) with Node.js 22.17 and Bun 1.4.4, all in one session.
+(Windows 11, 60 Hz) with Node.js 22.17 and Bun 1.4.4. Rust, Bun and Node ran
+in one session; QuickJS (`bui-runtime`) ran in a later one.
 
 | 3,000 cells | FPS | CPU per frame | RAM (resident) |
 |---|---:|---:|---:|
@@ -269,12 +355,16 @@ The table shows medians of 3 runs, GPU renderer, on a Ryzen 7 5800U laptop
 | Node, plain JS | 55.8 | 14.4 ms | 88 MB |
 | Node, React with signals | 56.7 | 14.0 ms | 93 MB |
 | Node, React with state | 54.8 | 18.9 ms | 121 MB |
+| QuickJS, plain JS | 59.1 | 16.3 ms | **56 MB** |
+| QuickJS, React with signals | 58.7 | 14.9 ms | 61 MB |
+| QuickJS, React with state | 19.7 | 51.0 ms | 67 MB |
 
-| 1,000 cells (all at 60 FPS) | CPU per frame | RAM |
+| 1,000 cells (60 FPS, except as noted) | CPU per frame | RAM |
 |---|---:|---:|
 | Rust | **4.8 ms** | **32 MB** |
 | Bun: plain JS / React with signals / React with state | 5.2 / 5.2 / 7.5 ms | 58 / 63 / 81 MB |
 | Node: plain JS / React with signals / React with state | 5.6 / 5.6 / 6.9 ms | 68 / 71 / 97 MB |
+| QuickJS: plain JS / React with signals / React with state (56.8 FPS) | 6.0 / 5.6 / 17.8 ms | **38 / 40 / 43 MB** |
 
 What these show:
 
@@ -283,6 +373,11 @@ What these show:
   thread, and of its copy of the tree.
 - **Memory:** most of the extra RAM is the runtime itself. Node alone is about
   32 MB, and Bun's footprint is about 10 MB smaller.
+- **QuickJS:** the leanest in memory: 38–67 MB, about 20–40 MB below Bun and
+  Node. JavaScript shares the UI thread and has no JIT, so CPU per frame is a
+  little higher with plain JS and signals. Re-rendering 3,000 elements every
+  frame drops it to 20 FPS, so keep big lists on signals, or build with
+  `--bun`.
 - **React with signals:** costs what the plain API does. At 3,000 cells it
   uses about a quarter less CPU and memory than re-rendering, because the
   component never re-renders.
@@ -317,16 +412,31 @@ MinGW, put its `bin` folder on `PATH`.
 
 ## Publishing
 
-Both packages are ready for `npm publish` from their folders, in this order:
+The packages are published under the [`@blender-ui`](https://www.npmjs.com/org/blender-ui)
+npm organization. `@blender-ui/react` depends on `@blender-ui/native`
+(`^0.2.0`), so publish the native package first, whenever it has changed.
 
-1. Bump the versions. `@blender-ui/react` depends on `@blender-ui/native` by
-   version, so publish that first.
-2. Run `npm publish --access public` in `bindings/node`, then in
-   `bindings/react`.
-   - `prepublishOnly` builds the addon and runs the tests.
-   - `prepack` copies the repository's `LICENSE` into the package.
+```sh
+npm login                                  # an account in the blender-ui org
+cd bindings
+npm install                                # link the workspace
+cd node  && npm publish --access public    # @blender-ui/native (builds the addon and runtime, runs the tests)
+cd ../react && npm publish --access public # @blender-ui/react (runs the tests)
+```
 
-The native package ships `blenderui.win32-x64.node` and is limited to Windows
-x64 (`os` and `cpu` in `package.json`). Supporting more platforms means
-building the addon on each one, typically in CI, and publishing them as
-optional per-platform packages, the napi-rs convention.
+- **`prepublishOnly`** runs the tests before uploading. For the native
+  package it first builds the addon and `bui-runtime` (Rust, CMake and a C
+  compiler; with MinGW, put its `bin` folder on `PATH`).
+- **`prepack`** copies the repository's `LICENSE` into the package.
+- **Previewing:** `npm pack --dry-run` lists what a package will contain;
+  `npm pack` writes the `.tgz` you can install elsewhere to try it.
+- **Releasing again:** bump `version` in the package's `package.json` first, since
+  npm refuses to publish the same version twice. When the native package
+  changes in a way React needs, raise React's `@blender-ui/native` range to
+  match.
+
+The native package ships `blenderui.win32-x64.node` and
+`bui-runtime.win32-x64.exe`, and `os` / `cpu` in its `package.json` limit it
+to Windows x64. Supporting more platforms means building both on each
+platform, typically in CI, and publishing them as optional per-platform
+packages, the napi-rs convention.

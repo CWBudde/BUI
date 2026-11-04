@@ -40,7 +40,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@blender-ui/native": "^0.1.0",
+    "@blender-ui/native": "^0.2.0",
     "react-reconciler": "0.34.0"
   },
   "peerDependencies": {

@@ -1,5 +1,7 @@
-// Builds the native addon (bindings/rust/blenderui-node) and copies it here
-// as blenderui.<platform>-<arch>.node. `--debug` for a debug build.
+// Builds the native addon (bindings/rust/blenderui-node) and the QuickJS
+// runtime (bindings/rust/blenderui-qjs, `bui-runtime`) and copies them here
+// as blenderui.<platform>-<arch>.node and bui-runtime.<platform>-<arch>[.exe].
+// `--debug` for a debug build.
 'use strict'
 const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
@@ -7,10 +9,14 @@ const path = require('node:path')
 
 const debug = process.argv.includes('--debug')
 const rust = path.resolve(__dirname, '../../rust')
-const args = ['build', '-p', 'blenderui-node', ...(debug ? [] : ['--release'])]
+const args = ['build', '-p', 'blenderui-node', '-p', 'blenderui-qjs', ...(debug ? [] : ['--release'])]
 execFileSync('cargo', args, { cwd: rust, stdio: 'inherit' })
+const target = path.join(rust, 'target', debug ? 'debug' : 'release')
+const tag = `${process.platform}-${process.arch}`
+const exe = process.platform === 'win32' ? '.exe' : ''
 const lib = { win32: 'blenderui_node.dll', darwin: 'libblenderui_node.dylib' }[process.platform] ?? 'libblenderui_node.so'
-const from = path.join(rust, 'target', debug ? 'debug' : 'release', lib)
-const to = path.join(__dirname, '..', `blenderui.${process.platform}-${process.arch}.node`)
-fs.copyFileSync(from, to)
-console.log(`wrote ${path.relative(process.cwd(), to)}`)
+for (const [from, to] of [[lib, `blenderui.${tag}.node`], [`bui-runtime${exe}`, `bui-runtime.${tag}${exe}`]]) {
+  const dest = path.join(__dirname, '..', to)
+  fs.copyFileSync(path.join(target, from), dest)
+  console.log(`wrote ${path.relative(process.cwd(), dest)}`)
+}

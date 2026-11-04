@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["blenderui-sys", "blenderui-tailwind", "blenderui-macros", "blenderui", "blenderui-node"]
+members = ["blenderui-sys", "blenderui-tailwind", "blenderui-macros", "blenderui", "blenderui-jsview", "blenderui-node", "blenderui-qjs"]
 exclude = ["bench"]
 
 [workspace.package]
