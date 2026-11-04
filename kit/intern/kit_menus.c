@@ -228,7 +228,7 @@ static void menu_measure(BKNode *n, int *rw, int *rh)
   if (MENU(n)->title) {
     w = BK_MAX(w, bk_text_width(MENU(n)->title, -1, false) + 2 * bk_pad());
   }
-  w = BK_MAX(w, 6 * uu);
+  w = BK_MAX(w, 9 * uu); /* UI_MENU_WIDTH_MIN */
   if (count == 0 && MENU(n)->query[0]) {
     h = u(); /* "No results found" */
   }

@@ -73,6 +73,23 @@ static void format_number(const BKNode *n, double v, char *buf, int size)
 static void number_text(const BKNode *n, char *buf, int size)
 {
   format_number(n, n->value, buf, size);
+  if (n->suffix && n->suffix[0] && !(n->flags & NF_INTEGER)) {
+    /* values with a unit read like Blender's BKE_unit_value_as_string: up to
+     * five decimals, trailing zeros stripped ("0 m", "1.25 m", "90Â°") */
+    snprintf(buf, (size_t)size, "%.*f", BK_MAX(n->precision, 5), n->value);
+    if (strchr(buf, '.')) {
+      size_t l = strlen(buf);
+      while (l > 0 && buf[l - 1] == '0') {
+        buf[--l] = 0;
+      }
+      if (l > 0 && buf[l - 1] == '.') {
+        buf[--l] = 0;
+      }
+      if (strcmp(buf, "-0") == 0) {
+        strcpy(buf, "0");
+      }
+    }
+  }
   if (n->suffix) {
     strncat(buf, n->suffix, (size_t)(size - (int)strlen(buf) - 1));
   }
@@ -101,6 +118,9 @@ static int stack_gap(const BKNode *n, bool row)
   }
   if (n->spacing >= 0) {
     return n->spacing;
+  }
+  if (n->cls == &bk_cls_split) {
+    return bk_iround(0.4f * u()); /* Layout::split: style->columnspace */
   }
   return row ? space_x() : space_y();
 }
@@ -146,6 +166,18 @@ static void column_arrange(BKNode *n)
   for (int i = 0; i < n->nkids; i++) {
     count += NODE_VISIBLE(n->kids[i]);
   }
+  /* spare height goes to the children marked `fill` */
+  int used = 0, fills = 0;
+  for (int i = 0; i < n->nkids; i++) {
+    BKNode *c = n->kids[i];
+    if (NODE_VISIBLE(c)) {
+      int cw, ch;
+      bk_natural(c, &cw, &ch);
+      used += ch;
+      fills += c->fill != 0;
+    }
+  }
+  int spare = fills ? BK_MAX(0, n->h - 2 * p - used - gap * BK_MAX(0, count - 1)) : 0;
   int y = n->y + p, k = 0;
   for (int i = 0; i < n->nkids; i++) {
     BKNode *c = n->kids[i];
@@ -155,6 +187,12 @@ static void column_arrange(BKNode *n)
     c->corners = join_corners(n, k, count, CNR_TL | CNR_TR, CNR_BL | CNR_BR);
     int cw, ch;
     bk_natural(c, &cw, &ch);
+    if (c->fill && fills) {
+      const int extra = spare / fills;
+      ch += extra;
+      spare -= extra;
+      fills--;
+    }
     bk_arrange(c, n->x + p, y, n->w - 2 * p, ch);
     y += ch + gap;
     k++;
@@ -288,6 +326,9 @@ static void row_arrange(BKNode *n)
 
 const BKClass bk_cls_row = {.name = "row", .measure = row_measure, .arrange = row_arrange};
 
+/* A property split: a row whose columns are `columnspace` apart. */
+const BKClass bk_cls_split = {.name = "split", .measure = row_measure, .arrange = row_arrange};
+
 static void grid_measure(BKNode *n, int *rw, int *rh)
 {
   const int cols = BK_MAX(1, n->columns), gap = (n->flags & NF_ALIGN) ? 0 : space_x();
@@ -373,10 +414,72 @@ const BKClass bk_cls_box = {.name = "box",
 
 #define PANEL_BODY(n) ((BKNode *)(n)->ext)
 
+/* A panel's body, as area.cc lays a panel out (ED_region_panels_layout_ex):
+ * its own content inset by style->panelspace on every side, then its child
+ * panels at the full width, one under the other. */
+static bool is_panel(const BKNode *c)
+{
+  return c->cls == &bk_cls_panel;
+}
+
+static void panel_body_layout(BKNode *n, bool place, int *r_w, int *r_h)
+{
+  const int p = n->padding, gap = stack_gap(n, false);
+  int y = 0, w = 0;
+  bool in_content = false; /* inside a run of content (not child panels) */
+  for (int i = 0; i < n->nkids; i++) {
+    BKNode *c = n->kids[i];
+    if (!NODE_VISIBLE(c)) {
+      continue;
+    }
+    int cw, ch;
+    bk_natural(c, &cw, &ch);
+    if (is_panel(c)) {
+      if (in_content) {
+        y += p; /* the content's bottom margin */
+        in_content = false;
+      }
+      if (place) {
+        bk_arrange(c, n->x, n->y + y, n->w, ch);
+      }
+      w = BK_MAX(w, cw);
+      y += ch;
+    }
+    else {
+      y += in_content ? gap : p; /* the top margin, or the gap between rows */
+      in_content = true;
+      if (place) {
+        bk_arrange(c, n->x + p, n->y + y, n->w - 2 * p, ch);
+      }
+      w = BK_MAX(w, cw + 2 * p);
+      y += ch;
+    }
+  }
+  if (in_content) {
+    y += p;
+  }
+  *r_w = w;
+  *r_h = y;
+}
+
+static void panel_body_measure(BKNode *n, int *rw, int *rh)
+{
+  panel_body_layout(n, false, rw, rh);
+}
+
+static void panel_body_arrange(BKNode *n)
+{
+  int w, h;
+  panel_body_layout(n, true, &w, &h);
+}
+
+static const BKClass bk_cls_panel_body = {
+    .name = "column", .measure = panel_body_measure, .arrange = panel_body_arrange};
+
 static void panel_init(BKNode *n)
 {
-  BKNode *body = bk_node_new_cls(&bk_cls_column);
-  body->padding = bk_iround(0.4f * u());
+  BKNode *body = bk_node_new_cls(&bk_cls_panel_body);
+  body->padding = bk_iround(0.4f * u()); /* style->panelspace: 8 px */
   n->ext = body;
   BK_node_add(n, body, -1);
   n->value = 1; /* open */
@@ -390,13 +493,15 @@ static bool panel_is_sub(const BKNode *n)
 
 static int panel_header_h(const BKNode *n)
 {
-  /* PNL_HEADER = UI_UNIT_Y * 1.25 */
-  return bk_iround((panel_is_sub(n) ? 1.1f : 1.25f) * u());
+  /* PNL_HEADER = UI_UNIT_Y * 1.25, sub-panels included */
+  (void)n;
+  return bk_iround(1.25f * u());
 }
 
 static int panel_grip_w(const BKNode *n)
 {
-  return panel_is_sub(n) ? 0 : u();
+  /* the drag widget's area: from xmax - 1.15 units */
+  return panel_is_sub(n) ? 0 : bk_iround(1.15f * u());
 }
 
 static void panel_measure(BKNode *n, int *rw, int *rh)
@@ -420,23 +525,32 @@ static void panel_measure(BKNode *n, int *rw, int *rh)
   *rh = panel_header_h(n) + (int)(bh * open + 0.5f);
 }
 
-static float panel_title_x(BKNode *n)
+/* The header's widgets (draw_header): a row from panel_label_offset, 1.0 unit
+ * in (+0.7 for sub-panels). Returns its width: Blender's panel->labelofs. */
+static float panel_header_widgets_w(BKNode *n)
 {
-  float x = n->x + 1.1f * u();
+  float w = 0.0f;
+  int count = 0;
   for (int i = 0; i < n->nkids; i++) {
     if (n->kids[i] != PANEL_BODY(n)) {
-      int w, h;
-      bk_natural(n->kids[i], &w, &h);
-      x += w + 0.2f * u();
+      int cw, ch;
+      bk_natural(n->kids[i], &cw, &ch);
+      w += (float)cw + (count++ ? 0.4f * u() : 0.0f); /* buttonspacex between items */
     }
   }
-  return x;
+  return w;
+}
+
+static float panel_title_x(BKNode *n)
+{
+  /* panel_draw_aligned_widgets: xmin (+0.7 units for sub-panels) + labelofs + 1.1 units */
+  return n->x + (panel_is_sub(n) ? 0.7f : 0.0f) * u() + 1.1f * u() + panel_header_widgets_w(n);
 }
 
 static void panel_arrange(BKNode *n)
 {
   const int hh = panel_header_h(n);
-  float hx = n->x + 1.1f * u();
+  float hx = n->x + (panel_is_sub(n) ? 0.7f : 0.0f) * u() + 1.0f * u();
   for (int i = 0; i < n->nkids; i++) {
     BKNode *c = n->kids[i];
     if (c == PANEL_BODY(n)) {
@@ -445,7 +559,7 @@ static void panel_arrange(BKNode *n)
     int w, h;
     bk_natural(c, &w, &h);
     bk_arrange(c, (int)hx, n->y + (hh - u()) / 2, w, u());
-    hx += w + 0.2f * u();
+    hx += w + 0.4f * u();
   }
   BKNode *body = PANEL_BODY(n);
   if ((n->flags & NF_COLLAPSED) && !bk_anim_running(n)) {
@@ -583,54 +697,72 @@ static int panel_key(BKNode *n, BKEvent *e)
   return 0;
 }
 
+/* Ported from Blender's interface_panel.cc: panel_draw_aligned_backdrop,
+ * panel_draw_aligned_widgets and panel_draw_border (y flipped: BUI's y grows
+ * downwards). */
 static void panel_draw(BKNode *n)
 {
   const int hh = panel_header_h(n);
   const float uu = (float)u();
+  const bool sub = panel_is_sub(n);
+  const bool open = !(n->flags & NF_COLLAPSED);
+  const float rad = bk_theme.panel_roundness * 0.5f * uu;
   float c[4];
-  if (panel_is_sub(n)) {
-    float line[4];
-    bk_rgba(bk_theme.panel_outline, line);
-    line[3] = BK_MAX(line[3], 0.15f);
-    bk_fill_f(n->x, n->y, n->w, 1, line);
-    if (!(n->flags & NF_COLLAPSED)) {
-      bk_fill(n->x, n->y + hh, n->w, n->h - hh, bk_theme.panel_sub_back);
-    }
-    if (bk_hovered(n)) {
-      const float hl[4] = {1, 1, 1, 0.04f};
-      bk_fill_f(n->x, n->y + 1, n->w, hh - 1, hl);
-    }
+
+  /* backdrop: the body (open), then the header for top-level panels */
+  if (open) {
+    const float pad = sub ? 0.1f * uu : 0.0f; /* sub-panels: inset by 0.1 units */
+    bk_rgba(sub ? bk_theme.panel_sub_back : bk_theme.panel_back, c);
+    bk_roundbox(n->x + pad, n->y + hh, n->w - 2.0f * pad, n->h - hh - pad, rad,
+                CNR_BL | CNR_BR, c);
   }
-  else {
-    const float rad = bk_theme.panel_roundness * 0.5f * uu;
-    bk_rgba(bk_theme.panel_back, c);
-    bk_roundbox(n->x, n->y, n->w, n->h, rad, CNR_ALL, c);
+  if (!sub) {
     bk_rgba(bk_theme.panel_header, c);
-    if (bk_hovered(n)) {
-      for (int k = 0; k < 3; k++) {
-        c[k] = BK_MIN(1.0f, c[k] + 0.03f);
-      }
-    }
-    bk_roundbox(n->x, n->y, n->w, hh, rad, (n->flags & NF_COLLAPSED) ? CNR_ALL : (CNR_TL | CNR_TR),
-                c);
-    bk_rgba(bk_theme.panel_outline, c);
-    BuiWidgetBase wb = {{(float)n->x, (float)n->y, (float)n->w, (float)n->h}, rad, rad - 1, CNR_ALL};
-    memcpy(wb.outline, c, sizeof(c));
-    wb.pixelsize = 1.0f;
-    BUI_raster_widget_base(bk_draw.r, &wb);
-    const uchar grip[4] = {255, 255, 255, 64};
-    bk_icon(bk_icons_lookup("GRIP"), n->x + n->w - panel_grip_w(n) * 0.5f, n->y + hh * 0.5f,
-            grip, 1.0f, 0.6f * uu);
+    bk_roundbox(n->x, n->y, n->w, hh, rad, open ? (CNR_TL | CNR_TR) : CNR_ALL, c);
   }
-  bk_rgba_alpha(bk_theme.text, 0.8f, c);
-  bk_tria(n->x + 0.6f * uu, n->y + hh * 0.5f, (n->flags & NF_COLLAPSED) ? 'h' : 'v', c, 0);
+
+  /* header widgets: collapse icon, title, drag grip */
+  const float wx = n->x + (sub ? 0.7f * uu : 0.0f);
+  float alpha = 0.8f;
+  if (n->w < 4.0f * uu) { /* dim as its space shrinks to nothing */
+    alpha *= BK_MAX((n->w - uu) / (3.0f * uu), 0.0f);
+  }
+  const float isz = (float)bk_icon_size();
+  /* icon_draw_ex at (xmin + h * 0.2, ymin + h * 0.17 closed / 0.14 open), y up */
+  const float icy = n->y + hh - hh * (open ? 0.14f : 0.17f) - isz * 0.5f;
+  bk_icon(bk_icons_lookup(open ? "DOWNARROW_HLT" : "RIGHTARROW"), wx + hh * 0.2f + isz * 0.5f, icy,
+          bk_theme.text, alpha, 0);
   float tx = panel_title_x(n);
   if (n->icon) {
-    bk_icon(n->icon, tx + bk_icon_size() * 0.5f, n->y + hh * 0.5f, NULL, 1.0f, 0);
-    tx += bk_icon_size() + 0.25f * uu;
+    bk_icon(n->icon, tx + isz * 0.5f, n->y + hh * 0.5f, NULL, 1.0f, 0);
+    tx += isz + 0.25f * uu;
   }
-  BKRect tr = {(int)tx - bk_pad(), n->y, n->x + n->w - panel_grip_w(n), n->y + hh};
+  /* title: paneltitle style (soft shadow) for panels, widget style for sub-panels;
+   * its rect reaches 2 px below the header (title_rect.ymin - 2) */
+  BKRect tr = {(int)tx - bk_pad(), n->y, n->x + n->w - (sub ? 0 : (int)uu), n->y + hh + 2};
+  extern int bk_text_shadow;
+  const int shadow = bk_text_shadow;
+  bk_text_shadow = sub ? 1 : 3;
   bk_text_in(&tr, n->text, bk_theme.text, BK_ALIGN_LEFT, false);
+  bk_text_shadow = shadow;
+  if (!sub) {
+    /* the grip: x = xmax - 1.15 units, alpha 0.5, the title color */
+    float ga = 0.5f;
+    if (n->w < 5.0f * uu) {
+      ga *= BK_MAX((n->w - uu) / (4.0f * uu), 0.0f);
+    }
+    bk_icon(bk_icons_lookup("GRIP"), n->x + n->w - 1.15f * uu + isz * 0.5f, n->y + hh * 0.5f,
+            bk_theme.text, ga, 0);
+    /* panel_draw_border: the outline around the panel (the header when closed) */
+    bk_rgba(bk_theme.panel_outline, c);
+    if (c[3] > 0.0f) {
+      const int bh = open ? n->h : hh;
+      BuiWidgetBase wb = {{(float)n->x, (float)n->y, (float)n->w, (float)bh}, rad, rad - 1, CNR_ALL};
+      memcpy(wb.outline, c, sizeof(c));
+      wb.pixelsize = 1.0f;
+      BUI_raster_widget_base(bk_draw.r, &wb);
+    }
+  }
 }
 
 static void panel_draw_tree(BKNode *n)
@@ -832,13 +964,32 @@ const BKClass bk_cls_tabs = {.name = "tabs",
                              .leave = tabs_leave,
                              .wheel = tabs_wheel};
 
+/* The Properties editor's navigation bar (space_properties.py,
+ * PROPERTIES_PT_navigation_bar): icon-only tab buttons scaled 1.4, in aligned
+ * groups, on the region's tab_back color. */
 static int side_bar_w(void)
 {
-  return bk_iround(1.6f * u());
+  return bk_iround(1.4f * u());
 }
 static int side_tab_h(void)
 {
   return bk_iround(1.4f * u());
+}
+static int side_gap(void)
+{
+  return bk_iround(0.5f * u()); /* between groups, and above the first */
+}
+static bool side_group_start(const BKNode *n, int i)
+{
+  return i > 0 && i < n->shortcuts.n && n->shortcuts.v[i][0] == '1';
+}
+static int side_tab_y(const BKNode *n, int i)
+{
+  int y = n->y + side_gap();
+  for (int k = 1; k <= i; k++) {
+    y += side_tab_h() + (side_group_start(n, k) ? side_gap() : 0);
+  }
+  return y;
 }
 
 static void sidetabs_measure(BKNode *n, int *rw, int *rh)
@@ -849,7 +1000,7 @@ static void sidetabs_measure(BKNode *n, int *rw, int *rh)
     bk_natural(page, &pw, &ph);
   }
   *rw = side_bar_w() + pw;
-  *rh = BK_MAX(ph, n->nkids * side_tab_h() + bk_pad());
+  *rh = BK_MAX(ph, n->nkids > 0 ? side_tab_y(n, n->nkids - 1) - n->y + side_tab_h() + side_gap() : 0);
 }
 
 static void sidetabs_arrange(BKNode *n)
@@ -872,8 +1023,13 @@ static int sidetabs_tab_at(BKNode *n, int x, int y)
   if (x >= n->x + side_bar_w()) {
     return -1;
   }
-  const int i = (y - n->y - bk_pad()) / side_tab_h();
-  return (y >= n->y + bk_pad() && i >= 0 && i < n->nkids) ? i : -1;
+  for (int i = 0; i < n->nkids; i++) {
+    const int ty = side_tab_y(n, i);
+    if (y >= ty && y < ty + side_tab_h()) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 static BKNode *sidetabs_hit(BKNode *n, int x, int y)
@@ -915,23 +1071,35 @@ static int sidetabs_wheel(BKNode *n, BKEvent *e)
 
 static void sidetabs_draw(BKNode *n)
 {
-  const int bw = side_bar_w(), th = side_tab_h(), p = bk_pad();
+  /* widget_tab (interface_widgets.cc) per tab with wcol_tab: inner for the
+   * group backdrop, inner_sel for the active tab, hover lightened +15 */
+  const int bw = side_bar_w(), th = side_tab_h();
   const float rad = bk_widget_radius(&bk_theme.tab);
   float c[4];
   bk_fill(n->x, n->y, bw, n->h, bk_theme.tabs_bg);
+  const int tx = n->x + 1, tw = bw - 1;
   for (int i = 0; i < n->nkids; i++) {
-    const int ty = n->y + p + i * th;
+    const int ty = side_tab_y(n, i);
+    const bool first = i == 0 || side_group_start(n, i);
+    const bool last = i == n->nkids - 1 || side_group_start(n, i + 1);
+    const int corners = (first ? CNR_TL | CNR_TR : 0) | (last ? CNR_BL | CNR_BR : 0);
+    bk_rgba(bk_theme.tab.inner, c);
+    bk_roundbox(tx, ty, tw, th - 1, rad, corners, c);
+    if (last) { /* the widget emboss under the group */
+      bk_rgba(bk_theme.emboss, c);
+      bk_roundbox(tx, ty + th - 1, tw, 1, 0.0f, 0, c);
+    }
     const bool active = i == n->current, hot = i == n->hot;
-    if (active) {
-      bk_rgba(bk_theme.region_bg, c);
-      bk_roundbox(n->x + 3, ty + 1, bw - 3, th - 2, rad, CNR_TL | CNR_BL, c);
+    if (active || hot) {
+      bk_rgba(active ? bk_theme.tab.inner_sel : bk_theme.tab.inner, c);
+      if (hot && !active) { /* widget_active_color: inner + 15 */
+        for (int k = 0; k < 3; k++) {
+          c[k] = BK_MIN(1.0f, c[k] + 15.0f / 255.0f);
+        }
+      }
+      bk_roundbox(tx, ty, tw, th - 1, rad, CNR_ALL, c);
     }
-    else if (hot) {
-      const float hl[4] = {1, 1, 1, 0.08f};
-      bk_roundbox(n->x + 3, ty + 1, bw - 6, th - 2, rad, CNR_ALL, hl);
-    }
-    bk_icon(item_icon(n, i), n->x + bw * 0.5f + 1, ty + th * 0.5f, NULL,
-            (active || hot) ? 1.0f : 0.55f, 0);
+    bk_icon(item_icon(n, i), tx + tw * 0.5f, ty + (th - 1) * 0.5f, NULL, 1.0f, 0);
   }
 }
 
@@ -954,7 +1122,8 @@ const BKClass bk_cls_sidetabs = {.name = "sidetabs",
 
 static int scroll_bar_w(void)
 {
-  return bk_iround(0.35f * u());
+  /* V2D_SCROLL_WIDTH: 0.45 units + 2 px */
+  return bk_iround(0.45f * u() + 2.0f * bk_scale_fac);
 }
 
 static int scroll_content_h(BKNode *n)
@@ -1267,7 +1436,8 @@ static void label_draw(BKNode *n)
     bk_text_icon(&r, n->text, n->icon, c, n->align, NODE_ENABLED(n));
   }
   else {
-    bk_text_in(&r, n->text, c, n->align, n->flags & NF_BOLD);
+    /* BUT_NO_TEXT_PADDING: labels without icons sit one pixel in (widget_draw_text) */
+    bk_text_in_pad(&r, n->text, c, n->align, n->flags & NF_BOLD, (int)bk_px());
   }
 }
 
@@ -1377,14 +1547,10 @@ static int button_key(BKNode *n, BKEvent *e)
 
 static void draw_flat_or_embossed(BKNode *n, BKWCol *w, BKRect *r, int st)
 {
+  /* EmbossType::None draws no backdrop (interface_widgets.cc: wt->draw is
+   * skipped); hover shows in the icon's alpha instead */
   if (n->flags & NF_EMBOSS) {
     bk_widget_but(w, r, st, n->corners);
-  }
-  else if (st & (ST_HOVER | ST_SELECT)) {
-    /* Blender's emboss=False hover: a faint rounded highlight */
-    float c[4];
-    bk_rgba_alpha(bk_theme.text, (st & ST_SELECT) ? 0.12f : 0.08f, c);
-    bk_roundbox(r->xmin, r->ymin, bk_rw(r), bk_rh(r), bk_widget_radius(w), n->corners, c);
   }
 }
 
@@ -1465,7 +1631,12 @@ static int bool_press(BKNode *n, BKEvent *e)
 
 static void checkbox_measure(BKNode *n, int *rw, int *rh)
 {
-  *rw = u() + (int)bk_text_width(n->label, -1, false) + bk_pad();
+  if (!n->label || !n->label[0]) {
+    *rw = bk_iround(0.7f * u()); /* the box alone */
+  }
+  else {
+    *rw = u() + (int)bk_text_width(n->label, -1, false) + bk_pad();
+  }
   *rh = u();
 }
 
@@ -1480,12 +1651,12 @@ static void checkbox_draw(BKNode *n)
   bk_widget_state(&w, &bk_theme.option, st);
   bk_widget_optionbut(&w, &r, st);
   uchar tc[4];
-  memcpy(tc, bk_theme.option.text, 4);
+  memcpy(tc, w.text, 4); /* widget_state: text_sel when checked */
   if (!NODE_ENABLED(n)) {
     tc[3] /= 2;
   }
-  r.xmin -= bk_pad() / 2; /* a small gap after the box, like Blender */
-  bk_text_in(&r, n->label, tc, BK_ALIGN_LEFT, false);
+  /* widget_optionbut set the text space; BUT_NO_TEXT_PADDING: nothing more */
+  bk_text_in_pad(&r, n->label, tc, BK_ALIGN_LEFT, false, 0);
 }
 
 #define BOOL_CLASS_COMMON \
@@ -1512,9 +1683,10 @@ static void toggle_draw(BKNode *n)
   const int icon = (on && n->icon_on) ? n->icon_on : n->icon;
   uchar tc[4];
   memcpy(tc, (n->flags & NF_EMBOSS) ? w.text : bk_theme.text, 4);
-  const bool dim = !(n->flags & NF_EMBOSS) && !on && !n->icon_on;
+  /* widget_draw_icon: toggles not selected and not hovered draw at alpha 0.75 */
+  const bool dim = !on && !(st & ST_HOVER) && !n->icon_on;
   if (dim) {
-    tc[3] = (uchar)(tc[3] * 0.45f); /* flat toggles dim when off */
+    tc[3] = (uchar)(tc[3] * 0.75f);
   }
   if (icon && (!n->label || !n->label[0])) {
     bk_icon(icon, r.xmin + bk_rw(&r) * 0.5f, r.ymin + bk_rh(&r) * 0.5f, dim ? tc : NULL,
@@ -1619,24 +1791,131 @@ static int number_cursor_at(BKNode *n, int x, int y)
   return n->edit ? BK_CURSOR_TEXT : BK_CURSOR_EW;
 }
 
-static double snap(const BKNode *n, double v, bool ctrl)
+/* Snapping while dragged with Ctrl (Ctrl+Shift: finer), ported from
+ * interface_handlers.cc: numedit_apply_snapf / numedit_apply_snap for number
+ * fields, numedit_but_SLI for sliders. */
+static bool is_degrees(const BKNode *n)
 {
-  if (!ctrl) {
-    return v;
-  }
-  /* Ctrl: snap to coarse increments (sliders: to the step) */
-  const double inc = (n->flags & NF_INTEGER) || n->cls == &bk_cls_slider ? n->step :
-                                                                          n->step * 10.0;
-  return inc > 0 ? floor(v / inc + 0.5) * inc : v;
+  return n->suffix && strstr(n->suffix, "\xc2\xb0") != NULL;
 }
 
-static double scrub_delta(BKNode *n, BKEvent *e)
+static double snap_float(double v, double range, bool small)
 {
-  const double precise = EV_SHIFT(e) ? 0.1 : 1.0;
-  if (n->cls == &bk_cls_slider) {
-    return e->dx / (double)BK_MAX(1, n->w) * (n->vmax - n->vmin) * precise;
+  const double f = small ? 0.1 : 1.0;
+  if (range < 2.10) {
+    return round(v * 10.0 / f) * 0.1 * f;
   }
-  return e->dx / (0.5 * u()) * n->step * precise;
+  if (range < 21.0) {
+    return round(v / f) * f;
+  }
+  return round(v * 0.1 / f) * 10.0 * f;
+}
+
+static double snap(const BKNode *n, double v, int mods)
+{
+  if (!(mods & BK_CTRL) || v == n->vmin || v == n->vmax) {
+    return v;
+  }
+  const bool small = (mods & BK_SHIFT) != 0;
+  if (n->flags & NF_INTEGER) {
+    const long t = (long)v, m = small ? 100 : 10;
+    return (double)(m * (t / m));
+  }
+  double range = n->vmax - n->vmin;
+  if (n->cls == &bk_cls_slider) {
+    /* numedit_but_SLI: Shift makes the snap finer by ten */
+    return small ? (range < 2.10 ? round(v * 100.0) * 0.01 :
+                                   (range < 21.0 ? round(v * 10.0) * 0.1 : round(v))) :
+                   snap_float(v, range, false);
+  }
+  /* too coarse for unbounded floats (location, scale), but allowed for degrees */
+  if (range >= 21.0 && !is_degrees(n)) {
+    range = 20.0;
+  }
+  return snap_float(v, range, small);
+}
+
+/* numedit_but_NUM, the cursor-warp mapping: floats move one click step per
+ * pixel (Shift: a tenth), integers 1, 1/2 or 1/16 per pixel by their range.
+ * Past a limit the start point moves, so dragging back responds at once. */
+static double number_drag_value(BKNode *n, double mx, int mods)
+{
+  const double vmin = n->vmin, vmax = n->vmax, range = vmax - vmin;
+  if (n->flags & NF_INTEGER) {
+    const double fac = range > 256 ? 1.0 : (range > 32 ? 0.5 : 1.0 / 16.0);
+    double t = (double)(long)(n->drag_start + (mx - n->drag_x0) * fac);
+    t = snap(n, t, mods);
+    if (t < vmin) {
+      n->drag_x0 -= (vmin - t) / fac;
+      t = vmin;
+    }
+    else if (t > vmax) {
+      n->drag_x0 += (t - vmax) / fac;
+      t = vmax;
+    }
+    return t;
+  }
+  const double fac = (n->step > 0 ? n->step : 0.01) * ((mods & BK_SHIFT) ? 0.1 : 1.0);
+  double t = snap(n, n->drag_start + (mx - n->drag_x0) * fac, mods);
+  if (t < vmin) {
+    n->drag_x0 -= (vmin - t) / fac;
+    t = vmin;
+  }
+  else if (t > vmax) {
+    n->drag_x0 -= (vmax - t) / fac;
+    t = vmax;
+  }
+  return t;
+}
+
+/* numedit_but_SLI: the value follows the pointer over the slider's width,
+ * relative to where the drag began (Shift: 1/20 the speed). */
+static double slider_drag_value(BKNode *n, double mx, int mods)
+{
+  const double w = BK_MAX(1, n->w);
+  const double fac = (mods & BK_SHIFT) ? 0.05 : 1.0; /* mouse_scale_warp */
+  const double mx_fl = n->drag_x0 * (1.0 - fac) + mx * fac;
+  const double f = BK_CLAMP((mx_fl - n->drag_x0) / w + n->drag_f0, 0.0, 1.0);
+  BKContext *ctx = bk_ctx(n);
+  if (ctx) { /* USE_CONT_MOUSE_CORRECT: the pointer comes back at the value */
+    ctx->ungrab_x = BK_CLAMP(n->x + (int)(f * w), n->x, n->x + n->w - 1);
+    ctx->ungrab_y = n->y + n->h / 2;
+    ctx->has_ungrab = true;
+  }
+  double t = n->vmin + f * (n->vmax - n->vmin);
+  if (n->flags & NF_INTEGER) {
+    t = round(t);
+  }
+  return snap(n, t, mods);
+}
+
+static double scrub_value(BKNode *n, BKEvent *e)
+{
+  /* a Shift press or release restarts from here, so the value doesn't jump */
+  if ((e->mods & BK_SHIFT) != (n->drag_mods & BK_SHIFT)) {
+    n->drag_mods = e->mods;
+    if (n->cls == &bk_cls_slider) {
+      const double span = n->vmax - n->vmin;
+      n->drag_f0 = span != 0 ? (float)((n->value - n->vmin) / span) : 0.0f;
+    }
+    else {
+      n->drag_start = n->value;
+    }
+    n->drag_x0 = e->x;
+  }
+  return n->cls == &bk_cls_slider ? slider_drag_value(n, e->x, e->mods) :
+                                    number_drag_value(n, e->x, e->mods);
+}
+
+static void drag_origin(BKNode *n, BKEvent *e)
+{
+  /* but_dragedit_update_mval: the motion within the drag threshold is ignored */
+  const double span = n->vmax - n->vmin;
+  const int th = BK_MAX(3, (int)(0.15f * bk_unit())); /* the core's drag threshold */
+  n->drag_x0 = (e->x - e->dx) + BK_CLAMP(e->dx, -th, th); /* the press, past the threshold */
+  n->drag_f0 = span != 0 ? (float)((n->value - n->vmin) / span) : 0.0f;
+  n->drag_start = n->value;
+  n->drag_mods = e->mods;
 }
 
 static int number_press(BKNode *n, BKEvent *e)
@@ -1646,12 +1925,37 @@ static int number_press(BKNode *n, BKEvent *e)
     bk_invalidate(n);
     return 1;
   }
-  n->drag_start = n->value;
+  if (EV_CTRL(e)) { /* Blender: Ctrl+click types a value */
+    number_begin_text(n);
+    n->dragmode = -1;
+    return 1;
+  }
+  n->drag_start = n->drag_orig = n->value;
   n->dragmode = 0;
   for (int i = 0; i < n->nlinked; i++) {
     n->linked_start[i] = n->linked[i]->value;
   }
   return 1;
+}
+
+static void number_cancel(BKNode *n)
+{
+  BKContext *ctx = bk_ctx(n);
+  if (n->dragmode >= 2 && ctx) {
+    for (int i = 0; i < ctx->nmulti; i++) {
+      bk_set_value(ctx->multi[i], ctx->multi_start[i]);
+      ctx->multi[i]->flags &= ~NF_SELECTED;
+      bk_invalidate(ctx->multi[i]);
+    }
+    ctx->nmulti = 0;
+  }
+  else if (n->dragmode >= 0) {
+    bk_set_value(n, n->drag_orig);
+    for (int i = 0; i < n->nlinked; i++) {
+      bk_set_value(n->linked[i], n->linked_start[i]);
+    }
+  }
+  n->dragmode = -1; /* ignore the rest of this drag */
 }
 
 static bool is_number(const BKNode *n)
@@ -1685,13 +1989,18 @@ static int multi_drag(BKNode *n, BKEvent *e)
     }
     return 1;
   }
-  /* editing: each field moves by its own scrub amount for the same motion */
-  BKEvent me = *e;
-  me.dx = e->x - ctx->multi_x0;
+  /* editing: each field moves by its own amount for the same motion */
   for (int i = 0; i < ctx->nmulti; i++) {
     BKNode *m = ctx->multi[i];
-    bk_set_value(m, snap(m, ctx->multi_start[i] + scrub_delta(m, &me), EV_CTRL(e)));
+    m->drag_start = ctx->multi_start[i];
+    m->drag_x0 = ctx->multi_x0;
+    const double span = m->vmax - m->vmin;
+    m->drag_f0 = span != 0 ? (float)((ctx->multi_start[i] - m->vmin) / span) : 0.0f;
+    m->drag_mods = e->mods;
+    bk_set_value(m, m->cls == &bk_cls_slider ? slider_drag_value(m, e->x, e->mods) :
+                                               number_drag_value(m, e->x, e->mods));
   }
+  ctx->has_ungrab = false;
   return 1;
 }
 
@@ -1712,7 +2021,11 @@ static int number_drag(BKNode *n, BKEvent *e)
     bk_invalidate(n);
     return 1;
   }
+  if (n->dragmode < 0) {
+    return 1; /* cancelled */
+  }
   if (n->dragmode == 0) { /* first motion decides: vertical = multi-drag */
+    drag_origin(n, e);
     BKContext *ctx = bk_ctx(n);
     if (ctx && abs(e->dy) > abs(e->dx)) {
       n->dragmode = 2;
@@ -1729,9 +2042,9 @@ static int number_drag(BKNode *n, BKEvent *e)
   if (n->dragmode >= 2) {
     return multi_drag(n, e);
   }
-  bk_set_value(n, snap(n, n->drag_start + scrub_delta(n, e), EV_CTRL(e)));
+  bk_set_value(n, scrub_value(n, e));
   if (EV_ALT(e)) { /* Blender: Alt edits all linked fields by the same amount */
-    const double delta = n->value - n->drag_start;
+    const double delta = n->value - n->drag_orig;
     for (int i = 0; i < n->nlinked; i++) {
       bk_set_value(n->linked[i], n->linked_start[i] + delta);
     }
@@ -1754,8 +2067,18 @@ static int number_release(BKNode *n, BKEvent *e)
     }
     ctx->nmulti = 0;
   }
+  const int mode = n->dragmode;
   n->dragmode = 0;
-  if (n->edit || e->dragged || !e->inside) {
+  if (mode < 0 || n->edit) {
+    return 1;
+  }
+  if (e->dragged && (mode >= 2 || n->value != n->drag_orig)) {
+    return 1;
+  }
+  if (ctx) {
+    ctx->has_ungrab = false; /* a click: the pointer goes back where it was */
+  }
+  if (!e->dragged && !e->inside) {
     return 1;
   }
   if (n->cls == &bk_cls_number) {
@@ -1862,6 +2185,7 @@ static void number_draw(BKNode *n)
   .drag_cursor = BK_CURSOR_NONE, .measure = number_measure, .press = number_press, \
   .dbl = number_dbl, .drag = number_drag, .release = number_release, .key = number_key, \
   .move = number_move, .leave = number_leave, .cursor_at = number_cursor_at, \
+  .cancel = number_cancel, \
   .finish_edit = number_finish, .to_text = number_to_text, .from_text = number_from_text, \
   .step = number_step, .reset = number_reset, .negate = number_negate, \
   .activate = number_begin_text

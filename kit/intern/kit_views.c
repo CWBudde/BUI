@@ -765,7 +765,7 @@ static void tree_rename(BKNode *n, int row, const char *text)
 
 static int tree_indent(void)
 {
-  return bk_iround(0.9f * u());
+  return bk_iround(0.7f * u()); /* tree_view.cc: indent 0.7 units */
 }
 
 static int tree_col_x(BKNode *n, int k)
@@ -835,16 +835,15 @@ static void tree_draw_row(BKNode *n, int row, const BKRect *r, const uchar color
   BKTreeItem *it = t->rows[row];
   const int depth = t->depth[row], ind = tree_indent();
   float line[4];
-  bk_rgba_alpha(bk_theme.text, 0.08f, line);
-  for (int d = 0; d < depth; d++) { /* faint hierarchy lines */
+  bk_rgba_alpha(bk_theme.text, 0.2f, line); /* tree_view.cc: TH_TEXT at alpha 0.2 */
+  for (int d = 0; d < depth; d++) { /* hierarchy lines under expanded parents */
     bk_fill_f(r->xmin + d * ind + ind * 0.5f, r->ymin, 1, bk_rh(r), line);
   }
   const int ax = r->xmin + depth * ind;
   if (it->nkids) {
-    float c[4];
-    bk_rgba_alpha(color, 0.75f, c);
-    bk_tria(ax + ind * 0.5f, r->ymin + bk_rh(r) * 0.5f, it->expanded ? 'v' : 'h', c,
-            0.15f * u());
+    /* the disclosure triangle icons, as Blender's tree views draw them */
+    bk_icon(bk_icons_lookup(it->expanded ? "DISCLOSURE_TRI_DOWN" : "DISCLOSURE_TRI_RIGHT"),
+            ax + ind * 0.5f, r->ymin + bk_rh(r) * 0.5f, color, 0.8f, 0);
   }
   const int right = t->ncolumns ? tree_col_x(n, 0) : r->xmax;
   int xs[17];

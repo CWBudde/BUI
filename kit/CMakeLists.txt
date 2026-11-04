@@ -15,7 +15,15 @@ add_library(bui_kit STATIC
   intern/kit_frame.c
   intern/kit_textarea.c
   intern/kit_window.c
+  intern/kit_icons_svg.c
+  intern/kit_regions.c
+  extern/nanosvg/blender_nanosvg.c
+  extern/nanosvg/blender_raster.c
 )
+# Blender's icons: its SVGs (kit_icons_svg.c) rasterized with its nanosvg.
+target_include_directories(bui_kit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extern/nanosvg)
+set_source_files_properties(extern/nanosvg/blender_nanosvg.c extern/nanosvg/blender_raster.c
+                            PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 add_library(bui::kit ALIAS bui_kit)
 target_include_directories(bui_kit PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(bui_kit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/intern)

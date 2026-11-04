@@ -62,6 +62,7 @@ extern float bk_scale_fac;
 int bk_unit(void);
 float bk_px(void);
 float bk_font_size(void);
+const char *bk_font_family(void);
 float bk_line_height(void);
 extern float bk_text_scale; /* per-node font scale while measuring/drawing it */
 float bk_masked_width(const char *s, int len, const char *mask, bool bold);
@@ -148,6 +149,8 @@ void bk_text(float x, float baseline, const char *s, int len, const uchar color[
 void bk_text_f(float x, float baseline, const char *s, int len, const float c[4], bool bold);
 /* Draw `s` inside rect with alignment; returns drawn width. Ellipsizes. */
 float bk_text_in(const BKRect *rect, const char *s, const uchar color[4], int align, bool bold);
+float bk_text_in_pad(const BKRect *rect, const char *s, const uchar color[4], int align, bool bold,
+                     int pad);
 /* Text + optional icon in rect (Blender's widget_draw_text_icon). */
 void bk_text_icon(const BKRect *rect,
                   const char *s,
@@ -223,6 +226,7 @@ typedef struct BKClass {
   int (*dbl)(BKNode *n, BKEvent *e);
   int (*drag)(BKNode *n, BKEvent *e);
   int (*release)(BKNode *n, BKEvent *e);
+  void (*cancel)(BKNode *n); /* Escape while dragged: restore the value */
   int (*move)(BKNode *n, BKEvent *e);
   int (*leave)(BKNode *n);
   int (*key)(BKNode *n, BKEvent *e);
@@ -299,6 +303,7 @@ struct BKNode {
   int x, y, w, h;
   int nat_w, nat_h, nat_gen;
   float weight;
+  int fill; /* in a column: takes a share of the spare height (a region filling its area) */
   int corners;
   unsigned flags;
 
@@ -306,6 +311,7 @@ struct BKNode {
   char *text;  /* label text / title / string value */
   char *label; /* value component label */
   char *desc;  /* tooltip */
+  char *category; /* panels in a sidebar: the tab they show under */
   char *placeholder, *suffix;
   int icon, icon_on;
   int align; /* label alignment */
@@ -339,6 +345,9 @@ struct BKNode {
   BKTextEdit *edit;
   int rename_row;
   int dragmode;
+  double drag_x0, drag_orig; /* Blender's dragstartx; the value at press */
+  float drag_f0;             /* sliders: dragfstart */
+  int drag_mods;
 
   struct BKGeom *geom; /* geometry manager info (children of frames) */
   float anim;          /* panel open fraction while animating (0..1) */
@@ -451,6 +460,8 @@ struct BKContext {
   /* pointer */
   bool dragging;
   int press_x, press_y, off_x, off_y, skip_x, skip_y;
+  int ungrab_x, ungrab_y; /* where a continuous drag puts the pointer back */
+  bool has_ungrab;
   bool has_skip;
   int pointer_x, pointer_y;
   double last_click_t;
@@ -522,8 +533,8 @@ BKMenuSpec *bk_menuspec_copy(const BKMenuSpec *items, int n);
 int bk_tree_columns_from_icons(BKNode *n);
 
 /* Classes (kit_widgets.c, kit_views.c, kit_color.c, kit_menus.c) */
-extern const BKClass bk_cls_column, bk_cls_row, bk_cls_grid, bk_cls_box, bk_cls_panel,
-    bk_cls_tabs, bk_cls_sidetabs, bk_cls_scroll, bk_cls_scrollbar, bk_cls_label, bk_cls_separator,
+extern const BKClass bk_cls_column, bk_cls_row, bk_cls_split, bk_cls_grid, bk_cls_box, bk_cls_panel,
+    bk_cls_tabs, bk_cls_sidetabs, bk_cls_sidebar, bk_cls_scroll, bk_cls_scrollbar, bk_cls_label, bk_cls_separator,
     bk_cls_progress, bk_cls_button, bk_cls_toggle, bk_cls_checkbox, bk_cls_decorator,
     bk_cls_text, bk_cls_search, bk_cls_hotkey, bk_cls_number, bk_cls_slider, bk_cls_dropdown,
     bk_cls_enum, bk_cls_swatch, bk_cls_popover, bk_cls_menubutton, bk_cls_menubar, bk_cls_list,

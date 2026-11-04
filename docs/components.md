@@ -184,10 +184,19 @@ tkinter and Qt).
 
 - **Number fields.** The cursor turns into ↔ arrows over them. Dragging
   hides the cursor and grabs it continuously, so it never hits the window
-  edge and comes back where it started. Shift drags precisely, Ctrl snaps
-  to increments, Alt edits all linked fields (X/Y/Z) together. Click to
-  type a value; expressions such as `2*pi`, `90/4` or `1e3` work
-  (`buipy.kit_eval_number`).
+  edge, and the cursor comes back where the drag started. Each pixel moves
+  the value one click step, as in Blender.
+  - **Shift** drags at a tenth of that speed.
+  - **Ctrl** snaps by Blender's rules (whole units, 10° for angles, multiples
+    of 10 for integers); **Ctrl+Shift** snaps finer.
+  - **Alt** edits all linked fields (X/Y/Z) together.
+  - **Escape** cancels the drag.
+
+  Click, or Ctrl+click, to type a value. Expressions such as `2*pi`, `90/4`
+  or `1e3` work (`buipy.kit_eval_number`).
+- **Sliders.** The value follows the pointer across the slider from where
+  the drag began. Shift moves at 1/20 the speed. When the drag ends, the
+  pointer comes back at the value's position.
 - **Any value.** Ctrl+Wheel steps it, Ctrl+C / Ctrl+V copy and paste it,
   Ctrl+Alt+C / V copy a whole vector, Backspace resets, Minus negates, and
   right-click opens Copy / Paste / Reset.

@@ -6,6 +6,55 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Changed (closer to Blender 5.x)
+- **Text is rendered like Blender's BLF:** BUI now vendors FreeType 2.13.3 (`gpu/extern/freetype`, CMake `BUI_TEXT_FREETYPE`, on by default) and renders as `blenfont/intern/blf_glyph.cc` does:
+  - light hinting;
+  - Blender's gamma-1.43 coverage table;
+  - the variable Inter at the text's optical size, clamped to the axis as Blender does, so UI text gets the 14 pt design instead of the static 18 pt cut;
+  - bold as the font's weight-700 instance.
+
+  Kerning stays off, matching Blender, whose FreeType is built without `GPOS` kerning.
+- **Text shadows:** widget text gets Blender's 1 px drop shadow, and panel titles its soft 3×3 one (`uiFontStyle.shadow`).
+- **Icons are Blender's own:** the 781 SVGs from `release/datafiles/icons_svg` (`tools/gen_svg_icons.py` → `kit/intern/kit_icons_svg.c`) are rasterized with Blender's nanosvg, the way `blf_glyph_cache_add_svg` does. Mono icons use the text color or their theme color (object orange, modifier blue …), and color icons keep their colors.
+- **The theme follows Blender 5.x** (`userdef_default_theme.c`): every widget color set, the navigation-bar background, panel outline and menu shadow.
+- **Panels** are ported from `interface_panel.cc`:
+  - chevron icons and the grip icon;
+  - 1.25-unit headers for sub-panels too;
+  - sub-panels indented 0.7 units and inset 0.1 units, with no separator line;
+  - no hover tint.
+- **Properties navigation bar:** 1.4-unit tabs in aligned groups, using `wcol_tab` colors. `SideTabs` takes `None` between pages to start a group.
+- **Widgets:**
+  - unit values drop trailing zeros ("0 m", "90°");
+  - unembossed buttons draw no hover backdrop;
+  - toggles show icons at alpha 0.75 when off;
+  - checked checkbox labels use `text_sel`;
+  - menus are at least 9 units wide;
+  - tree views indent 0.7 units, with disclosure-triangle icons;
+  - scrollbars are `V2D_SCROLL_WIDTH` wide.
+- **Number fields and sliders drag as in Blender** (`interface_handlers.cc`):
+  - **Number fields** (`numedit_but_NUM`): a float moves one click step per pixel (Shift: a tenth of that). An integer moves 1, ½ or 1/16 per pixel, depending on its range.
+  - **Sliders** (`numedit_but_SLI`) follow the pointer across their width from where the drag began (Shift: 1/20 the speed). When the drag ends, the pointer is put back at the value's position.
+  - **Ctrl snapping uses Blender's rules** (Ctrl+Shift is finer):
+    - unbounded floats snap to whole units, degrees to 10°;
+    - sliders snap to 0.1, 1 or 10 depending on their range;
+    - integers snap to multiples of 10.
+  - **Limits:** past a limit the drag's starting point moves with the pointer, so dragging back responds at once.
+  - **Threshold:** the movement inside the drag threshold is ignored, so values don't jump when a drag starts.
+  - **Clicks:** Ctrl+click types a value. A drag that changed nothing counts as a click.
+  - **Escape** cancels a drag and restores the values.
+- **Checkboxes:** the checkmark is the one Blender's widget shader draws (two 0.14-unit bars, `ROUNDBOX_TRIA_CHECK`), so it fits inside the box. Label text starts right after the box.
+- **Labels without icons** are inset one pixel instead of a text margin (`BUT_NO_TEXT_PADDING`), so right-aligned property labels line up as in Blender.
+- **`Split`** is its own `split` layout, with its columns `columnspace` (0.4 units) apart, as `Layout::split` spaces them.
+- **Panel bodies** are laid out as `ED_region_panels_layout_ex` lays them out:
+  - the panel's own content is inset by `panelspace` on every side;
+  - sub-panels are full width, with no gaps between them;
+  - header widgets start at `panel_label_offset`, and the title follows them.
+
+### Added (components)
+- **`Sidebar`**: an editor's N-panel. Panels with a `category` show under vertical tabs with rotated labels (`panel_category_tabs_draw_all`); Ctrl+Wheel cycles them.
+- **`fill=True`**: in a column, the component takes the spare height, as a region fills its area.
+- **`tools/blender_compare.py`**: renders BUI's version of a piece of Blender's UI next to a capture from a real Blender. **`tools/png_pixels.py`** reads pixels from PNGs.
+
 ### Added (JavaScript: `@blender-ui/native` 0.2.0, `@blender-ui/react` 0.1.0)
 - **`@blender-ui/native`** (`bindings/node`, napi-rs crate `blenderui-node`): BUI from JavaScript in native windows, GPUIX style, on **Node.js and Bun**.
   - A DOM-like API: `createElement`, `setAttribute`, `appendChild`, `insertBefore`, `addEventListener` (events bubble; `stopPropagation` works), `requestAnimationFrame`, `getBoundingClientRect`, `screenshot`.

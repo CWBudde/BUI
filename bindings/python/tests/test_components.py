@@ -336,7 +336,8 @@ def test_cursors_and_continuous_grab():
     d.app.motion(wx + 10, wy, mods(button1=True))      # keeps scrubbing past the edge
     assert f.value >= before
     d.app.release(wx + 10, wy, mods())
-    assert d.warps[-1] == (x, y), "pointer returns to where the drag began"
+    wx, wy = d.warps[-1]  # Blender (USE_CONT_MOUSE_CORRECT): a slider puts it at its value
+    assert wy == y and wx > x, (d.warps[-1], (x, y))
     assert d.app.cursor == "ew"
 
 

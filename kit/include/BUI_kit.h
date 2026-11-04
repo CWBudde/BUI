@@ -88,6 +88,9 @@ void BK_set_font(const char *family);
 int BK_icon_id(const char *name); /* 0 when unknown */
 int BK_icon_count(void);
 const char *BK_icon_name(int id);
+/* Every icon name (Blender's SVG icons, then BUI-only ones), for listings. */
+int BK_icon_list_count(void);
+const char *BK_icon_list_name(int i);
 
 /* -- nodes -------------------------------------------------------------------- */
 /* Types: column row grid box panel tabs sidetabs scroll label separator

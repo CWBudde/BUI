@@ -34,7 +34,7 @@ from bui.components import (App, Box, Button, Checkbox, ColorRamp, ColorSwatch, 
 
 def page(*children):
     """A properties-editor page: padded column of panels."""
-    return Column(*children, padding=8, spacing=6)
+    return Column(*children, padding=8, spacing=2)  # UI_PANEL_MARGIN_X / _Y: 0.4 / 0.1 units
 
 
 def prop(label, component, decorate=True):

@@ -17,7 +17,7 @@ void rgb_to_hsl_v(const float rgb[3], float r_hsl[3]);
 void hsl_to_rgb_v(const float hsl[3], float r_rgb[3]);
 
 /* -------------------------------------------------------------------- */
-/** \name Theme: Blender 4.x defaults (userdef_default_theme.c, ThemeUI)
+/** \name Theme: Blender 5.x defaults (release/datafiles/userdef/userdef_default_theme.c)
  * \{ */
 
 #define RGBA(v) {(uchar)((v) >> 24), (uchar)((v) >> 16), (uchar)((v) >> 8), (uchar)(v)}
@@ -26,57 +26,38 @@ void hsl_to_rgb_v(const float hsl[3], float r_rgb[3]);
    RGBA(text_), RGBA(text_sel_), 0, 0, 0, round_}
 
 BKTheme bk_theme = {
-    /* regular */ WCOL(0x3d3d3dff, 0x656565ff, 0x545454ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff,
-                       0xffffffff, 0.2f),
-    /* tool */ WCOL(0x3d3d3dff, 0x656565ff, 0x545454ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff,
-                    0xffffffff, 0.2f),
-    /* toggle */ WCOL(0x3d3d3dff, 0x656565ff, 0x545454ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff,
-                      0xffffffff, 0.2f),
-    /* radio */ WCOL(0x3d3d3dff, 0x656565ff, 0x545454ff, 0x4772b3ff, 0xffffffff, 0xe6e6e6ff,
-                     0xffffffff, 0.2f),
-    /* option */ WCOL(0x3d3d3dff, 0x656565ff, 0x545454ff, 0x4772b3ff, 0xffffffff, 0xe6e6e6ff,
-                      0xffffffff, 0.3f),
-    /* text */ WCOL(0x3d3d3dff, 0x656565ff, 0x1d1d1dff, 0x181818ff, 0x4772b3ff, 0xe6e6e6ff,
-                    0xffffffff, 0.2f),
-    /* num */ WCOL(0x3d3d3dff, 0x656565ff, 0x545454ff, 0x656565ff, 0xe6e6e6ff, 0xe6e6e6ff,
-                   0xffffffff, 0.2f),
-    /* numslider */ WCOL(0x3d3d3dff, 0x656565ff, 0x545454ff, 0x999999ff, 0x4772b3ff,
-                         0xe6e6e6ff, 0xffffffff, 0.2f),
-    /* menu */ WCOL(0x3d3d3dff, 0x656565ff, 0x282828ff, 0x303030ff, 0xe6e6e6ff, 0xe6e6e6ff,
-                    0xffffffff, 0.2f),
-    /* pulldown */ WCOL(0x3d3d3d00, 0x3d3d3d00, 0x00000000, 0x4772b3ff, 0xffffffff,
-                        0xd9d9d9ff, 0xffffffff, 0.2f),
-    /* menu_back */ WCOL(0x242424ff, 0x242424ff, 0x181818efu, 0x2d2d2dff, 0x656565ff,
-                         0xa5a5a5ff, 0xffffffff, 0.25f),
-    /* menu_item */ WCOL(0x00000000, 0x00000000, 0x00000000, 0x4772b3ff, 0xffffff8f,
-                         0xe6e6e6ff, 0xffffffff, 0.2f),
-    /* list_item */ WCOL(0x00000000, 0x00000000, 0x00000000, 0x334d80ff, 0x4772b3ff,
-                         0xe6e6e6ff, 0xffffffff, 0.2f),
-    /* box */ WCOL(0x3d3d3dff, 0x656565ff, 0x282828ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff,
-                   0xffffffff, 0.2f),
-    /* scroll */ WCOL(0x00000000, 0x00000000, 0x00000000, 0x646464b4, 0x545454ff, 0xe6e6e6ff,
-                      0xffffffff, 0.5f),
-    /* progress */ WCOL(0x3d3d3dff, 0x656565ff, 0x1d1d1dff, 0x4772b3ff, 0x4772b3ff,
-                        0xe6e6e6ff, 0xffffffff, 0.2f),
-    /* tooltip */ WCOL(0x3d3d3dff, 0x3d3d3dff, 0x1d1d1dff, 0x1d1d1dff, 0x1d1d1dff, 0xe6e6e6ff,
-                       0xffffffff, 0.25f),
-    /* tab */ WCOL(0x1d1d1dff, 0x1d1d1dff, 0x2a2a2aff, 0x3d3d3dff, 0x28292dff, 0x989898ff,
-                   0xffffffff, 0.2f),
-    /* pie_menu */ WCOL(0x0a0a0aff, 0x0a0a0aff, 0x181818ffu, 0x4772b3ff, 0x4772b3ff,
-                        0xd9d9d9ff, 0xffffffff, 0.5f),
+    /* regular */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x545454ffu, 0x4772b3ffu, 0x1d1d1d80u, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* tool */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x545454ffu, 0x4772b3ffu, 0xffffffffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* toggle */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x545454ffu, 0x4772b3ffu, 0x252525ffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* radio */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x545454ffu, 0x4772b3ffu, 0x252525ffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* option */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x545454ffu, 0x4772b3ffu, 0xffffffffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* text */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x1d1d1dffu, 0x181818ffu, 0xffffff33u, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* num */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x545454ffu, 0x222222ffu, 0x4772b3ffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* numslider */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x545454ffu, 0x222222ffu, 0x4772b3ffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* menu */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x282828ffu, 0x4772b3b3u, 0xd9d9d9ffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* pulldown */ WCOL(0x3d3d3d00u, 0x3d3d3d00u, 0x22222200u, 0xffffff1au, 0xffffff8fu, 0xd9d9d9ffu, 0xffffffffu, 0.2f),
+    /* menu_back */ WCOL(0x242424ffu, 0x242424ffu, 0x181818ffu, 0x4772b3ffu, 0xd9d9d9ffu, 0x999999ffu, 0xffffffffu, 0.2f),
+    /* menu_item */ WCOL(0x3d3d3d00u, 0x3d3d3d00u, 0x18181800u, 0x4772b3ffu, 0xffffff8fu, 0xddddddffu, 0xffffffffu, 0.2f),
+    /* list_item */ WCOL(0x2d2d2d00u, 0x2d2d2dffu, 0xffffff00u, 0x4772b3ffu, 0xffffff33u, 0xccccccffu, 0xffffffffu, 0.2f),
+    /* box */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x1d1d1d80u, 0x545454ffu, 0x191919ffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* scroll */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x22222200u, 0xffffffffu, 0x545454ffu, 0xe6e6e6ffu, 0xffffffffu, 0.5f),
+    /* progress */ WCOL(0x3d3d3dffu, 0x3d3d3dffu, 0x222222ffu, 0x4772b3ffu, 0x4772b3ffu, 0xe6e6e6ffu, 0xffffffffu, 0.2f),
+    /* tooltip */ WCOL(0x242424ffu, 0x242424ffu, 0x1d1d1dffu, 0x4772b3ffu, 0xd9d9d9ffu, 0xd9d9d9ffu, 0xffffffffu, 0.2f),
+    /* tab */ WCOL(0x1d1d1dffu, 0x1d1d1dffu, 0x1d1d1dffu, 0x303030ffu, 0x1d1d1dffu, 0x989898ffu, 0xffffffffu, 0.2f),
+    /* pie_menu */ WCOL(0x242424ffu, 0x242424ffu, 0x181818ffu, 0x4772b3ffu, 0x545454ffu, 0xd9d9d9ffu, 0xffffffffu, 0.2f),
     RGBA(0x303030ff), /* region_bg */
     RGBA(0x181818ff), /* header_bg (top bar) */
-    RGBA(0x1d1d1dff), /* tabs_bg (navigation bar) */
+    RGBA(0x181818ff), /* tabs_bg (navigation bar: regions.sidebars.tab_back) */
     RGBA(0x3d3d3dff), /* panel_header */
     RGBA(0x3d3d3dff), /* panel_back */
     RGBA(0x0000001fu), /* panel_sub_back */
-    RGBA(0xffffff0du), /* panel_outline */
+    RGBA(0xffffff11u), /* panel_outline */
     RGBA(0xe6e6e6ff), /* text */
     RGBA(0xffffffff), /* text_hi */
     RGBA(0x00000026u), /* widget_emboss */
     RGBA(0x71a8ffff), /* text cursor */
     RGBA(0x4772b380u), /* text selection */
-    0.4f,             /* menu_shadow_fac */
+    0.2f,             /* menu_shadow_fac */
     6,                /* menu_shadow_width */
     0.4f,             /* panel_roundness */
 };
@@ -110,6 +91,11 @@ float bk_px(void)
   return bk_scale_fac >= 1.5f ? 2.0f : 1.0f; /* U.pixelsize */
 }
 float bk_text_scale = 1.0f;
+
+const char *bk_font_family(void)
+{
+  return g_font_family;
+}
 
 float bk_font_size(void)
 {
@@ -576,17 +562,41 @@ static void draw_menu_chevron(const WidgetTrias *t, const float c[4])
   BUI_raster_line(bk_draw.r, cx, cy + s * 0.5f, cx + s, cy - s * 0.4f, lw, c);
 }
 
+/* The checkmark as Blender's widget shader draws it (gpu_shader_2D_widget_base,
+ * ROUNDBOX_TRIA_CHECK): two bars 0.14 thick, each the part of a 0.74 x 0.14
+ * box (uv space) inside the arrow triangle whose uv is shifted by (0.08, 0.65)
+ * for the long side and (0.4, 0.65) for the short one, the second mirrored,
+ * both turned 85 degrees and moved by (-0.1, 0.2), at 1.7 x half the box. */
 static void shape_preset_trias_from_rect_checkmark(WidgetTrias *tria, const BKRect *rect)
 {
   tria->type = TRIA_CHECK;
   const float h = bk_rh(rect);
-  const float centx = rect->xmin + 0.5f * h, centy = rect->ymax - 0.5f * h, size = 0.5f * h;
-  tria->npoly = 1;
-  tria->nv[0] = 6;
-  for (int a = 0; a < 6; a++) {
-    tria_vert(tria->v[0][a], centx, centy, size, size,
-              g_shape_preset_checkmark_vert[g_checkmark_outline[a]], 0, 1);
+  const float centx = rect->xmin + 0.5f * h, centy = rect->ymax - 0.5f * h;
+  const float size = 0.5f * h * 1.7f;
+  /* the triangle (0,.6) (.6,0) (-.6,0) maps uv = M (pos - (-.6,0)) + uv_c, with
+   * M = 0.70833 [[1,-1],[1,1]]: pos = (-.6,0) + 0.70588 [[1,1],[-1,1]] (uv - uv_c) */
+  const float shift_x[2] = {0.08f, 0.4f};
+  for (int k = 0; k < 2; k++) {
+    const float uvc_x = -shift_x[k], uvc_y = -0.65f;
+    /* the clip edge (C to B): inside while uv_x <= uv_y + uvc_x - uvc_y */
+    const float cut = uvc_x - uvc_y; /* the bar's end at uv_y = 0 */
+    const float uv[4][2] = {{0.0f, 0.0f}, {cut, 0.0f}, {cut + 0.14f, 0.14f}, {0.0f, 0.14f}};
+    tria->nv[k] = 4;
+    for (int a = 0; a < 4; a++) {
+      const float du = uv[a][0] - uvc_x, dv = uv[a][1] - uvc_y;
+      float px = -0.6f + 0.70588f * (du + dv), py = 0.70588f * (dv - du);
+      if (k == 1) {
+        py = -py; /* mirrored */
+      }
+      const float rx = px * 0.0872f + py * 0.996f - 0.1f;
+      const float ry = px * -0.996f + py * 0.0872f + 0.2f;
+      tria->v[k][a][0] = centx + rx * size;
+      tria->v[k][a][1] = centy - ry * size; /* y-up to y-down */
+    }
   }
+  tria->npoly = 2;
+  (void)g_shape_preset_checkmark_vert;
+  (void)g_checkmark_outline;
 }
 
 static void shape_preset_trias_from_rect_dash(WidgetTrias *tria, const BKRect *rect)
@@ -1078,6 +1088,11 @@ float bk_text_baseline(const BKRect *rect)
   return rect->ymin + bk_rh(rect) * 0.5f + bk_font_size() * 0.36f;
 }
 
+/* Text shadow, as uiFontStyle.shadow in Blender's styles (interface_style.cc):
+ * 0 none, 1 a sharp drop shadow (the widget style), 3 a 3x3 blurred one (panel
+ * titles). Black at half the text's alpha, 1 px down (shady = -1). */
+int bk_text_shadow = 1;
+
 void bk_text_f(float x, float baseline, const char *s, int len, const float c[4], bool bold)
 {
   if (!s || c[3] <= 0.0f) {
@@ -1090,8 +1105,22 @@ void bk_text_f(float x, float baseline, const char *s, int len, const float c[4]
     return;
   }
   BUI_raster_set_font(bk_draw.r, g_font_family, bold ? BUI_FONT_BOLD : 0);
-  BUI_raster_text(bk_draw.r, floorf(x + 0.5f), floorf(baseline + 0.5f), s, len, bk_font_size(),
-                  c);
+  const float px = floorf(x + 0.5f), py = floorf(baseline + 0.5f);
+  if (bk_text_shadow == 1) {
+    const float sc[4] = {0.0f, 0.0f, 0.0f, 0.5f * c[3]};
+    BUI_raster_text(bk_draw.r, px, py + 1.0f, s, len, bk_font_size(), sc);
+  }
+  else if (bk_text_shadow == 3) {
+    /* BLF's 3x3 blur kernel (1 2 1 / 2 4 2 / 1 2 1) / 16 as weighted copies */
+    static const float k[3] = {1.0f, 2.0f, 1.0f};
+    for (int dy = -1; dy <= 1; dy++) {
+      for (int dx = -1; dx <= 1; dx++) {
+        const float sc[4] = {0.0f, 0.0f, 0.0f, 0.5f * c[3] * k[dx + 1] * k[dy + 1] / 16.0f};
+        BUI_raster_text(bk_draw.r, px + (float)dx, py + 1.0f + (float)dy, s, len, bk_font_size(), sc);
+      }
+    }
+  }
+  BUI_raster_text(bk_draw.r, px, py, s, len, bk_font_size(), c);
 }
 
 void bk_text(float x, float baseline, const char *s, int len, const uchar color[4], bool bold)
@@ -1129,6 +1158,18 @@ float bk_line_height(void)
   return floorf(bk_font_size() * 1.45f + 0.5f);
 }
 
+static int g_text_pad = -1; /* bk_text_in_pad: the margin instead of bk_pad() */
+
+float bk_text_in_pad(const BKRect *rect, const char *s, const uchar color[4], int align, bool bold,
+                     int pad)
+{
+  const int prev = g_text_pad;
+  g_text_pad = pad;
+  const float w = bk_text_in(rect, s, color, align, bold);
+  g_text_pad = prev;
+  return w;
+}
+
 float bk_text_in(const BKRect *rect, const char *s, const uchar color[4], int align, bool bold)
 {
   if (!s || !s[0]) {
@@ -1156,7 +1197,7 @@ float bk_text_in(const BKRect *rect, const char *s, const uchar color[4], int al
     }
     return widest;
   }
-  const int pad = bk_pad();
+  const int pad = g_text_pad >= 0 ? g_text_pad : bk_pad();
   const float avail = (float)(bk_rw(rect) - 2 * pad);
   bool ell;
   const int n = fit_with_ellipsis(s, avail, bold, &ell);
@@ -1233,8 +1274,173 @@ void bk_text_icon(const BKRect *rect, const char *s, int icon, const uchar color
 /** \name Icons & small glyphs
  * \{ */
 
+/* -- Blender's SVG icons --------------------------------------------------------
+ * Icon ids from BK_SVG_BASE on are Blender's own icons (kit_icons_svg.c),
+ * rasterized with nanosvg the way blf_glyph_cache_add_svg does: mono icons
+ * become a coverage mask drawn in the text (or the icon's theme) color,
+ * colored icons keep their colors. Ids below are BUI's vector icons. */
+
+#include "kit_icons_svg.h"
+#include "nanosvg.h"
+#include "nanosvgrast.h"
+
+#define BK_SVG_BASE 4096
+
+/* theme icon colors by kind (userdef_default_theme.c; FUND: resources.cc) */
+static const float svg_tints[9][4] = {
+    {0, 0, 0, 0},
+    {0xcc / 255.0f, 0xcc / 255.0f, 0xcc / 255.0f, 1.0f}, /* icon_scene */
+    {1.0f, 1.0f, 1.0f, 1.0f},                            /* icon_collection */
+    {0xe1 / 255.0f, 0x96 / 255.0f, 0x58 / 255.0f, 1.0f}, /* icon_object */
+    {0x00 / 255.0f, 0xd4 / 255.0f, 0xa3 / 255.0f, 1.0f}, /* icon_object_data */
+    {0x74 / 255.0f, 0xa2 / 255.0f, 0xff / 255.0f, 1.0f}, /* icon_modifier */
+    {0xcc / 255.0f, 0x66 / 255.0f, 0x70 / 255.0f, 1.0f}, /* icon_shading */
+    {0xcc / 255.0f, 0xad / 255.0f, 0x63 / 255.0f, 1.0f}, /* icon_folder */
+    {204 / 255.0f, 48 / 255.0f, 72 / 255.0f, 1.0f},      /* fund */
+};
+
+static int *g_svg_order = NULL; /* indices sorted by name */
+
+static int svg_cmp(const void *a, const void *b)
+{
+  return strcmp(bk_svg_icons[*(const int *)a].name, bk_svg_icons[*(const int *)b].name);
+}
+
+static int svg_lookup(const char *name)
+{
+  if (!g_svg_order) {
+    g_svg_order = (int *)malloc(sizeof(int) * (size_t)bk_svg_icon_count);
+    if (!g_svg_order) {
+      return -1;
+    }
+    for (int i = 0; i < bk_svg_icon_count; i++) {
+      g_svg_order[i] = i;
+    }
+    qsort(g_svg_order, (size_t)bk_svg_icon_count, sizeof(int), svg_cmp);
+  }
+  int lo = 0, hi = bk_svg_icon_count - 1;
+  while (lo <= hi) {
+    const int mid = (lo + hi) / 2;
+    const int c = strcmp(bk_svg_icons[g_svg_order[mid]].name, name);
+    if (c == 0) {
+      return g_svg_order[mid];
+    }
+    if (c < 0) {
+      lo = mid + 1;
+    }
+    else {
+      hi = mid - 1;
+    }
+  }
+  return -1;
+}
+
+typedef struct SvgBitmap {
+  uint32_t key[3]; /* icon + 1, size, rgb (0 for colored icons); key[0] 0: empty */
+  int w, h;
+  uint32_t *argb;
+} SvgBitmap;
+
+#define SVG_CACHE 1024 /* power of two */
+static SvgBitmap g_svg_cache[SVG_CACHE];
+static int g_svg_cached = 0;
+
+static void svg_cache_flush(void)
+{
+  for (int i = 0; i < SVG_CACHE; i++) {
+    free(g_svg_cache[i].argb);
+  }
+  memset(g_svg_cache, 0, sizeof(g_svg_cache));
+  g_svg_cached = 0;
+}
+
+/* blf_glyph_cache_add_svg: rasterize at `size` pixels (the viewBox is 1600). */
+static const SvgBitmap *svg_bitmap(int idx, int size, const float c[4])
+{
+  const bool colored = bk_svg_icons[idx].kind < 0;
+  const uint32_t rgb = colored ? 0u :
+                                 ((uint32_t)(c[0] * 255.0f + 0.5f) << 16) |
+                                     ((uint32_t)(c[1] * 255.0f + 0.5f) << 8) |
+                                     (uint32_t)(c[2] * 255.0f + 0.5f);
+  const uint32_t key[3] = {(uint32_t)idx + 1u, (uint32_t)size, rgb};
+  uint32_t h = (key[0] * 2654435761u) ^ (key[1] * 40503u) ^ (key[2] * 2246822519u);
+  for (uint32_t i = h & (SVG_CACHE - 1);; i = (i + 1) & (SVG_CACHE - 1)) {
+    SvgBitmap *b = &g_svg_cache[i];
+    if (b->key[0] == 0) {
+      if (g_svg_cached >= SVG_CACHE * 3 / 4) {
+        svg_cache_flush();
+        return svg_bitmap(idx, size, c);
+      }
+      char *src = strdup(bk_svg_icons[idx].svg); /* nsvgParse writes into it */
+      NSVGimage *image = src ? nsvgParse(src, "px", 96.0f) : NULL;
+      free(src);
+      if (!image || image->width <= 0 || image->height <= 0) {
+        if (image) {
+          nsvgDelete(image);
+        }
+        return NULL;
+      }
+      float scale = (float)size / 1600.0f;
+      const int w = (int)ceilf(image->width * scale), hh = (int)ceilf(image->height * scale);
+      scale = (float)w / image->width;
+      uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)hh * 4);
+      uint32_t *argb = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)w * (size_t)hh);
+      NSVGrasterizer *rast = nsvgCreateRasterizer();
+      if (!rgba || !argb || !rast) {
+        free(rgba);
+        free(argb);
+        if (rast) {
+          nsvgDeleteRasterizer(rast);
+        }
+        nsvgDelete(image);
+        return NULL;
+      }
+      nsvgRasterize(rast, image, 0.0f, 0.0f, scale, rgba, w, hh, w * 4);
+      nsvgDeleteRasterizer(rast);
+      nsvgDelete(image);
+      for (int p = 0; p < w * hh; p++) {
+        const uint8_t *s = rgba + (size_t)p * 4;
+        if (colored) {
+          argb[p] = ((uint32_t)s[3] << 24) | ((uint32_t)s[0] << 16) | ((uint32_t)s[1] << 8) | s[2];
+        }
+        else {
+          /* RGBA -> coverage: srgb_to_grayscale_byte(rgb) * alpha */
+          const float gray = 0.2126f * s[0] + 0.7152f * s[1] + 0.0722f * s[2];
+          const uint32_t a = (uint32_t)(gray * (float)s[3] / 255.0f + 0.5f);
+          argb[p] = (BK_MIN(a, 255u) << 24) | rgb;
+        }
+      }
+      free(rgba);
+      memcpy(b->key, key, sizeof(key));
+      b->w = w;
+      b->h = hh;
+      b->argb = argb;
+      g_svg_cached++;
+      return b;
+    }
+    if (memcmp(b->key, key, sizeof(key)) == 0) {
+      return b;
+    }
+  }
+}
+
+static void svg_icon_draw(int idx, float cx, float cy, const float c[4], float s)
+{
+  const int size = BK_MAX(1, (int)(s + 0.5f));
+  const SvgBitmap *b = svg_bitmap(idx, size, c);
+  if (!b) {
+    return;
+  }
+  const float x = floorf(cx - (float)b->w * 0.5f + 0.5f), y = floorf(cy - (float)b->h * 0.5f + 0.5f);
+  BUI_raster_image(bk_draw.r, x, y, (float)b->w, (float)b->h, b->argb, b->w, b->h, c[3]);
+}
+
 const float *bk_icon_tint(int icon)
 {
+  if (icon >= BK_SVG_BASE && icon < BK_SVG_BASE + bk_svg_icon_count) {
+    const int kind = bk_svg_icons[icon - BK_SVG_BASE].kind;
+    return kind > 0 ? svg_tints[kind] : NULL;
+  }
   if (icon <= 0 || icon >= bk_icon_def_count || !bk_icon_defs[icon].has_tint) {
     return NULL;
   }
@@ -1243,6 +1449,25 @@ const float *bk_icon_tint(int icon)
 
 void bk_icon(int icon, float cx, float cy, const uchar *color, float alpha, float size)
 {
+  if (icon >= BK_SVG_BASE && icon < BK_SVG_BASE + bk_svg_icon_count) {
+    const float s = size > 0.0f ? size : (float)bk_icon_size();
+    float c[4];
+    const float *tint = bk_icon_tint(icon);
+    if (color) {
+      bk_rgba(color, c);
+    }
+    else if (tint) {
+      memcpy(c, tint, sizeof(c));
+    }
+    else {
+      bk_rgba(bk_theme.text, c); /* icon_draw_size: TH_TEXT */
+    }
+    c[3] *= alpha;
+    if (c[3] > 0.0f) {
+      svg_icon_draw(icon - BK_SVG_BASE, cx, cy, c, s);
+    }
+    return;
+  }
   if (icon <= 0 || icon >= bk_icon_def_count) {
     return;
   }
@@ -1295,6 +1520,10 @@ int bk_icons_lookup(const char *name)
   if (!name || !name[0]) {
     return 0;
   }
+  const int svg = svg_lookup(name); /* Blender's own icon first */
+  if (svg >= 0) {
+    return BK_SVG_BASE + svg;
+  }
   for (int i = 1; i < bk_icon_def_count; i++) {
     if (strcmp(bk_icon_defs[i].name, name) == 0) {
       return i;
@@ -1311,8 +1540,35 @@ int BK_icon_count(void)
 {
   return bk_icon_def_count - 1;
 }
+
+/* Every icon name: Blender's SVG icons, then BUI's vector icons Blender lacks. */
+int BK_icon_list_count(void)
+{
+  int n = bk_svg_icon_count;
+  for (int i = 1; i < bk_icon_def_count; i++) {
+    n += svg_lookup(bk_icon_defs[i].name) < 0;
+  }
+  return n;
+}
+
+const char *BK_icon_list_name(int i)
+{
+  if (i < bk_svg_icon_count) {
+    return i >= 0 ? bk_svg_icons[i].name : "";
+  }
+  i -= bk_svg_icon_count;
+  for (int k = 1; k < bk_icon_def_count; k++) {
+    if (svg_lookup(bk_icon_defs[k].name) < 0 && i-- == 0) {
+      return bk_icon_defs[k].name;
+    }
+  }
+  return "";
+}
 const char *BK_icon_name(int id)
 {
+  if (id >= BK_SVG_BASE && id < BK_SVG_BASE + bk_svg_icon_count) {
+    return bk_svg_icons[id - BK_SVG_BASE].name;
+  }
   return (id > 0 && id < bk_icon_def_count) ? bk_icon_defs[id].name : "";
 }
 

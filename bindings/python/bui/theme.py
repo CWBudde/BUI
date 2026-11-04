@@ -1,6 +1,6 @@
 """Blender's default UI theme and metrics, for the BUI widget model.
 
-Values follow Blender 4.x's default theme (``userdef_default_theme.c``:
+Values follow Blender 5.x's default theme (``userdef_default_theme.c``:
 ``wcol_regular``, ``wcol_text``, ``wcol_numslider`` ...) and its interface
 metrics (``U.widget_unit`` = 20 px at scale 1, 11 pt UI text, roundness as a
 fraction of the widget unit). Widgets read these at paint time, so changing
@@ -42,35 +42,27 @@ def _wcol(outline, inner, inner_sel, item, text, text_sel, roundness=0.2,
                         _rgba(text), _rgba(text_sel), roundness, shadetop, shadedown)
 
 
-# --- color sets (Blender 4.x default theme) ---------------------------------
+# --- color sets (Blender 5.x default theme: userdef_default_theme.c) ----------
 WCOL = {
-    "regular": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff, 0xffffffff),
-    "tool": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff, 0xffffffff),
-    "toggle": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff, 0xffffffff),
-    "radio": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0xffffffff, 0xe6e6e6ff, 0xffffffff),
-    "option": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0xffffffff, 0xe6e6e6ff, 0xffffffff,
-                    roundness=0.3),
-    "text": _wcol(0x3d3d3dff, 0x1d1d1dff, 0x181818ff, 0x4772b3ff, 0xe6e6e6ff, 0xffffffff),
-    "num": _wcol(0x3d3d3dff, 0x545454ff, 0x656565ff, 0xe6e6e6ff, 0xe6e6e6ff, 0xffffffff),
-    "numslider": _wcol(0x3d3d3dff, 0x545454ff, 0x999999ff, 0x4772b3ff, 0xe6e6e6ff,
-                       0xffffffff),
-    "menu": _wcol(0x3d3d3dff, 0x282828ff, 0x303030ff, 0xe6e6e6ff, 0xe6e6e6ff, 0xffffffff),
-    "pulldown": _wcol(0x3d3d3d00, 0x00000000, 0x4772b3ff, 0xffffffff, 0xd9d9d9ff,
-                      0xffffffff),
-    "menu_back": _wcol(0x242424ff, 0x181818ef, 0x2d2d2dff, 0x656565ff,
-                       0xa5a5a5ff, 0xffffffff, roundness=0.25),
-    "menu_item": _wcol(0x00000000, 0x00000000, 0x4772b3ff, 0xffffff8f, 0xe6e6e6ff,
-                       0xffffffff),
-    "list_item": _wcol(0x00000000, 0x00000000, 0x334d80ff, 0x4772b3ff, 0xe6e6e6ff,
-                       0xffffffff),
-    "box": _wcol(0x3d3d3dff, 0x282828ff, 0x4772b3ff, 0x191919ff, 0xe6e6e6ff, 0xffffffff),
-    "progress": _wcol(0x3d3d3dff, 0x1d1d1dff, 0x4772b3ff, 0x4772b3ff, 0xe6e6e6ff,
-                      0xffffffff),
-    "scroll": _wcol(0x00000000, 0x00000000, 0x646464b4, 0x545454ff, 0xe6e6e6ff,
-                    0xffffffff, roundness=0.5),
-    "tooltip": _wcol(0x3d3d3dff, 0x1d1d1dff, 0x1d1d1dff, 0x1d1d1dff, 0xe6e6e6ff, 0xffffffff,
-                     roundness=0.25),
-    "tab": _wcol(0x1d1d1dff, 0x2a2a2aff, 0x3d3d3dff, 0x28292dff, 0x989898ff, 0xffffffff),
+    "regular": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0x1d1d1d80, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "tool": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0xffffffff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "toggle": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0x252525ff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "radio": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0x252525ff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "option": _wcol(0x3d3d3dff, 0x545454ff, 0x4772b3ff, 0xffffffff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "text": _wcol(0x3d3d3dff, 0x1d1d1dff, 0x181818ff, 0xffffff33, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "num": _wcol(0x3d3d3dff, 0x545454ff, 0x222222ff, 0x4772b3ff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "numslider": _wcol(0x3d3d3dff, 0x545454ff, 0x222222ff, 0x4772b3ff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "menu": _wcol(0x3d3d3dff, 0x282828ff, 0x4772b3b3, 0xd9d9d9ff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "pulldown": _wcol(0x3d3d3d00, 0x22222200, 0xffffff1a, 0xffffff8f, 0xd9d9d9ff, 0xffffffff, roundness=0.2),
+    "menu_back": _wcol(0x242424ff, 0x181818ff, 0x4772b3ff, 0xd9d9d9ff, 0x999999ff, 0xffffffff, roundness=0.2),
+    "menu_item": _wcol(0x3d3d3d00, 0x18181800, 0x4772b3ff, 0xffffff8f, 0xddddddff, 0xffffffff, roundness=0.2),
+    "list_item": _wcol(0x2d2d2d00, 0xffffff00, 0x4772b3ff, 0xffffff33, 0xccccccff, 0xffffffff, roundness=0.2),
+    "box": _wcol(0x3d3d3dff, 0x1d1d1d80, 0x545454ff, 0x191919ff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "progress": _wcol(0x3d3d3dff, 0x222222ff, 0x4772b3ff, 0x4772b3ff, 0xe6e6e6ff, 0xffffffff, roundness=0.2),
+    "scroll": _wcol(0x3d3d3dff, 0x22222200, 0xffffffff, 0x545454ff, 0xe6e6e6ff, 0xffffffff, roundness=0.5),
+    "tooltip": _wcol(0x242424ff, 0x1d1d1dff, 0x4772b3ff, 0xd9d9d9ff, 0xd9d9d9ff, 0xffffffff, roundness=0.2),
+    "tab": _wcol(0x1d1d1dff, 0x1d1d1dff, 0x303030ff, 0x1d1d1dff, 0x989898ff, 0xffffffff, roundness=0.2),
+    "pie_menu": _wcol(0x242424ff, 0x181818ff, 0x4772b3ff, 0x545454ff, 0xd9d9d9ff, 0xffffffff, roundness=0.2),
 }
 
 # --- region / panel colors ----------------------------------------------------
@@ -78,13 +70,13 @@ REGION_BG = _rgba(0x303030ff)       # editor region background
 TOPBAR_BG = _rgba(0x181818ff)       # top bar / menubar header
 PANEL_HEADER = _rgba(0x3d3d3dff)
 PANEL_BACK = _rgba(0x3d3d3dff)
-PANEL_OUTLINE = _rgba(0x2a2a2aff)
+PANEL_OUTLINE = _rgba(0xffffff11)
 TEXT = _rgba(0xe6e6e6ff)            # labels
 TEXT_DISABLED_FAC = 0.5             # Blender draws inactive widgets at 50% alpha
 WIDGET_EMBOSS = _rgba(0x00000026)
 TEXT_CURSOR = _rgba(0x71a8ffff)
 TEXT_SELECTION = _rgba(0x4772b380)
-MENU_SHADOW_FAC = 0.4
+MENU_SHADOW_FAC = 0.2
 MENU_SHADOW_WIDTH = 6
 HOVER_LIGHTEN = 15 / 255.0          # widget_active_color(): inner + 15
 

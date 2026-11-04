@@ -50,8 +50,10 @@ class Component(buipy.KitNode):
     TYPE = "column"
 
     def __init__(self, *, description: str = "", enabled: bool = True,
-                 visible: bool = True, weight: float = 1.0):
+                 visible: bool = True, weight: float = 1.0, fill: bool = False):
         super().__init__(self.TYPE)
+        if fill:  # in a column: grow into the spare height (a region filling its area)
+            self.set("fill", True)
         if description:
             self.set("description", description)
         if not enabled:

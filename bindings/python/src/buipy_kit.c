@@ -1844,10 +1844,10 @@ static PyObject *kit_set_font(PyObject *m, PyObject *arg)
 
 static PyObject *kit_icon_names(PyObject *m, PyObject *unused)
 {
-  const int n = BK_icon_count();
+  const int n = BK_icon_list_count();
   PyObject *list = PyList_New(n);
   for (int i = 0; list && i < n; i++) {
-    PyList_SET_ITEM(list, i, PyUnicode_FromString(BK_icon_name(i + 1)));
+    PyList_SET_ITEM(list, i, PyUnicode_FromString(BK_icon_list_name(i)));
   }
   return list;
 }

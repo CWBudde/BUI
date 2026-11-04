@@ -44,7 +44,10 @@ class Row(_Stack):
 
 
 class Split(Row):
-    """Property split: ``left`` gets ``factor`` of the width."""
+    """Property split: ``left`` gets ``factor`` of the width (Blender's
+    ``layout.split``: the columns ``columnspace`` apart)."""
+
+    TYPE = "split"
 
     def __init__(self, left: Component, right: Component, factor: float = 0.4, **kw):
         left.weight, right.weight = factor, 1.0 - factor
@@ -75,10 +78,12 @@ class Panel(Component):
 
     def __init__(self, title: str, *children: Component, collapsed: bool = False,
                  icon: str = None, header: Sequence[Component] = (),
-                 on_toggle: Optional[Callable[[bool], None]] = None, **kw):
+                 on_toggle: Optional[Callable[[bool], None]] = None, category: str = None, **kw):
         super().__init__(**kw)
         self.on_toggle = on_toggle
         self.set("text", title)
+        if category:  # in a Sidebar: the tab it shows under
+            self.set("category", category)
         if icon:
             self.set("icon", icon)
         if collapsed:
@@ -150,18 +155,54 @@ class Tabs(Component):
             self.on_change(int(a))
 
 
+class Sidebar(Component):
+    """An editor's sidebar region (Blender's N-panel): Panels with a
+    ``category`` show under a tab per category, drawn along the right edge
+    with rotated labels; Ctrl+Wheel cycles them. ``current`` is the active
+    category's index."""
+
+    TYPE = "sidebar"
+
+    def __init__(self, *panels: Component, current: int = 0, on_change=None, **kw):
+        super().__init__(**kw)
+        self.on_change = on_change
+        self.add(*panels)
+        if current:
+            self.set("value", current)
+
+    @property
+    def current(self) -> int:
+        return int(self.get("value"))
+
+    @current.setter
+    def current(self, i: int) -> None:
+        self.set("value", i)
+
+    def _on_event(self, kind, ref, a, b):
+        if kind == EV_CHANGE and self.on_change is not None:
+            self.on_change(int(a))
+
+
 class SideTabs(Tabs):
     """Properties-editor navigation: ``SideTabs([("OBJECT_DATA", "Object",
-    page), ...])`` — icon tabs on the left; hover for the name."""
+    page), ...])`` — icon tabs on the left; hover for the name. ``None``
+    between pages starts a new tab group, as in Blender's navigation bar."""
 
     TYPE = "sidetabs"
 
     def __init__(self, pages: Sequence, current: int = 0, on_change=None, **kw):
         Component.__init__(self, **kw)
         self.on_change = on_change
-        self.set("items", [str(t) for _, t, _ in pages])
-        self.set("icons", [str(i) for i, _, _ in pages])
-        self.add(*[c for _, _, c in pages])
+        starts, entries = set(), []
+        for p in pages:
+            if p is None:
+                starts.add(len(entries))
+            else:
+                entries.append(p)
+        self.set("items", [str(t) for _, t, _ in entries])
+        self.set("icons", [str(i) for i, _, _ in entries])
+        self.set("groups", ["1" if i in starts else "0" for i in range(len(entries))])
+        self.add(*[c for _, _, c in entries])
         self.set("current", current)
 
     def page(self) -> Component:

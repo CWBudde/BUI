@@ -143,8 +143,8 @@ double bk_time(void)
 static int g_gen = 1; /* layout generation for the natural-size cache */
 
 static const BKClass *const g_classes[] = {
-    &bk_cls_column,   &bk_cls_row,       &bk_cls_grid,       &bk_cls_box,
-    &bk_cls_panel,    &bk_cls_tabs,      &bk_cls_sidetabs,   &bk_cls_scroll, &bk_cls_scrollbar,
+    &bk_cls_column,   &bk_cls_row,       &bk_cls_split,       &bk_cls_grid,       &bk_cls_box,
+    &bk_cls_panel,    &bk_cls_tabs,      &bk_cls_sidetabs,   &bk_cls_sidebar, &bk_cls_scroll, &bk_cls_scrollbar,
     &bk_cls_label,    &bk_cls_separator, &bk_cls_progress,   &bk_cls_button,
     &bk_cls_toggle,   &bk_cls_checkbox,  &bk_cls_decorator,  &bk_cls_text,
     &bk_cls_search,   &bk_cls_hotkey,    &bk_cls_number,     &bk_cls_slider,
@@ -251,6 +251,7 @@ void BK_node_free(BKNode *n)
   free(n->desc);
   free(n->placeholder);
   free(n->suffix);
+  free(n->category);
   bk_strs_free(&n->items);
   free(n->marks);
   bk_strs_free(&n->item_icons_s);
@@ -912,7 +913,7 @@ int BK_set_num(BKNode *n, const char *key, double v)
     }
   }
   if (strcmp(key, "value") == 0) {
-    if (n->cls == &bk_cls_tabs || n->cls == &bk_cls_sidetabs) {
+    if (n->cls == &bk_cls_tabs || n->cls == &bk_cls_sidetabs || n->cls == &bk_cls_sidebar) {
       n->current = (int)v;
       bk_relayout(n);
     }
@@ -950,6 +951,11 @@ int BK_set_num(BKNode *n, const char *key, double v)
   }
   if (strcmp(key, "weight") == 0) {
     n->weight = (float)v;
+    bk_relayout(n);
+    return 1;
+  }
+  if (strcmp(key, "fill") == 0) {
+    n->fill = v != 0.0;
     bk_relayout(n);
     return 1;
   }
@@ -1043,7 +1049,7 @@ double BK_get_num(BKNode *n, const char *key)
     }
   }
   if (strcmp(key, "value") == 0) {
-    if (n->cls == &bk_cls_tabs || n->cls == &bk_cls_sidetabs) {
+    if (n->cls == &bk_cls_tabs || n->cls == &bk_cls_sidetabs || n->cls == &bk_cls_sidebar) {
       return n->current;
     }
     return n->value;
@@ -1065,6 +1071,9 @@ double BK_get_num(BKNode *n, const char *key)
   }
   if (strcmp(key, "weight") == 0) {
     return n->weight;
+  }
+  if (strcmp(key, "fill") == 0) {
+    return n->fill;
   }
   if (strcmp(key, "scroll") == 0) {
     return n->scroll;
@@ -1172,6 +1181,12 @@ int BK_set_str(BKNode *n, const char *key, const char *v)
     bk_invalidate(n);
     return 1;
   }
+  if (strcmp(key, "category") == 0) {
+    bk_set_text(&n->category, v);
+    bk_relayout(n);
+    bk_invalidate(n);
+    return 1;
+  }
   if (strcmp(key, "icon") == 0) {
     n->icon = bk_icons_lookup(v);
     bk_relayout(n);
@@ -1274,6 +1289,12 @@ int BK_set_strs(BKNode *n, const char *key, const char *const *v, int count)
     if (n->value >= count) {
       n->value = count > 0 ? count - 1 : 0;
     }
+    bk_relayout(n);
+    bk_invalidate(n);
+    return 1;
+  }
+  if (strcmp(key, "groups") == 0) { /* side tabs: "1" where a tab group starts */
+    bk_strs_set(&n->shortcuts, v, count);
     bk_relayout(n);
     bk_invalidate(n);
     return 1;
@@ -2095,6 +2116,7 @@ static int in_BK_press(BKContext *ctx, int x, int y, int mods)
   ctx->press_x = x;
   ctx->press_y = y;
   ctx->dragging = false;
+  ctx->has_ungrab = false;
   ctx->off_x = ctx->off_y = 0;
   if (ctx->modal) {
     BKEvent e = make_event(ctx, ctx->modal, x, y, mods);
@@ -2200,13 +2222,17 @@ static int in_BK_release(BKContext *ctx, int x, int y, int mods)
   }
   ctx->dragging = false;
   if (was_continuous) {
-    /* Blender puts the pointer back where the drag began. */
-    ctx->skip_x = ctx->press_x;
-    ctx->skip_y = ctx->press_y;
+    /* Blender puts the pointer back where the drag began, or where the
+     * widget asks (USE_CONT_MOUSE_CORRECT: a slider's value). */
+    const int ux = ctx->has_ungrab ? ctx->ungrab_x : ctx->press_x;
+    const int uy = ctx->has_ungrab ? ctx->ungrab_y : ctx->press_y;
+    ctx->has_ungrab = false;
+    ctx->skip_x = ux;
+    ctx->skip_y = uy;
     ctx->has_skip = true;
-    ctx->host.warp(ctx->host.data, ctx->press_x, ctx->press_y);
-    x = ctx->press_x;
-    y = ctx->press_y;
+    ctx->host.warp(ctx->host.data, ux, uy);
+    x = ux;
+    y = uy;
   }
   ctx->off_x = ctx->off_y = 0;
   ctx->pointer_x = x;
@@ -2298,6 +2324,11 @@ static int in_BK_key(BKContext *ctx, const char *text, const char *keysym, int m
     if (bk_keysym_is(e.keysym, "Escape")) {
       bk_end_modal(ctx);
     }
+    return 1;
+  }
+  if (ctx->grab && ctx->dragging && ctx->grab->cls->cancel && bk_keysym_is(e.keysym, "Escape")) {
+    ctx->grab->cls->cancel(ctx->grab); /* Blender: Escape cancels a drag */
+    ctx->has_ungrab = false;
     return 1;
   }
   if (ctx->focus) {
