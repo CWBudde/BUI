@@ -51,6 +51,9 @@ static int state_of(const BKNode *n)
   if (n->flags & NF_SELECTED) {
     st = (st & ~ST_HOVER) | ST_SELECT; /* part of a multi-drag */
   }
+  if (n->flags & NF_ACTIVE_DEFAULT) {
+    st |= ST_ACTIVE_DEFAULT;
+  }
   /* aligned column: only the bottom button draws the emboss */
   if (n->parent && (n->parent->flags & NF_ALIGN) && !(n->corners & (CNR_BL | CNR_BR)) &&
       (n->parent->cls == &bk_cls_column))

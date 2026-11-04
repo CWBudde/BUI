@@ -54,3 +54,38 @@ else()
   add_library(bui::ui ALIAS bui_ui)
   target_include_directories(bui_ui INTERFACE ${UI_INC})
 endif()
+
+# Blender's File Browser (editors/space_file + ED_fileselect.hh), staged in
+# space_file/ from upstream d0ee3e1db6f (2026-11-04) with only the mechanical
+# include pass (BLI_*.hh -> BUI's BLI_*.h). Not compiled: upstream has moved
+# past the vendored blenlib/DNA (MutableCStr, ListBaseT methods, enum types) and
+# the rest needs the asset system, BLO, ImBuf thumbnails and WM operators.
+# The running port is kit/intern/kit_filebrowser.c ("filebrowser" node), which
+# names the upstream function behind each part; diff against these files when
+# syncing it.
+set(UI_SPACE_FILE_STAGED
+  space_file/ED_fileselect.hh
+  space_file/file_intern.hh
+  space_file/filelist.hh
+  space_file/fsmenu.hh
+  space_file/fsmenu.cc
+  space_file/fsmenu_system_unix.cc
+  space_file/fsmenu_system_win32.cc
+  space_file/fsmenu_system_macos.mm
+  space_file/folder_history.cc
+  space_file/file_draw.cc
+  space_file/file_ops.cc
+  space_file/file_panels.cc
+  space_file/file_utils.cc
+  space_file/file_context.cc
+  space_file/filesel.cc
+  space_file/space_file.cc
+  space_file/filelist/filelist.cc
+  space_file/filelist/filelist_filter.cc
+  space_file/filelist/filelist_intern.hh
+  space_file/filelist/filelist_readjob.cc
+  space_file/filelist/filelist_readjob.hh
+  space_file/filelist/filelist_readjob_common.cc
+  space_file/filelist/filelist_readjob_directories.cc
+  space_file/filelist/filelist_sort.cc
+)

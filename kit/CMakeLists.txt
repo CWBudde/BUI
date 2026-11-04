@@ -20,6 +20,14 @@ add_library(bui_kit STATIC
   intern/kit_icons_svg.c
   intern/kit_regions.c
   intern/kit_nodes.c
+  intern/kit_filebrowser.c
+  intern/kit_filebrowser_paths.c
+  intern/kit_filebrowser_posix.c
+  intern/kit_filebrowser_win32.c
+  intern/kit_filelist.c
+  intern/kit_filelist_view.c
+  intern/kit_fileops.c
+  intern/kit_fsmenu.c
   extern/nanosvg/blender_nanosvg.c
   extern/nanosvg/blender_raster.c
 )

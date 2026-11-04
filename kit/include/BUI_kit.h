@@ -399,6 +399,36 @@ void BK_window_set_keep_alive(int on);
 /* Evaluate Blender-style number input ("2*pi", "1/3 + 2^2"). */
 int BK_eval_number(const char *expr, double *r_value);
 
+/* -- file browser (Blender's File Browser, editors/space_file) -------------------------------
+ * BK_node_new("filebrowser") is the whole browser: bookmark panels (Volumes, System,
+ * Bookmarks, Recent), the directory-path bar, the file list (Name / Date Modified / Size,
+ * click a header to sort) and the execute bar. Put it in any window; it fills its rect.
+ *  strings  "dir", "file" (a name, or a path whose folder becomes "dir"), "button" (execute
+ *           label), "search", "bookmarks_file" (default $XDG_CONFIG_HOME/bui/bookmarks.txt,
+ *           %APPDATA%\bui\bookmarks.txt, or $BUI_BOOKMARKS); get "path" (first result)
+ *  numbers  "mode" (0 open, 1 save, 2 directory), "multiple", "hidden", "filter" (index),
+ *           "sort" (0 name, 1 date, 2 size), "invert"; get "state" (0 browsing, 1 chosen,
+ *           -1 cancelled), "count", "selected"; set "execute", "cancel", "refresh" to act
+ *  lists    "filters": one "Label\tpattern pattern ..." per entry ("*.py", or ".py");
+ *           get "result": the chosen paths
+ *  events   BK_EV_SUBMIT (a = state) when chosen or cancelled, BK_EV_CHANGE on a folder change
+ * Keys: Return opens / executes, BackSpace or Alt+Up parent, Alt+Left / Alt+Right history,
+ * Ctrl+H hidden files, Ctrl+B bookmark the folder, Delete on a bookmark removes it, I new
+ * folder, F2 rename, R refresh, A / Alt+A (de)select all with "multiple", Escape cancels.
+ *
+ * BK_file_dialog runs one in its own native window until it is answered: returns the number
+ * of chosen paths (0 cancelled, -1 no window host), stored NULL-terminated in *r_paths
+ * (free with BK_file_dialog_free). `filters` as above. */
+int BK_file_dialog(const char *title,
+                   int mode,
+                   const char *dir,
+                   const char *file,
+                   const char *const *filters,
+                   int nfilters,
+                   int multiple,
+                   char ***r_paths);
+void BK_file_dialog_free(char **paths);
+
 #ifdef __cplusplus
 }
 #endif

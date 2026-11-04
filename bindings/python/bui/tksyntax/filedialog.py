@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from bui import _realtk
+from bui import _realtk, filebrowser
 from .commondialog import Dialog
 
 __all__ = ["FileDialog", "LoadFileDialog", "SaveFileDialog", "Open", "SaveAs", "Directory",
@@ -18,8 +18,26 @@ __all__ = ["FileDialog", "LoadFileDialog", "SaveFileDialog", "Open", "SaveAs", "
            "askopenfiles", "asksaveasfile", "askdirectory"]
 
 
+_BROWSER_KINDS = {"askdirectory": "directory", "asksaveasfilename": "save"}
+
+
+def _blender(kind, options):
+    """Blender's file browser (bui.filebrowser) with tkinter's options and return values."""
+    multiple = kind == "askopenfilenames"
+    result = filebrowser.ask(
+        _BROWSER_KINDS.get(kind, "open"),
+        title=options.get("title"), initialdir=options.get("initialdir"),
+        initialfile=options.get("initialfile"), filetypes=options.get("filetypes"),
+        multiple=multiple, defaultextension=options.get("defaultextension"))
+    if result is None:
+        return () if multiple else ""
+    return tuple(result) if multiple else result
+
+
 def _native(kind, options):
     """Call the real tkinter.filedialog function `kind` with our options."""
+    if filebrowser.enabled():
+        return _blender(kind, options)
     from bui import host
     real = _realtk.module("tkinter.filedialog")
     opts = {k: v for k, v in options.items() if k != "parent"}

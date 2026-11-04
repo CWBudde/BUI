@@ -61,6 +61,10 @@ BKTheme bk_theme = {
     0.2f,             /* menu_shadow_fac */
     6,                /* menu_shadow_width */
     0.4f,             /* panel_roundness */
+    RGBA(0x282828ffu), /* space_file.back */
+    RGBA(0xe6e6e6ffu), /* space_file.text */
+    RGBA(0x303030b3u), /* space_file.header */
+    RGBA(0xffffff04u), /* space_file.row_alternate */
 };
 
 float bk_scale_fac = 1.0f;
@@ -1536,11 +1540,15 @@ void bk_icon(int icon, float cx, float cy, const uchar *color, float alpha, floa
 
 void bk_tria(float cx, float cy, char dir, const float c[4], float size)
 {
-  /* draw_icon_tri(): 'h' right, 'v' down */
+  /* draw_icon_tri(): 'h' right, 'v' down, 't' up */
   const float s = size > 0 ? size : 0.18f * bk_unit();
   float p[3][2];
   if (dir == 'h') {
     const float q[3][2] = {{cx - s * 0.5f, cy - s}, {cx - s * 0.5f, cy + s}, {cx + s * 0.7f, cy}};
+    memcpy(p, q, sizeof(p));
+  }
+  else if (dir == 't') {
+    const float q[3][2] = {{cx - s, cy + s * 0.5f}, {cx + s, cy + s * 0.5f}, {cx, cy - s * 0.7f}};
     memcpy(p, q, sizeof(p));
   }
   else {
@@ -1548,6 +1556,22 @@ void bk_tria(float cx, float cy, char dir, const float c[4], float size)
     memcpy(p, q, sizeof(p));
   }
   BUI_raster_polygon(bk_draw.r, (const float(*)[2])p, 3, c);
+}
+
+void bk_color_over(const uchar c[4], const uchar back[4], uchar r_out[4])
+{
+  for (int k = 0; k < 3; k++) {
+    r_out[k] = (uchar)(back[k] + ((int)c[k] - back[k]) * c[3] / 255.0f + 0.5f);
+  }
+  r_out[3] = 255;
+}
+
+void bk_color_shade(const uchar c[4], int shade, uchar r_out[4])
+{
+  for (int k = 0; k < 3; k++) {
+    r_out[k] = (uchar)BK_CLAMP((int)c[k] + shade, 0, 255);
+  }
+  r_out[3] = c[3];
 }
 
 void bk_chevron_down(float cx, float cy, const uchar col[4])
