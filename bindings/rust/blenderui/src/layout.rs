@@ -22,7 +22,7 @@ use taffy::style::Overflow;
 use crate::css::{Decl, Prop, Rule, Stylesheet, Subject};
 use crate::element::{AnyElement, Div, Listeners, PaintFn, ParentElement, SharedString};
 use crate::geometry::{rect, Bounds, Units};
-use crate::html::{tag_kind, ua_stylesheet, TagKind};
+use crate::html::{tag_kind, ua_styled_stylesheet, ua_stylesheet, TagKind};
 use crate::paint::{Image, ImageCache};
 use crate::prof::{span, Phase};
 use crate::style::ContentPart;
@@ -274,6 +274,8 @@ pub(crate) struct BoxNode {
     /// Position among siblings of the same tag, and their count.
     pub tpos: (u32, u32),
     pub marker: Option<String>,
+    /// Inside a `styled` subtree: matched against the Blender UA sheet.
+    pub styled: bool,
     // filled after layout
     pub bounds: Bounds<f32>,
     pub clip: Option<Bounds<f32>>,
@@ -302,7 +304,7 @@ pub(crate) struct Frame {
 pub(crate) enum Measure {
     /// Text of the box registered under `key` this frame (already
     /// whitespace-processed and transformed); `hash` identifies the text.
-    Text { key: Key, hash: u64, size: f32, flags: i32, line: f32, nowrap: bool },
+    Text { key: Key, hash: u64, size: f32, flags: i32, line: f32, nowrap: bool, brk: u8 },
 }
 
 /// The persistent taffy tree's nodes by box key (with the frame they were
@@ -439,11 +441,15 @@ struct Builder<'a> {
     containers: &'a Containers,
     /// Media query results of the UA and author sheets this frame.
     ua_media: Vec<bool>,
+    ua_styled_media: Vec<bool>,
     au_media: Vec<bool>,
     state: &'a UiState,
     viewport: (f32, f32),
     title: Option<String>,
     widgets: &'a mut dyn FnMut(Key, &WidgetSpec) -> (f32, f32),
+    /// CSS counters in scope: name, value, and the box whose subtree the
+    /// instance is scoped to (dropped when that box is finished).
+    counters: Vec<(Box<str>, i32, usize)>,
 }
 
 /// Child box indices / layout nodes being assembled: on the stack for the usual few.
@@ -822,11 +828,12 @@ impl<'a> Builder<'a> {
     /// The UA and author rules matching element `i`: from the memo when an
     /// element with the same fingerprint was matched before.
     fn matched_rules(&mut self, i: usize) -> (crate::css::Matches<'static>, crate::css::Matches<'a>) {
-        let ua_sheet = ua_stylesheet();
+        let (ua_sheet, ua_media) = self.ua_for(i);
         let author: &'a Stylesheet = self.author;
         let memo = {
             let mut h = Fnv::default();
             self.nodes[i].fp.hash(&mut h);
+            self.nodes[i].styled.hash(&mut h);
             self.containers.generation.hash(&mut h);
             self.viewport.0.to_bits().hash(&mut h);
             self.viewport.1.to_bits().hash(&mut h);
@@ -837,11 +844,21 @@ impl<'a> Builder<'a> {
                     a.iter().map(|&k| &author.rules[k as usize]).collect());
         }
         let subj = self.subject(i);
-        let ua = ua_sheet.matches(&subj, &self.ua_media, None);
+        let ua = ua_sheet.matches(&subj, ua_media, None);
         let au = author.matches(&subj, &self.au_media, None);
         self.matched.map.insert(memo, (ua.iter().map(|r| r.order as u32).collect(),
                                        au.iter().map(|r| r.order as u32).collect()));
         (ua, au)
+    }
+
+    /// The UA sheet for box `i` (plain, or Blender's inside `styled`) and
+    /// its media query results.
+    fn ua_for(&self, i: usize) -> (&'static Stylesheet, &Vec<bool>) {
+        if self.nodes[i].styled {
+            (ua_styled_stylesheet(), &self.ua_styled_media)
+        } else {
+            (ua_stylesheet(), &self.ua_media)
+        }
     }
 
     /// The fingerprint of element `i` (see [`BoxNode::fp`]).
@@ -989,6 +1006,7 @@ impl<'a> Builder<'a> {
             pos: (1, 1),
             tpos: (1, 1),
             marker: None,
+            styled: false,
             bounds: rect(0.0, 0.0, 0.0, 0.0),
             clip: None,
             opacity: 1.0,
@@ -1064,6 +1082,11 @@ impl<'a> Builder<'a> {
             }
         }
         self.nodes[i].fp = self.fingerprint(i);
+        // `styled` (any value but "false") turns Blender's theme on for the subtree
+        self.nodes[i].styled = match self.els.last().and_then(|e| e.attrs.iter().find(|(n, _)| n == "styled")) {
+            Some((_, v)) => v.as_ref() != "false",
+            None => parent.is_some_and(|p| self.nodes[p].styled),
+        };
         let kind = tag_kind(div.tag);
         // widgets and replaced elements are atomic inlines; flex/grid items are blockified
         let fixup = if kind == TagKind::Widget || kind == TagKind::Replaced {
@@ -1081,6 +1104,7 @@ impl<'a> Builder<'a> {
             return None;
         }
         self.nodes[i].style = style;
+        self.counter_ops(style, parent.unwrap_or(usize::MAX));
         // attributes moved into ElData: widgets read them back through the arena
         div.attrs = Vec::new();
         match kind {
@@ -1122,7 +1146,7 @@ impl<'a> Builder<'a> {
                     children.insert(0, AnyElement::Text(open.into()));
                     children.push(AnyElement::Text(close.into()));
                 }
-                let pseudo = self.author.uses_pseudo() || ua_stylesheet().uses_pseudo();
+                let pseudo = self.author.uses_pseudo() || self.ua_for(i).0.uses_pseudo();
                 if pseudo {
                     self.generated(i, crate::css::PseudoElement::Before);
                 }
@@ -1132,16 +1156,52 @@ impl<'a> Builder<'a> {
                 }
             }
         }
+        // counters this element's children created go out of scope
+        while self.counters.last().is_some_and(|c| c.2 == i) {
+            self.counters.pop();
+        }
         Some(i)
+    }
+
+    /// Apply `counter-reset`, then `-increment`, then `-set` of style `sid`; new counters are scoped to `scope` (the parent: an element's
+    /// counter is seen by its following siblings).
+    fn counter_ops(&mut self, sid: StyleId, scope: usize) {
+        let Some(ops) = self.styles[sid].counters.clone() else { return };
+        for (name, v) in &ops.reset {
+            // a sibling's reset replaces the instance a previous sibling made
+            let same_scope = self.counters.iter_mut().rev().take_while(|c| c.2 == scope).find(|c| c.0 == *name);
+            match same_scope {
+                Some(c) => c.1 = *v,
+                None => self.counters.push((name.clone(), *v, scope)),
+            }
+        }
+        let find = |b: &mut Self, name: &str| -> usize {
+            match b.counters.iter().rposition(|c| &*c.0 == name) {
+                Some(k) => k,
+                None => {
+                    // using a counter that doesn't exist instantiates it here
+                    b.counters.push((name.into(), 0, scope));
+                    b.counters.len() - 1
+                }
+            }
+        };
+        for (name, v) in &ops.increment {
+            let k = find(self, name);
+            self.counters[k].1 = self.counters[k].1.wrapping_add(*v);
+        }
+        for (name, v) in &ops.set {
+            let k = find(self, name);
+            self.counters[k].1 = *v;
+        }
     }
 
     /// The `::before` / `::after` box of element `i`, when a rule gives it content.
     fn generated(&mut self, i: usize, pe: crate::css::PseudoElement) {
-        let ua_sheet = ua_stylesheet();
+        let (ua_sheet, ua_media) = self.ua_for(i);
         let author: &'a Stylesheet = self.author;
         let (ua, au) = {
             let subj = self.subject(i);
-            (ua_sheet.matches(&subj, &self.ua_media, Some(pe)), author.matches(&subj, &self.au_media, Some(pe)))
+            (ua_sheet.matches(&subj, ua_media, Some(pe)), author.matches(&subj, &self.au_media, Some(pe)))
         };
         if ua.is_empty() && au.is_empty() {
             return;
@@ -1181,10 +1241,12 @@ impl<'a> Builder<'a> {
             }
         };
         let st = &self.styles[sid];
-        let Some(parts) = st.content.as_ref() else { return };
-        if st.display == DisplayKind::None {
+        if st.content.is_none() || st.display == DisplayKind::None {
             return;
         }
+        self.counter_ops(sid, i);
+        let st = &self.styles[sid];
+        let Some(parts) = st.content.as_ref() else { return };
         let quotes = st.quotes.clone().unwrap_or_else(|| ("\u{201c}".into(), "\u{201d}".into()));
         let mut text = String::new();
         for p in parts.iter() {
@@ -1193,6 +1255,15 @@ impl<'a> Builder<'a> {
                 ContentPart::Attr(n) => text.push_str(self.attr(i, n).unwrap_or("")),
                 ContentPart::OpenQuote => text.push_str(&quotes.0),
                 ContentPart::CloseQuote => text.push_str(&quotes.1),
+                ContentPart::Counter(name, ls) => {
+                    let v = self.counters.iter().rev().find(|c| c.0 == *name).map_or(0, |c| c.1);
+                    text.push_str(&ls.format(v));
+                }
+                ContentPart::Counters(name, sep, ls) => {
+                    let all: Vec<String> = self.counters.iter().filter(|c| c.0 == *name)
+                        .map(|c| ls.format(c.1)).collect();
+                    text.push_str(&if all.is_empty() { ls.format(0) } else { all.join(sep) });
+                }
             }
         }
         let key = child_key(self.nodes[i].key, tag, 0);
@@ -1217,7 +1288,7 @@ impl<'a> Builder<'a> {
                 let idx = self.nodes[i].pos.0 + self.nodes[i].parent
                     .and_then(|p| self.attr(p, "start"))
                     .and_then(|s| s.parse::<usize>().ok()).map(|s| s - 1).unwrap_or(0);
-                ls.marker(idx)
+                ls.marker(idx).or_else(|| self.st(i).list_image.as_ref().map(|_| String::new()))
             };
             match marker {
                 Some(m) if self.st(i).marker_inside => {
@@ -1378,9 +1449,9 @@ impl<'a> Builder<'a> {
 
     /// Replace the text of box `k` by its whitespace-processed, transformed form.
     fn transform_text(&mut self, k: usize, c: StyleId) {
-        let (tt, ws) = (self.styles[c].text_transform, self.styles[c].white_space);
+        let (tt, ws, tab) = (self.styles[c].text_transform, self.styles[c].white_space, self.styles[c].tab_size);
         if let Content::Text(t) = &self.nodes[k].content {
-            if let std::borrow::Cow::Owned(s) = transform(t, tt, ws) {
+            if let std::borrow::Cow::Owned(s) = transform(t, tt, ws, tab) {
                 self.nodes[k].content = Content::Text(s);
             }
         }
@@ -1394,7 +1465,8 @@ impl<'a> Builder<'a> {
             _ => 0,
         };
         let c = &self.styles[c];
-        Measure::Text { key, hash, size: c.font_size, flags: text::flags(c), line: c.line_px(), nowrap }
+        Measure::Text { key, hash, size: c.font_size, flags: text::flags(c), line: c.line_px(), nowrap,
+                        brk: text::break_mode(c) }
     }
 
     /// The taffy node for box `i` (and its subtree). Marks it dirty when
@@ -1635,12 +1707,13 @@ impl<'a> Builder<'a> {
         let sid = self.nodes[owner].style;
         let c = &self.styles[sid];
         let (ws, tt, size, letter, word_sp) = (c.white_space, c.text_transform, c.font_size, c.letter_spacing, c.word_spacing);
+        let (tab, break_all) = (c.tab_size, c.break_all);
         let flags = text::flags(c);
         let line_h = c.line_px();
         let indent = if first { c.text_indent.resolve(&self.units(size), 0.0) } else { 0.0 };
         // the processed text, kept in the box
         let Content::Text(raw) = std::mem::replace(&mut self.nodes[src].content, Content::Anon) else { return };
-        let mut text = match transform(&raw, tt, ws) {
+        let mut text = match transform(&raw, tt, ws, tab) {
             std::borrow::Cow::Borrowed(_) => raw,
             std::borrow::Cow::Owned(s) => s,
         };
@@ -1685,6 +1758,21 @@ impl<'a> Builder<'a> {
                     pieces.push((a, b, j + 1 < words.len() || trail, false));
                 }
             }
+        }
+        if break_all && ws != WhiteSpace::NoWrap && ws != WhiteSpace::Pre {
+            let mut chars: smallvec::SmallVec<[(usize, usize, bool, bool); 16]> = smallvec::SmallVec::new();
+            for &(a, b, trailing, brk) in &pieces {
+                let piece = &text[a..b];
+                let n = piece.char_indices().count();
+                for (j, (o, ch)) in piece.char_indices().enumerate() {
+                    let last = j + 1 == n;
+                    chars.push((a + o, a + o + ch.len_utf8(), trailing && last, brk && last));
+                }
+                if n == 0 {
+                    chars.push((a, b, trailing, brk));
+                }
+            }
+            pieces = chars;
         }
         let space = self.text.width(" ", size, flags) + word_sp;
         let src_key = self.nodes[src].key;
@@ -1742,13 +1830,41 @@ fn collapse(s: &str) -> String {
 }
 
 /// Whitespace processing and `text-transform`; borrows when nothing changes.
-fn transform(s: &str, t: TextTransform, ws: WhiteSpace) -> std::borrow::Cow<'_, str> {
+fn transform(s: &str, t: TextTransform, ws: WhiteSpace, tab: u8) -> std::borrow::Cow<'_, str> {
     use std::borrow::Cow;
     let collapse_ws = (ws == WhiteSpace::Normal || ws == WhiteSpace::NoWrap) && s.contains(['\n', '\t', '\r']);
-    if !collapse_ws && t == TextTransform::None {
+    // preserved tabs advance to the next multiple of `tab-size` spaces
+    let expand_tabs = matches!(ws, WhiteSpace::Pre | WhiteSpace::PreWrap) && s.contains('\t');
+    if !collapse_ws && !expand_tabs && t == TextTransform::None {
         return Cow::Borrowed(s);
     }
-    let s = if collapse_ws { s.replace(['\n', '\t', '\r'], " ") } else { s.to_string() };
+    let s = if collapse_ws {
+        s.replace(['\n', '\t', '\r'], " ")
+    } else if expand_tabs {
+        let mut out = String::with_capacity(s.len() + 16);
+        let mut col = 0usize;
+        for ch in s.chars() {
+            match ch {
+                '\t' if tab > 0 => {
+                    let n = tab as usize - col % tab as usize;
+                    out.extend(std::iter::repeat_n(' ', n));
+                    col += n;
+                }
+                '\t' => {}
+                '\n' => {
+                    out.push('\n');
+                    col = 0;
+                }
+                c => {
+                    out.push(c);
+                    col += 1;
+                }
+            }
+        }
+        out
+    } else {
+        s.to_string()
+    };
     Cow::Owned(match t {
         TextTransform::None => s,
         TextTransform::Upper => s.to_uppercase(),
@@ -1813,11 +1929,13 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
         author: &author.sheet,
         author_hash: author.hash,
         ua_media: ua_stylesheet().media_results(&crate::css::MediaEnv::viewport(viewport)),
+        ua_styled_media: ua_styled_stylesheet().media_results(&crate::css::MediaEnv::viewport(viewport)),
         au_media: author.sheet.media_results(&crate::css::MediaEnv::viewport(viewport)),
         state,
         viewport,
         title,
         widgets,
+        counters: Vec::new(),
     };
     // the document: <html><body> unless the app built them itself
     let root_div = match root {
@@ -1854,12 +1972,12 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
     let Builder { nodes, els, taffy, styles, text: tc, title, text_box, .. } = b;
     taffy.compute(root_id, avail, |known, available, ctx| {
             match ctx {
-                Measure::Text { key, size, flags, line, nowrap, .. } => {
+                Measure::Text { key, size, flags, line, nowrap, brk, .. } => {
                     let text = match text_box.get(key).map(|&k| &nodes[k].content) {
                         Some(Content::Text(t)) => t.as_str(),
                         _ => "",
                     };
-                    if !text.contains([' ', '\n']) {
+                    if !text.contains([' ', '\n']) && *brk == 0 {
                         // one word: no wrapping to do
                         let w = tc.width(text, *size, *flags);
                         return Size { width: known.width.unwrap_or(w.ceil()),
@@ -1870,7 +1988,7 @@ pub(crate) fn layout(root: AnyElement, viewport: (f32, f32), state: &UiState, ca
                         AvailableSpace::MinContent => 0.0,
                         AvailableSpace::MaxContent => f32::INFINITY,
                     });
-                    let lines = tc.wrap(text, *size, *flags, if *nowrap { f32::INFINITY } else { max_w });
+                    let lines = tc.wrap(text, *size, *flags, if *nowrap { f32::INFINITY } else { max_w }, *brk);
                     let w = lines.iter().map(|l| tc.width(l, *size, *flags)).fold(0.0, f32::max);
                     Size { width: known.width.unwrap_or(w.ceil()),
                            height: known.height.unwrap_or(*line * lines.len().max(1) as f32) }
@@ -1931,6 +2049,18 @@ impl Walk<'_> {
             }
             nodes[i].bounds = rect(x, y, w, h);
             nodes[i].clip = clip;
+            if let Some(cr) = st.clip_rect.filter(|_| matches!(st.layout.position, Position::Absolute | Position::Fixed)) {
+                // edges from the border box's top-left corner; auto = that edge
+                let e = |k: usize, auto: f32, basis: f32| cr[k].map_or(auto, |l| l.resolve(&u, basis));
+                let (top, right, bottom, left) = (e(0, 0.0, h), e(1, w, w), e(2, h, h), e(3, 0.0, w));
+                let r = rect(x + left, y + top, (right - left).max(0.0), (bottom - top).max(0.0));
+                let r = match clip {
+                    Some(c) => c.intersect(&r),
+                    None => r,
+                };
+                nodes[i].clip = Some(r);
+                child_clip = Some(r);
+            }
             let ov = st.layout.overflow;
             if ov.x != Overflow::Visible || ov.y != Overflow::Visible {
                 let b = l.border;
@@ -1982,11 +2112,12 @@ fn place_folded_text(nodes: &mut [BoxNode], i: usize, k: usize, b: Bounds<f32>, 
     let Content::Text(t) = &nodes[k].content else { return };
     let flags = text::flags(c);
     let line = c.line_px();
-    let (tw, th) = if !t.contains([' ', '\n']) {
+    let brk = text::break_mode(c);
+    let (tw, th) = if !t.contains([' ', '\n']) && brk == 0 {
         (tc.width(t, c.font_size, flags).ceil(), line)
     } else {
         let max = if c.white_space == WhiteSpace::NoWrap { f32::INFINITY } else { cb.size.width + 0.5 };
-        let lines = tc.wrap(t, c.font_size, flags, max);
+        let lines = tc.wrap(t, c.font_size, flags, max, brk);
         let w = lines.iter().map(|s| tc.width(s, c.font_size, flags)).fold(0.0, f32::max);
         (w.ceil(), line * lines.len().max(1) as f32)
     };
@@ -2086,6 +2217,15 @@ impl Frame {
 
     pub(crate) fn attr(&self, i: usize, name: &str) -> Option<&str> {
         el_attr(&self.nodes, &self.els, i, name)
+    }
+
+    /// Box `i` has no content (only collapsible whitespace): `empty-cells`.
+    pub(crate) fn is_empty(&self, i: usize) -> bool {
+        kids(&self.nodes, i).all(|k| match &self.nodes[k].content {
+            Content::Text(t) => t.trim().is_empty(),
+            Content::Anon => kids(&self.nodes, k).next().is_none(),
+            _ => false,
+        })
     }
 
     /// The text a box draws: a text run's text, or a word's slice of it.

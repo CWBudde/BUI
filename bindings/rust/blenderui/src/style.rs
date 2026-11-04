@@ -96,6 +96,75 @@ pub enum VAlign {
     Super,
 }
 
+/// `border-style` / `outline-style` (`none` and `hidden` clear the width instead).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum BorderStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+    Double,
+    Groove,
+    Ridge,
+    Inset,
+    Outset,
+}
+
+impl BorderStyle {
+    fn parse(s: &str) -> Option<BorderStyle> {
+        Some(match s {
+            "solid" | "none" | "hidden" | "auto" => BorderStyle::Solid,
+            "dashed" => BorderStyle::Dashed,
+            "dotted" => BorderStyle::Dotted,
+            "double" => BorderStyle::Double,
+            "groove" => BorderStyle::Groove,
+            "ridge" => BorderStyle::Ridge,
+            "inset" => BorderStyle::Inset,
+            "outset" => BorderStyle::Outset,
+            _ => return None,
+        })
+    }
+}
+
+/// `text-decoration-style`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DecoStyle {
+    #[default]
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Wavy,
+}
+
+/// A box edge for `background-clip` / `background-origin`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum BoxEdge {
+    #[default]
+    Border,
+    Padding,
+    Content,
+}
+
+impl BoxEdge {
+    fn parse(s: &str) -> Option<BoxEdge> {
+        Some(match s {
+            "border-box" => BoxEdge::Border,
+            "padding-box" => BoxEdge::Padding,
+            "content-box" => BoxEdge::Content,
+            _ => return None,
+        })
+    }
+}
+
+/// `counter-reset` / `counter-set` / `counter-increment` of one element.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct CounterOps {
+    pub reset: Vec<(Box<str>, i32)>,
+    pub set: Vec<(Box<str>, i32)>,
+    pub increment: Vec<(Box<str>, i32)>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Gradient {
     pub radial: bool,
@@ -163,6 +232,8 @@ pub struct ImageStyle {
     pub bg_position: [Pos; 2],
     /// repeat along x, y
     pub bg_repeat: (bool, bool),
+    /// `background-attachment: fixed`: positioned against the viewport.
+    pub bg_fixed: bool,
 }
 
 impl Default for ImageStyle {
@@ -174,6 +245,7 @@ impl Default for ImageStyle {
             bg_size: BgSize::Auto,
             bg_position: [Pos::START; 2],
             bg_repeat: (true, true),
+            bg_fixed: false,
         }
     }
 }
@@ -237,9 +309,19 @@ pub struct Computed {
     pub container_name: Option<Box<str>>,
     pub border_color: [Rgba; 4],
     pub border_drawn: [bool; 4],
+    pub border_style: [BorderStyle; 4],
     pub radius: [Length; 4],
     pub shadows: Vec<Shadow>,
     pub outline: (f32, Rgba, f32),
+    pub outline_style: BorderStyle,
+    /// `background-clip` and `background-origin`.
+    pub bg_clip: BoxEdge,
+    pub bg_origin: BoxEdge,
+    /// `clip: rect(top, right, bottom, left)` (absolutely positioned boxes;
+    /// `auto` edges are None).
+    pub clip_rect: Option<[Option<Length>; 4]>,
+    /// `counter-*` operations (None: none).
+    pub counters: Option<Box<CounterOps>>,
     pub opacity: f32,
     pub z_index: Option<i32>,
     pub translate: (Length, Length),
@@ -279,6 +361,21 @@ pub struct Computed {
     pub quotes: Option<(String, String)>,
     pub text_shadow: Option<Shadow>,
     pub decoration_color: Option<Rgba>,
+    pub decoration_style: DecoStyle,
+    /// `text-decoration-thickness` in px (None: auto / from-font).
+    pub decoration_thickness: Option<f32>,
+    /// `text-underline-offset` in px (None: auto).
+    pub underline_offset: Option<f32>,
+    /// `empty-cells: hide` (inherited).
+    pub empty_cells_hide: bool,
+    /// `list-style-image: url()` (inherited).
+    pub list_image: Option<std::sync::Arc<str>>,
+    /// `word-break: break-all` (inherited).
+    pub break_all: bool,
+    /// `overflow-wrap: anywhere | break-word` (inherited).
+    pub wrap_anywhere: bool,
+    /// `tab-size` in spaces (inherited).
+    pub tab_size: u8,
     /// Custom properties in scope (inherited), in the style store's var arena.
     pub vars: u32,
     /// `content` (for `::before` / `::after`): None = `normal` / `none`.
@@ -293,6 +390,10 @@ pub enum ContentPart {
     Attr(String),
     OpenQuote,
     CloseQuote,
+    /// `counter(name, style)`.
+    Counter(Box<str>, ListStyle),
+    /// `counters(name, separator, style)`.
+    Counters(Box<str>, Box<str>, ListStyle),
 }
 
 impl Default for Computed {
@@ -308,9 +409,15 @@ impl Default for Computed {
             container_name: None,
             border_color: [Rgba::TRANSPARENT; 4],
             border_drawn: [true; 4],
+            border_style: [BorderStyle::Solid; 4],
             radius: [Length::Px(0.0); 4],
             shadows: Vec::new(),
             outline: (0.0, Rgba::TRANSPARENT, 0.0),
+            outline_style: BorderStyle::Solid,
+            bg_clip: BoxEdge::Border,
+            bg_origin: BoxEdge::Padding,
+            clip_rect: None,
+            counters: None,
             opacity: 1.0,
             z_index: None,
             translate: (Length::Px(0.0), Length::Px(0.0)),
@@ -318,7 +425,7 @@ impl Default for Computed {
             visible: true,
             cursor: None,
             pointer_events: true,
-            color: crate::color::rgb(0xe6e6e6),
+            color: crate::color::rgb(0x000000), // initial: CanvasText
             accent: None,
             font_size: 13.0,
             weight: 400,
@@ -346,6 +453,14 @@ impl Default for Computed {
             quotes: None,
             text_shadow: None,
             decoration_color: None,
+            decoration_style: DecoStyle::Solid,
+            decoration_thickness: None,
+            underline_offset: None,
+            empty_cells_hide: false,
+            list_image: None,
+            break_all: false,
+            wrap_anywhere: false,
+            tab_size: 8,
             vars: 0,
             content: None,
         }
@@ -380,6 +495,14 @@ impl Computed {
             line_through: parent.line_through,
             overline: parent.overline,
             decoration_color: parent.decoration_color,
+            decoration_style: parent.decoration_style,
+            decoration_thickness: parent.decoration_thickness,
+            underline_offset: parent.underline_offset,
+            empty_cells_hide: parent.empty_cells_hide,
+            list_image: parent.list_image.clone(),
+            break_all: parent.break_all,
+            wrap_anywhere: parent.wrap_anywhere,
+            tab_size: parent.tab_size,
             border_spacing: parent.border_spacing,
             border_collapse: parent.border_collapse,
             caption_bottom: parent.caption_bottom,
@@ -484,23 +607,21 @@ pub(crate) fn prop_index(name: &str) -> Prop {
 /// Standard properties that parse and are accepted but have no effect in this
 /// renderer (floats, bidi, generated content, background images, animation ...).
 pub const ACCEPTED: &[&str] = &[
-    "background-attachment", "background-clip", "background-origin", "clip", "clip-path",
-    "counter-increment", "counter-reset", "counter-set", "unicode-bidi",
-    "writing-mode", "empty-cells", "list-style-image", "table-layout",
+    "clip-path", "unicode-bidi", "writing-mode", "table-layout",
     "filter", "backdrop-filter", "mix-blend-mode", "isolation",
     "transition", "transition-property", "transition-duration", "transition-timing-function",
     "transition-delay", "animation", "animation-name", "animation-duration", "animation-delay",
     "animation-iteration-count", "animation-direction", "animation-fill-mode",
     "animation-timing-function", "animation-play-state", "will-change",
     "user-select", "resize", "appearance", "caret-color", "scroll-behavior", "scroll-snap-type",
-    "scroll-snap-align", "overscroll-behavior", "touch-action", "hyphens", "overflow-wrap",
-    "word-wrap", "word-break", "tab-size", "font-feature-settings", "font-kerning",
+    "scroll-snap-align", "overscroll-behavior", "touch-action", "hyphens",
+    "font-feature-settings", "font-kerning",
     "font-stretch", "text-rendering", "-webkit-font-smoothing", "-moz-osx-font-smoothing",
     "orphans", "widows", "page-break-before", "page-break-after", "page-break-inside",
     "break-before", "break-after", "break-inside", "columns", "column-count", "column-width",
     "column-rule", "rotate", "transform-origin", "perspective", "backface-visibility",
-    "box-decoration-break", "image-rendering", "shape-outside", "text-underline-offset",
-    "text-decoration-thickness", "text-decoration-style", "text-justify", "line-break",
+    "box-decoration-break", "image-rendering", "shape-outside",
+    "text-justify", "line-break",
     "all",
     // scrolling
     "scroll-margin", "scroll-margin-top", "scroll-margin-right", "scroll-margin-bottom",
@@ -583,7 +704,8 @@ const INHERITED: &[&str] = &[
     "color", "cursor", "font", "font-family", "font-size", "font-style", "font-variant",
     "font-weight", "letter-spacing", "line-height", "list-style", "list-style-type",
     "text-align", "text-indent", "text-transform", "visibility", "white-space", "word-spacing",
-    "accent-color", "caret-color", "pointer-events",
+    "accent-color", "caret-color", "pointer-events", "list-style-image", "word-break",
+    "overflow-wrap", "word-wrap", "tab-size", "text-underline-offset",
 ];
 
 /// FNV-1a: property names are short, so this beats the default SipHash.
@@ -846,6 +968,11 @@ fn border_sides(ctx: &mut Ctx, v: &[Tok], sides: &[usize]) -> bool {
         set_border_width(ctx, s, width);
         ctx.c.border_color[s] = col.unwrap_or(ctx.c.color);
         ctx.c.border_drawn[s] = !none;
+        if let Some(bs) = style.as_deref().and_then(BorderStyle::parse) {
+            ctx.c.border_style[s] = bs;
+        } else if style.is_none() {
+            ctx.c.border_style[s] = BorderStyle::Solid;
+        }
     }
     true
 }
@@ -1285,6 +1412,37 @@ fn roman(mut n: usize, upper: bool) -> String {
 }
 
 impl ListStyle {
+    /// A counter value in this style, without the marker's trailing dot
+    /// (`counter()` in `content`).
+    pub fn format(self, n: i32) -> String {
+        let alpha = |upper: bool| {
+            if n < 1 {
+                return n.to_string();
+            }
+            // bijective base 26: a..z, aa, ab ...
+            let (mut k, mut out) = (n as u32, Vec::new());
+            while k > 0 {
+                k -= 1;
+                out.push(((if upper { b'A' } else { b'a' }) + (k % 26) as u8) as char);
+                k /= 26;
+            }
+            out.iter().rev().collect()
+        };
+        match self {
+            ListStyle::None => String::new(),
+            ListStyle::Disc => "\u{2022}".into(),
+            ListStyle::Circle => "\u{25e6}".into(),
+            ListStyle::Square => "\u{25aa}".into(),
+            ListStyle::Decimal => n.to_string(),
+            ListStyle::LowerAlpha => alpha(false),
+            ListStyle::UpperAlpha => alpha(true),
+            ListStyle::LowerRoman | ListStyle::UpperRoman if (1..4000).contains(&n) => {
+                roman(n as usize, self == ListStyle::UpperRoman)
+            }
+            _ => n.to_string(),
+        }
+    }
+
     /// The marker text for the `index`-th (1-based) item.
     pub fn marker(self, index: usize) -> Option<String> {
         Some(match self {
@@ -1314,6 +1472,37 @@ fn list_style(s: &str) -> Option<ListStyle> {
         "upper-roman" => ListStyle::UpperRoman,
         _ => return None,
     })
+}
+
+fn deco_style(s: &str) -> Option<DecoStyle> {
+    Some(match s {
+        "solid" => DecoStyle::Solid,
+        "double" => DecoStyle::Double,
+        "dotted" => DecoStyle::Dotted,
+        "dashed" => DecoStyle::Dashed,
+        "wavy" => DecoStyle::Wavy,
+        _ => return None,
+    })
+}
+
+/// `none | [<name> <integer>?]+` for the `counter-*` properties.
+fn counter_list(v: &[Tok], default: i32) -> Option<Vec<(Box<str>, i32)>> {
+    if kw(v) == Some("none") {
+        return Some(Vec::new());
+    }
+    let mut out: Vec<(Box<str>, i32)> = Vec::new();
+    for t in v {
+        match t {
+            Tok::Ident(s) => out.push((s.as_ref().into(), default)),
+            Tok::Num(n) => out.last_mut()?.1 = *n as i32,
+            Tok::Func(fx) if fx.name == "reversed" => {
+                let name = fx.args.first().and_then(|a| a.first()).and_then(Tok::ident)?;
+                out.push((name.into(), default));
+            }
+            _ => return None,
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 fn overflow(s: &str) -> Option<Overflow> {
@@ -1853,6 +2042,18 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
                 delegate(c, "background-repeat", &reps);
             }
             let mut ok = !pos.is_empty() || !reps.is_empty();
+            // <box> keywords: one sets origin and clip, two set origin then clip
+            let boxes: Vec<BoxEdge> = layer.iter().filter_map(|t| t.ident().and_then(BoxEdge::parse)).collect();
+            match boxes.as_slice() {
+                [b] => (c.c.bg_origin, c.c.bg_clip) = (*b, *b),
+                [o, k, ..] => (c.c.bg_origin, c.c.bg_clip) = (*o, *k),
+                [] => {}
+            }
+            ok |= !boxes.is_empty();
+            if layer.iter().any(|t| t.ident() == Some("fixed")) {
+                c.c.images_mut().bg_fixed = true;
+                ok = true;
+            }
             for t in v {
                 if let Tok::Func(fx) = t {
                     if fx.name == "url" {
@@ -1940,7 +2141,8 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             for t in v {
                 if t.ident().is_some_and(|s| s == "none") {
                     w = 0.0;
-                } else if t.ident().is_some_and(|s| BORDER_STYLES.contains(&s) || s == "auto") {
+                } else if let Some(s) = t.ident().filter(|s| BORDER_STYLES.contains(s) || *s == "auto") {
+                    c.c.outline_style = BorderStyle::parse(s).unwrap_or_default();
                 } else if let Some(cc) = color(t, c.c.color).filter(|_| !matches!(t, Tok::Dim(..))) {
                     col = cc;
                 } else if let Some(px) = border_width_tok(c, t) {
@@ -1955,11 +2157,13 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         }),
         h("outline-width", |c, v| v.first().and_then(|t| border_width_tok(c, t)).map(|w| c.c.outline.0 = w).is_some()),
         h("outline-color", |c, v| v.first().and_then(|t| color(t, c.c.color)).map(|col| c.c.outline.1 = col).is_some()),
-        h("outline-style", |c, v| {
-            if kw(v) == Some("none") {
+        h("outline-style", |c, v| match kw(v) {
+            Some("none") => {
                 c.c.outline.0 = 0.0;
+                true
             }
-            true
+            Some(s) => BorderStyle::parse(s).map(|b| c.c.outline_style = b).is_some(),
+            None => false,
         }),
         h("outline-offset", |c, v| v.first().and_then(length).map(|l| c.c.outline.2 = px(c, l)).is_some()),
         // -- effects ------------------------------------------------------------------------
@@ -2079,13 +2283,40 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             true
         }),
         h("text-decoration", |c, v| {
+            // a shorthand: what it doesn't name goes back to the initial value
+            c.c.decoration_style = DecoStyle::Solid;
+            c.c.decoration_thickness = None;
+            c.c.decoration_color = None;
             let words: Vec<&str> = v.iter().filter_map(Tok::ident).collect();
             c.c.underline = words.contains(&"underline");
             c.c.line_through = words.contains(&"line-through");
             c.c.overline = words.contains(&"overline");
+            for t in v {
+                let one = std::slice::from_ref(t);
+                match t.ident() {
+                    Some("underline" | "line-through" | "overline" | "none" | "blink" | "spelling-error"
+                         | "grammar-error") => {}
+                    Some(s) if deco_style(s).is_some() => c.c.decoration_style = deco_style(s).unwrap(),
+                    _ if matches!(t, Tok::Dim(..) | Tok::Pct(_) | Tok::Calc(_))
+                        || t.ident() == Some("from-font") => {
+                        delegate(c, "text-decoration-thickness", one);
+                    }
+                    _ => {
+                        if !delegate(c, "text-decoration-color", one) {
+                            return false;
+                        }
+                    }
+                }
+            }
             true
         }),
-        h("text-decoration-line", |c, v| delegate(c, "text-decoration", v)),
+        h("text-decoration-line", |c, v| {
+            let words: Vec<&str> = v.iter().filter_map(Tok::ident).collect();
+            c.c.underline = words.contains(&"underline");
+            c.c.line_through = words.contains(&"line-through");
+            c.c.overline = words.contains(&"overline");
+            !words.is_empty()
+        }),
         h("white-space", |c, v| {
             c.c.white_space = match kw(v) {
                 Some("normal") => WhiteSpace::Normal,
@@ -2189,9 +2420,26 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
                         };
                         ContentPart::Attr(n.to_string())
                     }
-                    // counters and images: no counter state / inline images here
-                    Tok::Func(fx) if matches!(fx.name.as_ref(), "counter" | "counters" | "url" | "image"
-                                              | "linear-gradient" | "image-set") => continue,
+                    Tok::Func(fx) if fx.name == "counter" || fx.name == "counters" => {
+                        let args: Vec<&[Tok]> = fx.args.iter().map(|a| a.as_slice()).collect();
+                        let Some(name) = args.first().and_then(|a| a.first()).and_then(Tok::ident) else {
+                            return false;
+                        };
+                        let style_at = |k: usize| args.get(k).and_then(|a| a.first()).and_then(Tok::ident)
+                            .and_then(list_style).unwrap_or(ListStyle::Decimal);
+                        if fx.name == "counter" {
+                            ContentPart::Counter(name.into(), style_at(1))
+                        } else {
+                            let sep = match args.get(1).and_then(|a| a.first()) {
+                                Some(Tok::Str(s)) => s.as_ref().into(),
+                                _ => ".".into(),
+                            };
+                            ContentPart::Counters(name.into(), sep, style_at(2))
+                        }
+                    }
+                    // inline images in generated content: not drawn
+                    Tok::Func(fx) if matches!(fx.name.as_ref(), "url" | "image" | "linear-gradient"
+                                              | "image-set") => continue,
                     _ => return false,
                 });
             }
@@ -2256,8 +2504,161 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
             }
             _ => false,
         }),
-        h("list-style", |c, v| v.iter().filter_map(Tok::ident).find_map(list_style)
-            .map(|l| c.c.list_style = l).is_some()),
+        h("list-style", |c, v| {
+            let mut ok = false;
+            for t in v {
+                match t {
+                    Tok::Func(fx) if fx.name == "url" => ok |= delegate(c, "list-style-image", std::slice::from_ref(t)),
+                    Tok::Ident(s) if s.as_ref() == "inside" || s.as_ref() == "outside" => {
+                        ok |= delegate(c, "list-style-position", std::slice::from_ref(t))
+                    }
+                    Tok::Ident(s) => {
+                        if let Some(l) = list_style(s) {
+                            c.c.list_style = l;
+                            ok = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            ok
+        }),
+        h("background-clip", |c, v| {
+            let first = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            match kw(first) {
+                // `text`: no glyph masks here; keep the colour behind the text box
+                Some("text") => true,
+                Some(s) => BoxEdge::parse(s).map(|e| c.c.bg_clip = e).is_some(),
+                None => false,
+            }
+        }),
+        h("background-origin", |c, v| {
+            let first = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            kw(first).and_then(BoxEdge::parse).map(|e| c.c.bg_origin = e).is_some()
+        }),
+        h("background-attachment", |c, v| {
+            let first = v.split(|t| matches!(t, Tok::Comma)).next().unwrap_or(&[]);
+            match kw(first) {
+                Some(k @ ("scroll" | "fixed" | "local")) => {
+                    let fixed = k == "fixed";
+                    if fixed || c.c.images.is_some() {
+                        c.c.images_mut().bg_fixed = fixed;
+                    }
+                    true
+                }
+                _ => false,
+            }
+        }),
+        h("clip", |c, v| match v.first() {
+            Some(Tok::Ident(s)) if s.as_ref() == "auto" => {
+                c.c.clip_rect = None;
+                true
+            }
+            Some(Tok::Func(fx)) if fx.name == "rect" => {
+                // rect(top, right, bottom, left), commas optional
+                let toks: Vec<&Tok> = fx.args.iter().flatten().filter(|t| !matches!(t, Tok::Comma)).collect();
+                if toks.len() != 4 {
+                    return false;
+                }
+                let mut r = [None; 4];
+                for (k, t) in toks.iter().enumerate() {
+                    if t.ident() == Some("auto") {
+                        continue;
+                    }
+                    let Some(l) = length(t) else { return false };
+                    r[k] = Some(l);
+                }
+                c.c.clip_rect = Some(r);
+                true
+            }
+            _ => false,
+        }),
+        h("text-decoration-style", |c, v| kw(v).and_then(deco_style).map(|s| c.c.decoration_style = s).is_some()),
+        h("text-decoration-thickness", |c, v| match (kw(v), v.first()) {
+            (Some("auto" | "from-font"), _) => {
+                c.c.decoration_thickness = None;
+                true
+            }
+            // a percentage is of 1em
+            (_, Some(Tok::Pct(p))) => {
+                c.c.decoration_thickness = Some(c.c.font_size * p / 100.0);
+                true
+            }
+            (_, Some(t)) => length(t).map(|l| c.c.decoration_thickness = Some(px(c, l))).is_some(),
+            _ => false,
+        }),
+        h("text-underline-offset", |c, v| match (kw(v), v.first()) {
+            (Some("auto"), _) => {
+                c.c.underline_offset = None;
+                true
+            }
+            (_, Some(Tok::Pct(p))) => {
+                c.c.underline_offset = Some(c.c.font_size * p / 100.0);
+                true
+            }
+            (_, Some(t)) => length(t).map(|l| c.c.underline_offset = Some(px(c, l))).is_some(),
+            _ => false,
+        }),
+        // -- text breaking --------------------------------------------------------------------
+        h("word-break", |c, v| {
+            c.c.break_all = match kw(v) {
+                Some("break-all") => true,
+                Some("normal" | "keep-all" | "auto-phrase") => false,
+                // deprecated: overflow-wrap: anywhere plus word-break: normal
+                Some("break-word") => {
+                    c.c.wrap_anywhere = true;
+                    false
+                }
+                _ => return false,
+            };
+            true
+        }),
+        h("overflow-wrap", |c, v| {
+            c.c.wrap_anywhere = match kw(v) {
+                Some("anywhere" | "break-word") => true,
+                Some("normal") => false,
+                _ => return false,
+            };
+            true
+        }),
+        h("word-wrap", |c, v| delegate(c, "overflow-wrap", v)),
+        h("tab-size", |c, v| match v.first() {
+            Some(Tok::Num(n)) if *n >= 0.0 => {
+                c.c.tab_size = n.round().min(64.0) as u8;
+                true
+            }
+            // a length: as many spaces as fit
+            Some(t) => length(t).map(|l| {
+                let sp = (c.c.font_size * 0.3).max(1.0);
+                c.c.tab_size = (px(c, l) / sp).round().clamp(0.0, 64.0) as u8;
+            }).is_some(),
+            None => false,
+        }),
+        h("list-style-image", |c, v| match v.first() {
+            Some(Tok::Ident(s)) if s.as_ref() == "none" => {
+                c.c.list_image = None;
+                true
+            }
+            Some(Tok::Func(fx)) if fx.name == "url" => match fx.args.first().and_then(|a| a.first()) {
+                Some(Tok::Str(u)) => {
+                    c.c.list_image = Some(u.as_ref().into());
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }),
+        h("empty-cells", |c, v| match kw(v) {
+            Some(k @ ("show" | "hide")) => {
+                c.c.empty_cells_hide = k == "hide";
+                true
+            }
+            _ => false,
+        }),
+        // -- counters ---------------------------------------------------------------------------
+        h("counter-reset", |c, v| counter_list(v, 0).map(|l| c.c.counters.get_or_insert_with(Default::default).reset = l).is_some()),
+        h("counter-set", |c, v| counter_list(v, 0).map(|l| c.c.counters.get_or_insert_with(Default::default).set = l).is_some()),
+        h("counter-increment", |c, v| counter_list(v, 1).map(|l| c.c.counters.get_or_insert_with(Default::default).increment = l).is_some()),
         // -- interaction --------------------------------------------------------------------
         h("cursor", |c, v| {
             let name = v.iter().filter_map(Tok::ident).next_back();
@@ -2281,6 +2682,7 @@ pub(crate) const HANDLERS: &[(&str, Handler)] = &{
         }),
     ]
 };
+
 
 /// A `<position>` (`center`, `left 10px top`, `25% 75%`, `right 8px bottom 4px` ...)
 /// as x and y.
@@ -2384,6 +2786,7 @@ fn border_style(c: &mut Ctx, side: usize, t: &Tok) -> bool {
             if none {
                 set_border_width(c, side, 0.0);
             }
+            c.c.border_style[side] = BorderStyle::parse(s).unwrap_or_default();
             true
         }
         _ => false,

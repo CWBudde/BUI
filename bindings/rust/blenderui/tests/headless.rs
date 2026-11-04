@@ -54,7 +54,7 @@ fn block_and_flex_layout_paint() {
         assert_eq!(at(35.0, 40.0), 0x0000ff);
         assert_eq!(at(10.0, 40.0), 0x00ff00);
         assert_eq!(at(20.0, 55.0), 0xffff00);
-        assert_eq!(at(150.0, 90.0), 0x303030); // html background
+        assert_eq!(at(150.0, 90.0), 0xffffff); // html background: browser default
     });
 }
 

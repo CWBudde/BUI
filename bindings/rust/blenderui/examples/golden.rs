@@ -8,6 +8,7 @@ struct Scene;
 impl Render for Scene {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         body()
+            .styled()
             .m_0()
             .child(style().child(".hdr { color: #e6a23c; } li:nth-child(2) { color: #78aef0 } .box:hover { opacity: 0.5 }"))
             .child(

@@ -46,7 +46,7 @@ typedef struct BKWCol {
 
 typedef struct BKTheme {
   BKWCol regular, tool, toggle, radio, option, textfield, num, numslider, menu, pulldown, menu_back,
-      menu_item, list_item, box, scroll, progress, tooltip, tab, pie_menu;
+      menu_item, list_item, box, scroll, progress, tooltip, tab, pie_menu, curve;
   uchar region_bg[4], header_bg[4], tabs_bg[4];
   uchar panel_header[4], panel_back[4], panel_sub_back[4], panel_outline[4];
   uchar text[4], text_hi[4], emboss[4], cursor[4], selection[4];
@@ -459,6 +459,7 @@ struct BKContext {
   BKRect tip_rect;
   /* drag-toggle */
   int dt_group, dt_value, dt_active;
+  int dt_init_x, dt_init_y, dt_last_x, dt_last_y; /* uiDragToggleHandle xy_init / xy_last */
   /* pointer */
   bool dragging;
   int press_x, press_y, off_x, off_y, skip_x, skip_y;
@@ -473,6 +474,7 @@ struct BKContext {
   int cursor;
   /* window / region */
   int win_w, win_h, scroll, content_h, header_h;
+  int scroll_alpha; /* View2D.alpha_vert of the region scrollbar (0..255) */
   /* damage */
   bool layout_dirty, full_dirty;
   BKRect dirty[BK_MAX_DIRTY];

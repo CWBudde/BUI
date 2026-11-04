@@ -9,7 +9,7 @@ use taffy::prelude::*;
 use crate::color::Rgba;
 use crate::geometry::{rect, Bounds, Units};
 use crate::layout::{BoxNode, Content, Frame, Replaced, StyleStore};
-use crate::style::{Computed, DisplayKind, TextAlign, WhiteSpace};
+use crate::style::{BorderStyle, BoxEdge, Computed, DecoStyle, DisplayKind, TextAlign, WhiteSpace};
 use crate::text::{self, TextCache};
 use blenderui_sys as sys;
 
@@ -426,7 +426,7 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
         Content::Text(t) if n.taffy.is_some() || n.folded => {
             let flags = text::flags(c);
             let nowrap = matches!(c.white_space, WhiteSpace::NoWrap | WhiteSpace::Pre);
-            if !c.ellipsis && !t.contains([' ', '\n']) {
+            if !c.ellipsis && !t.contains([' ', '\n']) && text::break_mode(c) == 0 {
                 // one word: one line (the common label case)
                 let lw = tc.width(t, c.font_size, flags);
                 let x = match c.text_align {
@@ -440,7 +440,7 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
             let lines = if nowrap {
                 vec![t.clone()]
             } else {
-                tc.wrap(t, c.font_size, flags, b.size.width + 0.5)
+                tc.wrap(t, c.font_size, flags, b.size.width + 0.5, text::break_mode(c))
             };
             let lh = c.line_px();
             for (k, line) in lines.iter().enumerate() {
@@ -456,8 +456,22 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
             }
         }
         Content::Element | Content::Replaced(_) if n.taffy.is_some() => {
-            paint_box(n, c, p, vp, redundant_background(frame, styles, n));
-            if let Some(m) = &n.marker {
+            let hidden_cell = c.empty_cells_hide && c.display == DisplayKind::TableCell
+                && !c.border_collapse && frame.is_empty(i);
+            if !hidden_cell {
+                paint_box(n, c, p, vp, redundant_background(frame, styles, n));
+            }
+            let marker_img = n.marker.as_ref().and(c.list_image.as_deref()).and_then(background_file);
+            if let Some(img) = marker_img {
+                // `list-style-image`: the image, at most a line tall, left of the box
+                let bw = border_widths(c, b.size.width);
+                let pad = lp(c.layout.padding.top, b.size.width);
+                let lh = c.line_px();
+                let (iw, ih) = (img.width as f32, img.height as f32);
+                let s = (lh / ih.max(1.0)).min(1.0);
+                let (w, h) = (iw * s, ih * s);
+                p.image(rect(b.origin.x - w - 6.0, b.origin.y + bw[0] + pad + (lh - h) / 2.0, w, h), &img);
+            } else if let Some(m) = n.marker.as_ref().filter(|m| !m.is_empty()) {
                 let bw = border_widths(c, b.size.width);
                 let pad = lp(c.layout.padding.top, b.size.width);
                 let flags = text::flags(c);
@@ -528,17 +542,49 @@ fn paint_text_line(p: &mut Painter, tc: &mut TextCache, c: &Computed, s: &str, x
     }
     if c.underline || c.line_through || c.overline {
         let w = width.unwrap_or_else(|| tc.width(s.trim_end(), size_draw, flags));
-        let thick = (size / 14.0).max(1.0);
+        let thick = c.decoration_thickness.unwrap_or(size / 14.0).max(1.0);
         let dc = c.decoration_color.unwrap_or(c.color);
-        let mut deco = |yy: f32| p.fill(rect(x, yy, w, thick), dc);
         if c.underline {
-            deco(top + size * 0.92);
+            // the offset is measured from the baseline (about 0.8em down)
+            let y = match c.underline_offset {
+                Some(o) => top + size * 0.8 + o,
+                None => top + size * 0.92,
+            };
+            decoration(p, c.decoration_style, x, y, w, thick, dc);
         }
         if c.line_through {
-            deco(top + size * 0.48);
+            decoration(p, c.decoration_style, x, top + size * 0.48, w, thick, dc);
         }
         if c.overline {
-            deco(top);
+            decoration(p, c.decoration_style, x, top, w, thick, dc);
+        }
+    }
+}
+
+/// One text decoration line of `text-decoration-style` from `x` to `x + w`.
+fn decoration(p: &mut Painter, style: DecoStyle, x: f32, y: f32, w: f32, t: f32, col: Rgba) {
+    match style {
+        DecoStyle::Solid => p.fill(rect(x, y, w, t), col),
+        DecoStyle::Double => {
+            p.fill(rect(x, y, w, t), col);
+            p.fill(rect(x, y + t * 2.0, w, t), col);
+        }
+        DecoStyle::Dotted | DecoStyle::Dashed => {
+            let (on, gap) = if style == DecoStyle::Dotted { (t, t) } else { (t * 3.0, t * 2.0) };
+            let mut cx = x;
+            while cx < x + w {
+                p.fill(rect(cx, y, on.min(x + w - cx), t), col);
+                cx += on + gap;
+            }
+        }
+        DecoStyle::Wavy => {
+            let (amp, period) = (t * 1.5, t * 6.0);
+            let steps = ((w / (period / 8.0)).ceil() as usize).clamp(2, 4096);
+            let pts: Vec<(f32, f32)> = (0..=steps).map(|k| {
+                let px = x + w * k as f32 / steps as f32;
+                (px, y + amp * (std::f32::consts::TAU * (px - x) / period).sin())
+            }).collect();
+            p.line(&pts, col, t);
         }
     }
 }
@@ -560,13 +606,20 @@ fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_ba
             p.quad(sb, r + grow, s.color.alpha(a), Rgba::TRANSPARENT, 0.0);
         }
     }
+    // `background-clip`: the painting area; its radius shrinks with it
+    let bw = border_widths(c, b.size.width);
+    let clip_box = edge_box(c, b, c.bg_clip, &bw);
+    let clip_r = (r - (clip_box.origin.x - b.origin.x)).max(0.0);
     match &c.gradient {
-        Some(g) => p.with_clip(b, |p| paint_gradient(p, g, b)),
-        None if skip_background => {}
-        None => p.quad(b, r, c.background, Rgba::TRANSPARENT, 0.0),
+        Some(g) => p.with_clip(clip_box, |p| paint_gradient(p, g, clip_box)),
+        None if skip_background && c.bg_clip == BoxEdge::Border => {}
+        None => p.quad(clip_box, clip_r, c.background, Rgba::TRANSPARENT, 0.0),
     }
     if let Some(st) = c.images.as_deref().filter(|st| st.bg_url.is_some()) {
-        paint_background_image(p, c, st, b);
+        // `background-origin` positions the image, `-attachment: fixed` against the viewport
+        let area = if st.bg_fixed { rect(0.0, 0.0, vp.0, vp.1) } else { edge_box(c, b, c.bg_origin, &bw) };
+        let clip_to = if st.bg_fixed { clip_box } else { clip_box.intersect(&b) };
+        paint_background_image(p, st, area, clip_to);
     }
     for s in c.shadows.iter().filter(|s| s.inset) {
         let w = s.blur.max(1.0) + s.spread;
@@ -575,12 +628,16 @@ fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_ba
                    Rgba::TRANSPARENT, s.color, w);
         });
     }
-    let bw = border_widths(c, b.size.width);
     let visible: Vec<usize> = (0..4).filter(|&k| bw[k] > 0.0 && c.border_drawn[k]
                                             && !c.border_color[k].is_transparent()).collect();
     let uniform = visible.len() == 4 && bw.iter().all(|w| *w == bw[0])
         && c.border_color.iter().all(|x| *x == c.border_color[0]);
-    if uniform {
+    let styled = visible.iter().any(|&k| c.border_style[k] != BorderStyle::Solid);
+    if styled {
+        let styles: [BorderStyle; 4] = std::array::from_fn(|k| c.border_style[k]);
+        let widths: [f32; 4] = std::array::from_fn(|k| if visible.contains(&k) { bw[k] } else { 0.0 });
+        paint_edges(p, b, widths, c.border_color, styles);
+    } else if uniform {
         let h = bw[0] / 2.0;
         p.quad(rect(b.origin.x + h, b.origin.y + h, b.size.width - bw[0], b.size.height - bw[0]),
                (r - h).max(0.0), Rgba::TRANSPARENT, c.border_color[0], bw[0]);
@@ -597,10 +654,97 @@ fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_ba
         }
     }
     let (ow, oc, off) = c.outline;
-    if ow > 0.0 && !oc.is_transparent() {
+    if ow > 0.0 && !oc.is_transparent() && c.outline_style != BorderStyle::Solid {
+        let g = off + ow;
+        let ob = rect(b.origin.x - g, b.origin.y - g, b.size.width + 2.0 * g, b.size.height + 2.0 * g);
+        paint_edges(p, ob, [ow; 4], [oc; 4], [c.outline_style; 4]);
+    } else if ow > 0.0 && !oc.is_transparent() {
         let g = off + ow / 2.0;
         p.quad(rect(b.origin.x - g, b.origin.y - g, b.size.width + 2.0 * g, b.size.height + 2.0 * g),
                r + g, Rgba::TRANSPARENT, oc, ow);
+    }
+}
+
+/// The border, padding or content box of `b`.
+fn edge_box(c: &Computed, b: Bounds<f32>, edge: BoxEdge, bw: &[f32; 4]) -> Bounds<f32> {
+    match edge {
+        BoxEdge::Border => b,
+        BoxEdge::Padding => rect(b.origin.x + bw[3], b.origin.y + bw[0], (b.size.width - bw[1] - bw[3]).max(0.0),
+                                 (b.size.height - bw[0] - bw[2]).max(0.0)),
+        BoxEdge::Content => content_box(c, b),
+    }
+}
+
+/// A colour darkened (`f` < 1) or lightened toward white (`f` > 1), for 3D borders.
+fn shade(c: Rgba, f: f32) -> Rgba {
+    if f <= 1.0 {
+        Rgba { r: c.r * f, g: c.g * f, b: c.b * f, a: c.a }
+    } else {
+        mix(c, Rgba { r: 1.0, g: 1.0, b: 1.0, a: c.a }, f - 1.0)
+    }
+}
+
+/// Borders (or an outline) with non-solid styles, side by side inside
+/// `b`: dashes and dots run along each side, `double` is two lines, and
+/// groove / ridge / inset / outset shade the sides. Corners are square.
+fn paint_edges(p: &mut Painter, b: Bounds<f32>, w: [f32; 4], col: [Rgba; 4], style: [BorderStyle; 4]) {
+    let (x, y, bw, bh) = (b.origin.x, b.origin.y, b.size.width, b.size.height);
+    // the band of side k, inset by `from` and `to` (fractions of its width)
+    let band = |k: usize, from: f32, to: f32| -> Bounds<f32> {
+        let (a, t) = (w[k] * from, w[k] * (to - from));
+        match k {
+            0 => rect(x, y + a, bw, t),
+            1 => rect(x + bw - w[1] + a, y, t, bh),
+            2 => rect(x, y + bh - w[2] + a, bw, t),
+            _ => rect(x + a, y, t, bh),
+        }
+    };
+    for k in 0..4 {
+        if w[k] <= 0.0 || col[k].is_transparent() {
+            continue;
+        }
+        let c = col[k];
+        // top and left are the "light source" sides for inset / outset
+        let lit = k == 0 || k == 3;
+        match style[k] {
+            BorderStyle::Solid => p.fill(band(k, 0.0, 1.0), c),
+            BorderStyle::Double if w[k] >= 3.0 => {
+                p.fill(band(k, 0.0, 1.0 / 3.0), c);
+                p.fill(band(k, 2.0 / 3.0, 1.0), c);
+            }
+            BorderStyle::Double => p.fill(band(k, 0.0, 1.0), c),
+            BorderStyle::Inset => p.fill(band(k, 0.0, 1.0), if lit { shade(c, 0.5) } else { c }),
+            BorderStyle::Outset => p.fill(band(k, 0.0, 1.0), if lit { c } else { shade(c, 0.5) }),
+            BorderStyle::Groove | BorderStyle::Ridge => {
+                let (dark, light) = (shade(c, 0.5), c);
+                let outer_dark = (style[k] == BorderStyle::Groove) == lit;
+                p.fill(band(k, 0.0, 0.5), if outer_dark { dark } else { light });
+                p.fill(band(k, 0.5, 1.0), if outer_dark { light } else { dark });
+            }
+            BorderStyle::Dashed | BorderStyle::Dotted => {
+                let horizontal = k == 0 || k == 2;
+                let full = band(k, 0.0, 1.0);
+                let len = if horizontal { full.size.width } else { full.size.height };
+                let t = w[k];
+                let (on, gap) = if style[k] == BorderStyle::Dotted { (t, t) } else { (t * 3.0, t * 3.0) };
+                // spread the segments so both ends start and end with one
+                let n = ((len + gap) / (on + gap)).floor().max(1.0);
+                let gap = if n > 1.0 { (len - n * on) / (n - 1.0) } else { 0.0 };
+                for j in 0..n as usize {
+                    let o = j as f32 * (on + gap);
+                    let seg = if horizontal {
+                        rect(full.origin.x + o, full.origin.y, on.min(len - o), t)
+                    } else {
+                        rect(full.origin.x, full.origin.y + o, t, on.min(len - o))
+                    };
+                    if style[k] == BorderStyle::Dotted && t >= 3.0 {
+                        p.oval(seg, c, Rgba::TRANSPARENT, 0.0);
+                    } else {
+                        p.fill(seg, c);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -702,12 +846,12 @@ fn background_file(url: &str) -> Option<Arc<Image>> {
     img
 }
 
-/// A background image over the padding box: sized, positioned and tiled.
-fn paint_background_image(p: &mut Painter, c: &Computed, st: &crate::style::ImageStyle, b: Bounds<f32>) {
+/// A background image in its positioning `area` (`background-origin`, or the
+/// viewport when fixed): sized, positioned and tiled, clipped to `clip_to`.
+fn paint_background_image(p: &mut Painter, st: &crate::style::ImageStyle, area: Bounds<f32>,
+                          clip_to: Bounds<f32>) {
     let Some(img) = st.bg_url.as_deref().and_then(background_file) else { return };
-    let bw = border_widths(c, b.size.width);
-    let (ax, ay) = (b.origin.x + bw[3], b.origin.y + bw[0]);
-    let (aw, ah) = (b.size.width - bw[1] - bw[3], b.size.height - bw[0] - bw[2]);
+    let (ax, ay, aw, ah) = (area.origin.x, area.origin.y, area.size.width, area.size.height);
     let (tw, th) = st.tile((aw, ah), (img.width as f32, img.height as f32));
     if tw < 0.5 || th < 0.5 || aw <= 0.0 || ah <= 0.0 {
         return;
@@ -717,12 +861,16 @@ fn paint_background_image(p: &mut Painter, c: &Computed, st: &crate::style::Imag
     // first tile at or before the area's start, when repeating
     let sx = if st.bg_repeat.0 { x0 - ((x0 - ax) / tw).ceil() * tw } else { x0 };
     let sy = if st.bg_repeat.1 { y0 - ((y0 - ay) / th).ceil() * th } else { y0 };
-    let nx = if st.bg_repeat.0 { ((ax + aw - sx) / tw).ceil() as usize } else { 1 };
-    let ny = if st.bg_repeat.1 { ((ay + ah - sy) / th).ceil() as usize } else { 1 };
+    // repeated tiles cover the painting area, which may reach past the positioning area
+    let (ex, ey) = (clip_to.origin.x + clip_to.size.width, clip_to.origin.y + clip_to.size.height);
+    let sx = if st.bg_repeat.0 && clip_to.origin.x < sx { sx - ((sx - clip_to.origin.x) / tw).ceil() * tw } else { sx };
+    let sy = if st.bg_repeat.1 && clip_to.origin.y < sy { sy - ((sy - clip_to.origin.y) / th).ceil() * th } else { sy };
+    let nx = if st.bg_repeat.0 { ((ex.max(ax + aw) - sx) / tw).ceil() as usize } else { 1 };
+    let ny = if st.bg_repeat.1 { ((ey.max(ay + ah) - sy) / th).ceil() as usize } else { 1 };
     if nx.saturating_mul(ny) > 4096 {
         return; // tiny tiles over a huge box: not worth thousands of quads
     }
-    p.with_clip(rect(ax, ay, aw, ah), |p| {
+    p.with_clip(clip_to, |p| {
         for j in 0..ny {
             for i in 0..nx {
                 p.image(rect(sx + i as f32 * tw, sy + j as f32 * th, tw, th), &img);

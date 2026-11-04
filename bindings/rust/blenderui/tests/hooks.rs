@@ -48,7 +48,7 @@ impl Render for Page {
         provide_context(Theme("dark"));
         let show_bob = self.show_bob;
         rsx! {
-            <body style="margin: 0">
+            <body styled style="margin: 0">
                 <profile username="Alice" id={"alice".to_string()} />
                 {if show_bob { <profile username="Bob" id={"bob".to_string()} /> }}
                 <Counter start={5} />
@@ -133,7 +133,7 @@ impl Render for List {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let keyed = self.keyed;
         rsx! {
-            <body style="margin: 0">
+            <body styled style="margin: 0">
                 {for name in self.items.clone() {
                     if keyed {
                         rsx! { <Row key={name} name={name} /> }.into_any_element()

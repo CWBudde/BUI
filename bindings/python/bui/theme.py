@@ -63,6 +63,7 @@ WCOL = {
     "tooltip": _wcol(0x242424ff, 0x1d1d1dff, 0x4772b3ff, 0xd9d9d9ff, 0xd9d9d9ff, 0xffffffff, roundness=0.2),
     "tab": _wcol(0x1d1d1dff, 0x1d1d1dff, 0x303030ff, 0x1d1d1dff, 0x989898ff, 0xffffffff, roundness=0.2),
     "pie_menu": _wcol(0x242424ff, 0x181818ff, 0x4772b3ff, 0x545454ff, 0xd9d9d9ff, 0xffffffff, roundness=0.2),
+    "curve": _wcol(0x727272ff, 0x545454ff, 0x000000ff, 0x00000059, 0x08080800, 0xc9c9c900, roundness=0.2),
 }
 
 # --- region / panel colors ----------------------------------------------------

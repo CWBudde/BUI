@@ -45,6 +45,7 @@ BKTheme bk_theme = {
     /* tooltip */ WCOL(0x242424ffu, 0x242424ffu, 0x1d1d1dffu, 0x4772b3ffu, 0xd9d9d9ffu, 0xd9d9d9ffu, 0xffffffffu, 0.2f),
     /* tab */ WCOL(0x1d1d1dffu, 0x1d1d1dffu, 0x1d1d1dffu, 0x303030ffu, 0x1d1d1dffu, 0x989898ffu, 0xffffffffu, 0.2f),
     /* pie_menu */ WCOL(0x242424ffu, 0x242424ffu, 0x181818ffu, 0x4772b3ffu, 0x545454ffu, 0xd9d9d9ffu, 0xffffffffu, 0.2f),
+    /* curve (wcol_curve) */ WCOL(0x727272ffu, 0x9a9a9affu, 0x545454ffu, 0x000000ffu, 0x00000059u, 0x08080800u, 0xc9c9c900u, 0.2f),
     RGBA(0x303030ff), /* region_bg */
     RGBA(0x181818ff), /* header_bg (top bar) */
     RGBA(0x181818ff), /* tabs_bg (navigation bar: regions.sidebars.tab_back) */
@@ -82,13 +83,20 @@ void BK_set_font(const char *family)
   strncpy(g_font_family, family ? family : "", sizeof(g_font_family) - 1);
 }
 
+/* wm_window.cc WM_window_dpi_set_userdef: U.dpi = int(72 * ui_scale), pixelsize =
+ * max(1, dpi / 64) (integer division), widget_unit = round(18 * dpi / 72) + 2 * pixelsize.
+ * Scale 1.0 -> dpi 72, pixelsize 1, unit 20. */
+static int bk_dpi(void)
+{
+  return (int)(72.0f * bk_scale_fac + 1e-4f);
+}
 int bk_unit(void)
 {
-  return (int)floorf(20.0f * bk_scale_fac + 0.5f); /* U.widget_unit */
+  return (int)roundf(18.0f * ((float)bk_dpi() / 72.0f)) + 2 * (int)bk_px(); /* U.widget_unit */
 }
 float bk_px(void)
 {
-  return bk_scale_fac >= 1.5f ? 2.0f : 1.0f; /* U.pixelsize */
+  return (float)BK_MAX(1, bk_dpi() / 64); /* U.pixelsize */
 }
 float bk_text_scale = 1.0f;
 

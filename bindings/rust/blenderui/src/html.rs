@@ -67,9 +67,73 @@ pub fn custom(tag: &'static str) -> Div {
 }
 
 /// The user-agent stylesheet: the browsers' defaults (WHATWG rendering
-/// section) in Blender's dark theme.
+/// section: black text on white). An element with the `styled` attribute
+/// (`div().styled()`, `<div styled>`) and everything inside it get Blender's
+/// dark theme instead. Form widgets are Blender widgets either way.
 pub const UA_CSS: &str = r#"
-html { display: block; background-color: #303030; color: #e6e6e6; font-size: 13px; }
+html { display: block; background-color: #ffffff; color: #000000; font-size: 16px; }
+body { display: block; margin: 8px; }
+address, article, aside, blockquote, dd, details, dialog, div, dl, dt, fieldset, figcaption,
+figure, footer, form, h1, h2, h3, h4, h5, h6, header, hgroup, hr, legend, main, menu, nav, ol,
+p, pre, search, section, ul, noscript, optgroup, option { display: block; }
+head, title, base, link, meta, style, script, template, source, track, area, datalist, wbr,
+map, [hidden], input[type=hidden], col, colgroup { display: none; }
+li, summary { display: list-item; }
+p, dl, pre { margin: 1em 0; }
+figure, blockquote { margin: 1em 40px; }
+h1 { font-size: 2em; margin: 0.67em 0; font-weight: bold; }
+h2 { font-size: 1.5em; margin: 0.83em 0; font-weight: bold; }
+h3 { font-size: 1.17em; margin: 1em 0; font-weight: bold; }
+h4 { font-size: 1em; margin: 1.33em 0; font-weight: bold; }
+h5 { font-size: 0.83em; margin: 1.67em 0; font-weight: bold; }
+h6 { font-size: 0.67em; margin: 2.33em 0; font-weight: bold; }
+b, strong, th, dt, caption { font-weight: bold; }
+i, em, cite, dfn, var, address { font-style: italic; }
+u, ins { text-decoration: underline; }
+s, del { text-decoration: line-through; }
+small { font-size: smaller; }
+sub { vertical-align: sub; font-size: smaller; }
+sup { vertical-align: super; font-size: smaller; }
+code, kbd, samp, pre, var { font-family: monospace; }
+pre { white-space: pre; }
+mark { background-color: #ffff00; color: #000000; }
+a { color: #0000ee; text-decoration: underline; cursor: pointer; }
+abbr[title] { text-decoration: underline dotted; }
+rt { font-size: 50%; }
+ul, menu { list-style-type: disc; padding-left: 40px; margin: 1em 0; }
+ol { list-style-type: decimal; padding-left: 40px; margin: 1em 0; }
+ul ul, ol ul, menu ul { list-style-type: circle; margin: 0; }
+ul ul ul, ol ol ul { list-style-type: square; }
+ol ol, ul ol { margin: 0; }
+dd { margin-left: 40px; }
+hr { border: 1px inset #808080; margin: 0.5em 0; }
+table { display: table; border-spacing: 2px; }
+thead, tbody, tfoot { display: table-row-group; }
+tr { display: table-row; }
+td, th { display: table-cell; padding: 1px; }
+th { text-align: center; }
+caption { display: table-caption; text-align: center; }
+fieldset { margin: 0 2px; padding: 0.35em 0.75em 0.625em; border: 2px groove #c0c0c0; }
+legend { padding: 0 2px; }
+summary { cursor: pointer; }
+dialog { position: absolute; left: 10%; right: 10%; top: 15%; padding: 1em;
+         background-color: #ffffff; color: #000000; border: 2px solid #000000; z-index: 100; }
+dialog:not([open]) { display: none; }
+img, video, iframe, embed, object, audio, canvas, svg, math { display: inline-block; }
+button, input, select, textarea, progress, meter { display: inline-block; }
+audio:not([controls]) { display: none; }
+iframe { border: 2px inset #808080; }
+label { cursor: default; }
+output { display: inline; }
+
+"#;
+
+/// The user-agent stylesheet inside `styled` subtrees: the same defaults in
+/// Blender's dark theme. The `styled` element itself gets the theme's
+/// background, text colour and 13px UI font size.
+pub const UA_STYLED_CSS: &str = r#"
+html { display: block; }
+[styled] { background-color: #303030; color: #e6e6e6; font-size: 13px; }
 body { display: block; margin: 8px; }
 address, article, aside, blockquote, dd, details, dialog, div, dl, dt, fieldset, figcaption,
 figure, footer, form, h1, h2, h3, h4, h5, h6, header, hgroup, hr, legend, main, menu, nav, ol,
@@ -137,6 +201,12 @@ output { display: inline; }
 pub fn ua_stylesheet() -> &'static Stylesheet {
     static SHEET: OnceLock<Stylesheet> = OnceLock::new();
     SHEET.get_or_init(|| Stylesheet::parse(UA_CSS))
+}
+
+/// The parsed [`UA_STYLED_CSS`] (shared, parsed once).
+pub fn ua_styled_stylesheet() -> &'static Stylesheet {
+    static SHEET: OnceLock<Stylesheet> = OnceLock::new();
+    SHEET.get_or_init(|| Stylesheet::parse(UA_STYLED_CSS))
 }
 
 #[cfg(test)]

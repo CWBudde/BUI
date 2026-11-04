@@ -174,8 +174,9 @@ static void socket_color(const char *type, float c[4])
       {"color", 0xc7c729},    {"rgba", 0xc7c729},      {"shader", 0x63c763},
       {"geometry", 0x00d6a3}, {"string", 0x70b2ff},    {"object", 0xed9e5c},
       {"image", 0x633863},    {"collection", 0xf5f5f5}, {"texture", 0x9e4fa3},
-      {"material", 0xeb7582}, {"rotation", 0xa663c7}, {"menu", 0x4d4d4d},
-      {"matrix", 0x4d1a75},   {"bundle", 0x52525e},    {"closure", 0x3d3d47},
+      {"material", 0xeb7582}, {"rotation", 0xa663c7}, {"menu", 0x666666},
+      {"matrix", 0xb83385},   {"bundle", 0x4d8080},    {"closure", 0x7d7d3a},
+      {"int_vector", 0x5c789c}, {"font", 0x635742},    {"sound", 0x635742},
   };
   uint32_t rgb = 0xa1a1a1;
   for (size_t i = 0; i < sizeof(colors) / sizeof(colors[0]); i++) {
@@ -386,38 +387,62 @@ static void color_u(uint32_t rgba, float c[4])
   c[3] = (rgba & 255) / 255.0f;
 }
 
-/* UI_view2d_dot_grid_draw: dots at the grid levels, the finer ones fading in */
+/* view2d_dot_grid_draw (view2d.cc), called by node_draw_space with min_step =
+ * NODE_GRID_STEP_SIZE (20 * UI_SCALE_FAC view units) and the theme's grid_levels (3). View units
+ * are graph units * UI_SCALE_FAC, so zoom_x (px per view unit) is the editor zoom. Each level is
+ * 5x the previous; dot size is 2 * pixelsize * level_scale * zoom clamped to [2, 3] * pixelsize,
+ * alpha (precise / drawn)^2, and the finest level fades by 1 - fract(view_level). */
 static void draw_grid(BKNode *e)
 {
+  const int grid_subdivisions = 3; /* space_node.grid_levels */
   float c[4];
   color_u(0x303030ff, c); /* space_node.grid */
-  const float s = scale_of(e);
-  const float base = NODE_DY; /* one widget unit in graph space */
-  const int levels = 3;       /* theme grid_levels */
-  for (int level = levels - 1; level >= 0; level--) {
-    const float step = base * powf(5.0f, (float)level) * s; /* screen pixels between dots */
-    if (step < 4.0f * bk_scale_fac) {
+  const float zoom = BK_MAX(1e-4f, ed(e)->zoom), px = bk_px();
+  const float min_point_size = 2.0f * px, max_point_size = 1.5f * min_point_size;
+  const float view_level = logf(NODE_DY * bk_scale_fac / zoom) / logf(5.0f);
+  const int largest_visible_level = (int)view_level;
+  for (int level_offset = 0; level_offset <= grid_subdivisions; level_offset++) {
+    const int level = largest_visible_level - level_offset;
+    if (level < 0) {
+      break;
+    }
+    const float level_scale = powf(5.0f, (float)level);
+    const float precise = min_point_size * level_scale * zoom;
+    const float drawn = ceilf(BK_CLAMP(precise, min_point_size, max_point_size));
+    const float offset = (drawn / 2.0f - px) * zoom; /* view-space offset, in pixels */
+    const float alpha = (precise / drawn) * (precise / drawn);
+    const float alpha_cutoff = 0.01f;
+    if (alpha < alpha_cutoff) {
+      break;
+    }
+    const float alpha_clamped = BK_CLAMP((1.0f + alpha_cutoff) * alpha - alpha_cutoff, 0.0f, 1.0f);
+    const float fade = level_offset == grid_subdivisions ?
+                           1.0f - (view_level - floorf(view_level)) :
+                           1.0f;
+    const float dc[4] = {c[0], c[1], c[2], alpha_clamped * fade};
+    const float step = NODE_DY * level_scale * scale_of(e); /* screen pixels between dots */
+    if (step < 1.0f) {
       continue;
     }
-    /* fade a level in as its dots spread apart */
-    const float fade = BK_CLAMP((step - 4.0f * bk_scale_fac) / (12.0f * bk_scale_fac), 0.0f, 1.0f);
-    float dc[4] = {c[0], c[1], c[2], fade};
-    const float r = BK_MAX(0.75f, 1.0f * bk_scale_fac * (level ? 1.25f : 1.0f));
     const float ox = fmodf(ed(e)->panx, step), oy = fmodf(ed(e)->pany, step);
     for (float y = (float)e->y + oy - step; y < e->y + e->h + step; y += step) {
       for (float x = (float)e->x + ox - step; x < e->x + e->w + step; x += step) {
         if (x >= e->x && y >= e->y) {
-          bk_fill_f(x - r * 0.5f, y - r * 0.5f, r, r, dc);
+          bk_circle(x + offset, y - offset, drawn * 0.5f, dc); /* POINT_..._COLOR_AA */
         }
       }
     }
   }
 }
 
-/* node_link_bezier_handles + evaluation: NODE_LINK_RESOL * 2 segments */
+/* calculate_inner_link_bezier_points + evaluation: NODE_LINK_RESOL * 2 segments.
+ * The handles shrink as the link nears horizontal; curving 0 is a straight line. */
 static void bezier_points(float x0, float y0, float x3, float y3, float pts[][2], int n)
 {
-  const float dist = NOODLE_CURVING * 0.10f * fabsf(x0 - x3);
+  const float dist_x = fabsf(x0 - x3), dist_y = fabsf(y0 - y3);
+  const float slope = dist_x != 0.0f ? dist_y / dist_x : 0.0f;
+  const float clamp_factor = BK_MIN(1.0f, slope * (4.5f - 0.25f * NOODLE_CURVING));
+  const float dist = NOODLE_CURVING * 0.10f * dist_x * clamp_factor;
   const float x1 = x0 + dist, x2 = x3 - dist;
   for (int i = 0; i <= n; i++) {
     const float t = (float)i / n, it = 1.0f - t;
@@ -433,8 +458,11 @@ static void draw_noodle(float x0, float y0, float x3, float y3, const float colo
   enum { N = NODE_LINK_RESOL * 2 };
   float pts[N + 1][2];
   bezier_points(x0, y0, x3, y3, pts, N);
-  /* node_draw_link: an outline in the wire color, the link color inside */
-  const float th = BK_MAX(1.0f, 1.5f * bk_scale_fac * BK_MIN(1.0f, zoom * 1.25f));
+  /* node_draw_link: LINK_WIDTH 2.5 * max(UI_SCALE_FAC * zoom, 1). The link
+   * shader draws the outline 2 * thickness wide and the colored line on top
+   * at 0.65 of that. */
+  const float link_w = 2.5f * BK_MAX(bk_scale_fac * zoom, 1.0f);
+  const float th = 2.0f * link_w * 0.65f, outline_w = 2.0f * link_w;
   float wire[4];
   color_u(0x1a1a1aff, wire); /* space_node.wire */
   float inner[4];
@@ -445,7 +473,7 @@ static void draw_noodle(float x0, float y0, float x3, float y3, const float colo
     }
   }
   for (int i = 0; i < N; i++) {
-    bk_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], wire, th + 2.0f * bk_scale_fac);
+    bk_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], wire, outline_w);
   }
   for (int i = 0; i < N; i++) {
     bk_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], inner, th);
@@ -454,7 +482,9 @@ static void draw_noodle(float x0, float y0, float x3, float y3, const float colo
 
 static void draw_socket(float x, float y, const char *type, float s)
 {
-  float c[4], o[4] = {0.0f, 0.0f, 0.0f, 0.6f};
+  /* node_socket_outline_color_get: the theme wire color, opaque */
+  float c[4], o[4];
+  color_u(0x1a1a1aff, o);
   socket_color(type, c);
   const float r = NODE_SOCKSIZE * s;
   bk_circle(x, y, r + BK_MAX(1.0f, bk_scale_fac), o);
@@ -553,7 +583,7 @@ static void link_ends(const BKNode *e, const Link *l, float *x0, float *y0, floa
 static void editor_draw(BKNode *e)
 {
   float back[4];
-  color_u(0x1d1d1dff, back); /* space_node.back */
+  color_u(0x1a1a1aff, back); /* space_node.back */
   bk_fill_f((float)e->x, (float)e->y, (float)e->w, (float)e->h, back);
   bk_clip_push(e->x, e->y, e->w, e->h);
   draw_grid(e);

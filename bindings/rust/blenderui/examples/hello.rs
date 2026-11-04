@@ -23,7 +23,7 @@ struct Hello;
 impl Render for Hello {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         rsx! {
-            <body m-0 p-6 min-h-screen flex flex-col gap-4 bg-zinc-900 text-white>
+            <body styled m-0 p-6 min-h-screen flex flex-col gap-4 bg-zinc-900 text-white>
                 <h1 text-2xl font-bold>"Hello, BUI"</h1>
                 <counter label="Clicks" />
                 <input type="range" min={0.0} max={10.0} />

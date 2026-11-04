@@ -150,6 +150,14 @@ impl Div {
         self
     }
 
+    /// Give this element and everything inside it Blender's look (dark
+    /// theme, UI font size, themed links, code, tables ...). Without it,
+    /// elements get the browsers' defaults: black text on white. Form
+    /// widgets look like Blender either way. `<div styled>` in `rsx!`.
+    pub fn styled(self) -> Self {
+        self.attr("styled", "")
+    }
+
     /// Add CSS classes (matched by stylesheets).
     pub fn class(mut self, classes: impl Into<SharedString>) -> Self {
         let add = classes.into();

@@ -6,7 +6,7 @@ struct Counter { count: i32 }
 
 impl Render for Counter {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div().flex().flex_col().gap_2().p_4()
+        div().styled().flex().flex_col().gap_2().p_4()
             .child(h1().child(format!("Count: {}", self.count)))
             .child(p().child("Any ").child(b().child("HTML element")).child(", styled with ")
                 .child(code().child(".css()")).child(" or a <style> sheet."))

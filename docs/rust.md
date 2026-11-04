@@ -236,9 +236,25 @@ Text children are `&'static str`, `String` or `SharedString`.
 > `fn main`. Inside `fn main` call it as `blenderui::html::main()`.
 
 The document is wrapped in `<html><body>` unless your root already is one, so
-`body { margin: 0 }` and the user-agent defaults behave as in a browser. The
-defaults are Blender's dark theme: `#303030` background, 13 px text, blue
-links.
+`body { margin: 0 }` and the user-agent defaults behave as in a browser.
+
+### Blender styling: `styled`
+
+Plain elements get the browsers' defaults: black text on white, 16 px,
+`#0000ee` links. Mark an element `styled` and it, and everything inside it,
+gets Blender's look instead: the `#303030` background, `#e6e6e6` 13 px text,
+blue links, dark `code` / `pre`, themed tables, fieldsets and dialogs.
+
+```rust
+body().styled().child(h1().child("Blender look"))     // gpui syntax
+rsx! { <div styled class="p-4">"Blender look"</div> } // rsx! / view! (Leptos-style)
+div().styled().child(div().attr("styled", "false"))   // opt a subtree back out
+```
+
+Your own CSS still wins over either set of defaults. Form controls (`button`,
+`input`, `select`, `textarea`, `progress` ...) are Blender widgets and look
+the same inside or outside `styled`. From JavaScript use
+`el.setAttribute('styled', '')`, or `<div styled>` in JSX.
 
 ## Styling
 
@@ -411,9 +427,9 @@ From `cargo test --test parity -- --nocapture`:
 | Area                                  | Coverage                                                                         |
 | ------------------------------------- | -------------------------------------------------------------------------------- |
 | HTML elements (WHATWG index)          | **113 / 113** constructible, plus `svg` / `math` roots; 9 are Blender widgets     |
-| CSS properties                        | **210** change layout or rendering; **185** more parse but have no effect         |
-| W3C property index (745 properties)   | **207** rendered (28%), **177** parsed without effect (24%), **361** not recognized (48%): most of these are drafts, speech, paged media and SVG |
-| CSS 2.1, screen properties            | **82 / 90** rendered, 90 / 90 parsed                                              |
+| CSS properties                        | **226** change layout or rendering; **169** more parse but have no effect         |
+| W3C property index (745 properties)   | **223** rendered (30%), **161** parsed without effect (22%), **361** not recognized (48%): most of these are drafts, speech, paged media and SVG |
+| CSS 2.1, screen properties            | **88 / 90** rendered, 90 / 90 parsed                                              |
 | Flexbox                               | **12 / 12**                                                                       |
 | Grid                                  | **23 / 23** (including `grid-template-areas` and named lines)                     |
 | Tailwind CSS v4                       | Classes compile on first use (v4 theme, variants, arbitrary values); `tw!` checks them at compile time |
@@ -429,7 +445,9 @@ div().class(tw!("grid grid-cols-3 gap-4 md:grid-cols-6 hover:bg-sky-500/50"))
 div().style("width: calc(100% - 2 * var(--gap)); background: color-mix(in oklch, var(--brand) 60%, white)")
 ```
 
-The CSS 2.1 properties that parse without effect: `clip`, `counter-increment`, `counter-reset`, `empty-cells`, `table-layout`, `unicode-bidi`, `list-style-image` and `background-attachment`.
+The CSS 2.1 properties that parse without effect: `table-layout` (tables always share width like `fixed`) and `unicode-bidi` (no bidi reordering).
+
+Also rendered: every `border-style` and `outline-style` (`dashed`, `dotted`, `double`, `groove`, `ridge`, `inset`, `outset`; corners of styled borders are square), `text-decoration-style` (including `wavy`), `-thickness` and `text-underline-offset`, `background-clip` / `background-origin` (`border-box`, `padding-box`, `content-box`), `background-attachment: fixed`, `clip: rect()` on absolutely positioned boxes, counters (`counter-reset` / `-increment` / `-set` with `counter()` and `counters()` in `content`), `empty-cells`, `list-style-image`, `word-break: break-all`, `overflow-wrap: anywhere | break-word` (in text that mixes inline elements, long words break only with `break-all`) and `tab-size`.
 
 Also supported: `background-image: url()` (PNG) with `background-size` / `-position` (`-x` / `-y`) / `-repeat`, `object-fit` / `object-position`, logical border longhands (`border-inline-width` ...), `text-wrap-mode`, `white-space-collapse`, `scale`, `all`, `@container` size queries (`container-type`, `container-name`), `@font-face` (local font files) and `@property` initial values.
 
@@ -438,8 +456,8 @@ How much is left, against all 745 properties in the
 
 | | Properties | Share |
 |---|---:|---:|
-| Change layout or rendering | 207 | 28% |
-| Parsed, no effect yet | 177 | 24% |
+| Change layout or rendering | 223 | 30% |
+| Parsed, no effect yet | 161 | 22% |
 | Not recognized | 361 | 48% |
 
 The 361 unrecognized properties break down as:
@@ -455,14 +473,14 @@ The 361 unrecognized properties break down as:
 | Everything else | ~100 |
 
 The everyday screen CSS is much further along: Flexbox 12/12, Grid 23/23 and
-CSS 2.1 82/90. The largest remaining gaps among common properties are visual
+CSS 2.1 88/90. The largest remaining gaps among common properties are visual
 effects (transforms, filters, blend modes, `clip-path`, masks) and
 animations and transitions.
 
 Not done yet:
 - **Parsed, not applied:** `@keyframes`, transitions and animations; scroll snapping and OpenType font features.
 - **`@container` timing:** queries use the container's size from the previous layout; when it changes, the window renders once more.
-- **Rendering effects:** 2D/3D `rotate` / `skew` transforms, `filter` / `backdrop-filter`, blend modes, `clip-path`, masks, `border-image` and border styles other than solid.
+- **Rendering effects:** 2D/3D `rotate` / `skew` transforms, `filter` / `backdrop-filter`, blend modes, `clip-path`, masks and `border-image`.
 - **The rest of the W3C property index:** about 360 entries this engine doesn't know, mostly drafts, speech, paged media and SVG.
 - **Box sizing:** the default is `border-box` (like Tailwind's preflight), not CSS's `content-box`.
 

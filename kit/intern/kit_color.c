@@ -1099,14 +1099,35 @@ static void curve_measure(BKNode *n, int *rw, int *rh)
 
 static void curve_draw(BKNode *n)
 {
+  /* draw_but_CURVE (interface_draw.cc) with the theme's wcol_curve: backdrop in inner, grid every
+   * 0.25 in outline_sel at alpha 64 (every 1.0 at 92), the current curve filled down to the
+   * bottom in item and stroked in inner_sel, points in text / text_sel, outline box in outline. */
   CurveData *d = CURVE(n);
-  const float back[4] = {0.16f, 0.16f, 0.16f, 1};
-  bk_roundbox(n->x, n->y, n->w, n->h, bk_widget_radius(&bk_theme.regular), CNR_ALL, back);
+  const BKWCol *wc = &bk_theme.curve;
+  float back[4];
+  bk_rgba(wc->inner, back);
+  bk_fill_f((float)n->x, (float)n->y, (float)n->w, (float)n->h, back);
   bk_clip_push(n->x, n->y, n->w, n->h);
-  for (int k = 1; k < 8; k++) {
-    const float g[4] = {1, 1, 1, (k % 2 == 0) ? 0.1f : 0.05f};
-    bk_fill_f(floorf(n->x + n->w * k / 8.0f + 0.5f), n->y, 1, n->h, g);
-    bk_fill_f(n->x, floorf(n->y + n->h * k / 8.0f + 0.5f), n->w, 1, g);
+  for (int k = 0; k <= 4; k++) {
+    float g[4];
+    bk_rgba(wc->outline_sel, g);
+    g[3] = (k % 4 == 0 ? 92 : 64) / 255.0f;
+    bk_fill_f(floorf(n->x + (n->w - 1) * k / 4.0f + 0.5f), n->y, 1, n->h, g);
+    bk_fill_f(n->x, floorf(n->y + (n->h - 1) * k / 4.0f + 0.5f), n->w, 1, g);
+  }
+  {
+    enum { STEPS = 96 };
+    float poly[STEPS + 3][2];
+    for (int i = 0; i <= STEPS; i++) {
+      const float x = i / (float)STEPS;
+      curve_to_px(n, x, curve_eval(d, d->channel, x), &poly[i][0], &poly[i][1]);
+    }
+    poly[STEPS + 1][0] = (float)(n->x + n->w);
+    poly[STEPS + 1][1] = poly[STEPS + 2][1] = (float)(n->y + n->h);
+    poly[STEPS + 2][0] = (float)n->x;
+    float fill[4];
+    bk_rgba(wc->item, fill);
+    bk_polygon((const float(*)[2])poly, STEPS + 3, fill);
   }
   for (int pass = 0; pass < 2; pass++) {
     for (int ch = 0; ch < d->nchannels; ch++) {
@@ -1119,6 +1140,9 @@ static void curve_draw(BKNode *n)
       if (!current) {
         col[3] = 0.25f;
       }
+      else {
+        bk_rgba(wc->inner_sel, col);
+      }
       float px, py;
       curve_to_px(n, 0, curve_eval(d, ch, 0), &px, &py);
       const int steps = 96;
@@ -1126,23 +1150,31 @@ static void curve_draw(BKNode *n)
         const float x = i / (float)steps;
         float sx, sy;
         curve_to_px(n, x, curve_eval(d, ch, x), &sx, &sy);
-        bk_line(px, py, sx, sy, col, current ? BK_MAX(1.2f, 0.08f * u()) : 1.0f);
+        bk_line(px, py, sx, sy, col, 1.0f); /* GPU_line_width(1.0f), smooth */
         px = sx;
         py = sy;
       }
     }
   }
   const int ch = d->channel;
-  const float r = 0.17f * u();
+  /* point_size = max(2 * pixelsize, min(6 * UI_SCALE_FAC, 20)); the selected point is also the
+   * active one (1.4x, text_sel); others use wcol_curve.text, alpha forced opaque */
+  const float point_size = BK_MAX(2.0f * bk_px(), BK_MIN(6.0f * bk_scale_fac, 20.0f));
+  float pt[4], pt_sel[4];
+  bk_rgba(wc->text, pt);
+  bk_rgba(wc->text_sel, pt_sel);
+  pt[3] = pt_sel[3] = 1.0f;
   for (int i = 0; i < d->npts[ch]; i++) {
     float sx, sy;
     curve_to_px(n, d->pts[ch][i][0], d->pts[ch][i][1], &sx, &sy);
-    const float black[4] = {0, 0, 0, 1}, sel[4] = {1, 1, 1, 1}, grey[4] = {0.55f, 0.55f, 0.55f, 1};
-    bk_circle(sx, sy, r + 1, black);
-    bk_circle(sx, sy, r, i == d->selected ? sel : grey);
+    const bool sel = i == d->selected;
+    bk_circle(sx, sy, point_size * (sel ? 1.4f : 1.0f) * 0.5f, sel ? pt_sel : pt);
   }
   bk_clip_pop();
-  outline_rect(n);
+  BuiWidgetBase wb = {{(float)n->x, (float)n->y, (float)n->w, (float)n->h}, 0, 0, CNR_ALL};
+  bk_rgba(wc->outline, wb.outline);
+  wb.pixelsize = 1.0f;
+  BUI_raster_widget_base(bk_draw.r, &wb);
 }
 
 static int curve_set_num(BKNode *n, const char *key, double v)

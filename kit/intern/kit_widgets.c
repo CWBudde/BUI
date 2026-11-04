@@ -1123,7 +1123,7 @@ const BKClass bk_cls_sidetabs = {.name = "sidetabs",
 static int scroll_bar_w(void)
 {
   /* V2D_SCROLL_WIDTH: 0.45 units + 2 px */
-  return bk_iround(0.45f * u() + 2.0f * bk_scale_fac);
+  return bk_iround(0.45f * u() + 2.0f * bk_px()); /* UI_view2d.hh */
 }
 
 static int scroll_content_h(BKNode *n)
@@ -1759,7 +1759,13 @@ static int number_from_text(BKNode *n, const char *s)
 
 static void number_step(BKNode *n, int dir)
 {
-  bk_set_value(n, n->value + dir * n->step);
+  /* Ctrl+wheel: number fields step by their click step; sliders by a fixed
+   * 0.01 (floats) or 1 (ints), ui_do_but_SLI click == 2 */
+  double step = n->step;
+  if (n->cls == &bk_cls_slider) {
+    step = (n->flags & NF_INTEGER) ? 1.0 : 0.01;
+  }
+  bk_set_value(n, n->value + dir * step);
 }
 
 static void number_reset(BKNode *n, bool zero)
@@ -1972,7 +1978,8 @@ static int multi_drag(BKNode *n, BKEvent *e)
   if (!ctx) {
     return 0;
   }
-  const int threshold = BK_MAX(3, (int)(0.5f * u()));
+  /* DRAG_MULTINUM_THRESHOLD_DRAG_X: UI_UNIT_Y / 4 */
+  const int threshold = BK_MAX(3, (int)(0.25f * u()));
   if (n->dragmode == 2) { /* collecting */
     BKNode *under = bk_hit_at(ctx, n->x + n->w / 2, e->y);
     if (under && under != n && is_number(under) && NODE_ENABLED(under) &&
@@ -2024,10 +2031,18 @@ static int number_drag(BKNode *n, BKEvent *e)
   if (n->dragmode < 0) {
     return 1; /* cancelled */
   }
-  if (n->dragmode == 0) { /* first motion decides: vertical = multi-drag */
+  if (n->dragmode == 0) { /* the gesture decides: vertical = multi-drag */
+    /* ui_numedit_but_NUM multi-drag init: decided once the drag is longer than
+     * DRAG_MULTINUM_THRESHOLD_DRAG_Y (UI_UNIT_Y / 4), vertical when
+     * |dot(dir, y)| > DRAG_MULTINUM_THRESHOLD_VERTICAL (0.75) */
+    const float len2 = (float)e->dx * e->dx + (float)e->dy * e->dy;
+    const float margin = 0.25f * u();
+    if (len2 <= margin * margin) {
+      return 1;
+    }
     drag_origin(n, e);
     BKContext *ctx = bk_ctx(n);
-    if (ctx && abs(e->dy) > abs(e->dx)) {
+    if (ctx && (float)e->dy * e->dy > 0.75f * 0.75f * len2) {
       n->dragmode = 2;
       n->flags |= NF_SELECTED;
       ctx->nmulti = 1;

@@ -15,9 +15,9 @@ impl Render for Scene {
             if self.text { d.child(format!("{}", (i as u64 * 13 + t) % 1000)) } else { d }
         }));
         if std::env::var_os("FLEXROOT").is_some() {
-            html().flex().child(body().m_0().flex().flex_1().child(grid))
+            html().flex().child(body().styled().m_0().flex().flex_1().child(grid))
         } else {
-            body().m_0().child(grid)
+            body().styled().m_0().child(grid)
         }
     }
 }

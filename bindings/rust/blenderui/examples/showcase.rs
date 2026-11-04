@@ -36,6 +36,7 @@ impl Render for Showcase {
             div().class("card").child(h4().child(title)).child(small().child(body))
         };
         html()
+            .styled()
             .child(head().child(title().child("BUI showcase")).child(style().child(CSS)))
             .child(body().child(
                 div().class("app")

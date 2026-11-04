@@ -1626,6 +1626,57 @@ void bk_start_drag_toggle(BKContext *ctx, int group, int value)
   ctx->dt_group = group;
   ctx->dt_value = value;
   ctx->dt_active = 1;
+  ctx->dt_init_x = ctx->dt_last_x = ctx->pointer_x;
+  ctx->dt_init_y = ctx->dt_last_y = ctx->pointer_y;
+}
+
+/* Sets one drag-toggle target to the dragged state (button_execute / panel open-close). */
+static int drag_toggle_apply(BKContext *ctx, BKNode *under)
+{
+  if (!under || under->cls->drag_group != ctx->dt_group || !NODE_ENABLED(under) ||
+      under == ctx->grab || (int)(under->value != 0) == ctx->dt_value)
+  {
+    return 0;
+  }
+  if (under->cls->drag_group == DRAG_GROUP_PANEL) {
+    if (!bk_anim_running(under)) {
+      under->anim = (under->flags & NF_COLLAPSED) ? 0.0f : 1.0f;
+    }
+    under->flags = ctx->dt_value ? (under->flags & ~NF_COLLAPSED) : (under->flags | NF_COLLAPSED);
+    under->value = ctx->dt_value;
+    bk_anim_start(under);
+    bk_relayout(under);
+  }
+  else {
+    bk_set_value(under, ctx->dt_value);
+  }
+  return 1;
+}
+
+static BKNode *hit_all(BKContext *ctx, int x, int y);
+
+/* drag_toggle_set_xy_xy (interface_handlers.cc): touch every toggle whose rect the segment from
+ * the last pointer position to this one crosses (BLI_rctf_isect_segment), so fast drags don't
+ * skip buttons; the segment is sampled every 2 px through the regular hit test. Panel headers
+ * follow panel_drag_collapse: the segment runs from the drag start with x locked to it. No
+ * xy axis lock for toggles: BL only locks for BUT_DRAG_LOCK buttons (tabs, decorators). */
+static int drag_toggle_segment(BKContext *ctx, int x, int y)
+{
+  int x0 = ctx->dt_last_x, y0 = ctx->dt_last_y;
+  if (ctx->dt_group == DRAG_GROUP_PANEL) {
+    x0 = x = ctx->dt_init_x;
+    y0 = ctx->dt_init_y;
+  }
+  const int steps = BK_MAX(1, (int)(hypotf((float)(x - x0), (float)(y - y0)) / 2.0f));
+  int changed = 0;
+  for (int i = 0; i <= steps; i++) {
+    const int sx = x0 + (int)lroundf((x - x0) * (float)i / steps);
+    const int sy = y0 + (int)lroundf((y - y0) * (float)i / steps);
+    changed |= drag_toggle_apply(ctx, hit_all(ctx, sx, sy));
+  }
+  ctx->dt_last_x = x;
+  ctx->dt_last_y = y;
+  return changed;
 }
 
 static void update_cursor(BKContext *ctx);
@@ -1707,29 +1758,118 @@ static void layout(BKContext *ctx)
   ctx->layout_dirty = false;
 }
 
-static void tooltip_rect(BKContext *ctx, BKRect *r_rect)
+/* interface_region_tooltip.cc: portions of the line height, and the wrap width. */
+#define TIP_SPACER 0.3f
+#define TIP_PADDING_X 1.95f
+#define TIP_PADDING_Y 1.28f
+#define TIP_MAXWIDTH 600
+
+/* Bytes of the next wrapped line (BLFWrapMode Typographical | HardLimit): break at the last
+ * space that fits, else inside the word at a UTF-8 boundary. */
+static int tip_wrap_len(const char *s, int len, float maxw)
 {
-  const BKNode *n = ctx->tip_node;
-  const char *desc = n && n->desc ? n->desc : "";
-  const int u = bk_unit(), p = bk_pad();
-  int lines = 1;
-  float w = 0.0f;
-  const char *s = desc;
-  while (1) {
+  if (bk_text_width(s, len, false) <= maxw) {
+    return len;
+  }
+  int brk = -1;
+  for (int i = 1; i < len; i++) {
+    if (s[i] == ' ') {
+      if (bk_text_width(s, i, false) > maxw) {
+        break;
+      }
+      brk = i;
+    }
+  }
+  if (brk > 0) {
+    return brk;
+  }
+  int i = 1;
+  while (i < len && ((uchar)s[i] & 0xC0) == 0x80) {
+    i++;
+  }
+  for (int j = i; j < len;) {
+    int k = j + 1;
+    while (k < len && ((uchar)s[k] & 0xC0) == 0x80) {
+      k++;
+    }
+    if (bk_text_width(s, k, false) > maxw) {
+      break;
+    }
+    i = j = k;
+  }
+  return i;
+}
+
+/* Lays out (and with `r`, draws) the tooltip text like tooltip_create_with_data /
+ * tooltip_region_draw_cb: the first line is the TIP_STYLE_HEADER label in the theme text color,
+ * followed by a TIP_SPACER gap; later lines use TIP_LC_VALUE, the text color blended 20% toward
+ * the background (color_blend_f3_f3). Returns the text height, width in r_w. */
+static float tooltip_text(BKContext *ctx, const BKRect *r, float *r_w)
+{
+  const char *s = ctx->tip_node && ctx->tip_node->desc ? ctx->tip_node->desc : "";
+  const float h = bk_line_height(), pad_x = h * TIP_PADDING_X, pad_y = h * TIP_PADDING_Y;
+  const float wrap = BK_MAX(h, BK_MIN(TIP_MAXWIDTH * bk_scale_fac, ctx->win_w - pad_x));
+  uchar value[4];
+  for (int i = 0; i < 3; i++) {
+    value[i] = (uchar)(0.8f * bk_theme.tooltip.text[i] + 0.2f * bk_theme.tooltip.inner[i] + 0.5f);
+  }
+  value[3] = 255;
+  float y = 0.0f, w = 0.0f;
+  for (int para = 0;; para++) {
     const char *nl = strchr(s, '\n');
-    const int len = nl ? (int)(nl - s) : (int)strlen(s);
-    w = BK_MAX(w, bk_text_width(s, len, false));
+    int len = nl ? (int)(nl - s) : (int)strlen(s);
+    const char *p = s;
+    do {
+      const int n = tip_wrap_len(p, len, wrap);
+      w = BK_MAX(w, bk_text_width(p, n, false));
+      if (r) {
+        const BKRect lr = bk_rect(r->xmin, (int)(r->ymin + 0.5f * pad_y + y), bk_rw(r), (int)h);
+        bk_text(r->xmin + 0.5f * pad_x, bk_text_baseline(&lr), p, n,
+                para == 0 ? bk_theme.tooltip.text : value, false);
+      }
+      y += h;
+      p += n;
+      len -= n;
+      while (len > 0 && *p == ' ') {
+        p++;
+        len--;
+      }
+    } while (len > 0);
     if (!nl) {
       break;
     }
-    lines++;
+    if (para == 0) {
+      y += h * TIP_SPACER;
+    }
     s = nl + 1;
   }
-  const int tw = (int)w + 2 * p, th = lines * u + p / 2;
-  int tx = BK_MAX(0, BK_MIN(ctx->tip_x - tw / 4, ctx->win_w - tw));
-  int ty = ctx->tip_y + (int)(0.9f * u);
-  if (ty + th > ctx->win_h) {
-    ty = BK_MAX(0, ctx->tip_y - th - (int)(0.4f * u));
+  if (r_w) {
+    *r_w = w;
+  }
+  return y;
+}
+
+/* tooltip_create_from_button_or_extra_icon + tooltip_create_with_data: anchored under the
+ * hovered button (rect.ymin - UI_POPUP_MARGIN / 2) at the pointer's x, offset by 0.2 line
+ * heights, padded by TIP_PADDING, clamped 5/7 px (scaled) inside the window. */
+static void tooltip_rect(BKContext *ctx, BKRect *r_rect)
+{
+  float fontw;
+  const float fonth = tooltip_text(ctx, NULL, &fontw);
+  const float h = bk_line_height(), pad_x = h * TIP_PADDING_X, pad_y = h * TIP_PADDING_Y;
+  const BKRect br = bk_node_rect(ctx->tip_node);
+  const float init_x = (float)ctx->tip_x, init_y = br.ymax + 6.0f * bk_scale_fac;
+  const int tw = (int)(fontw + pad_x + 0.5f), th = (int)(fonth + pad_y + 0.5f);
+  int tx = (int)(init_x - 0.2f * h - pad_x);
+  int ty = (int)(init_y + 0.2f * h);
+  const int cx = (int)(5.0f * bk_scale_fac), cy = (int)(7.0f * bk_scale_fac);
+  tx = BK_MAX(cx, BK_MIN(tx, ctx->win_w - cx - tw));
+  ty = BK_MAX(cy, BK_MIN(ty, ctx->win_h - cy - th));
+  /* near the bottom and overlapping the pointer: move up by 3 lines */
+  if (ctx->tip_x >= tx && ctx->tip_x < tx + tw && ctx->tip_y >= ty && ctx->tip_y < ty + th &&
+      ty + th > ctx->win_h * 3 / 4)
+  {
+    ty -= (int)(3.0f * h);
   }
   *r_rect = bk_rect(tx, ty, tw, th);
 }
@@ -1741,29 +1881,54 @@ static void draw_tooltip(BKContext *ctx)
   }
   const BKRect r = ctx->tip_rect;
   bk_widget_tooltip_back(&r);
-  const int u = bk_unit(), p = bk_pad();
-  const char *s = ctx->tip_node->desc;
-  int line = 0;
-  while (1) {
-    const char *nl = strchr(s, '\n');
-    const int len = nl ? (int)(nl - s) : (int)strlen(s);
-    BKRect lr = bk_rect(r.xmin, r.ymin + p / 4 + line * u, bk_rw(&r), u);
-    uchar c[4];
-    memcpy(c, bk_theme.tooltip.text, 4);
-    if (line > 0) {
-      c[3] = (uchar)(c[3] * 0.65f); /* details are dimmer than the title */
-    }
-    char buf[256];
-    const int bl = BK_MIN(len, 255);
-    memcpy(buf, s, (size_t)bl);
-    buf[bl] = 0;
-    bk_text_in(&lr, buf, c, BK_ALIGN_LEFT, false);
-    if (!nl) {
-      break;
-    }
-    s = nl + 1;
-    line++;
+  tooltip_text(ctx, &r, NULL);
+}
+
+/* Region (View2D) vertical scroller, view2d_scroller_size_get + view2d_scrollers_calc: width
+ * lerps from V2D_SCROLL_MIN_WIDTH (5 px * scale + 2 * pixelsize) to V2D_SCROLL_WIDTH
+ * (0.45 * widget_unit + 2 * pixelsize) by alpha_vert, padded 0.1 units from the region edge; the
+ * thumb is at least V2D_SCROLL_THUMB_SIZE_MIN (30 px * scale). */
+static void region_scroll_rects(BKContext *ctx, BKRect *r_track, BKRect *r_thumb)
+{
+  const int top = ctx->header_h, view_h = ctx->win_h - top;
+  const float min_w = 5.0f * bk_scale_fac + 2.0f * bk_px();
+  const float max_w = 0.45f * bk_unit() + 2.0f * bk_px();
+  const int sw = (int)((max_w - min_w) * (ctx->scroll_alpha / 255.0f) + min_w);
+  const int xmax = ctx->win_w - (int)(0.1f * bk_unit());
+  *r_track = bk_rect(xmax - sw, top, sw, view_h);
+  const float thumb_min = 30.0f * bk_scale_fac;
+  float t0 = top + (float)view_h * ctx->scroll / ctx->content_h;
+  float t1 = top + (float)view_h * (ctx->scroll + view_h) / ctx->content_h;
+  if (t1 - t0 < thumb_min) {
+    t1 = BK_CLAMP(t0 + thumb_min, top + thumb_min, (float)(top + view_h));
+    t0 = BK_CLAMP(t0, (float)top, top + view_h - thumb_min);
   }
+  *r_thumb = bk_rect(r_track->xmin, (int)t0, sw, (int)(t1 - t0));
+}
+
+/* screen_ops.cc area_azone (AZ_SCROLL_VERT): alpha_vert = 1 - distance in x from the scroller /
+ * V2D_SCROLL_HIDE_HEIGHT (HEADERY * scale); 255 while over it. Dirties it when it changes. */
+static int region_scroll_update_alpha(BKContext *ctx, int x, int y)
+{
+  const int top = ctx->header_h;
+  if (ctx->content_h <= ctx->win_h - top) {
+    return 0;
+  }
+  BKRect track, thumb;
+  region_scroll_rects(ctx, &track, &thumb);
+  const int dx = x < track.xmin ? track.xmin - x : (x > track.xmax ? x - track.xmax : 0);
+  float alpha = 1.0f - BK_CLAMP(dx / (26.0f * bk_scale_fac), 0.0f, 1.0f);
+  if (y < top) {
+    alpha = 0.0f;
+  }
+  const int a = (int)(alpha * 255);
+  if (a == ctx->scroll_alpha) {
+    return 0;
+  }
+  const int full = (int)(0.45f * bk_unit() + 2.0f * bk_px()) + bk_unit();
+  ctx->scroll_alpha = a;
+  bk_ctx_dirty_rect(ctx, bk_rect(ctx->win_w - full, top, full, ctx->win_h - top));
+  return 1;
 }
 
 static void draw_region(BKContext *ctx, const BKRect *rect)
@@ -1784,12 +1949,16 @@ static void draw_region(BKContext *ctx, const BKRect *rect)
     bk_draw_tree(ctx->header);
   }
   if (ctx->content_h > view_h) { /* region scrollbar */
-    const int sb = BK_MAX(2, (int)(0.15f * bk_unit()));
-    const float th = BK_MAX((float)bk_unit(), (float)view_h * view_h / ctx->content_h);
-    const float ty = top + (view_h - th) * ctx->scroll / (float)(ctx->content_h - view_h);
-    float c[4];
-    bk_rgba(bk_theme.scroll.item, c);
-    bk_roundbox(w - sb - 2, ty, sb, th, sb * 0.5f, CNR_ALL, c);
+    BKRect track, thumb;
+    region_scroll_rects(ctx, &track, &thumb);
+    /* view2d_scrollers_draw_ex: alpha_fac maps alpha_vert 0..255 to V2D_SCROLL_MIN_ALPHA..1 */
+    const float a = ctx->scroll_alpha / 255.0f, alpha_fac = a * (1.0f - 0.4f) + 0.4f;
+    BKWCol wc = bk_theme.scroll;
+    wc.inner[3] = wc.inner[3] == 0 ? (uchar)(0.25f * ctx->scroll_alpha) :
+                                     (uchar)(wc.inner[3] * alpha_fac);
+    wc.item[3] = (uchar)(wc.item[3] * alpha_fac);
+    wc.outline[3] = 0; /* also disables the emboss, as widget_emboss[3] = 0 does */
+    bk_widget_scroll(&wc, &track, &thumb, false);
   }
   for (int i = 0; i < ctx->npopups; i++) {
     bk_draw_tree(ctx->popups[i]);
@@ -1867,7 +2036,7 @@ int BK_render(BKContext *ctx, BuiRaster *r, int w, int h, int full)
 
 #define DOUBLE_CLICK_S 0.35
 #define DOUBLE_CLICK_PX 4
-#define TOOLTIP_DELAY_MS 600
+#define TOOLTIP_DELAY_MS 500 /* UI_TOOLTIP_DELAY 0.5 */
 
 static BKNode *hit_all(BKContext *ctx, int x, int y)
 {
@@ -2032,6 +2201,7 @@ static int in_BK_motion(BKContext *ctx, int x, int y, int mods)
   ctx->pointer_x = x;
   ctx->pointer_y = y;
   int changed = hide_tooltip(ctx);
+  changed |= region_scroll_update_alpha(ctx, x, y);
   if (ctx->modal) {
     BKEvent e = make_event(ctx, ctx->modal, x, y, mods);
     if (ctx->modal->cls->move) {
@@ -2061,27 +2231,10 @@ static int in_BK_motion(BKContext *ctx, int x, int y, int mods)
     if (!ctx->grab) { /* the drag handler may have closed things */
       return 1;
     }
-    BKNode *under = hit_all(ctx, x, y);
-    if (ctx->dt_active && under && under->cls->drag_group == ctx->dt_group &&
-        NODE_ENABLED(under) && under != ctx->grab)
-    {
-      if ((int)(under->value != 0) != ctx->dt_value) { /* Blender: drag across toggles */
-        if (under->cls->drag_group == DRAG_GROUP_PANEL) {
-          if (!bk_anim_running(under)) {
-            under->anim = (under->flags & NF_COLLAPSED) ? 0.0f : 1.0f;
-          }
-          under->flags = ctx->dt_value ? (under->flags & ~NF_COLLAPSED) :
-                                         (under->flags | NF_COLLAPSED);
-          under->value = ctx->dt_value;
-          bk_anim_start(under);
-          bk_relayout(under);
-        }
-        else {
-          bk_set_value(under, ctx->dt_value);
-        }
-        changed = 1;
-      }
+    if (ctx->dt_active) { /* Blender: drag across toggles */
+      changed |= drag_toggle_segment(ctx, x, y);
     }
+    BKNode *under = hit_all(ctx, x, y);
     if (under != ctx->hover) {
       set_hover(ctx, under);
       changed = 1;

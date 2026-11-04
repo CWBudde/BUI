@@ -5,6 +5,7 @@ const { App } = require('..')
 
 const app = new App({ gpu: process.env.BUI_GPU === '1' })
 const win = app.window({ title: 'BUI from Node', width: 360, height: 220 })
+win.body.setAttribute('styled', '')
 win.body.className = 'm-0 p-6 flex flex-col gap-3 bg-[#2b2b2b] text-[#e6e6e6]'
 
 const title = win.createElement('h1')

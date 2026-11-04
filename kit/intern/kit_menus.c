@@ -672,23 +672,42 @@ const char *BK_menu_row_text(BKNode *menu, int i)
 /** \name Pie menu (Blender order: W, E, S, N, NW, NE, SW, SE)
  * \{ */
 
-static const float g_pie_dirs[8][2] = {{-1, 0},         {1, 0},        {0, 1},
-                                       {0, -1},         {-0.71f, -0.71f}, {0.71f, -0.71f},
-                                       {-0.71f, 0.71f}, {0.71f, 0.71f}};
+/* RadialDirection (interface_intern.hh: N=0, NE, E, SE, S, SW, W, NW, clockwise) of the
+ * i-th item (radial_dir_order) and radial_dir_to_angle in degrees, y-up. */
+static const int g_pie_rdir[8] = {6, 2, 4, 0, 7, 1, 5, 3};
+static const short g_pie_angle[8] = {90, 45, 0, 315, 270, 225, 180, 135};
 
 typedef struct PieData {
   MenuData menu; /* items in menu.all */
   float cx, cy;
   int at_x, at_y;
+  float dir[2];   /* pie_data->pie_dir: normalized pointer direction, y-up */
+  bool dir_valid; /* !(flags & PIE_INVALID_DIR) */
 } PieData;
 
 #define PIE(n) ((PieData *)(n)->ext)
 
-static float pie_radius(void)
+/* button_pie_dir: unit vector of a RadialDirection, y-up. */
+static void pie_rdir_vec(int rdir, float r_vec[2])
 {
-  return 4.2f * u();
+  const float a = g_pie_angle[rdir] * (float)M_PI / 180.0f;
+  r_vec[0] = cosf(a);
+  r_vec[1] = sinf(a);
 }
 
+static float pie_radius(void)
+{
+  return 100.0f * bk_scale_fac; /* U.pie_menu_radius * UI_SCALE_FAC */
+}
+
+static float pie_threshold(void)
+{
+  return 12.0f * bk_scale_fac; /* U.pie_menu_threshold * UI_SCALE_FAC */
+}
+
+/* LayoutRadial::resolve_impl: buttons are 1.5x taller and 1.5 units wider, placed on a circle of
+ * pie_menu_radius; x factor aligns E items' left / W items' right edge to the circle, y factor
+ * puts the N item's bottom and the S item's top edge on it (others centered). */
 static BKRect pie_item_rect(BKNode *n, int i)
 {
   PieData *pd = PIE(n);
@@ -696,20 +715,15 @@ static BKRect pie_item_rect(BKNode *n, int i)
   const float uu = (float)u();
   float w = bk_text_width(it->text, -1, false) + 2 * bk_pad() +
             (it->icon ? bk_icon_size() + 0.3f * uu : 0);
-  w = BK_MAX(w, 3 * uu);
-  const float px = pd->cx + g_pie_dirs[i][0] * pie_radius();
-  const float py = pd->cy + g_pie_dirs[i][1] * pie_radius() * 0.8f;
-  float x;
-  if (g_pie_dirs[i][0] < -0.1f) {
-    x = px - w;
-  }
-  else if (g_pie_dirs[i][0] > 0.1f) {
-    x = px;
-  }
-  else {
-    x = px - w * 0.5f;
-  }
-  return bk_rect((int)x, (int)(py - uu * 0.5f), (int)w, (int)uu);
+  w = BK_MAX(w, 3 * uu) + 1.5f * uu;
+  const float h = 1.5f * uu;
+  float vec[2];
+  pie_rdir_vec(g_pie_rdir[i], vec);
+  const float fx = vec[0] > 0.01f ? 0.0f : (vec[0] < -0.01f ? -1.0f : -0.5f);
+  const float fy = vec[1] > 0.99f ? 0.0f : (vec[1] < -0.99f ? -1.0f : -0.5f);
+  const float x = pd->cx + vec[0] * pie_radius() + fx * w;
+  const float y_up = vec[1] * pie_radius() + fy * h; /* bottom edge relative to center, y-up */
+  return bk_rect((int)x, (int)(pd->cy - y_up - h), (int)w, (int)h);
 }
 
 static BKRect pie_item_rect_pub(BKNode *n, int i)
@@ -717,39 +731,68 @@ static BKRect pie_item_rect_pub(BKNode *n, int i)
   return pie_item_rect(n, i);
 }
 
+/* but_isect_pie_seg (interface_query.cc): an item owns the pointer direction when it lies within
+ * 45 degrees and is closer than the adjacent direction (8th if that item exists, else 4th). */
+static bool pie_isect_seg(PieData *pd, int i, int mask)
+{
+  if (!pd->dir_valid) {
+    return false;
+  }
+  const float angle_4th_cos = (float)M_SQRT1_2, angle_8th_cos = 0.9238795f, eps = 1e-4f;
+  const int rd = g_pie_rdir[i];
+  float bd[2], ad[2];
+  pie_rdir_vec(rd, bd);
+  const float c = bd[0] * pd->dir[0] + bd[1] * pd->dir[1];
+  if (c < angle_4th_cos - eps) {
+    return false;
+  }
+  if (c > angle_8th_cos + eps) {
+    return true;
+  }
+  /* angle_signed_v2v2(but_dir, pie_dir) < 0 -> previous (counter-clockwise) neighbours */
+  const float perp = bd[1] * pd->dir[0] - bd[0] * pd->dir[1];
+  const bool prev = atan2f(perp, c) < 0.0f;
+  const int adj8 = prev ? (rd + 7) % 8 : (rd + 1) % 8;
+  const int adj4 = prev ? (adj8 + 7) % 8 : (adj8 + 1) % 8;
+  const int adj = (mask & (1 << adj8)) ? adj8 : adj4;
+  pie_rdir_vec(adj, ad);
+  const float ca = ad[0] * pd->dir[0] + ad[1] * pd->dir[1];
+  if (c == ca) {
+    return rd > adj;
+  }
+  return c > ca;
+}
+
+/* ui_block_calc_pie_segment + ui_but_find_mouse_over: no item inside the
+ * pie_menu_threshold dead zone, otherwise the item owning the pointer direction. */
 static int pie_dir_hot(BKNode *n, int x, int y)
 {
   PieData *pd = PIE(n);
   const int count = BK_MIN(8, pd->menu.nall);
+  const float dx = x - pd->cx, dy = pd->cy - y; /* y-up */
+  const float len = hypotf(dx, dy);
+  pd->dir_valid = len >= pie_threshold();
+  if (len > 0.0f) {
+    pd->dir[0] = dx / len;
+    pd->dir[1] = dy / len;
+  }
+  int mask = 0;
   for (int i = 0; i < count; i++) {
-    BKRect r = pie_item_rect(n, i);
-    if (x >= r.xmin && x < r.xmax && y >= r.ymin && y < r.ymax) {
+    mask |= 1 << g_pie_rdir[i];
+  }
+  for (int i = 0; i < count; i++) {
+    if (pie_isect_seg(pd, i, mask)) {
       return i;
     }
   }
-  const float dx = x - pd->cx, dy = y - pd->cy;
-  if (hypotf(dx, dy) < 0.8f * u()) {
-    return -1;
-  }
-  const float a = atan2f(dy, dx);
-  int best = -1;
-  float best_d = 9.0f;
-  for (int i = 0; i < count; i++) {
-    const float da = a - atan2f(g_pie_dirs[i][1], g_pie_dirs[i][0]);
-    const float d = fabsf(atan2f(sinf(da), cosf(da)));
-    if (d < best_d) {
-      best = i;
-      best_d = d;
-    }
-  }
-  return best;
+  return -1;
 }
 
 static void pie_arrange(BKNode *n)
 {
   PieData *pd = PIE(n);
   const float r = pie_radius(), uu = (float)u();
-  const float mx = r + 6 * uu, my = r * 0.8f + uu;
+  const float mx = r + 6 * uu, my = r + 2.5f * uu;
   const float ax = pd->at_x > PLACE_NONE ? pd->at_x : n->w * 0.5f;
   const float ay = pd->at_y > PLACE_NONE ? pd->at_y : n->h * 0.5f;
   pd->cx = BK_MAX(mx, BK_MIN(n->w - mx, ax));
@@ -787,13 +830,33 @@ static void pie_pick(BKNode *n, int i)
 
 static int pie_move(BKNode *n, BKEvent *e)
 {
+  PieData *pd = PIE(n);
+  const bool was_valid = pd->dir_valid;
   const int hot = pie_dir_hot(n, e->x, e->y);
-  if (hot != n->hot) {
+  /* the center sector tracks the pointer direction, so redraw whenever it is shown */
+  if (hot != n->hot || pd->dir_valid || was_valid) {
     n->hot = hot;
     bk_invalidate(n);
     return 1;
   }
   return 0;
+}
+
+/* draw_disk_shaded (interface_widgets.cc, unshaded): an annulus sector from `start` spanning
+ * `angle` radians (y-up, like BL), as one even-odd polygon. */
+static void pie_draw_disk(
+    float cx, float cy, float start, float angle, float r_in, float r_out, const float c[4])
+{
+  enum { SUBD = 40 };
+  float pts[2 * (SUBD + 1)][2];
+  for (int i = 0; i <= SUBD; i++) {
+    const float a = start + angle * i / SUBD;
+    pts[i][0] = cx + r_out * cosf(a);
+    pts[i][1] = cy - r_out * sinf(a);
+    pts[2 * SUBD + 1 - i][0] = cx + r_in * cosf(a);
+    pts[2 * SUBD + 1 - i][1] = cy - r_in * sinf(a);
+  }
+  bk_polygon((const float(*)[2])pts, 2 * (SUBD + 1), c);
 }
 
 static int pie_press(BKNode *n, BKEvent *e)
@@ -820,25 +883,31 @@ static void pie_draw(BKNode *n)
   PieData *pd = PIE(n);
   const float uu = (float)u();
   float c[4];
-  /* center disc with a direction indicator (draw_pie_center) */
-  bk_rgba_alpha(bk_theme.pie_menu.inner, 0.85f, c);
-  bk_circle(pd->cx, pd->cy, 0.9f * uu, c);
-  bk_rgba(bk_theme.menu_back.outline, c);
-  bk_ring(pd->cx, pd->cy, 0.9f * uu, c, 1.0f);
-  if (n->hot >= 0) {
-    const float a = atan2f(g_pie_dirs[n->hot][1], g_pie_dirs[n->hot][0]);
-    float ic[4];
-    bk_rgba(bk_theme.pie_menu.item, ic);
-    for (int t = -4; t < 4; t++) {
-      bk_line(pd->cx + 0.9f * uu * cosf(a + t / 10.0f), pd->cy + 0.9f * uu * sinf(a + t / 10.0f),
-              pd->cx + 0.9f * uu * cosf(a + (t + 1) / 10.0f),
-              pd->cy + 0.9f * uu * sinf(a + (t + 1) / 10.0f), ic, BK_MAX(2.0f, 0.15f * uu));
+  /* draw_pie_center (interface_widgets.cc): ring between pie_menu_threshold and threshold + 7
+   * filled with wcol_pie_menu.inner, the pointer direction's sector in inner_sel (PI/4 wide when
+   * the menu mixes axis-aligned and diagonal items, else PI/2), outline circles. */
+  const float r_in = pie_threshold(), r_out = (12.0f + 7.0f) * bk_scale_fac;
+  bk_rgba(bk_theme.pie_menu.inner, c);
+  pie_draw_disk(pd->cx, pd->cy, 0.0f, 2.0f * (float)M_PI, r_in, r_out, c);
+  if (pd->dir_valid) {
+    int mask = 0;
+    for (int i = 0; i < BK_MIN(8, pd->menu.nall); i++) {
+      mask |= 1 << g_pie_rdir[i];
     }
+    const bool has_aligned = (mask & 0x55) != 0, has_diagonal = (mask & 0xAA) != 0;
+    const float range = (has_aligned && has_diagonal) ? (float)M_PI_4 : (float)M_PI_2;
+    const float angle = atan2f(pd->dir[1], pd->dir[0]);
+    bk_rgba(bk_theme.pie_menu.inner_sel, c);
+    pie_draw_disk(pd->cx, pd->cy, angle - range / 2.0f, range, r_in, r_out, c);
   }
+  bk_rgba(bk_theme.pie_menu.outline, c);
+  bk_ring(pd->cx, pd->cy, r_in, c, 1.0f);
+  bk_ring(pd->cx, pd->cy, r_out, c, 1.0f);
   if (pd->menu.title) {
+    /* LayoutRootPieMenu::resolve_impl: title bottom at threshold + 9 above the center */
     const float tw = bk_text_width(pd->menu.title, -1, false) + 2 * bk_pad();
-    BKRect tr = bk_rect((int)(pd->cx - tw * 0.5f), (int)(pd->cy - pie_radius() * 0.8f - 2.2f * uu),
-                        (int)tw, (int)uu);
+    BKRect tr = bk_rect((int)(pd->cx - tw * 0.5f),
+                        (int)(pd->cy - (12.0f + 9.0f) * bk_scale_fac - uu), (int)tw, (int)uu);
     bk_widget_menu_back(&tr, CNR_ALL);
     bk_text_in(&tr, pd->menu.title, bk_theme.menu_back.text, BK_ALIGN_CENTER, false);
   }
@@ -855,7 +924,19 @@ static void pie_draw(BKNode *n)
     bk_shadow(&r, bk_widget_radius(&w));
     BKRect wr = r;
     bk_widget_but(&w, &wr, 0, CNR_ALL);
-    bk_text_icon(&r, it->text, it->icon, w.text, BK_ALIGN_CENTER, it->enabled);
+    if (it->icon && it->text && it->text[0]) {
+      /* BUT_ICON_LEFT pie item (widget_draw_text_icon): rect.xmin += 0.3 * widget_unit, icon
+       * at xmin + 4 * scale, text centered in the space after icon_size + 2 * scale. */
+      const float is = (float)bk_icon_size(), x0 = r.xmin + 0.3f * uu;
+      bk_icon(it->icon, x0 + 4.0f * bk_scale_fac + is * 0.5f, r.ymin + bk_rh(&r) * 0.5f, NULL,
+              it->enabled ? 1.0f : 0.5f, 0);
+      BKRect tr = r;
+      tr.xmin = (int)(x0 + is + 2.0f * bk_scale_fac);
+      bk_text_in(&tr, it->text, w.text, BK_ALIGN_CENTER, false);
+    }
+    else {
+      bk_text_icon(&r, it->text, it->icon, w.text, BK_ALIGN_CENTER, it->enabled);
+    }
   }
 }
 

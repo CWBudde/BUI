@@ -11,6 +11,15 @@ pub(crate) fn flags(c: &Computed) -> i32 {
         | ((c.font_id as i32) << FAMILY_SHIFT)
 }
 
+/// Where lines may break inside words: `overflow-wrap: anywhere` /
+/// `break-word` ([`BREAK_ANYWHERE`]) or `word-break: break-all` ([`BREAK_ALL`]).
+pub(crate) fn break_mode(c: &Computed) -> u8 {
+    if c.break_all { BREAK_ALL } else if c.wrap_anywhere { BREAK_ANYWHERE } else { 0 }
+}
+
+pub(crate) const BREAK_ANYWHERE: u8 = 1;
+pub(crate) const BREAK_ALL: u8 = 2;
+
 /// Font flags live in the low byte; the family id above it.
 pub(crate) const FAMILY_SHIFT: i32 = 8;
 
@@ -109,17 +118,51 @@ impl TextCache {
         w
     }
 
-    /// Greedy word wrap of `s` into lines no wider than `max` (explicit newlines kept).
-    pub(crate) fn wrap(&mut self, s: &str, size: f32, flags: i32, max: f32) -> Vec<String> {
+    /// Greedy word wrap of `s` into lines no wider than `max` (explicit
+    /// newlines kept). `brk` ([`break_mode`]) allows breaks inside words:
+    /// anywhere only for a word too wide for a line of its own, break-all
+    /// between any two characters.
+    pub(crate) fn wrap(&mut self, s: &str, size: f32, flags: i32, max: f32, brk: u8) -> Vec<String> {
         let mut out = Vec::new();
         for para in s.split('\n') {
             let mut line = String::new();
             for word in para.split(' ').filter(|w| !w.is_empty()) {
                 let candidate = if line.is_empty() { word.to_owned() } else { format!("{line} {word}") };
-                if !line.is_empty() && self.width(&candidate, size, flags) > max {
-                    out.push(std::mem::replace(&mut line, word.to_owned()));
-                } else {
+                if self.width(&candidate, size, flags) <= max || (line.is_empty() && brk == 0) {
                     line = candidate;
+                    continue;
+                }
+                if brk == BREAK_ALL {
+                    // fill the current line with as much of the word as fits
+                    let mut cur = if line.is_empty() { String::new() } else { format!("{line} ") };
+                    for ch in word.chars() {
+                        let mut t = cur.clone();
+                        t.push(ch);
+                        if self.width(&t, size, flags) > max && !cur.trim().is_empty() {
+                            out.push(cur.trim_end().to_owned());
+                            cur = ch.to_string();
+                        } else {
+                            cur = t;
+                        }
+                    }
+                    line = cur;
+                    continue;
+                }
+                if !line.is_empty() {
+                    out.push(std::mem::take(&mut line));
+                }
+                if brk == BREAK_ANYWHERE && self.width(word, size, flags) > max {
+                    for ch in word.chars() {
+                        let mut t = line.clone();
+                        t.push(ch);
+                        if self.width(&t, size, flags) > max && !line.is_empty() {
+                            out.push(std::mem::replace(&mut line, ch.to_string()));
+                        } else {
+                            line = t;
+                        }
+                    }
+                } else {
+                    line = word.to_owned();
                 }
             }
             out.push(line);

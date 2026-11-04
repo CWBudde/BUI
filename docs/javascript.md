@@ -24,6 +24,7 @@ const { App, signal } = require('@blender-ui/native')
 
 const app = new App({ gpu: true })
 const win = app.window({ title: 'Hello', width: 360, height: 220 })
+win.body.setAttribute('styled', '') // Blender's look for the page (default: browser styling)
 win.body.className = 'm-0 p-6 flex flex-col gap-3 bg-[#2b2b2b] text-[#e6e6e6]'
 
 const clicks = signal(0)
