@@ -1692,6 +1692,8 @@ typedef struct FontSlot {
   float scale;     /* font units -> pixels */
   int synth;       /* BUI_FONT_BOLD / ITALIC flags the face lacks */
   float embolden;  /* synthetic bold: extra pixels per glyph */
+  void *ft_size;   /* FreeType: this slot's FT_Size */
+  float opsz;      /* FreeType: optical size (Blender: the text size) */
 #endif
 } FontSlot;
 
@@ -2270,11 +2272,35 @@ int BUI_text_add_font(const char *family, int flags, const void *data, int len)
 #  endif
 #  include <stdio.h>
 
+/* FreeType (BUI_TEXT_FT, the default): glyphs are loaded, hinted and
+ * rasterized the way Blender's BLF does (blenfont/intern/blf_glyph.cc):
+ * light hinting, the variable Inter at the text's optical size, gamma 1.43.
+ * stb_truetype still reads cmaps, metrics and kern tables. */
+#  ifdef BUI_TEXT_FT
+#    define TEXT_FT 1
+#    include <ft2build.h>
+#    include FT_FREETYPE_H
+#    include FT_MULTIPLE_MASTERS_H
+#    include FT_OUTLINE_H
+#    include FT_SIZES_H
+#    include FT_ADVANCES_H
+static FT_Library g_ft = NULL;
+#  else
+#    define TEXT_FT 0
+#  endif
+
 typedef struct Face {
   char key[96]; /* file path, or "mem:<family>" */
   unsigned char *data;
   stbtt_fontinfo info;
   int ascent, descent, line_gap; /* font units */
+#  if TEXT_FT
+  FT_Face ft;
+  FT_MM_Var *mm;            /* variation axes (NULL: not a variable font) */
+  int ax_wght, ax_opsz;     /* axis indices, -1 when absent */
+  float wght;               /* this face's weight on the wght axis */
+  float set_wght, set_opsz; /* the design coordinates last set */
+#  endif
 } Face;
 
 #  define MAX_FACES 32
@@ -2307,12 +2333,85 @@ static int ieq(const char *a, const char *b)
   return *a == *b;
 }
 
-static int face_init(Face *f, unsigned char *data)
+#  if TEXT_FT
+/* Index of the variation axis `tag` (e.g. 'wght'), or -1. */
+static int ft_axis(const FT_MM_Var *mm, FT_ULong tag)
+{
+  for (FT_UInt i = 0; mm && i < mm->num_axis; i++) {
+    if (mm->axis[i].tag == tag) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+static void ft_face_open(Face *f, const unsigned char *data, long len)
+{
+  f->ft = NULL;
+  f->mm = NULL;
+  f->ax_wght = f->ax_opsz = -1;
+  f->wght = 400.0f;
+  f->set_wght = f->set_opsz = -1.0f;
+  if (!g_ft && FT_Init_FreeType(&g_ft) != 0) {
+    g_ft = NULL;
+    return;
+  }
+  if (FT_New_Memory_Face(g_ft, data, (FT_Long)len, 0, &f->ft) != 0) {
+    f->ft = NULL;
+    return;
+  }
+  if (FT_HAS_MULTIPLE_MASTERS(f->ft) && FT_Get_MM_Var(f->ft, &f->mm) == 0) {
+    f->ax_wght = ft_axis(f->mm, FT_MAKE_TAG('w', 'g', 'h', 't'));
+    f->ax_opsz = ft_axis(f->mm, FT_MAKE_TAG('o', 'p', 's', 'z'));
+    if (f->ax_wght >= 0) {
+      f->wght = (float)f->mm->axis[f->ax_wght].def / 65536.0f;
+    }
+  }
+}
+
+/* Make `s` the active size of its face and set the variation axes it needs:
+ * the face's weight, and the optical size as Blender sets it
+ * (blf_glyph_set_variation_optical_size: the size, clamped to the axis). */
+static FT_Face ft_use(const FontSlot *s)
+{
+  Face *f = &g_faces[s->face];
+  if (!f->ft || !s->ft_size) {
+    return NULL;
+  }
+  FT_Activate_Size((FT_Size)s->ft_size);
+  if (f->mm && (f->set_wght != f->wght || f->set_opsz != s->opsz)) {
+    FT_Fixed coords[16];
+    const FT_UInt n = f->mm->num_axis < 16 ? f->mm->num_axis : 16;
+    if (FT_Get_Var_Design_Coordinates(f->ft, n, coords) == 0) {
+      if (f->ax_wght >= 0 && f->ax_wght < (int)n) {
+        coords[f->ax_wght] = (FT_Fixed)(f->wght * 65536.0f);
+      }
+      if (f->ax_opsz >= 0 && f->ax_opsz < (int)n) {
+        const FT_Var_Axis *a = &f->mm->axis[f->ax_opsz];
+        FT_Fixed v = (FT_Fixed)(s->opsz * 65536.0f);
+        v = v < a->minimum ? a->minimum : v > a->maximum ? a->maximum : v;
+        coords[f->ax_opsz] = v;
+      }
+      FT_Set_Var_Design_Coordinates(f->ft, n, coords);
+    }
+    f->set_wght = f->wght;
+    f->set_opsz = s->opsz;
+  }
+  return f->ft;
+}
+#  endif
+
+static int face_init(Face *f, unsigned char *data, long len)
 {
   const int off = stbtt_GetFontOffsetForIndex(data, 0);
   if (off < 0 || !stbtt_InitFont(&f->info, data, off)) {
     return 0;
   }
+#  if TEXT_FT
+  ft_face_open(f, data, len);
+#  else
+  (void)len;
+#  endif
   f->data = data;
   /* GDI's metrics: the OS/2 table's Windows ascent/descent when present */
   int a, d, g;
@@ -2363,7 +2462,7 @@ static int face_load_file(const char *path)
   fclose(fp);
   Face *f = &g_faces[g_face_count];
   memset(f, 0, sizeof(*f));
-  if (!face_init(f, data)) {
+  if (!face_init(f, data, n)) {
     free(data);
     return -1;
   }
@@ -2375,7 +2474,9 @@ static int face_load_file(const char *path)
 #    include "../extern/font_inter.h"
 
 /* Inter, embedded: the default UI face (Blender's), so text looks the same
- * on every platform. `bold`: 0 regular, 1 bold. -1 when it can't load. */
+ * on every platform. The variable font, as Blender ships it: with FreeType,
+ * regular and bold are its weights 400 and 700 (BLF_BOLD: +300); without,
+ * bold is synthesized. `bold`: 0 regular, 1 bold. -1 when it can't load. */
 static int face_inter(int bold)
 {
   static int ids[2] = {-2, -2};
@@ -2384,9 +2485,12 @@ static int face_inter(int bold)
     if (g_face_count < MAX_FACES) {
       Face *f = &g_faces[g_face_count];
       memset(f, 0, sizeof(*f));
-      /* stb_truetype only reads the data */
-      unsigned char *data = (unsigned char *)(bold ? g_font_inter_bold : g_font_inter_regular);
-      if (face_init(f, data)) {
+      /* stb_truetype and FreeType only read the data */
+      unsigned char *data = (unsigned char *)g_font_inter_variable;
+      if (face_init(f, data, (long)sizeof(g_font_inter_variable))) {
+#    if TEXT_FT
+        f->wght = bold ? 700.0f : 400.0f;
+#    endif
         strcpy(f->key, bold ? "embed:inter-bold" : "embed:inter");
         ids[bold] = g_face_count++;
       }
@@ -2408,7 +2512,7 @@ int BUI_text_add_font(const char *family, int flags, const void *data, int len)
   memcpy(copy, data, (size_t)len);
   Face *f = &g_faces[g_face_count];
   memset(f, 0, sizeof(*f));
-  if (!face_init(f, copy)) {
+  if (!face_init(f, copy, len)) {
     free(copy);
     return 0;
   }
@@ -2634,7 +2738,8 @@ static int face_find(const char *family, int style, int *r_have)
   if (fam == 0 && generic) { /* Inter (italic synthesized, like Blender) */
     const int f = face_inter(want & 1);
     if (f >= 0) {
-      *r_have = style & BUI_FONT_BOLD;
+      /* FreeType instances the bold weight; stb_truetype can't (synthesized) */
+      *r_have = TEXT_FT && g_faces[f].ft ? (style & BUI_FONT_BOLD) : 0;
       return f;
     }
   }
@@ -2676,12 +2781,33 @@ static int be_font_open(FontSlot *s, const char *family, int flags, int px)
   s->height = s->ascent + (int)ceilf((float)-f->descent * s->scale - 0.01f);
   s->synth = style & ~have;
   s->embolden = (s->synth & BUI_FONT_BOLD) ? (px < 24 ? 1.0f : (float)px / 24.0f) : 0.0f;
+  s->ft_size = NULL;
+  s->opsz = (float)px;
+#  if TEXT_FT
+  FT_Size size;
+  if (f->ft && FT_New_Size(f->ft, &size) == 0) {
+    FT_Activate_Size(size);
+    if (FT_Set_Pixel_Sizes(f->ft, 0, (FT_UInt)px) == 0) {
+      s->ft_size = size;
+    }
+    else {
+      FT_Done_Size(size);
+    }
+  }
+#  endif
   return 1;
 }
 
 static void be_font_close(FontSlot *s)
 {
+#  if TEXT_FT
+  if (s->ft_size) {
+    FT_Done_Size((FT_Size)s->ft_size);
+    s->ft_size = NULL;
+  }
+#  else
   (void)s;
+#  endif
 }
 
 /* UTF-8 decode; invalid bytes map to U+FFFD. */
@@ -2778,6 +2904,64 @@ static const GlyphBmp *glyph_get(int slot, const FontSlot *s, int glyph, int pha
   GlyphBmp *g = &g_glyphs[idx];
   const stbtt_fontinfo *info = &g_faces[s->face].info;
   int w = 0, h = 0, xo = 0, yo = 0;
+#  if TEXT_FT
+  FT_Face ft = ft_use(s);
+  if (ft) {
+    g->bits = NULL;
+    /* blf_glyph_load / blf_glyph_render: light hinting, smooth light render */
+    if (FT_Load_Glyph(ft, (FT_UInt)glyph, FT_LOAD_NO_BITMAP | FT_LOAD_TARGET_LIGHT) == 0 &&
+        ft->glyph->format == FT_GLYPH_FORMAT_OUTLINE)
+    {
+      FT_Outline *o = &ft->glyph->outline;
+      if (s->embolden > 0.0f) {
+        FT_Outline_EmboldenXY(o, (FT_Pos)(s->embolden * 64.0f), 0);
+      }
+      FT_Outline_Translate(o, (FT_Pos)phase * 16, 0); /* quarter-pixel position */
+      if (FT_Render_Glyph(ft->glyph, FT_RENDER_MODE_LIGHT) == 0) {
+        const FT_Bitmap *b = &ft->glyph->bitmap;
+        w = (int)b->width;
+        h = (int)b->rows;
+        xo = ft->glyph->bitmap_left;
+        yo = -ft->glyph->bitmap_top;
+        if (w > 0 && h > 0 && b->pixel_mode == FT_PIXEL_MODE_GRAY) {
+          g->bits = (uint8_t *)malloc((size_t)w * (size_t)h);
+          if (g->bits) {
+            /* Blender's blf_glyph_gamma: powf(c / 256, 1 / 1.43) * 256 */
+            static const uint8_t gamma[256] = {
+                0,   5,   9,   11,  14,  16,  19,  21,  23,  25,  26,  28,  30,  32,  34,  35,  37,  38,
+                40,  41,  43,  44,  46,  47,  49,  50,  52,  53,  54,  56,  57,  58,  60,  61,  62,  64,
+                65,  66,  67,  69,  70,  71,  72,  73,  75,  76,  77,  78,  79,  80,  82,  83,  84,  85,
+                86,  87,  88,  89,  91,  92,  93,  94,  95,  96,  97,  98,  99,  100, 101, 102, 103, 104,
+                105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122,
+                123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 133, 134, 135, 136, 137, 138, 139,
+                140, 141, 142, 143, 143, 144, 145, 146, 147, 148, 149, 150, 151, 151, 152, 153, 154, 155,
+                156, 157, 157, 158, 159, 160, 161, 162, 163, 163, 164, 165, 166, 167, 168, 168, 169, 170,
+                171, 172, 173, 173, 174, 175, 176, 177, 178, 178, 179, 180, 181, 182, 182, 183, 184, 185,
+                186, 186, 187, 188, 189, 190, 190, 191, 192, 193, 194, 194, 195, 196, 197, 198, 198, 199,
+                200, 201, 201, 202, 203, 204, 205, 205, 206, 207, 208, 208, 209, 210, 211, 211, 212, 213,
+                214, 214, 215, 216, 217, 217, 218, 219, 220, 220, 221, 222, 223, 223, 224, 225, 226, 226,
+                227, 228, 229, 229, 230, 231, 231, 232, 233, 234, 234, 235, 236, 237, 237, 238, 239, 239,
+                240, 241, 242, 242, 243, 244, 244, 245, 246, 247, 247, 248, 249, 249, 250, 251, 251, 252,
+                253, 254, 254, 255};
+            for (int y = 0; y < h; y++) {
+              const uint8_t *row = b->buffer + (ptrdiff_t)y * b->pitch;
+              for (int x = 0; x < w; x++) {
+                g->bits[y * w + x] = gamma[row[x]];
+              }
+            }
+          }
+        }
+      }
+    }
+    g->key = key;
+    g->w = (int16_t)(g->bits ? w : 0);
+    g->h = (int16_t)(g->bits ? h : 0);
+    g->xoff = (int16_t)xo;
+    g->yoff = (int16_t)yo;
+    g_glyph_count++;
+    return g;
+  }
+#  endif
   g->bits = stbtt_GetGlyphBitmapSubpixel(
       info, s->scale, s->scale, (float)phase * 0.25f, 0.0f, glyph, &w, &h, &xo, &yo);
   if (g->bits) {
@@ -2808,6 +2992,10 @@ typedef void (*GlyphFn)(void *user, int glyph, float pen);
 static float glyph_walk(const FontSlot *s, const char *utf8, int len, GlyphFn fn, void *user)
 {
   const stbtt_fontinfo *info = &g_faces[s->face].info;
+#  if TEXT_FT
+  /* advances of the instance in use (weight, optical size), unhinted */
+  FT_Face ft = ft_use(s);
+#  endif
   float pen = 0.0f;
   int prev = 0;
   for (int i = 0; i < len;) {
@@ -2822,6 +3010,14 @@ static float glyph_walk(const FontSlot *s, const char *utf8, int len, GlyphFn fn
     if (fn) {
       fn(user, glyph, pen);
     }
+#  if TEXT_FT
+    FT_Fixed ftadv;
+    if (ft && FT_Get_Advance(ft, (FT_UInt)glyph, FT_LOAD_NO_HINTING, &ftadv) == 0) {
+      pen += (float)ftadv / 65536.0f + s->embolden;
+      prev = glyph;
+      continue;
+    }
+#  endif
     int adv, lsb;
     stbtt_GetGlyphHMetrics(info, glyph, &adv, &lsb);
     pen += s->scale * (float)adv + s->embolden;
@@ -2905,6 +3101,116 @@ static const void *glyph_bitmap(const TextRun *e, int i, float pen, int *r_x, in
   return g;
 }
 
+#  if TEXT_FT
+/* FT_Outline_Decompose into the same quadratic list as below. */
+typedef struct OutlineSink {
+  float *c;
+  int n, cap;
+  float cx, cy;
+} OutlineSink;
+
+static int osink_push(OutlineSink *o, float x1, float y1, float x2, float y2, float x3, float y3)
+{
+  if (o->n == o->cap) {
+    o->cap = o->cap ? o->cap * 2 : 64;
+    float *c = (float *)realloc(o->c, sizeof(float) * 6 * (size_t)o->cap);
+    if (!c) {
+      return 1;
+    }
+    o->c = c;
+  }
+  float *q = o->c + 6 * o->n++;
+  q[0] = x1; q[1] = y1; q[2] = x2; q[3] = y2; q[4] = x3; q[5] = y3;
+  return 0;
+}
+
+static int osink_move(const FT_Vector *to, void *u)
+{
+  OutlineSink *o = (OutlineSink *)u;
+  o->cx = (float)to->x;
+  o->cy = (float)to->y;
+  return 0;
+}
+
+static int osink_line(const FT_Vector *to, void *u)
+{
+  OutlineSink *o = (OutlineSink *)u;
+  const float x = (float)to->x, y = (float)to->y;
+  const int r = osink_push(o, o->cx, o->cy, x, y, x, y);
+  o->cx = x;
+  o->cy = y;
+  return r;
+}
+
+static int osink_conic(const FT_Vector *ctl, const FT_Vector *to, void *u)
+{
+  OutlineSink *o = (OutlineSink *)u;
+  const float x = (float)to->x, y = (float)to->y;
+  const int r = osink_push(o, o->cx, o->cy, (float)ctl->x, (float)ctl->y, x, y);
+  o->cx = x;
+  o->cy = y;
+  return r;
+}
+
+static int osink_cubic(const FT_Vector *c1, const FT_Vector *c2, const FT_Vector *to, void *u)
+{
+  /* split at t = 1/2; each half approximated by one quadratic */
+  OutlineSink *o = (OutlineSink *)u;
+  const float p0x = o->cx, p0y = o->cy, p1x = (float)c1->x, p1y = (float)c1->y;
+  const float p2x = (float)c2->x, p2y = (float)c2->y, x = (float)to->x, y = (float)to->y;
+  const float m01x = (p0x + p1x) / 2, m01y = (p0y + p1y) / 2, m12x = (p1x + p2x) / 2,
+              m12y = (p1y + p2y) / 2, m23x = (p2x + x) / 2, m23y = (p2y + y) / 2;
+  const float ax = (m01x + m12x) / 2, ay = (m01y + m12y) / 2, bx = (m12x + m23x) / 2,
+              by = (m12y + m23y) / 2, mx = (ax + bx) / 2, my = (ay + by) / 2;
+  int r = osink_push(o, p0x, p0y, (3 * (m01x + ax) - p0x - mx) / 4, (3 * (m01y + ay) - p0y - my) / 4,
+                     mx, my);
+  r |= osink_push(o, mx, my, (3 * (bx + m23x) - mx - x) / 4, (3 * (by + m23y) - my - y) / 4, x, y);
+  o->cx = x;
+  o->cy = y;
+  return r;
+}
+
+/* The outline of the instance the face draws (its weight; UI optical size). */
+static int ft_glyph_outline(int face, int glyph, float **r_curves, int *r_n, float r_bbox[4])
+{
+  Face *f = &g_faces[face];
+  FontSlot tmp;
+  memset(&tmp, 0, sizeof(tmp));
+  tmp.face = face;
+  tmp.opsz = 14.0f; /* outlines are size independent: the UI's optical size */
+  FT_Size size = NULL;
+  if (FT_New_Size(f->ft, &size) != 0) {
+    return 0;
+  }
+  tmp.ft_size = size;
+  ft_use(&tmp);
+  int ok = 0;
+  if (FT_Load_Glyph(f->ft, (FT_UInt)glyph, FT_LOAD_NO_SCALE | FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING) == 0 &&
+      f->ft->glyph->format == FT_GLYPH_FORMAT_OUTLINE)
+  {
+    static const FT_Outline_Funcs funcs = {osink_move, osink_line, osink_conic, osink_cubic, 0, 0};
+    OutlineSink o = {NULL, 0, 0, 0.0f, 0.0f};
+    if (FT_Outline_Decompose(&f->ft->glyph->outline, &funcs, &o) == 0 && o.n > 0) {
+      FT_BBox b;
+      FT_Outline_Get_CBox(&f->ft->glyph->outline, &b);
+      r_bbox[0] = (float)b.xMin;
+      r_bbox[1] = (float)b.yMin;
+      r_bbox[2] = (float)b.xMax;
+      r_bbox[3] = (float)b.yMax;
+      *r_curves = o.c;
+      *r_n = o.n;
+      ok = 1;
+    }
+    else {
+      free(o.c);
+    }
+  }
+  FT_Done_Size(size);
+  f->set_opsz = -1.0f; /* the next slot sets its own */
+  return ok;
+}
+#  endif
+
 /* A glyph's outline as quadratic curves (x1 y1 x2 y2 x3 y3, font units,
  * y up) and its box; lines are {p1, p2, p2}, cubics are split into
  * quadratics. Returns 0 for empty glyphs. `*r_curves` is malloc'd. */
@@ -2915,6 +3221,11 @@ int bui_text_glyph_outline(int face, int glyph, float **r_curves, int *r_n, floa
   if (face < 0 || face >= g_face_count) {
     return 0;
   }
+#  if TEXT_FT
+  if (g_faces[face].ft) {
+    return ft_glyph_outline(face, glyph, r_curves, r_n, r_bbox);
+  }
+#  endif
   const stbtt_fontinfo *info = &g_faces[face].info;
   stbtt_vertex *v = NULL;
   const int nv = stbtt_GetGlyphShape(info, glyph, &v);
