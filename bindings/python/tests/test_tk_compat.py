@@ -63,6 +63,9 @@ def prog_calculator(tk, ttk):
     buttons["C"].invoke()
     entry.insert(0, "6*7")
     buttons["="].invoke()
+    # a textvariable write reaches the Entry at idle time in Tk on macOS: flush it
+    # before reading the widget (without this, stdlib Tk there still shows "6*7")
+    root.update_idletasks()
     out.append(entry.get())
     info = buttons["5"].grid_info()
     result = {"results": out, "grid": (info["row"], info["column"]), "size": root.grid_size(),

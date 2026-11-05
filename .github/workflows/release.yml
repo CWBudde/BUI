@@ -1,0 +1,160 @@
+# Publish a release: crates.io, npm and a GitHub Release. (PyPI is published by
+# wheels.yml, which also runs on the same tag.)
+#
+#   git tag v0.2.0 && git push --tags
+#
+# Every step is safe to re-run: a version that is already on a registry is skipped, so a
+# failed run (a network timeout, say) can be repeated with "Re-run failed jobs".
+#
+#   tag v*           : check versions, run the whole CI suite, then publish
+#   manual run       : same, but nothing is published unless "publish" is ticked
+#                      (the default is a dry run: cargo publish --dry-run, npm publish --dry-run)
+#
+# One-time setup (repository Settings > Secrets and variables > Actions):
+#   CARGO_REGISTRY_TOKEN   a crates.io API token (scopes: publish-new, publish-update)
+# npm and PyPI need no secret: both use trusted publishing (OIDC). On npmjs.com, each of
+# @blender-ui/native and @blender-ui/react lists this repository and the workflow file
+# release.yml as its trusted publisher. See docs/publishing.md.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to check against (e.g. v0.2.0)"
+        required: true
+      publish:
+        description: "Really publish (otherwise a dry run)"
+        type: boolean
+        default: false
+      skip_ci:
+        description: "Skip the CI suite (only if you know it is red for a reason that does not affect the release)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  PUBLISH: ${{ github.event_name == 'push' || github.event.inputs.publish == 'true' }}
+
+jobs:
+  versions:
+    name: versions match the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tools/check_versions.py "$TAG"
+
+  ci:
+    name: build and test everywhere
+    needs: versions
+    if: github.event.inputs.skip_ci != 'true'
+    uses: ./.github/workflows/ci.yml
+
+  crates:
+    name: crates.io
+    needs: [versions, ci]
+    # runs when the versions match and CI passed (or was skipped on purpose)
+    if: ${{ !cancelled() && needs.versions.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libx11-dev
+      - name: Vendor the C sources (blenderui-sys carries them)
+        run: python bindings/rust/scripts/vendor_c.py
+      - name: Publish in dependency order
+        working-directory: bindings/rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          version="${TAG#v}"
+          for crate in blenderui-tailwind blenderui-macros blenderui-sys blenderui blenderui-imgui; do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/$crate/$version")" = 200 ]; then
+              echo "::notice::$crate $version is already on crates.io; skipping"
+              continue
+            fi
+            flags="--allow-dirty -j 2"
+            [ "$PUBLISH" = true ] || flags="$flags --dry-run"
+            # uploads of the big blenderui-sys crate sometimes time out (HTTP 408): retry
+            for attempt in 1 2 3; do
+              cargo publish -p "$crate" $flags && break
+              [ "$attempt" = 3 ] && exit 1
+              echo "::warning::$crate: attempt $attempt failed; retrying"
+              sleep $((attempt * 30))
+            done
+            # the next crate needs this one in the index
+            [ "$PUBLISH" = true ] && sleep 20
+          done
+
+  npm:
+    name: npm
+    needs: [versions, ci]
+    # runs when the versions match and CI passed (or was skipped on purpose)
+    if: ${{ !cancelled() && needs.versions.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    # the native addon ships prebuilt for Windows x64 (other systems build it from source)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - name: Upgrade npm to 11.5.1+ for trusted publishing (Node 22 ships an older one)
+        run: npm install -g npm@^11.5.1
+      - uses: oven-sh/setup-bun@v2 # the runtime tests build a Bun executable too
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install workspace dependencies
+        working-directory: bindings
+        run: npm ci
+      - name: Publish @blender-ui/native then @blender-ui/react, with no token (OIDC)
+        run: |
+          # native first: react depends on it
+          for pkg in node react; do
+            cd "bindings/$pkg"
+            name=$(node -p "require('./package.json').name")
+            version=$(node -p "require('./package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "::notice::$name@$version is already on npm; skipping"
+            else
+              flags="--access public --provenance"
+              [ "$PUBLISH" = true ] || flags="$flags --dry-run"
+              npm publish $flags
+            fi
+            cd ../..
+          done
+
+  github-release:
+    name: GitHub Release
+    needs: [crates, npm]
+    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release (notes from the commits since the last tag)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 && { echo "release exists"; exit 0; }
+          gh release create "$TAG" --title "BUI ${TAG#v}" --generate-notes --verify-tag

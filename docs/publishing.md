@@ -76,13 +76,47 @@ Remove the source tree from `sys.path` and keep `examples/` on it for
 
 No API tokens are stored anywhere.
 
+## Releasing everything at once
+
+One tag publishes all of it:
+
+```sh
+git tag v0.2.0 && git push --tags
+```
+
+| Workflow | Publishes |
+|---|---|
+| `wheels.yml` | the Python wheels and sdist to PyPI (trusted publishing, no secret) |
+| `release.yml` | the Rust crates to crates.io, `@blender-ui/native` and `@blender-ui/react` to npm, and a GitHub Release |
+
+`release.yml` first checks that the tag matches the Python and Rust versions
+(`python tools/check_versions.py v0.2.0` runs the same check by hand), then runs the whole
+`ci.yml` suite on every platform, then publishes. A version that is already on a registry is
+skipped, so a run that failed halfway (say, crates.io timing out on the big
+`blenderui-sys` upload) can simply be re-run. The npm packages are versioned on their own; bump
+them in their `package.json` when they change.
+
+One-time setup:
+
+- **crates.io:** a repository secret `CARGO_REGISTRY_TOKEN` (Settings > Secrets and variables >
+  Actions): a crates.io API token with the scopes `publish-new` and `publish-update`.
+- **npm:** no secret. On npmjs.com, open each of `@blender-ui/native` and `@blender-ui/react`
+  > Settings > Trusted Publisher > GitHub Actions, and enter the owner `ppmpreetham`, the
+  repository `BUI` and the workflow filename `release.yml` (leave the environment empty).
+  The workflow publishes with OIDC and npm adds provenance by itself.
+- **PyPI:** no secret, see above.
+
+Try it without publishing: Actions > release > Run workflow, enter the tag and leave
+"publish" unticked. That runs the checks and the CI suite, then `cargo publish --dry-run` and
+`npm publish --dry-run`.
+
 ## Release checklist
 
 1. Bump `bindings/python/bui/_version.py` (semantic versioning).
 2. Add the release to `CHANGELOG.md`.
 3. `ctest --test-dir build` passes locally. Optionally run the workflow by
    hand with `testpypi` and `pip install -i https://test.pypi.org/simple blenderui`.
-4. `git tag v0.1.0 && git push --tags`. CI builds, tests and publishes.
+4. `git tag v0.2.0 && git push --tags`. CI builds, tests and publishes (see above).
 
 ## Known gaps before 1.0
 

@@ -12,6 +12,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call: # release.yml runs the whole suite before publishing
 
 concurrency:
   group: ci-${{ github.ref }}
