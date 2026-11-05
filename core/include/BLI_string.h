@@ -18,7 +18,7 @@
 #  include <string>
 #endif
 
-/* BUI: string.c is compiled as C; C++ callers (core/intern/*.cc) need C linkage. */
+/* BUI: string.c is compiled as C; C++ callers (the .cc files in core/intern) need C linkage. */
 #ifdef __cplusplus
 extern "C" {
 #endif

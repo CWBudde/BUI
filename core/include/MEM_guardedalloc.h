@@ -6,6 +6,7 @@
 #define __MEM_GUARDEDALLOC_H__
 
 #include <stddef.h>
+#include <stdint.h> /* int64_t etc.: the C++ BLI headers use them unqualified */
 
 /* Size-class helpers from upstream MEM_guardedalloc.hh (kept API-compatible). */
 #define MEM_SIZE_OPTIMAL(size) ((size))
@@ -20,7 +21,7 @@ extern "C" {
 #endif
 
 /* Modern MEM API used by the C++ BLI headers (C linkage: guardedalloc.c is C,
- * and core/intern/*.cc call it). */
+ * and the C++ files in core/intern call it). */
 void *MEM_new_uninitialized(size_t size, const char *name);
 void *MEM_new_zeroed(size_t size, const char *name);
 void *MEM_new_uninitialized_aligned(size_t size, size_t alignment, const char *name);

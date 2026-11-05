@@ -62,14 +62,14 @@ int damerau_levenshtein_distance(StringRef a, StringRef b)
     v1[i] = i * insertion_cost;
   }
 
-  uint32_t prev_unicode_a;
+  uint32_t prev_unicode_a = 0;
   size_t offset_a = 0;
   for (const int i : IndexRange(size_a)) {
     v2[0] = (i + 1) * deletion_cost;
 
     const uint32_t unicode_a = BLI_str_utf8_as_unicode_step_safe(a.data(), a.size(), &offset_a);
 
-    uint32_t prev_unicode_b;
+    uint32_t prev_unicode_b = 0;
     size_t offset_b = 0;
     for (const int j : IndexRange(size_b)) {
       const uint32_t unicode_b = BLI_str_utf8_as_unicode_step_safe(b.data(), b.size(), &offset_b);
@@ -212,7 +212,7 @@ static std::optional<InitialsMatch> match_word_initials(StringRef query,
 
   int first_found_word_index = -1;
 
-  while (query_index < query.size()) {
+  while (query_index < size_t(query.size())) {
     const uint query_unicode = BLI_str_utf8_as_unicode_step_safe(
         query.data(), query.size(), &query_index);
     while (true) {

@@ -8,6 +8,8 @@
  * \ingroup bli
  */
 
+#include <cstdint>
+
 #include "BLI_assert.h"
 
 #include "MEM_guardedalloc.h"
