@@ -114,4 +114,72 @@ mod tests {
             assert_eq!(COUNT.get(), 0, "a steady-state frame allocated");
         });
     }
+
+    /// The shadcn layer paints through the same engine: a million rows with a
+    /// checkbox, a badge, a currency, a progress bar and an actions column.
+    #[derive(Clone, Copy)]
+    struct Idx(u32);
+
+    impl crate::shadcn::Record for Idx {
+        const FIELDS: &'static [&'static str] = &["status", "amount", "pct"];
+        fn field(&self, field: usize) -> TableCell<'_> {
+            match field {
+                0 => TableCell::Str(["pending", "processing", "success", "failed"][self.0 as usize % 4]),
+                1 => TableCell::F64(f64::from(self.0 % 100_000) / 7.0, 2),
+                _ => TableCell::U64(u64::from(self.0 % 101)),
+            }
+        }
+    }
+
+    #[test]
+    fn steady_state_shadcn_table_does_not_allocate() {
+        use crate::shadcn::{actions_column, select_column, BadgeVariant, CellRender, ColumnDef, ColumnMeta, Table, TableOptions};
+        use std::sync::Arc;
+        let columns: Arc<[ColumnDef<Idx>]> = vec![
+            select_column(),
+            ColumnDef::accessor_key("status").badge(|s| if s == "failed" { BadgeVariant::Destructive } else { BadgeVariant::Secondary }),
+            ColumnDef::accessor_key("amount").meta(ColumnMeta::right().usd()),
+            ColumnDef::accessor_key("pct").cell(CellRender::Progress),
+            actions_column(),
+        ]
+        .into();
+        let data: Arc<[Idx]> = (0..1_000_000u32).map(Idx).collect();
+        Application::headless().run(|cx| {
+            let table = Table::new(TableOptions::new(columns, data)).unwrap();
+            assert_eq!(table.row_model().len(), 1_000_000);
+            let mut handle = None;
+            let win = cx
+                .open_window(WindowOptions::default(), |w, cx| {
+                    let t = cx.new(|cx| TableState::new(table, w, cx).row_selectable(false));
+                    handle = Some(t);
+                    cx.new(|_| ShadcnView(t))
+                })
+                .unwrap();
+            let t = handle.unwrap();
+            cx.draw(win.id);
+            cx.draw(win.id);
+            t.update(cx, |s, _| s.scroll_by(0.0, 5_000_000.0));
+            let st = t.read(cx);
+            let b = st.bounds;
+            assert!(b.size.width > 100.0);
+            let mut p = Painter::new();
+            for _ in 0..4 {
+                p.reset();
+                st.draw(b, &mut p);
+            }
+            p.reset();
+            ARMED.set(true);
+            COUNT.set(0);
+            st.draw(b, &mut p);
+            ARMED.set(false);
+            assert_eq!(COUNT.get(), 0, "a steady-state frame of the shadcn table allocated");
+        });
+    }
+
+    struct ShadcnView(Entity<TableState<crate::shadcn::Table<Idx>>>);
+    impl Render for ShadcnView {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            body().m_0().child(div().w(px(900.0)).h(px(500.0)).child(DataTable::new(&self.0)))
+        }
+    }
 }

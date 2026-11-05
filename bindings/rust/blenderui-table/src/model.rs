@@ -376,6 +376,21 @@ impl TableModel {
         }
     }
 
+    /// Highlight exactly the display rows `rows` (a selection the owner of
+    /// the data keeps, like a checkbox column's), without raising events.
+    pub fn set_row_highlights(&mut self, rows: impl IntoIterator<Item = usize>) {
+        self.sel.clear();
+        for r in rows {
+            self.sel.add(r..r + 1);
+        }
+        self.sel.clamp(self.rows());
+    }
+
+    /// Show `sorted` as the sort indicator (the owner of the data sorts).
+    pub const fn set_sort_indicator(&mut self, sorted: Option<(usize, ColumnSort)>) {
+        self.sort = sorted;
+    }
+
     /// The active selected row (source index).
     #[must_use]
     pub fn selected_row(&self) -> Option<usize> {

@@ -12,5 +12,6 @@ export const site = {
   blobBase: "https://github.com/ppmpreetham/BUI/blob/main/",
   pypi: "https://pypi.org/project/blenderui/",
   npm: "https://www.npmjs.com/package/@blender-ui/react",
+  crates: "https://crates.io/crates/blenderui",
   license: "GPL-2.0-or-later",
 } as const;

@@ -27,11 +27,12 @@ mod element;
 mod state;
 
 pub use blenderui_vlist::{
-    Align, Budget, ChatList, ChatStyle, Hit, ItemPainter, ItemSource, List, ListView, Measurer, Message, Nav, Options, Record, VecSource,
+    Align, Budget, ChatList, ChatStyle, CountSource, Hit, ItemPainter, ItemSource, List, ListView, Measurer, Message, Nav, Options, Record,
+    RowList, RowStyle, VecSource,
 };
 pub use blenderui_vlist::synth;
 pub use element::{chat_list, variable_list, VariableList};
-pub use state::ListState;
+pub use state::{ListState, ViewInfo};
 
 /// The colors of the engine's current theme, for a list style's palette.
 #[must_use]

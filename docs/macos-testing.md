@@ -1,7 +1,10 @@
 # Testing BUI on macOS
 
-Thanks for testing BUI on a Mac. The macOS window host is new and has only
-been checked by CI so far, so a person clicking around finds what CI can't.
+Thanks for testing BUI on a Mac. The macOS window host is new. CI checks it, and
+[Krish Kalaria](https://github.com/krishkalaria12) has tried it by hand on an Apple Silicon MacBook Air. His
+report (issue #3) and fixes became pull request #4: Quit, window sizing and tkinter. More Macs find
+more, especially Intel Macs and older macOS versions, because a person clicking
+around finds what CI can't.
 This guide takes about 30–60 minutes: build from source, run the tests, try a
 few apps, and report back.
 

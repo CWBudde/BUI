@@ -4,7 +4,7 @@ description: A virtualized DataTable with the API of gpui-component's, drawn the
 section: Rust
 order: 65
 languages: ["rust"]
-sources: ["docs/rust.md", "bindings/rust/blenderui-table/src/lib.rs", "bindings/rust/blenderui-table/src/sort.rs", "bindings/rust/blenderui-table/src/paint.rs", "bindings/rust/blenderui-table/src/state.rs", "bindings/rust/blenderui/src/table/mod.rs", "bindings/rust/blenderui/src/table/sink.rs", "bindings/rust/blenderui/src/list.rs", "bindings/rust/blenderui/tests/table.rs", "bindings/rust/blenderui/examples/site_data_table.rs", "bindings/rust/blenderui/examples/bench_table.rs", "bindings/rust/blenderui-table-gpui/src/lib.rs", "bindings/rust/blenderui-table-gpui/examples/bench_gpui.rs"]
+sources: ["docs/rust.md", "bindings/rust/blenderui-table/src/lib.rs", "bindings/rust/blenderui-table/src/sort.rs", "bindings/rust/blenderui-table/src/paint.rs", "bindings/rust/blenderui-table/src/state.rs", "bindings/rust/blenderui/src/table/mod.rs", "bindings/rust/blenderui/src/table/sink.rs", "bindings/rust/blenderui/src/list.rs", "bindings/rust/blenderui/tests/table.rs", "bindings/rust/blenderui/examples/site_data_table.rs", "bindings/rust/blenderui/src/shadcn/mod.rs", "bindings/rust/blenderui-table/src/tanstack/mod.rs", "bindings/rust/blenderui/examples/bench_table.rs", "bindings/rust/blenderui-table-gpui/src/lib.rs", "bindings/rust/blenderui-table-gpui/examples/bench_gpui.rs"]
 ---
 
 A table of a million rows is easy to ask for and hard to build: make one element per cell and the window stops responding. **`DataTable` draws only the cells you can see**, straight to the screen, the way Blender's spreadsheet editor does. Scrolling it costs about a millisecond, whether it holds a hundred rows or a million.

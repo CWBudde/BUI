@@ -31,6 +31,12 @@ use crate::source::{ItemSource, Page};
 
 pub use frame::{Budget, Placed};
 
+/// The measurer's estimator for a list `width` wide, with `opts.estimate_size` applied.
+pub(crate) fn estimator_for<M: Measurer>(m: &M, opts: &Options, width: f32) -> crate::Estimator {
+    let est = m.estimator(width.max(1.0));
+    opts.estimate_size.map_or(est, |px| est.with_item_size(f64::from(px)))
+}
+
 /// Where the viewport is.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Pos {
@@ -75,6 +81,12 @@ pub struct Options {
     /// Most items whose heights are held one by one (older ones go back to
     /// estimates, far from the viewport first).
     pub max_measured: usize,
+    /// How many items beyond the viewport the source is asked to load
+    /// (TanStack Virtual's `overscan`); at least a screenful is always asked for.
+    pub overscan: usize,
+    /// The height assumed, in px, for an item of one line before it is
+    /// measured (TanStack Virtual's `estimateSize`); `None`: the style's own.
+    pub estimate_size: Option<f32>,
 }
 
 impl Default for Options {
@@ -85,6 +97,8 @@ impl Default for Options {
             cache_capacity: 4096,
             fling_budget: Budget::Time(Duration::from_micros(500)),
             max_measured: 1 << 20,
+            overscan: 8,
+            estimate_size: None,
         }
     }
 }
@@ -117,7 +131,7 @@ pub struct ListView {
 impl ListView {
     /// A view over `src` in a viewport `width` x `height`.
     pub fn new<S: ItemSource, M: Measurer>(src: &S, m: &M, width: f32, height: f32, opts: Options) -> Result<Self, IndexError> {
-        let index = HeightIndex::estimated(src.len(), m.estimator(width.max(1.0)), |r| src.bytes(r))?;
+        let index = HeightIndex::estimated(src.len(), estimator_for(m, &opts, width), |r| src.bytes(r))?;
         Ok(Self {
             index,
             text: TextLayout::new(opts.cache_capacity),
@@ -234,6 +248,26 @@ impl ListView {
         let target = (top + dy).clamp(0.0, total);
         // stay exactly at the end when the end was reached (no estimate wobble)
         self.set_scroll_units(px_to_units(target));
+    }
+
+    /// Scroll to `offset` px from the top of the content (TanStack
+    /// Virtual's `scrollToOffset`): estimates for what is not measured, so
+    /// an offset far down lands on the item the scrollbar would show. NaN is ignored.
+    pub fn scroll_to_offset(&mut self, offset: f64) {
+        if offset.is_nan() {
+            return;
+        }
+        self.goal = None;
+        self.pending = 0.0;
+        self.set_scroll_units(px_to_units(offset.clamp(0.0, self.scroll_extent().1)));
+    }
+
+    /// The items in the viewport after the last layout, first to last+1
+    /// (TanStack Virtual's `range` without the overscan).
+    #[must_use]
+    pub fn visible_range(&self) -> Option<std::ops::Range<usize>> {
+        let (first, last) = (self.placed.first()?, self.placed.last()?);
+        Some(first.item..last.item + 1)
     }
 
     /// Scroll to a fraction `0..=1` of the content (the scrollbar thumb being dragged).
@@ -366,7 +400,7 @@ impl ListView {
             Pos::Anchor { item, .. } => self.index.height_of(item).map(|(h, _)| u64::from(h.units())),
             Pos::Bottom => None,
         };
-        let est = m.estimator(self.width.max(1.0));
+        let est = estimator_for(m, &self.opts, self.width);
         self.text.clear();
         self.index.set_estimator(est.with_text_width(est.text_width));
         self.page_version = u64::MAX;

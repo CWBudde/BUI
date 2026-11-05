@@ -151,12 +151,13 @@ _buiimgui`) and installed with the wheel.
 
 ## Rust
 
-`blenderui-imgui` isn't on crates.io yet (only `blenderui` is), so take it from git, or
-by path from a clone. Add `features = ["blender-widgets"]` for Blender's widgets.
+`blenderui-imgui` is on [crates.io](https://crates.io/crates/blenderui-imgui) (`cargo add blenderui-imgui`);
+you can also take it from git, or by path from a clone. Add `features = ["blender-widgets"]` for Blender's widgets.
 
 ```toml
 [dependencies]
-blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI" }
+blenderui-imgui = "0.2"
+# or from git: blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI" }
 # or, from a clone: blenderui-imgui = { path = "bindings/rust/blenderui-imgui" }
 ```
 

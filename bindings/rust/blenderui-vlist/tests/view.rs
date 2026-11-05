@@ -370,3 +370,26 @@ fn a_uniform_list_needs_no_measuring() {
     assert!(v.index().heap_bytes() < 2_000_000);
     assert_eq!(v.index().measured_items(), 0);
 }
+
+#[test]
+fn tanstack_virtual_options_and_offsets() {
+    // visible_range is the placed items; scroll_to_offset lands inside the content
+    let mut c = chat(5000, Options::default());
+    c.layout(&mut tw);
+    let r = c.view.visible_range().unwrap();
+    assert_eq!(r.start, 0);
+    assert_eq!(r.end, c.view.placed().last().unwrap().item + 1);
+    c.view.scroll_to_offset(2000.0);
+    c.layout(&mut tw);
+    let (top, total) = c.view.scroll_extent();
+    assert!((top - 2000.0).abs() < 1.0 || top > 1500.0, "top {top}");
+    assert!(total > 2000.0);
+    c.view.scroll_to_offset(f64::NAN);
+    c.view.scroll_to_offset(1e12);
+    c.layout(&mut tw);
+    assert!(c.view.at_bottom(), "past the end is the end");
+    // estimate_size: the assumed height of an unmeasured one-line item moves the total
+    let small = chat(5000, Options { estimate_size: Some(24.0), ..Options::default() });
+    let big = chat(5000, Options { estimate_size: Some(96.0), ..Options::default() });
+    assert!(big.view.scroll_extent().1 > small.view.scroll_extent().1 * 2.0);
+}

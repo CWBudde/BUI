@@ -48,7 +48,7 @@ Or add it to `Cargo.toml` by hand:
 
 ```toml title="Cargo.toml"
 [dependencies]
-blenderui = "0.1"
+blenderui = "0.2"
 ```
 
 The first build compiles BUI's C kit for you, so you need:
@@ -126,11 +126,10 @@ BUI runs the **real Dear ImGui** (1.93), so existing ImGui code compiles unchang
 - **Python** comes with `pip install blenderui`. Import it as `blenderui.imgui`. The very first wheels (0.1.0) were published before it; if the import fails, upgrade with `pip install -U blenderui`.
 - **C++**: build BUI with CMake (see the C tab) and link `bui::imgui`. You include `imgui.h` and `imgui_impl_bui.h`. The CMake option `BUI_BUILD_IMGUI` is on whenever a C++ compiler is present.
 - **C**: the same build gives you `cimgui.h` and `cimgui_impl_bui.h` (CMake target `bui_cimgui`).
-- **Rust**: add the `blenderui-imgui` crate. It isn't on crates.io yet (only `blenderui` is), so take it from the repository as a git dependency:
+- **Rust**: add the `blenderui-imgui` crate from crates.io:
 
-```toml title="Cargo.toml"
-[dependencies]
-blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI" }
+```sh
+cargo add blenderui-imgui
 ```
 
 Want ImGui's widgets to *be* Blender's widgets? Build with `-DBUI_IMGUI_BLENDER_WIDGETS=ON` in CMake, or enable the `blender-widgets` feature of `blenderui-imgui` in Rust. The rest of the ImGui API is unchanged.

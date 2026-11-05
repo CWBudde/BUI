@@ -38,6 +38,15 @@ impl Estimator {
         Self { pad, line_height, char_width, text_width, calib: 1.0, applied: 1.0, est_sum: 0.0, real_sum: 0.0, samples: 0 }
     }
 
+    /// An estimator that assumes `one_line_px` for an item of one line of
+    /// text (TanStack Virtual's `estimateSize`): what is measured later
+    /// still calibrates it.
+    #[must_use]
+    pub const fn with_item_size(mut self, one_line_px: f64) -> Self {
+        self.pad = (one_line_px - self.line_height).max(0.0);
+        self
+    }
+
     /// The same estimator at another wrap width, keeping what it learned.
     #[must_use]
     pub const fn with_text_width(mut self, w: f64) -> Self {

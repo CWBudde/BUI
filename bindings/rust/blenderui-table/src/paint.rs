@@ -22,8 +22,8 @@
 use std::cell::Cell as StdCell;
 use std::ops::Range;
 
-use crate::cell::CellSource;
-use crate::column::{ColumnSort, TextAlign};
+use crate::cell::{Cell, CellSource, Check};
+use crate::column::{BadgeVariant, CellRender, Column, ColumnSort, TextAlign};
 use crate::fmt::CellBuf;
 use crate::geom::{Rect, Rgba};
 pub use blenderui_paint::{PaintSink, Palette};
@@ -91,6 +91,24 @@ pub fn draw_alternating_row_pairs(sink: &mut dyn PaintSink, rows: &Range<usize>,
     while r < rows.end {
         sink.fill(row_rect(r), color);
         r += 2;
+    }
+}
+
+/// A chevron (two lines) of half-width `k` pointing up or down.
+fn chevron(sink: &mut dyn PaintSink, cx: f32, cy: f32, k: f32, up: bool, color: Rgba) {
+    let d = if up { -k } else { k };
+    sink.line((cx - k, cy - d / 2.0), (cx, cy + d / 2.0), color, 1.5);
+    sink.line((cx, cy + d / 2.0), (cx + k, cy - d / 2.0), color, 1.5);
+}
+
+/// The x of content in a column cell, by the column's alignment. The width of
+/// the content is only asked for when the alignment needs it: measuring text
+/// is the expensive part, and a left-aligned cell does not need it.
+fn aligned(col: &Column, x: f32, w: f32, pad: f32, content_w: impl FnOnce() -> f32) -> f32 {
+    match col.align {
+        TextAlign::Right => x + w - pad - content_w(),
+        TextAlign::Center => x + (w - content_w()) / 2.0,
+        TextAlign::Left => x + pad,
     }
 }
 
@@ -222,20 +240,25 @@ impl<S: CellSource + ?Sized> Frame<'_, S> {
         let pad = self.pad();
         let avail = (w - 2.0 * pad).max(0.0);
         let selected_cell = t.sel_cell.filter(|&(_, c)| c == source);
-        let PaintScratch { cell: buf, ell } = scratch;
         for r in rows.clone() {
+            let PaintScratch { cell: buf, ell } = &mut *scratch;
             let top = t.row_top(g, r);
             let row = t.mask.get(r);
             let cell = self.src.cell(row, source);
-            let text = cell.text(buf);
-            if !text.is_empty() {
-                let shown = fit_text(text, avail, self.size, sink, ell);
-                let tx = match col.align {
-                    TextAlign::Right => x + w - pad - sink.text_width(shown, self.size),
-                    TextAlign::Center => x + (w - sink.text_width(shown, self.size)) / 2.0,
-                    TextAlign::Left => x + pad,
-                };
-                sink.text(tx, top + g.row_h / 2.0, shown, self.size, self.pal.text);
+            let at = Rect::new(x, top, w, g.row_h);
+            match col.render {
+                CellRender::Text => {
+                    let text = cell.text_fmt(buf, &col.format);
+                    if !text.is_empty() {
+                        let shown = fit_text(text, avail, self.size, sink, ell);
+                        let tx = aligned(col, x, w, pad, || sink.text_width(shown, self.size));
+                        sink.text(tx, top + g.row_h / 2.0, shown, self.size, self.pal.text);
+                    }
+                }
+                CellRender::Checkbox => self.draw_checkbox(sink, at, col, if cell.as_bool() { Check::Checked } else { Check::Unchecked }),
+                CellRender::Badge => self.draw_badge(sink, at, col, &cell, self.src.badge(row, source), scratch),
+                CellRender::Progress => self.draw_progress(sink, at, pad, &cell),
+                CellRender::Actions => self.draw_dots(sink, at),
             }
             if selected_cell.is_some_and(|(sr, _)| sr == row) {
                 sink.stroke(Rect::new(x, top, w, g.row_h), self.pal.accent, 1.5);
@@ -243,6 +266,91 @@ impl<S: CellSource + ?Sized> Frame<'_, S> {
         }
         if t.sel_col == Some(source) {
             sink.fill(Rect::new(x, g.top, w, g.body_h), self.pal.accent.opacity(0.18));
+        }
+    }
+
+    /// The fill of checked boxes, default badges and progress bars: Blender's
+    /// selection blue, lifted so it shows on a selected row too.
+    fn primary(&self) -> Rgba {
+        Rgba { a: 1.0, ..self.pal.sel }.shade(25.0)
+    }
+
+    /// A checkbox in a cell or header: Blender-sized (about 60% of the row),
+    /// at the column's alignment.
+    fn draw_checkbox(&self, sink: &mut dyn PaintSink, at: Rect, col: &Column, state: Check) {
+        let s = (at.h * 0.6).round().max(8.0);
+        let x = aligned(col, at.x, at.w, self.pad(), || s);
+        let b = Rect::new(x, at.y + (at.h - s) / 2.0, s, s);
+        let pal = self.pal;
+        if state == Check::Unchecked {
+            sink.round(b, 3.0, pal.text.opacity(0.5));
+            sink.round(Rect::new(b.x + 1.0, b.y + 1.0, s - 2.0, s - 2.0), 2.0, pal.back);
+            return;
+        }
+        let white = Rgba::new(1.0, 1.0, 1.0, 1.0);
+        sink.round(b, 3.0, self.primary());
+        let w = (s * 0.1).max(1.5);
+        if state == Check::Checked {
+            let p = |fx: f32, fy: f32| (b.x + s * fx, b.y + s * fy);
+            sink.line(p(0.24, 0.52), p(0.42, 0.7), white, w);
+            sink.line(p(0.42, 0.7), p(0.76, 0.3), white, w);
+        } else {
+            sink.line((b.x + s * 0.25, b.y + s * 0.5), (b.x + s * 0.75, b.y + s * 0.5), white, w);
+        }
+    }
+
+    /// shadcn's Badge: the cell's text in a pill.
+    fn draw_badge(&self, sink: &mut dyn PaintSink, at: Rect, col: &Column, cell: &Cell<'_>, variant: BadgeVariant, scratch: &mut PaintScratch) {
+        let PaintScratch { cell: buf, ell } = scratch;
+        let text = cell.text_fmt(buf, &col.format);
+        if text.is_empty() {
+            return;
+        }
+        let pal = self.pal;
+        let (pad_x, h) = (self.pad() * 0.9, (at.h * 0.72).round());
+        let shown = fit_text(text, (at.w - 2.0 * self.pad() - 2.0 * pad_x).max(0.0), self.size, sink, ell);
+        let tw = sink.text_width(shown, self.size);
+        let r = Rect::new(aligned(col, at.x, at.w, self.pad(), || tw + 2.0 * pad_x), at.y + (at.h - h) / 2.0, tw + 2.0 * pad_x, h);
+        let white = Rgba::new(1.0, 1.0, 1.0, 1.0);
+        let ink = match variant {
+            BadgeVariant::Default => {
+                sink.round(r, h / 2.0, self.primary());
+                white
+            }
+            BadgeVariant::Secondary => {
+                sink.round(r, h / 2.0, pal.text.opacity(0.14));
+                pal.text
+            }
+            BadgeVariant::Destructive => {
+                sink.round(r, h / 2.0, pal.danger);
+                white
+            }
+            BadgeVariant::Outline => {
+                sink.round(r, h / 2.0, pal.text.opacity(0.4));
+                sink.round(Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0), h / 2.0 - 1.0, pal.back);
+                pal.text
+            }
+        };
+        sink.text(r.x + pad_x, at.y + at.h / 2.0, shown, self.size, ink);
+    }
+
+    /// shadcn's Progress: a track and a fill, the cell a number 0..=100.
+    fn draw_progress(&self, sink: &mut dyn PaintSink, at: Rect, pad: f32, cell: &Cell<'_>) {
+        let (w, h) = ((at.w - 2.0 * pad).max(0.0), (at.h * 0.28).round().max(3.0));
+        let frac = (cell.number().unwrap_or(0.0) / 100.0).clamp(0.0, 1.0) as f32;
+        let y = at.y + (at.h - h) / 2.0;
+        sink.round(Rect::new(at.x + pad, y, w, h), h / 2.0, self.pal.text.opacity(0.15));
+        if frac > 0.0 {
+            sink.round(Rect::new(at.x + pad, y, (w * frac).max(h), h), h / 2.0, self.primary());
+        }
+    }
+
+    /// The row-actions button: three dots (lucide's `MoreHorizontal`).
+    fn draw_dots(&self, sink: &mut dyn PaintSink, at: Rect) {
+        let d = (at.h * 0.14).round().max(2.0);
+        let (cx, cy) = (at.x + at.w / 2.0, at.y + at.h / 2.0);
+        for k in [-1.0f32, 0.0, 1.0] {
+            sink.round(Rect::new(cx + k * d * 2.0 - d / 2.0, cy - d / 2.0, d, d), d / 2.0, self.pal.text);
         }
     }
 
@@ -325,7 +433,16 @@ impl<S: CellSource + ?Sized> Frame<'_, S> {
         let w = t.layout.width(v);
         let hy = g.groups_h;
         let pad = self.pad();
-        let arrow = if col.sort.is_some() && t.opts.sortable { g.unit * 0.7 } else { 0.0 };
+        let source = t.layout.src(v);
+        if col.render == CellRender::Checkbox {
+            self.draw_checkbox(sink, Rect::new(x, hy, w, g.header_h), col, self.src.header_check(source));
+            if t.sel_col == Some(source) {
+                sink.fill(Rect::new(x, hy, w, g.header_h), pal.accent.opacity(0.25));
+            }
+            self.vline(sink, x + w, hy, g.header_h);
+            return;
+        }
+        let arrow = if col.header_menu || (col.sort.is_some() && t.opts.sortable) { g.unit * 0.7 } else { 0.0 };
         let text = fit_text(&col.name, (w - 2.0 * pad - arrow).max(0.0), self.size, sink, &mut scratch.ell);
         let tx = match col.align {
             TextAlign::Right => x + w - pad - arrow - sink.text_width(text, self.size),
@@ -333,12 +450,19 @@ impl<S: CellSource + ?Sized> Frame<'_, S> {
             TextAlign::Left => x + pad,
         };
         sink.text(tx, hy + g.header_h / 2.0, text, self.size, pal.text);
-        if let (Some(s @ (ColumnSort::Ascending | ColumnSort::Descending)), true) = (col.sort, t.opts.sortable) {
-            // a chevron: two lines
-            let (cx, cy, k) = (x + w - pad - g.unit * 0.25, hy + g.header_h / 2.0, g.unit * 0.15);
-            let d = if s == ColumnSort::Ascending { -k } else { k };
-            sink.line((cx - k, cy - d / 2.0), (cx, cy + d / 2.0), pal.text, 1.5);
-            sink.line((cx, cy + d / 2.0), (cx + k, cy - d / 2.0), pal.text, 1.5);
+        let (cy, k) = (hy + g.header_h / 2.0, g.unit * 0.15);
+        if col.header_menu {
+            // shadcn's DataTableColumnHeader: the icon follows the title (ArrowUp, ArrowDown or ChevronsUpDown)
+            let cx = if col.align == TextAlign::Left { (tx + sink.text_width(text, self.size) + pad + k).min(x + w - pad - k) } else { x + w - pad - g.unit * 0.25 };
+            let s = col.sort.unwrap_or_default();
+            if s == ColumnSort::Default {
+                chevron(sink, cx, cy - k * 0.9, k * 0.8, true, pal.dim);
+                chevron(sink, cx, cy + k * 0.9, k * 0.8, false, pal.dim);
+            } else {
+                chevron(sink, cx, cy, k, s == ColumnSort::Ascending, pal.text);
+            }
+        } else if let (Some(s @ (ColumnSort::Ascending | ColumnSort::Descending)), true) = (col.sort, t.opts.sortable) {
+            chevron(sink, x + w - pad - g.unit * 0.25, cy, k, s == ColumnSort::Ascending, pal.text);
         }
         if t.sel_col == Some(t.layout.src(v)) {
             sink.fill(Rect::new(x, hy, w, g.header_h), pal.accent.opacity(0.25));
@@ -484,5 +608,104 @@ mod tests {
             let n = count_allocs(|| paint_table(&t, &d, &p, "", s, &mut Null));
             assert_eq!(n, 0, "a steady-state frame allocated");
         });
+    }
+
+    /// Every cell kind in one table: text with a currency format, a checkbox,
+    /// a badge, a progress bar and the actions dots.
+    struct Kinds;
+    impl CellSource for Kinds {
+        fn cell(&self, r: usize, c: usize) -> Cell<'_> {
+            match c {
+                0 => Cell::U64((r % 2) as u64),
+                1 => Cell::Str(["paid", "failed"][r % 2]),
+                2 => Cell::F64(1234.5 + r as f64, 2),
+                3 => Cell::U64((r * 7 % 101) as u64),
+                _ => Cell::Empty,
+            }
+        }
+        fn badge(&self, r: usize, _: usize) -> BadgeVariant {
+            if r.is_multiple_of(2) { BadgeVariant::Default } else { BadgeVariant::Destructive }
+        }
+        fn header_check(&self, _: usize) -> Check {
+            Check::Indeterminate
+        }
+    }
+
+    fn kinds_model(rows: usize) -> TableModel {
+        use crate::column::NumberFormat;
+        let mut t = TableModel::new();
+        t.set_columns(
+            vec![
+                Column::new("sel", "").width(40.0_f32).render(CellRender::Checkbox).text_center(),
+                Column::new("status", "Status").width(90.0_f32).render(CellRender::Badge),
+                Column::new("amount", "Amount").width(110.0_f32).text_right().format(NumberFormat::usd()),
+                Column::new("pct", "Done").width(100.0_f32).render(CellRender::Progress),
+                Column::new("act", "").width(48.0_f32).render(CellRender::Actions),
+            ],
+            None,
+        );
+        t.set_rows(rows, &Kinds);
+        t.begin_frame(400.0, 200.0, 20.0, 1.0);
+        t
+    }
+
+    #[test]
+    fn typed_cell_kinds_paint_without_elements() {
+        let t = kinds_model(1000);
+        let mut rec = Rec::default();
+        with_scratch(|s| paint_table(&t, &Kinds, &pal(), "", s, &mut rec));
+        assert_eq!(rec.depth, 0);
+        assert!(rec.texts.iter().any(|s| s == "paid") && rec.texts.iter().any(|s| s == "failed"), "badge text");
+        assert!(rec.texts.iter().any(|s| s == "$1,234.50"), "currency format: {:?}", &rec.texts[..8]);
+        assert!(!rec.texts.iter().any(|s| s == "1234.50"));
+    }
+
+    #[test]
+    fn typed_cell_kinds_do_not_allocate_in_a_steady_frame() {
+        use crate::alloc_probe::count_allocs;
+        let mut t = kinds_model(1_000_000);
+        t.scroll_by(0.0, 5_000_000.0);
+        t.begin_frame(400.0, 200.0, 20.0, 1.0);
+        struct Null;
+        impl PaintSink for Null {
+            fn fill(&mut self, _: Rect, _: Rgba) {}
+            fn stroke(&mut self, _: Rect, _: Rgba, _: f32) {}
+            fn round(&mut self, _: Rect, _: f32, _: Rgba) {}
+            fn line(&mut self, _: (f32, f32), _: (f32, f32), _: Rgba, _: f32) {}
+            fn text(&mut self, _: f32, _: f32, _: &str, _: f32, _: Rgba) {}
+            fn text_width(&mut self, text: &str, size: f32) -> f32 {
+                text.len() as f32 * size * 0.5
+            }
+            fn clipped(&mut self, _: Rect, f: &mut dyn FnMut(&mut dyn PaintSink)) {
+                f(self);
+            }
+        }
+        let p = pal();
+        with_scratch(|s| {
+            for _ in 0..3 {
+                paint_table(&t, &Kinds, &p, "", s, &mut Null);
+            }
+            assert_eq!(count_allocs(|| paint_table(&t, &Kinds, &p, "", s, &mut Null)), 0, "a steady-state frame allocated");
+        });
+    }
+
+    #[test]
+    fn clicks_on_typed_cells_raise_events() {
+        use crate::event::TableEvent;
+        use crate::input::{Button, Mods};
+        let mut t = kinds_model(100);
+        let g = t.geo();
+        let row = |r: f32| g.top + g.row_h * (r + 0.5);
+        // checkbox cell, row 2: neither selects the row nor changes the sort
+        t.pointer_down(crate::geom::Point { x: 20.0, y: row(2.0) }, Button::Left, Mods::default(), 1);
+        assert_eq!(t.take_events(), vec![TableEvent::CheckRow(2, 0)]);
+        assert!(t.selected_rows().next().is_none());
+        // the actions cell, row 1 (x past 40 + 90 + 110 + 100)
+        t.pointer_down(crate::geom::Point { x: 360.0, y: row(1.0) }, Button::Left, Mods::default(), 1);
+        assert_eq!(t.take_events(), vec![TableEvent::CellAction(1, 4)]);
+        // the checkbox header: select all
+        t.pointer_down(crate::geom::Point { x: 20.0, y: g.groups_h + g.header_h / 2.0 }, Button::Left, Mods::default(), 1);
+        t.pointer_up(&Kinds, false);
+        assert_eq!(t.take_events(), vec![TableEvent::CheckAll(0)]);
     }
 }

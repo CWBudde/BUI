@@ -83,8 +83,7 @@ not "JSX".
 
 `blenderui` is published on crates.io: install with `cargo add blenderui`.
 Never write "not published yet" or tell readers to use a git dependency for
-it. The exception is `blenderui-imgui`, which isn't on crates.io yet: for
-that crate only, show the git dependency.
+it. The same goes for `blenderui-imgui`: `cargo add blenderui-imgui`.
 
 ### No recaps, no emoji
 

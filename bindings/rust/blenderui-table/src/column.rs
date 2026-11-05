@@ -47,6 +47,67 @@ impl ColumnSort {
     }
 }
 
+/// How a column's cells are drawn. shadcn's `cell: ({ row }) => <JSX/>`
+/// becomes one of these typed kinds: the table paints them straight from
+/// the cell value, with no element per cell.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum CellRender {
+    /// The cell's text.
+    #[default]
+    Text,
+    /// A checkbox, checked when the cell is a non-zero number. A click
+    /// raises [`TableEvent::CheckRow`](crate::TableEvent::CheckRow); the
+    /// header shows [`CellSource::header_check`](crate::CellSource::header_check)
+    /// and raises [`TableEvent::CheckAll`](crate::TableEvent::CheckAll).
+    Checkbox,
+    /// The cell's text in a pill, colored by
+    /// [`CellSource::badge`](crate::CellSource::badge).
+    Badge,
+    /// A progress bar: the cell is a number from 0 to 100.
+    Progress,
+    /// A row-actions button (three dots); a click raises
+    /// [`TableEvent::CellAction`](crate::TableEvent::CellAction).
+    Actions,
+}
+
+/// shadcn's Badge variants.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum BadgeVariant {
+    /// `default`: the accent color.
+    Default,
+    /// `secondary`: a muted fill.
+    #[default]
+    Secondary,
+    /// `destructive`: red.
+    Destructive,
+    /// `outline`: a border only.
+    Outline,
+}
+
+/// How numbers are shown, like `Intl.NumberFormat`: a prefix (a currency
+/// sign), a suffix and thousands grouping. Applied to number cells only.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NumberFormat {
+    pub prefix: Text,
+    pub suffix: Text,
+    /// Group the integer digits in threes (`1,234,567`).
+    pub group: bool,
+}
+
+impl NumberFormat {
+    /// US dollars: `$1,234.50` (with the cell's own decimals).
+    #[must_use]
+    pub const fn usd() -> Self {
+        Self { prefix: Cow::Borrowed("$"), suffix: Cow::Borrowed(""), group: true }
+    }
+
+    /// Whether this format changes nothing.
+    #[must_use]
+    pub fn is_plain(&self) -> bool {
+        self.prefix.is_empty() && self.suffix.is_empty() && !self.group
+    }
+}
+
 /// A pinned column.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ColumnFixed {
@@ -88,6 +149,13 @@ pub struct Column {
     pub max_width: f32,
     /// Hidden columns take no space and are never drawn.
     pub visible: bool,
+    /// How the cells are drawn.
+    pub render: CellRender,
+    /// How numbers are shown.
+    pub format: NumberFormat,
+    /// A header click raises [`TableEvent::HeaderMenu`](crate::TableEvent::HeaderMenu)
+    /// (shadcn's sortable header with a menu) instead of sorting at once.
+    pub header_menu: bool,
 }
 
 impl Default for Column {
@@ -105,6 +173,9 @@ impl Default for Column {
             min_width: 20.0,
             max_width: 1200.0,
             visible: true,
+            render: CellRender::Text,
+            format: NumberFormat { prefix: Cow::Borrowed(""), suffix: Cow::Borrowed(""), group: false },
+            header_menu: false,
         }
     }
 }
@@ -199,6 +270,21 @@ impl Column {
     #[must_use]
     pub const fn visible(mut self, on: bool) -> Self {
         self.visible = on;
+        self
+    }
+    #[must_use]
+    pub const fn render(mut self, render: CellRender) -> Self {
+        self.render = render;
+        self
+    }
+    #[must_use]
+    pub fn format(mut self, format: NumberFormat) -> Self {
+        self.format = format;
+        self
+    }
+    #[must_use]
+    pub const fn header_menu(mut self, on: bool) -> Self {
+        self.header_menu = on;
         self
     }
 }

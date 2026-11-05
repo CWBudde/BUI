@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use blenderui_vlist::{ChatStyle, Hit, ItemPainter, ItemSource, List, Measurer, VecSource};
 
-use super::state::ListState;
+use super::state::{ListState, ViewInfo};
 use crate::css::Decl;
 use crate::element::{canvas_with, Div};
 use crate::html::div;
@@ -29,11 +29,12 @@ pub struct VariableList<S: ItemSource + 'static, P: Measurer + ItemPainter + 'st
     state: Entity<ListState<S, P>>,
     base: Div,
     on_item_click: Option<Listener<S, P>>,
+    on_view_change: Option<Rc<dyn Fn(&ViewInfo)>>,
 }
 
 /// The element for a list state.
 pub fn variable_list<S: ItemSource, P: Measurer + ItemPainter>(state: &Entity<ListState<S, P>>) -> VariableList<S, P> {
-    VariableList { state: *state, base: div().relative().overflow_hidden().size_full(), on_item_click: None }
+    VariableList { state: *state, base: div().relative().overflow_hidden().size_full(), on_item_click: None, on_view_change: None }
 }
 
 /// A chat: a [`VariableList`] over a [`ChatList`] where a click selects a
@@ -43,6 +44,14 @@ pub fn chat_list(state: &Entity<ListState<VecSource, ChatStyle>>) -> VariableLis
 }
 
 impl<S: ItemSource, P: Measurer + ItemPainter> VariableList<S, P> {
+    /// The visible range or the count changed (TanStack Virtual's `onChange`):
+    /// called after the frame that did it, with the list not borrowed.
+    #[must_use]
+    pub fn on_view_change(mut self, f: impl Fn(&ViewInfo) + 'static) -> Self {
+        self.on_view_change = Some(Rc::new(f));
+        self
+    }
+
     /// An item was clicked (item index). The closure may change the list.
     #[must_use]
     pub fn on_item_click(mut self, f: impl Fn(usize, &mut List<S, P>) + 'static) -> Self {
@@ -59,19 +68,22 @@ impl<S: ItemSource, P: Measurer + ItemPainter> Styled for VariableList<S, P> {
 
 impl<S: ItemSource, P: Measurer + ItemPainter> IntoElement for VariableList<S, P> {
     fn into_any_element(self) -> AnyElement {
-        let VariableList { state, base, on_item_click } = self;
+        let VariableList { state, base, on_item_click, on_view_change } = self;
         let el = base.defer(move |window, cx, el| {
             let id = state.read(cx).id.clone();
             let known = window.bounds_of(&id);
             let bounds = known.unwrap_or_default();
             let scale = window.scale_factor();
-            let changed = state.update(cx, |s, _| {
+            let (changed, view) = state.update(cx, |s, _| {
                 let moved = known.is_none() || s.bounds != bounds;
                 s.sync(bounds, scale, window);
-                moved
+                (moved, s.take_view_change())
             });
             if changed {
                 window.refresh(); // placed for the first time or resized: lay out once more with the size
+            }
+            if let (Some(f), Some(info)) = (&on_view_change, view) {
+                f(&info);
             }
             let (down, mv, up, wh, key) = (state, state, state, state, state);
             let click = on_item_click;

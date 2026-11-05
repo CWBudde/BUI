@@ -44,6 +44,24 @@ impl CellBuf {
     }
 
     /// Write the decimal digits of `v`.
+    /// Append the number text `digits` (as formatted by [`push_f64`](Self::push_f64) and
+    /// friends) with `fmt`: the sign first, then the prefix, the integer part
+    /// grouped in threes, the rest, then the suffix.
+    pub fn push_formatted(&mut self, digits: &str, fmt: &crate::column::NumberFormat) {
+        let (sign, rest) = digits.strip_prefix('-').map_or(("", digits), |r| ("-", r));
+        let int_len = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        self.push_bytes(sign.as_bytes());
+        self.push_bytes(fmt.prefix.as_bytes());
+        for (i, d) in rest[..int_len].bytes().enumerate() {
+            if fmt.group && i > 0 && (int_len - i) % 3 == 0 {
+                self.push_bytes(b",");
+            }
+            self.push_bytes(&[d]);
+        }
+        self.push_bytes(&rest.as_bytes()[int_len..]);
+        self.push_bytes(fmt.suffix.as_bytes());
+    }
+
     pub fn push_u64(&mut self, mut v: u64) {
         let mut tmp = [0u8; 20];
         let mut i = tmp.len();

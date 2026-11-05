@@ -232,6 +232,15 @@ impl<T: 'static> Signal<T> {
         self.update(|v| *v = value);
     }
 
+    /// Change the value in place *without* re-rendering: for what a render
+    /// itself refreshes (a handle to a widget's state, the latest callbacks).
+    pub(crate) fn update_quiet<R>(self, f: impl FnOnce(&mut T) -> R) -> R {
+        let mut v = self.take().expect("signal used after its component was dropped");
+        let r = f(&mut v);
+        self.put(v, false);
+        r
+    }
+
     /// Leptos' read / write halves of this signal.
     pub fn split(self) -> (ReadSignal<T>, WriteSignal<T>) {
         (ReadSignal(self), WriteSignal(self))

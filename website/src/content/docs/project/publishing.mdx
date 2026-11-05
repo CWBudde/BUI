@@ -18,7 +18,7 @@ BUI ships to three registries: **PyPI** (`blenderui`), **npm** (`@blender-ui/nat
 | --- | --- | --- | --- |
 | PyPI | `blenderui` | `bindings/python/bui/_version.py` | Push a `v*` tag; CI builds, tests and publishes |
 | npm | `@blender-ui/native`, `@blender-ui/react` | Each package's `package.json` | `npm publish`, by hand, native first |
-| crates.io | `blenderui-tailwind`, `blenderui-macros`, `blenderui-sys`, `blenderui` | `bindings/rust/Cargo.toml` (`[workspace.package]`) | `cargo publish`, by hand, after vendoring the C sources |
+| crates.io | `blenderui-tailwind`, `-macros`, `-sys`, `-paint`, `-table`, `-vlist`, `blenderui`, `blenderui-imgui` | `bindings/rust/Cargo.toml` (`[workspace.package]`) | `cargo publish`, by hand, after vendoring the C sources |
 
 ## PyPI
 
@@ -114,24 +114,24 @@ The native package ships `blenderui.win32-x64.node` and `bui-runtime.win32-x64.e
 
 ## crates.io
 
-The four crates below are on crates.io (version 0.1.0 at the time of writing), and users add them with `cargo add blenderui`. They're published in dependency order:
+The eight crates below are on crates.io (version 0.2.0 at the time of writing), and users add them with `cargo add blenderui` (or `cargo add blenderui-imgui`). A tag push publishes them in dependency order:
 
 | Crate | What it is | Depends on |
 | --- | --- | --- |
 | `blenderui-tailwind` | Tailwind v4 class compiler (std only) | Nothing |
 | `blenderui-macros` | `rsx!` / `view!`, `#[component]`, `css!`, `tw!` | `blenderui-tailwind` |
 | `blenderui-sys` | FFI over the C kit; builds it with CMake | Nothing (CMake at build time) |
-| `blenderui` | The framework | All three |
-
-<Callout type="note" title="blenderui-imgui">
-The Dear ImGui crate, `blenderui-imgui`, isn't on crates.io yet; its users take it as a git dependency. It isn't marked `publish = false`, so `cargo publish --workspace` would include it: publish the four crates one by one (`cargo publish -p ...`) until it's meant to go out.
-</Callout>
+| `blenderui-paint` | Shared painting types: geometry, colors, the `PaintSink` trait, the text cache | Nothing |
+| `blenderui-table` | The data table's core (virtualization, sorting, selection) | `blenderui-paint` |
+| `blenderui-vlist` | The variable-height list's core (height index, anchored scrolling, sources) | `blenderui-paint` |
+| `blenderui` | The framework | The five above |
+| `blenderui-imgui` | Dear ImGui on BUI | `blenderui-sys` |
 
 A published crate can't reach files outside itself, so `blenderui-sys` must carry the C sources. Its build script looks for them in three places, in order: `BUI_SOURCE_DIR` if set, the surrounding repository, then `csrc/`, the vendored copy a downloaded crate has.
 
 <Steps>
 
-1. **Bump the version** in `bindings/rust/Cargo.toml` (`[workspace.package]`); the crates share one version. Then update the `version = "..."` of the path dependencies in `blenderui/Cargo.toml` and `blenderui-macros/Cargo.toml`.
+1. **Bump the version** in `bindings/rust/Cargo.toml` (`[workspace.package]`); the crates share one version. Then update the `version = "..."` of the path dependencies in `blenderui/Cargo.toml`, `blenderui-macros/Cargo.toml`, `blenderui-imgui/Cargo.toml`, `blenderui-table/Cargo.toml` and `blenderui-vlist/Cargo.toml`. `python tools/check_versions.py vX.Y.Z` checks all of them.
 
 2. **Log in once** with `cargo login` and a crates.io API token.
 
@@ -150,7 +150,7 @@ A published crate can't reach files outside itself, so `blenderui-sys` must carr
 
 ## Known gaps before 1.0
 
-- **macOS:** the native Cocoa host hasn't been run on a Mac yet. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
+- **macOS:** the native Cocoa host has been tried by hand on one Apple Silicon Mac so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
 - **Windows wheels** are built with MinGW. MSVC builds work (the Rust crate and the CMake build use it), but aren't what's published.
 - **No musllinux or 32-bit wheels** yet.
 - **npm:** prebuilt for Windows x64 only.

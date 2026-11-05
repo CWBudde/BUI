@@ -65,8 +65,8 @@ Register extra fonts with `blenderui::add_font`.
 is experimental. You need Rust 1.88+, CMake and a C compiler (the first build
 compiles BUI's C kit), and the X11 headers on Linux.
 
-Dear ImGui on BUI is a separate crate, `blenderui-imgui`, not on crates.io
-yet: use it as a git dependency.
+Dear ImGui on BUI is a separate crate, [`blenderui-imgui`](https://crates.io/crates/blenderui-imgui):
+`cargo add blenderui-imgui`.
 
 Guide, CSS coverage and limitations:
 [docs/rust.md](https://github.com/ppmpreetham/BUI/blob/main/docs/rust.md),

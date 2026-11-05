@@ -244,6 +244,23 @@ const tablesBase = {
     ],
     note: "Frame times are the whole pipeline: render, layout, paint and the software raster. One element per cell was measured at 2,000 rows (a million would need about 70 GB and over ten minutes per frame; its cost grows linearly with rows). Allocation counts come from a counting global allocator; the table's drawing allocates nothing in steady state (a unit test asserts it). The same table on real gpui against gpui-component is in the next chart.",
   },
+  shadcnDataTable: {
+    caption:
+      "The shadcn layer on the painted table, 1,000,000 rows x 20 columns in a 900x500 window (examples/bench_table.rs, release build, software raster, Windows 11)",
+    columns: ["", "DataTable before this change", "DataTable after", "shadcn Table<T>, typed cells"],
+    numeric: [1, 2, 3],
+    rows: [
+      ["Runs (median of)", "5", "5", "3"],
+      ["Build", "0.10 ms", "0.10 ms", "1.6 ms"],
+      ["First frame", "6.7 ms", "7.0 ms", "6.9 ms"],
+      ["Scroll frame", "1.39 ms", "<strong>1.26 ms</strong>", "1.53 ms"],
+      ["Heap allocations per frame (whole pipeline)", "48", "<strong>48</strong>", "<strong>48</strong>"],
+      ["Allocations in the table's own drawing", "0", "<strong>0</strong>", "<strong>0</strong>"],
+      ["Memory added (working set)", "17.2 MB", "17.3 MB", "24.1 MB"],
+      ["Sort 1,000,000 rows by a column (header click, includes the repaint)", "25.5 ms", "24.5 ms", "27.6 ms"],
+    ],
+    note: "Both DataTable columns are the same benchmark (the painted DataTable of the delegate API): before is the commit that precedes this change, built in a separate worktree, run alternately with the current build on the same machine; the difference is noise. The last column is the same table written with shadcn's ColumnDef and Table: a checkbox column, a dollar column and a progress column among the numbers, rows held as 4-byte row numbers whose cells are computed. Its extra build time is creating the one million row values and the row model; its extra memory is the data and the row model (a list of row numbers). The allocation counts come from a counting global allocator; unit tests assert that the table's own drawing allocates nothing in steady state, for both. Not measured: other machines, the real GPU path.",
+  },
   vlistIndex: {
     caption:
       "Height index against a flat Vec of running totals, medians of 5 runs of a batch (bindings/rust/blenderui-vlist, examples/bench_core.rs, release build)",
@@ -576,6 +593,20 @@ export const charts = {
       { label: "One element per cell", sub: "2,000 rows only", value: 1735, display: "1,735 ms" },
     ],
     table: "dataTable",
+    source: "bindings/rust/blenderui/examples/bench_table.rs",
+  },
+  "shadcn-data-table-frame": {
+    kind: "bars",
+    title: "shadcn Data Table: scroll frame, 1,000,000 rows x 20 columns",
+    subtitle: "Whole frame, 900x500 window, software raster, median of 3 to 5 runs",
+    unit: "ms",
+    better: "lower",
+    headline: { value: "1.5 ms", text: "per scrolled frame through ColumnDef and Table" },
+    bars: [
+      { label: "DataTable", sub: "the delegate API", value: 1.26, display: "1.26 ms", ours: true },
+      { label: "shadcn Table<T>", sub: "ColumnDef, typed cells", value: 1.53, display: "1.53 ms", ours: true },
+    ],
+    table: "shadcnDataTable",
     source: "bindings/rust/blenderui/examples/bench_table.rs",
   },
   "data-table-gpui": {

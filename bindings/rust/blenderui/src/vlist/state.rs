@@ -12,6 +12,18 @@ use crate::geometry::Bounds;
 use crate::sink::{measure, with_sink};
 use crate::{Context, SharedString, Window};
 
+/// What a list shows: TanStack Virtual's `range`, `count`, `scrollOffset` and `getTotalSize()`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ViewInfo {
+    /// The items in the viewport (empty before the first layout).
+    pub range: std::ops::Range<usize>,
+    pub count: usize,
+    /// Px from the top of the content (estimates for what is not measured).
+    pub scroll_offset: f64,
+    /// The content height, px.
+    pub total_size: f64,
+}
+
 /// The list.
 pub struct ListState<S: ItemSource + 'static, P: Measurer + ItemPainter + 'static> {
     list: List<S, P>,
@@ -19,6 +31,8 @@ pub struct ListState<S: ItemSource + 'static, P: Measurer + ItemPainter + 'stati
     pub(crate) bounds: Bounds<f32>,
     pub(crate) id: SharedString,
     last_frame: Option<Instant>,
+    /// The range and count last reported by [`take_view_change`](Self::take_view_change).
+    reported: Option<(std::ops::Range<usize>, usize)>,
 }
 
 impl<S: ItemSource, P: Measurer + ItemPainter> Deref for ListState<S, P> {
@@ -38,7 +52,7 @@ impl<S: ItemSource, P: Measurer + ItemPainter> ListState<S, P> {
     /// An entity state for `list` (call inside `cx.new`).
     pub fn new(list: List<S, P>, cx: &mut Context<Self>) -> Self {
         let id = SharedString::from(format!("bui-vlist-{}", cx.entity().entity_id()));
-        Self { list, bounds: Bounds::default(), id, last_frame: None }
+        Self { list, bounds: Bounds::default(), id, last_frame: None, reported: None }
     }
 
     /// Called while rendering with the list's last bounds: resize, advance
@@ -68,6 +82,24 @@ impl<S: ItemSource, P: Measurer + ItemPainter> ListState<S, P> {
             self.last_frame = None;
         }
         more
+    }
+
+    /// What the list shows now.
+    #[must_use]
+    pub fn view_info(&self) -> ViewInfo {
+        let (scroll_offset, total_size) = self.list.view.scroll_extent();
+        ViewInfo { range: self.list.view.visible_range().unwrap_or(0..0), count: self.list.source.len(), scroll_offset, total_size }
+    }
+
+    /// The view info when the visible range or the count changed since the
+    /// last call (TanStack Virtual's `onChange`), else `None`.
+    pub fn take_view_change(&mut self) -> Option<ViewInfo> {
+        let info = self.view_info();
+        let key = (info.range.clone(), info.count);
+        (self.reported.as_ref() != Some(&key)).then(|| {
+            self.reported = Some(key);
+            info
+        })
     }
 
     /// Draw the laid-out frame into `p` (logical px, `b` = the element's box).

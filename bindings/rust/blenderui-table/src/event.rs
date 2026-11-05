@@ -38,6 +38,18 @@ pub enum TableEvent {
     /// A double click on a column's border asks the delegate to fit it
     /// (source column). Adapters answer it and do not forward it.
     FitColumn(usize),
+    /// A click on a [`CellRender::Checkbox`](crate::CellRender::Checkbox)
+    /// cell (source row, source column). The row selection is the
+    /// delegate's: the table does not change it.
+    CheckRow(usize, usize),
+    /// A click on the header of a checkbox column (source column).
+    CheckAll(usize),
+    /// A click on a [`CellRender::Actions`](crate::CellRender::Actions) cell
+    /// (source row, source column).
+    CellAction(usize, usize),
+    /// A click on the header of a [`Column::header_menu`](crate::Column::header_menu)
+    /// column (source column): open its menu.
+    HeaderMenu(usize),
 }
 
 /// Rows and columns in view (gpui-component's `TableVisibleRange`). Rows are

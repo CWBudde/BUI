@@ -222,7 +222,7 @@ impl ListView {
         if !wants || self.flinging() {
             return;
         }
-        let ahead = shown.len().max(8);
+        let ahead = shown.len().max(self.opts.overscan);
         let want = if self.last_dir >= 0 { shown.start..(shown.end + ahead).min(page.end) } else { shown.start.saturating_sub(ahead).max(page.start)..shown.end };
         if self.requested.as_ref() != Some(&want) {
             if let Some(old) = self.requested.replace(want.clone()) {
@@ -235,7 +235,7 @@ impl ListView {
     /// The source's items changed without the view being told: rebuild the
     /// index (measured heights are lost), keeping the anchor item.
     pub(crate) fn resync<S: ItemSource, M: Measurer>(&mut self, src: &S, m: &M) {
-        let est = m.estimator(self.width.max(1.0));
+        let est = super::estimator_for(m, &self.opts, self.width);
         if let Ok(index) = crate::index::HeightIndex::estimated(src.len(), est, |r| src.bytes(r)) {
             self.index = index;
         }

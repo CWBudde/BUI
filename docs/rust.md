@@ -33,9 +33,8 @@ capitalized Blender components.
 cargo add blenderui
 ```
 
-or, by hand, `blenderui = "0.1"` under `[dependencies]`. (The Dear ImGui crate,
-`blenderui-imgui`, isn't on crates.io yet: use
-`blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI" }`.)
+or, by hand, `blenderui = "0.2"` under `[dependencies]`. (The Dear ImGui crate is
+[`blenderui-imgui`](https://crates.io/crates/blenderui-imgui): `cargo add blenderui-imgui`.)
 
 Building needs **CMake** and a **C compiler**: `blenderui-sys` compiles the C
 kit with the `cmake` crate. On Windows the default Rust target
@@ -475,6 +474,10 @@ let table = cx.new(|cx| TableState::new(People, window, cx));
 
 Features: sticky header and pinned columns, resize and move by dragging headers, click to sort, row (multi, Shift/Ctrl, Ctrl+A), cell and column selection, keyboard navigation, Ctrl+C as TSV, stripes, a row-number column, loading and empty states, `load_more`, Blender dark and light themes. The logic lives once, in the dependency-free `blenderui-table` crate (visible-range math and column culling, index masks and typed parallel sorts, lazy typed cells formatted without allocation, selection, keyboard navigation, column layout, a text-run cache, and the painting through a `PaintSink` trait). blenderui's `table` module is one adapter around it (`Host`, `PaintSink`, element); `bindings/rust/blenderui-table-gpui` is the same for real gpui, with gpui-component's names and a `render_td` escape hatch, outside the main workspace (it builds gpui). On real gpui, 1,000,000 x 20, it takes 1.45 ms per scrolled frame against gpui-component 0.9.0's 4.75 ms (see the website page "Data tables" for the method). `uniform_list(id, count, |range, window, cx| ...)` (gpui's signature) builds only the visible items of a list of real elements, from the same range math. Measured on 1,000,000 x 20: 0.1 ms to build, 1.1 ms per scrolled frame, about 22 ms for a header-click sort; see `examples/bench_table.rs` and the website page "Data tables". Not built yet in blenderui: element cells (`render_td`, available on gpui), a popup context menu, multi-cell ranges, JavaScript and Python wrappers.
 
+### The shadcn Data Table
+
+`blenderui::shadcn` puts the API of shadcn/ui's Data Table (TanStack Table's `ColumnDef`, table state and row models) on the same painted table, in `rsx!` and builder syntax: `<DataTable columns={columns} data={data} />` / `DataTable::new(columns, data)`, `ColumnDef::accessor_key` / `accessor_fn` (the row type implements `Record`), `select_column()` and `actions_column()`, `use_table()`, and the helper components `DataTableColumnHeader`, `DataTablePagination`, `DataTableViewOptions` and `DataTableToolbar`. Sorting, column and global filters, pagination, row selection and column visibility are TanStack's state, uncontrolled or controlled with `on_..._change` callbacks, over row models that are index lists. A shadcn `cell: ({ row }) => <JSX />` becomes a typed `CellRender` (text with a number format, checkbox, badge, progress, row actions) that the table paints straight from the data, so a steady frame still allocates nothing; there is no `flexRender`. The logic is in `blenderui_table::tanstack` (core, no framework); the components are in `blenderui/src/shadcn/`. Names, limits and numbers are on the website page "shadcn Data Table", and `examples/site_shadcn_table.rs` is the payments table of the recipe.
+
 ## Variable-height lists and chat
 
 `blenderui::vlist` is a virtualized list whose items have different heights (wrapped text, images), built for chat and optimal from 100 items to 10M and beyond with one design. The logic lives once, in the dependency-free `blenderui-vlist` crate (on `blenderui-paint`, which also holds the `PaintSink` trait, the theme `Palette` and the bounded `TextCache` that `blenderui-table` uses):
@@ -494,6 +497,8 @@ let chat = cx.new(|cx| ListState::new(ChatList::from_messages(synth::messages(0,
 ```
 
 For items that are not messages, build a `List` from your own `ItemSource`, `Measurer` and `ItemPainter` and show it with `variable_list(&state)`. `bindings/rust/blenderui-vlist-gpui` is the same list for real gpui (outside the main workspace); its benchmark against gpui's `list` and gpui-component's `virtual_list` is in `bench/`. Measured numbers and the method are on the website page "Variable-height lists". Not built yet: selecting text across messages, a background measuring thread, damage regions, JavaScript and Python wrappers.
+
+`blenderui::shadcn` also has `VirtualList` (`count` and an `item` closure that writes each item's text, so ten million rows cost a screenful) and `ChatList`, with TanStack Virtual's names: `estimate_size`, `overscan`, `get_item_key`, `on_range_change`, and `scroll_to_index` / `scroll_to_offset` / `measure_element` on the `ListHandle` that `use_virtual_list()` returns. They sit on `ListState` and `ItemSource` (the new `CountSource` and `RowStyle` in `blenderui-vlist`), so the file-backed source works under them. See the website page "Virtual list API" and `examples/site_shadcn_list.rs`.
 
 ## Headless rendering and tests
 
@@ -690,7 +695,7 @@ The `gdi-text` feature uses Windows' GDI engine and system fonts.
 - **Images**: PNG only, nearest-neighbour scaling. `video`, `audio`,
   `iframe` show a placeholder.
 - **Windows** are native on Windows (Win32), Linux (X11) and macOS (Cocoa,
-  new and not yet tried by hand on a Mac; it needs the main thread). The GPU
+  new, tried by hand so far on one Apple Silicon Mac; it needs the main thread). The GPU
   renderer runs on Windows and Linux.
 - `text-align: justify` aligns left. Table columns are sized from their
   widest single-line content, a simpler version of browsers' auto layout.

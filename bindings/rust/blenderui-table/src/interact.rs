@@ -5,7 +5,7 @@
 //! clipboard) are queued as [`TableEvent`]s.
 
 use crate::cell::CellSource;
-use crate::column::ColumnSort;
+use crate::column::{CellRender, ColumnSort};
 use crate::event::TableEvent;
 use crate::geom::Point;
 use crate::geometry::Hit;
@@ -79,6 +79,14 @@ impl TableModel {
     fn click_row(&mut self, r: usize, col: Option<usize>, mods: Mods, clicks: usize) {
         let row = self.mask.get(r);
         self.right_clicked = None;
+        if let Some(v) = col {
+            let (render, src) = (self.layout.column(v).render, self.layout.src(v));
+            match render {
+                CellRender::Checkbox => return self.events.push(TableEvent::CheckRow(row, src)),
+                CellRender::Actions => return self.events.push(TableEvent::CellAction(row, src)),
+                _ => {}
+            }
+        }
         let cell_mode = self.opts.cell_selectable && col.is_some_and(|v| self.layout.column(v).selectable);
         if cell_mode {
             let c = self.layout.src(col.unwrap_or(0));
@@ -175,7 +183,11 @@ impl TableModel {
         }
         let col = self.layout.column(v);
         let source = self.layout.src(v);
-        if self.opts.sortable && col.sort.is_some() {
+        if col.render == CellRender::Checkbox {
+            self.events.push(TableEvent::CheckAll(source));
+        } else if col.header_menu {
+            self.events.push(TableEvent::HeaderMenu(source));
+        } else if self.opts.sortable && col.sort.is_some() {
             let next = col.sort.map_or(ColumnSort::Ascending, ColumnSort::next);
             self.sort_by(src, source, next, by_mask);
         } else if self.opts.col_selectable && col.selectable {

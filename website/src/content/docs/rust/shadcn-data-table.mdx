@@ -1,0 +1,255 @@
+---
+title: shadcn Data Table
+description: The API of shadcn/ui's Data Table (TanStack Table's columns, state and row models) on the painted table, in rsx! and builder syntax. Sorting, filtering, pagination, row selection and column visibility over a million rows, with typed cells instead of JSX.
+section: Rust
+order: 67
+languages: ["rust"]
+sources: ["docs/rust.md", "bindings/rust/blenderui-table/src/tanstack/mod.rs", "bindings/rust/blenderui-table/src/tanstack/column.rs", "bindings/rust/blenderui-table/src/tanstack/state.rs", "bindings/rust/blenderui-table/src/tanstack/table.rs", "bindings/rust/blenderui-table/src/column.rs", "bindings/rust/blenderui-table/src/paint.rs", "bindings/rust/blenderui-table/src/interact.rs", "bindings/rust/blenderui/src/shadcn/mod.rs", "bindings/rust/blenderui/src/shadcn/table/mod.rs", "bindings/rust/blenderui/src/shadcn/table/data_table.rs", "bindings/rust/blenderui/src/shadcn/table/handle.rs", "bindings/rust/blenderui/src/shadcn/table/link.rs", "bindings/rust/blenderui/src/shadcn/table/pagination.rs", "bindings/rust/blenderui/src/shadcn/table/view_options.rs", "bindings/rust/blenderui/src/shadcn/table/toolbar.rs", "bindings/rust/blenderui/src/shadcn/table/column_header.rs", "bindings/rust/blenderui/tests/shadcn.rs", "bindings/rust/blenderui/examples/site_shadcn_table.rs", "bindings/rust/blenderui/examples/bench_table.rs"]
+---
+
+If you know shadcn/ui's Data Table, you already know this one. **`DataTable` takes `columns` and `data`**, keeps TanStack Table's state (sorting, filters, pagination, selection, column visibility), and draws a table that stays smooth at a million rows. The columns, the helper components and the callbacks have the names from the recipe.
+
+<Figure
+  shot="shadcn-data-table"
+  alt="A payments table: a select column with two rows checked and an indeterminate box in the header, a Status column of colored badges, an Email column with a sort icon whose header menu is open showing Asc, Desc and Hide, an Amount column of right-aligned dollar values and a row-actions column of three dots. Above it a filter field and a View button; below it the pagination footer: 2 of 84 row(s) selected, rows per page, Page 1 of 9 and four page buttons"
+  caption="The payments table of the recipe, two rows checked and the Email header's menu open (<code>examples/site_shadcn_table.rs</code>)."
+/>
+
+## A payments table
+
+Describe the row type once, write the columns, and put a `DataTable` in your view. This is the whole example behind the picture.
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust title="src/main.rs"
+use std::sync::Arc;
+use blenderui::prelude::*;
+use blenderui::shadcn::*;
+
+struct Payment { id: String, status: &'static str, email: String, amount: f64 }
+
+// Rust has no reflection, so the row type lists its fields once: this is what
+// makes accessor_key("email") work.
+impl Record for Payment {
+    const FIELDS: &'static [&'static str] = &["id", "status", "email", "amount"];
+    fn field(&self, field: usize) -> Cell<'_> {
+        match field {
+            0 => Cell::Str(&self.id),
+            1 => Cell::Str(self.status),
+            2 => Cell::Str(&self.email),
+            _ => Cell::F64(self.amount, 2),
+        }
+    }
+}
+
+fn columns() -> Arc<[ColumnDef<Payment>]> {
+    vec![
+        select_column(),
+        ColumnDef::accessor_key("status").header("Status").badge(|s| match s {
+            "success" => BadgeVariant::Default,
+            "failed" => BadgeVariant::Destructive,
+            _ => BadgeVariant::Secondary,
+        }),
+        ColumnDef::accessor_key("email").header(Header::menu("Email")).size(250.0),
+        ColumnDef::accessor_key("amount").header("Amount").meta(ColumnMeta::right().usd()),
+        actions_column(),
+    ]
+    .into()
+}
+
+struct Page { columns: Arc<[ColumnDef<Payment>]>, data: Arc<[Payment]> }
+
+impl Render for Page {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let (columns, data) = (self.columns.clone(), self.data.clone());
+        rsx! {
+            <DataTable columns={columns} data={data} filter_column="email" h={px(380.0)} />
+        }
+    }
+}
+```
+
+`<DataTable ... />` is a [component](../rsx-and-components/) like any other. A missing `columns` or `data` is the usual "a required prop is missing" compile error.
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust title="src/main.rs"
+use std::sync::Arc;
+use blenderui::prelude::*;
+use blenderui::shadcn::*;
+
+// Payment, its Record impl and columns() are the same as in the rsx! tab.
+
+struct Page { columns: Arc<[ColumnDef<Payment>]>, data: Arc<[Payment]> }
+
+impl Render for Page {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        DataTable::new(self.columns.clone(), self.data.clone())
+            .filter_column("email")
+            .h(px(380.0))
+    }
+}
+```
+
+`DataTable` is a builder: `columns` and `data` come first, every other prop is a method, and the Tailwind-style methods (`h`, `w`, `p_4` ...) work on it too.
+
+</Tab>
+</Tabs>
+
+`columns` and `data` are compared by identity, the way TanStack expects memoized references: an `Arc` that you clone is the same table, a fresh `Vec` is new data and the table sorts it again. Build them once (a field of your view, or `use_memo`) and pass them on every render.
+
+## The recipe, name by name
+
+| shadcn / TanStack | Rust |
+| --- | --- |
+| `ColumnDef<TData>` | `ColumnDef<T>` |
+| `accessorKey: "email"` | `ColumnDef::accessor_key("email")` (the row type implements `Record`) |
+| `accessorFn`, `id` | `ColumnDef::accessor_fn("id", \|row\| Cell::Str(&row.email))`, `.id("...")` |
+| `header: "Email"` | `.header("Email")` |
+| `header: ({ column }) => <DataTableColumnHeader />` | `.header(Header::menu("Email"))`, with the `DataTableColumnHeader` menu |
+| `cell: ({ row }) => <JSX />` | `.cell(CellRender::..)`, `.badge(..)`, `.meta(..)` (typed cells, see below) |
+| `enableSorting`, `enableHiding` | `.enable_sorting(bool)`, `.enable_hiding(bool)` |
+| `size`, `minSize`, `maxSize` | `.size(px)`, `.min_size(px)`, `.max_size(px)` |
+| `meta` | `.meta(ColumnMeta)`: alignment, number format, pinning |
+| `select` and `actions` columns | `select_column()`, `actions_column()` |
+| `useReactTable({ data, columns })` | `use_table()` and `DataTable` |
+| `<DataTable columns data />` | `<DataTable columns={..} data={..} />`, `DataTable::new(columns, data)` |
+| `state.sorting`, `onSortingChange` | `.sorting(SortingState)`, `.on_sorting_change(\|s\| ..)` |
+| `state.columnFilters`, `onColumnFiltersChange` | `.column_filters(..)`, `.on_column_filters_change(..)` |
+| `state.globalFilter`, `onGlobalFilterChange` | `.global_filter(..)`, `.on_global_filter_change(..)` |
+| `state.columnVisibility`, `onColumnVisibilityChange` | `.column_visibility(..)`, `.on_column_visibility_change(..)` |
+| `state.rowSelection`, `onRowSelectionChange` | `.row_selection(..)`, `.on_row_selection_change(..)` |
+| `state.pagination`, `onPaginationChange` | `.pagination(PaginationState { page_index, page_size })`, `.on_pagination_change(..)` |
+| `initialState` | `.initial_state(TableState)` |
+| `getCoreRowModel()` | `Table::core_row_model()` |
+| `getFilteredRowModel()` | `Table::filtered_row_model()` |
+| `getSortedRowModel()` | `Table::sorted_row_model()` |
+| `getPaginationRowModel()` | `Table::row_model()`, switched on by `.enable_pagination(true)` (the default) |
+| `table.setPageIndex`, `nextPage`, `previousPage`, `setPageSize` | the same names on `TableHandle` (`table.next_page(cx)`) |
+| `table.getPageCount()`, `getCanNextPage()` | `table.page_count()`, `table.can_next_page()` |
+| `column.setFilterValue(v)` | `table.set_column_filter_value("email", v, cx)` |
+| `column.toggleSorting(desc)` | `table.toggle_column_sorting("email", Some(desc), cx)` |
+| `column.toggleVisibility(v)` | `table.toggle_column_visibility("email", Some(v), cx)` |
+| `table.toggleAllPageRowsSelected(v)` | `table.toggle_all_page_rows_selected(v, cx)` |
+| `<DataTablePagination table={table} />` | `<DataTablePagination table={table} />` |
+| `<DataTableViewOptions table={table} />` | `<DataTableViewOptions table={table} />` |
+| the toolbar with the filter `Input` | `<DataTableToolbar table={table} filter_column="email" />`, or `filter_column` on `DataTable` |
+| `flexRender` | none: there is no element to render (see below) |
+
+## Typed cells instead of JSX
+
+The table is fast because it paints the cells in view straight from your data: there is no element per cell, a steady frame allocates nothing, and a million rows cost what a screenful does. shadcn's `cell: ({ row }) => <Badge>...</Badge>` builds an element per cell, which is exactly what this table avoids. So a cell is a **typed kind** the table knows how to paint:
+
+| `CellRender` | Looks like | The cell value |
+| --- | --- | --- |
+| `Text` (the default) | the text, left, centered or right aligned | any `Cell`; numbers can be formatted with `ColumnMeta::usd()` or a `NumberFormat` (prefix, suffix, thousands grouping) |
+| `Checkbox` | a Blender checkbox | a non-zero number is checked; `select_column()` reads the table's row selection |
+| `Badge` | a pill, as shadcn's Badge | the text; `.badge(\|text\| BadgeVariant::..)` picks `Default`, `Secondary`, `Destructive` or `Outline` |
+| `Progress` | a bar | a number from 0 to 100 |
+| `Actions` | three dots, as the "more" button | none; a click calls `on_row_action(index)` with the row's index in your data |
+
+That covers the cells of the recipe: the checkbox, the status badge, the formatted amount and the row-actions button. `flexRender` has no equivalent for the same reason, so headers are typed too: `Header::Text`, `Header::menu(title)` (the sortable header with a menu) and the select-all checkbox of `select_column()`.
+
+<Callout type="note" title="What this cannot do">
+A cell that needs real content, such as an avatar next to a name or a button that opens a dialog, is not possible in this table. React to `on_row_action` and show your own menu or dialog, or use the table of [Data tables](../data-table/) on gpui, whose `render_td` builds real elements for the cells in view only.
+</Callout>
+
+## State: uncontrolled, or controlled by you
+
+Every piece of state works as in TanStack. Give nothing and the table keeps it. Give `initial_state` to choose where it starts. Give a value (`.sorting(..)`) and the field is **controlled**: the table only reports a change through its `on_..._change` callback and shows what you pass back.
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust
+#[component]
+fn payments_table() {
+    let sorting = use_signal(SortingState::new());
+    rsx! {
+        <DataTable
+            columns={columns()}
+            data={data()}
+            sorting={sorting.get()}
+            on_sorting_change={move |s: &SortingState| sorting.set(s.clone())}
+        />
+    }
+}
+```
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust
+DataTable::new(self.columns.clone(), self.data.clone())
+    .sorting(self.sorting.clone())
+    .on_sorting_change(move |s| println!("sorting is now {s:?}"))
+```
+
+</Tab>
+</Tabs>
+
+A controlled field that you never update simply never changes, which is also how you lock a table to one sort order. The callbacks are called after the change, outside the table, so they can read the table's handle.
+
+## Helper components
+
+The helpers take a `TableHandle`, which `use_table()` returns (`useReactTable`'s result). Pass the same handle to `DataTable` and to any helper, and they can sit anywhere in the page:
+
+```rust
+#[component]
+fn payments_table() {
+    let table = use_table();
+    rsx! {
+        <DataTableToolbar table={table} filter_column="email" />
+        <DataTable table={table} columns={columns()} data={data()} toolbar={false} enable_pagination={false} />
+        <DataTablePagination table={table} page_sizes={vec![10, 25, 50]} />
+    }
+}
+```
+
+- **`DataTableColumnHeader`** is the menu of a sortable header (Asc, Desc, Hide). `DataTable` opens it under a header made with `Header::menu(..)`.
+- **`DataTablePagination`** has "Rows per page", "Page x of y", the four page buttons and "N of M row(s) selected.".
+- **`DataTableViewOptions`** is the "View" button with a check per column that can be hidden.
+- **`DataTableToolbar`** is a text field for `column.setFilterValue` (or the global filter without a column) and the view options.
+
+Outside a component, the handle's methods do what TanStack's table methods do: `table.next_page(cx)`, `table.set_column_filter_value("email", "ada", cx)`, `table.toggle_all_rows_selected(true, cx)`, and `table.snapshot()` for what the table shows.
+
+## Row models and the core
+
+The logic is not in the element. `blenderui_table::tanstack` has `Table<T>`, `ColumnDef<T>` and the state types in the dependency-free table core, so another adapter can reuse them; the components in this page are blenderui's. `Table<T>` keeps the four row models as lists of row numbers (Blender's index mask) instead of copies: sorting a million rows uses the typed keys of the table core, filtering is a pass over the cells' text, and a page is a slice. The headless tests drive a million-row table through sorting and paging without drawing anything.
+
+## How fast it is
+
+Writing the table through `ColumnDef` and `Table<T>` costs a little more per frame than the delegate API, and it still paints a million rows in about a millisecond and a half. The columns are read through the closures you gave, the badge, checkbox and progress cells are painted from the same typed values, and a steady frame allocates nothing in its own drawing.
+
+<BenchChart id="shadcn-data-table-frame" />
+
+The 1,000,000 x 20 table of [Data tables](../data-table/), written with shadcn's `ColumnDef` and `Table` (a checkbox column, a dollar column and a progress column among the numbers), measured by `examples/bench_table.rs`. The delegate API's number is also measured before and after this change: the layer adds no cost to the table that was already there.
+
+## Limitations
+
+- **Cells are typed, not JSX.** See above. This is the price of the speed; there is no `flexRender`.
+- **Filtering is `includesString`.** A column filter and the global filter keep the rows whose displayed text contains the value, ignoring case. There are no custom filter functions, faceted filters or range filters.
+- **A header click cycles ascending, descending, none for one column.** `sorting` can hold several rules, and they all apply (the first is the most significant), but there is no shift-click to add one. Numbers do not start descending, as TanStack's `auto` does.
+- **A click on a row does not select it.** Selection is the checkbox column, as in the recipe. The selected rows are highlighted in Blender's selection color.
+- **The row-actions button reports a click and shows nothing.** Show your own menu from `on_row_action`.
+- **Rows are identified by their index in the data** (`getRowId` is not supported), so a selection follows the index, not a key.
+- **Not built:** row expansion, grouping, column ordering and column sizing as table state (dragging a header border resizes, but nothing reports it as state), faceted values, and server-side (`manual*`) pagination, sorting and filtering in the `DataTable` component. The `TableOptions` of the core has the `manual` switches.
+- **A hidden column forgets a width you dragged it to**, and shows at its `size` again.
+- **Icons are text**: the menus say Asc, Desc and Hide and the page buttons are `<<`, `<`, `>` and `>>`.
+- **`TableHandle` calls do nothing before the table's first frame.** An unmounted `DataTable` leaves its state entity until the window closes.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Data tables" href="docs/rust/data-table/" icon="layers" kicker="Rust">
+    The table underneath: delegates, a million rows, selection and sorting.
+  </Card>
+  <Card title="Virtual list" href="docs/rust/shadcn-virtual-list/" icon="zap" kicker="Rust">
+    The same naming for a list of ten million rows or a chat.
+  </Card>
+  <Card title="rsx! and components" href="docs/rust/rsx-and-components/" icon="sparkles" kicker="Rust">
+    How components, props and children work.
+  </Card>
+</CardGrid>

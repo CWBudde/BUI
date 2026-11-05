@@ -5,6 +5,7 @@
 
 use std::cmp::Ordering;
 
+use crate::column::{BadgeVariant, NumberFormat};
 use crate::fmt::CellBuf;
 
 /// One cell's value.
@@ -59,6 +60,44 @@ impl Cell<'_> {
                 buf.push_f64(v, d);
                 buf.as_str()
             }
+        }
+    }
+
+    /// The text shown with a number format (a currency sign, grouped
+    /// digits): borrowed, or formatted into `buf`. Text is shown as it is.
+    #[must_use]
+    pub fn text_fmt<'b>(&'b self, buf: &'b mut CellBuf, fmt: &NumberFormat) -> &'b str {
+        if fmt.is_plain() || self.kind() != CellKind::Number {
+            return self.text(buf);
+        }
+        let mut digits = CellBuf::new();
+        let shown = self.text(&mut digits);
+        buf.clear();
+        buf.push_formatted(shown, fmt);
+        buf.as_str()
+    }
+
+    /// Whether the cell counts as "on": a non-zero number, or non-empty text
+    /// other than `false` and `0`.
+    #[must_use]
+    pub fn as_bool(&self) -> bool {
+        match *self {
+            Cell::Empty => false,
+            Cell::Str(s) => !matches!(s, "" | "false" | "0"),
+            Cell::I64(v) => v != 0,
+            Cell::U64(v) => v != 0,
+            Cell::F64(v, _) => v != 0.0,
+        }
+    }
+
+    /// A numeric cell's value (`None` for text and empty cells).
+    #[must_use]
+    pub const fn number(&self) -> Option<f64> {
+        match *self {
+            Cell::I64(v) => Some(v as f64),
+            Cell::U64(v) => Some(v as f64),
+            Cell::F64(v, _) => Some(v),
+            _ => None,
         }
     }
 
@@ -132,6 +171,15 @@ const fn rank(k: CellKind) -> u8 {
     }
 }
 
+/// A checkbox's state (the header's select-all box has three).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum Check {
+    #[default]
+    Unchecked,
+    Indeterminate,
+    Checked,
+}
+
 /// How a column is sorted.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum SortKind {
@@ -157,6 +205,19 @@ pub trait CellSource: Sync {
     fn sort_kind(&self, col: usize) -> SortKind {
         let _ = col;
         SortKind::Cells
+    }
+
+    /// The variant of the [`CellRender::Badge`](crate::CellRender::Badge) cell at (`row`, `col`).
+    fn badge(&self, row: usize, col: usize) -> BadgeVariant {
+        let _ = (row, col);
+        BadgeVariant::default()
+    }
+
+    /// The state of the select-all checkbox in the header of column `col`
+    /// ([`CellRender::Checkbox`](crate::CellRender::Checkbox)).
+    fn header_check(&self, col: usize) -> Check {
+        let _ = col;
+        Check::Unchecked
     }
 
     /// Order rows `a` and `b` by column `col` (used for [`SortKind::Custom`]).

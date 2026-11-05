@@ -1,6 +1,6 @@
 ---
-// From README.md "Platforms". Works (check) · experimental (flask): written but not yet
-// tested on real hardware · partial (half circle).
+// From README.md "Platforms". Works (check) · experimental (flask): written and checked by CI,
+// little hands-on testing · partial (half circle).
 import StatusMark from "../docs/StatusMark.astro";
 import { repoFile } from "../../lib/docs";
 
@@ -51,9 +51,9 @@ const rows: [string, Cell, Cell, Cell][] = [
 <p class="flex gap-2 border-t border-border px-5 py-3 text-[13px] leading-6 text-muted sm:px-8">
   <span class="mt-1"><StatusMark status="experimental" compact /></span>
   <span>
-    The macOS window host is a port of Blender's Cocoa code (GHOST): written, but not yet run on a Mac. Python can use the
-    standard Tk window there meanwhile (<code class="font-mono">BUI_HOST=tk</code>). If you have a Mac and a free afternoon,
-    you could be the first: the <a class="text-link underline underline-offset-4" href={repoFile("docs/macos-testing.md")}>macOS testing guide</a>
+    The macOS window host is a port of Blender's Cocoa code (GHOST): checked by CI and tried by hand on one Apple Silicon Mac so far, by <a class="text-link underline underline-offset-4" href="https://github.com/krishkalaria12">Krish Kalaria</a>, who also fixed what he found. Python can use the
+    standard Tk window there meanwhile (<code class="font-mono">BUI_HOST=tk</code>). If you have another Mac (Intel, or an older macOS) and a free afternoon,
+    you could be next: the <a class="text-link underline underline-offset-4" href={repoFile("docs/macos-testing.md")}>macOS testing guide</a>{" "}
     walks you through it.
   </span>
 </p>

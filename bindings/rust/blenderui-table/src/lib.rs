@@ -36,6 +36,7 @@ pub mod paint;
 pub mod selection;
 pub mod state;
 pub mod sort;
+pub mod tanstack;
 pub use blenderui_paint::{geom, text_cache};
 pub mod vec_table;
 pub mod visible;
@@ -45,8 +46,8 @@ mod alloc_probe;
 #[cfg(test)]
 mod test_util;
 
-pub use cell::{Cell, CellKind, CellSource, SortKind};
-pub use column::{Column, ColumnFixed, ColumnGroup, ColumnLayout, ColumnSort, Text, TextAlign};
+pub use cell::{Cell, CellKind, CellSource, Check, SortKind};
+pub use column::{BadgeVariant, CellRender, Column, ColumnFixed, ColumnGroup, ColumnLayout, ColumnSort, NumberFormat, Text, TextAlign};
 pub use event::{Size, TableEvent, TableOptions, TableSelection, TableVisibleRange};
 pub use fmt::CellBuf;
 pub use geom::{Point, Rect, Rgba};

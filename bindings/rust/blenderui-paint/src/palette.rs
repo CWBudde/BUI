@@ -15,6 +15,8 @@ pub struct Palette {
     pub sel: Rgba,
     pub hover: Rgba,
     pub accent: Rgba,
+    /// Destructive actions and errors (Blender's red).
+    pub danger: Rgba,
 }
 
 impl Palette {
@@ -47,6 +49,7 @@ impl Palette {
             sel: Rgba { a: sel.a.max(0.85), ..sel },
             hover: text.opacity(0.07),
             accent,
+            danger: Rgba::new(0.8, 0.2, 0.2, 1.0),
         }
     }
 }

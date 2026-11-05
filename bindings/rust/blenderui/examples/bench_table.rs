@@ -11,7 +11,10 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::time::Instant;
 
+use std::sync::Arc;
+
 use blenderui::prelude::*;
+use blenderui::shadcn::{select_column, CellRender, ColumnDef, ColumnMeta, Table, TableOptions};
 use blenderui::table::{Cell as TableCell, CellSource, Column, DataTable, TableDelegate, TableState};
 
 struct Counting;
@@ -76,6 +79,32 @@ fn cell(r: usize, c: usize) -> u64 {
 
 struct Painted(Entity<TableState<Big>>);
 impl Render for Painted {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        body().m_0().child(div().w(px(900.0)).h(px(500.0)).child(DataTable::new(&self.0).stripe(true)))
+    }
+}
+
+/// A row of the shadcn layer's table: only its number; the cells are computed from it.
+#[derive(Clone, Copy)]
+struct Row(u32);
+
+/// The same 1,000,000 x 20 table through shadcn's `ColumnDef` / TanStack `Table`: a checkbox
+/// column, a currency column and a progress column among the numbers.
+fn shadcn_table() -> Table<Row> {
+    let mut columns: Vec<ColumnDef<Row>> = vec![select_column()];
+    for c in 1..COLS {
+        columns.push(match c {
+            1 => ColumnDef::accessor_fn("c1", |r: &Row| TableCell::F64(cell(r.0 as usize, 1) as f64 / 100.0, 2)).meta(ColumnMeta::right().usd()),
+            2 => ColumnDef::accessor_fn("c2", |r: &Row| TableCell::U64(cell(r.0 as usize, 2) % 101)).cell(CellRender::Progress),
+            _ => ColumnDef::accessor_fn(format!("c{c}"), move |r: &Row| TableCell::U64(cell(r.0 as usize, c))),
+        }.size(100.0));
+    }
+    let data: Arc<[Row]> = (0..ROWS as u32).map(Row).collect();
+    Table::new(TableOptions::new(columns, data)).expect("valid columns")
+}
+
+struct Shadcn(Entity<TableState<Table<Row>>>);
+impl Render for Shadcn {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         body().m_0().child(div().w(px(900.0)).h(px(500.0)).child(DataTable::new(&self.0).stripe(true)))
     }
@@ -152,6 +181,47 @@ fn main() {
             let sort = ms(t3);
             println!("painted  rows={ROWS} cols={COLS} build_ms={build:.2} first_frame_ms={first:.2} scroll_frame_ms={per:.3} \
                       allocs_per_full_frame={allocs} sort_click_ms={sort:.1} rss_delta_mb={:.1}", rss_mb() - base);
+        });
+    }
+    if which == "all" || which == "shadcn" {
+        let base = rss_mb();
+        Application::headless().run(move |cx| {
+            let t0 = Instant::now();
+            let table = shadcn_table();
+            let mut handle = None;
+            let win = cx.open_window(opts(), |w, cx| {
+                let t = cx.new(|cx| TableState::new(table, w, cx).row_selectable(false));
+                handle = Some(t);
+                cx.new(|_| Shadcn(t))
+            }).unwrap();
+            let t = handle.unwrap();
+            let build = ms(t0);
+            let t1 = Instant::now();
+            cx.draw(win.id);
+            cx.draw(win.id);
+            let first = ms(t1);
+            let frames = 300;
+            COUNT.set(0);
+            let t2 = Instant::now();
+            for _ in 0..frames {
+                t.update(cx, |s, _| s.scroll_by(0.0, 37.0));
+                cx.notify_all();
+                cx.draw(win.id);
+            }
+            let per = ms(t2) / f64::from(frames);
+            let allocs = COUNT.get() / frames as usize;
+            // a header click sorts through the TanStack layer (typed keys, the same engine); the view refreshes after
+            let t3 = Instant::now();
+            cx.simulate_click(win.id, 400.0, 10.0);
+            t.update(cx, |s, c| {
+                if s.delegate_mut().take_dirty() {
+                    s.refresh(c);
+                }
+            });
+            cx.notify_all();
+            cx.draw(win.id);
+            let sort = ms(t3);
+            println!("shadcn   rows={ROWS} cols={COLS} build_ms={build:.2} first_frame_ms={first:.2} scroll_frame_ms={per:.3}                       allocs_per_full_frame={allocs} sort_click_ms={sort:.1} rss_delta_mb={:.1}", rss_mb() - base);
         });
     }
     for (name, n, rows) in [("uniform_list", 1usize, ROWS), ("naive_2000", 2usize, 2000), ("naive_20000", 2usize, 20_000)] {

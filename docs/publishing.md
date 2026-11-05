@@ -124,8 +124,8 @@ Try it without publishing: Actions > release > Run workflow, enter the tag and l
   before-all` installs the X11 headers (`libX11-devel` / `libx11-dev`), and
   libX11 itself is loaded at run time, so the wheels still import on servers
   without it. (This used to be a gap; it's fixed.)
-- macOS: the native Cocoa window host is new and hasn't been run on a Mac
-  yet. With `BUI_HOST=tk` the wheels use the stdlib Tk window instead, which
+- macOS: the native Cocoa window host is new and has been tried by hand on one
+  Apple Silicon Mac so far. With `BUI_HOST=tk` the wheels use the stdlib Tk window instead, which
   needs `tkinter` (for example from python.org or `brew install python-tk`).
 - MSVC builds work (the Rust crate and the CMake build use Visual Studio's
   toolchain), but the published Windows wheels are built with MinGW.
@@ -137,16 +137,20 @@ Try it without publishing: Actions > release > Run workflow, enter the tag and l
 
 `blenderui` is on [crates.io](https://crates.io/crates/blenderui)
 (`cargo add blenderui`). The workspace in `bindings/rust/` has eight crates;
-four are published to crates.io, in dependency order, and the rest stay in
-the repository:
+all but the three JavaScript crates are published to crates.io, in
+dependency order (a `v*` tag does it, see above), and those three stay in the
+repository:
 
 | Crate | What it is | Depends on | crates.io |
 |---|---|---|---|
 | `blenderui-tailwind` | Tailwind v4 class compiler (std only) | none | Published |
 | `blenderui-macros` | `rsx!` / `view!`, `#[component]`, `css!`, `tw!` | `blenderui-tailwind` | Published |
 | `blenderui-sys` | FFI over the C kit; builds it with CMake | none (`cmake` at build time) | Published |
-| `blenderui` | the framework | all three | Published |
-| `blenderui-imgui` | Dear ImGui on BUI (`blender-widgets` feature for Blender's widgets) | `blenderui-sys` (`imgui` feature) | Not yet: use it as a git dependency |
+| `blenderui-paint` | shared painting types: geometry, colors, `PaintSink`, the text cache | none | Published |
+| `blenderui-table` | the data table's core | `blenderui-paint` | Published |
+| `blenderui-vlist` | the variable-height list's core | `blenderui-paint` | Published |
+| `blenderui` | the framework | the five above | Published |
+| `blenderui-imgui` | Dear ImGui on BUI (`blender-widgets` feature for Blender's widgets) | `blenderui-sys` (`imgui` feature) | Published |
 | `blenderui-jsview` | The JavaScript view of a window, shared by the Node.js addon and the QuickJS runtime | `blenderui` | `publish = false` |
 | `blenderui-node` | The napi-rs addon behind `@blender-ui/native` | `blenderui`, `blenderui-jsview` | `publish = false` (ships on npm) |
 | `blenderui-qjs` | `bui-runtime`: BUI with embedded QuickJS, for `bui build` | `blenderui`, `blenderui-jsview` | `publish = false` (ships on npm) |

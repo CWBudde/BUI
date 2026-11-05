@@ -146,6 +146,8 @@ def site_rust(theme, only_example=None):
         ("site_animation", "feature-animation"),
         ("site_data_table", "data-table"),
         ("site_chat", "chat-list"),
+        ("site_shadcn_table", "shadcn-data-table"),
+        ("site_shadcn_list", "shadcn-virtual-list"),
     ]
     for ex, name in shots:
         if only_example and ex != only_example:
