@@ -242,6 +242,24 @@ tkinter and Qt).
 - **Keyboard.** Tab and Shift+Tab move to the next or previous field while
   editing. Escape cancels.
 
+## File dialogs
+
+`bui.filebrowser.ask` shows Blender's File Browser in its own window and waits
+for an answer:
+
+```python
+from bui import filebrowser
+
+path = filebrowser.ask("open", title="Open Image",
+                       filetypes=[("Images", "*.png *.jpg"), ("All files", "*")])
+folder = filebrowser.ask("directory")
+paths = filebrowser.ask("open", multiple=True)        # a list
+name = filebrowser.ask("save", defaultextension=".txt")
+```
+
+`kind` is `"open"`, `"save"` or `"directory"`. Cancel returns `None`.
+`tkinter.filedialog` and `QFileDialog` use the same browser.
+
 ## Headless use (tests, screenshots)
 
 ```python

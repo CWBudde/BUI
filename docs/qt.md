@@ -93,7 +93,7 @@ is much lower. See [getting-started.md](getting-started.md#gpu-rendering).
 | Painting | `QPainter` (`fillRect`, `drawRect`, `drawRoundedRect`, `drawEllipse`, `drawLine`, `drawPolyline`, `drawPolygon`, `drawArc`, `drawPie`, `drawText`, `drawPixmap`, `translate`, `save`, `restore`, `setOpacity`), `QPen`, `QBrush`, `QColor`, `QFont`, `QPixmap` / `QImage` |
 | Events | Override `mousePressEvent`, `mouseReleaseEvent`, `mouseMoveEvent`, `mouseDoubleClickEvent`, `keyPressEvent`, `wheelEvent`, `enterEvent`, `leaveEvent`, `closeEvent`, `paintEvent`. Event types: `QMouseEvent`, `QKeyEvent`, `QWheelEvent`, `QPaintEvent`, `QCloseEvent`. |
 | Values | `Qt` constants (alignment, keys, orientation, check states), `QPoint`, `QSize`, `QRect`, `QMargins`, `QSizePolicy`, `QIcon` |
-| Dialogs | `QMessageBox` (static calls return immediately; not drawn yet), `QFileDialog` (the OS file dialogs) |
+| Dialogs | `QMessageBox` (static calls return immediately; not drawn yet), `QFileDialog` (`getOpenFileName(s)`, `getSaveFileName`, `getExistingDirectory`: Blender's File Browser; `BUI_FILEDIALOG=native` for the OS dialogs) |
 
 Member-by-member tables: [../SYNTAX_COVERAGE.md](../SYNTAX_COVERAGE.md#qt-syntax-buiqtsyntax).
 

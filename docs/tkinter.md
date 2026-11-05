@@ -31,6 +31,12 @@ from tkinter import ttk
 `filedialog`, `simpledialog`, `colorchooser`, `commondialog`, `dialog`,
 `font`, `scrolledtext` and `constants`.
 
+`filedialog` (`askopenfilename`, `asksaveasfilename`, `askopenfilenames`,
+`askdirectory`, ...) shows Blender's File Browser in its own window. It accepts
+tkinter's options (`title`, `initialdir`, `initialfile`, `filetypes`,
+`defaultextension`) and returns what tkinter returns. Set
+`BUI_FILEDIALOG=native` to get the operating system's dialogs instead.
+
 **3. Import it by name**
 
 ```python
