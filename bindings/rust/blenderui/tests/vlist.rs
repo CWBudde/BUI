@@ -129,22 +129,3 @@ fn the_background_follows_the_theme() {
     };
     assert_ne!(shot("light"), shot("dark"));
 }
-
-#[test]
-fn probe_wheel_latency() {
-    run("dark", |cx| {
-        let (id, chat) = open(cx, 1_000_000);
-        frame(cx, id);
-        let first = |cx: &App| chat.read(cx).view.placed().first().map(|p| p.item).unwrap();
-        println!("start first={}", first(cx));
-        for notch in 0..4 {
-            cx.simulate_scroll(id, 300.0, 200.0, 3);
-            for f in 0..30 {
-                std::thread::sleep(std::time::Duration::from_millis(16));
-                let t = std::time::Instant::now();
-                cx.draw(id);
-                println!("notch {notch} frame {f}: first={} draw {:.2} ms", first(cx), t.elapsed().as_secs_f64() * 1000.0);
-            }
-        }
-    });
-}

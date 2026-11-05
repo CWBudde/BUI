@@ -103,10 +103,9 @@ impl<S: ItemSource, P: Measurer + ItemPainter> IntoElement for VariableList<S, P
                 .on_mouse_up(MouseButton::Left, move |_, _, cx| up.update(cx, |s, _| s.pointer_up()))
                 .on_scroll_wheel(move |e, w, cx| {
                     wh.update(cx, |s, _| {
-                        // a notched wheel gives whole lines; a touchpad fractions of one
+                        // Blender's wheel scrolls at once, a notch or a touchpad fraction alike: no easing
                         let lines = f64::from(e.delta);
-                        if std::env::var_os("CHAT_TRACE").is_some() { eprintln!("{:?} WHEEL {lines}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() % 100_000).unwrap_or(0)); } // TEMP-TRACE
-                        s.view.wheel(-lines * WHEEL_NOTCH_PX, lines.fract() != 0.0);
+                        s.view.wheel(-lines * WHEEL_NOTCH_PX, true);
                     });
                     w.request_animation_frame();
                 })
@@ -131,7 +130,7 @@ impl<S: ItemSource, P: Measurer + ItemPainter> IntoElement for VariableList<S, P
 const LINE_PX: f64 = 19.0;
 
 /// One wheel notch, in px: several messages per notch.
-const WHEEL_NOTCH_PX: f64 = 1000.0;
+const WHEEL_NOTCH_PX: f64 = 57.0;
 
 fn state_pointer_down<S: ItemSource, P: Measurer + ItemPainter>(
     state: Entity<ListState<S, P>>,

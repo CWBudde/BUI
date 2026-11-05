@@ -26,9 +26,6 @@ impl Render for Page {
             (s.source.len(), p.first().zip(p.last()).map(|(a, b)| (a.item, b.item)))
         };
         let shown = shown.map_or_else(String::new, |(a, b)| format!("showing {a}..{b}"));
-        if std::env::var_os("CHAT_TRACE").is_some() {
-            eprintln!("{:?} {shown}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() % 100_000).unwrap_or(0));
-        }
         html().styled().size_full().child(
             body().m_0().size_full().child(
                 // fills the window: the list takes what the status bar leaves
