@@ -568,8 +568,8 @@ if host.native_available():
     Listbox(root, height=5).pack()
     root.update()
     top = Toplevel(root)
-    for _ in range(4):  # larger than the dialog's minimum size
-        Label(top, text="wider than the minimum " * 5).pack()
+    for _ in range(4):  # larger than the dialog's minimum size, smaller than a small screen
+        Label(top, text="wider than the minimum " * 3).pack()
     simpledialog._place_window(top)
     root.update()
     for win in (root, top):
