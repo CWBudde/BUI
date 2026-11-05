@@ -78,6 +78,11 @@ if(BUI_BUILD_TESTS)
   set_tests_properties(bui_window_smoke PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
 endif()
 
+# before the Python bindings: they add the blenderui.imgui extension when bui_cimgui exists
+if(BUI_BUILD_IMGUI)
+  add_subdirectory(bindings/imgui)
+endif()
+
 if(BUI_BUILD_PYTHON_BINDINGS)
   add_subdirectory(bindings/python)
 endif()
@@ -86,9 +91,6 @@ if(BUI_BUILD_QT_BACKEND)
   add_subdirectory(backends/qt)
 endif()
 
-if(BUI_BUILD_IMGUI)
-  add_subdirectory(bindings/imgui)
-endif()
 
 if(BUI_BUILD_EXAMPLES)
   add_subdirectory(examples)

@@ -13,6 +13,11 @@ Blender's UI font (Inter, embedded in BUI).
   (alias `bui::imgui`: ImGui core + demo + this backend + style), `bui_imgui_demo`
   (`examples/imgui_demo.cpp`) and the CTest `imgui_backend`.
 
+- **C, Python, Rust:** generated from `imgui.h` by `gen/gen.py`
+  (`py -3 -I bindings/imgui/gen/gen.py`): the C API `c/cimgui.h` (CMake `bui_cimgui`, with
+  `c/cimgui_impl_bui.h` for this backend), `blenderui.imgui` for Python (`_buiimgui`) and the
+  `blenderui-imgui` crate. See [docs/imgui.md](../../docs/imgui.md).
+
 ## Using it
 
 ```cpp
