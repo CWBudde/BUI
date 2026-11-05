@@ -12,15 +12,21 @@ SPDX-License-Identifier: GPL-2.0-or-later
 """
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 
 def build(root):
     root.title("Inventory")
+
+    def open_file():
+        path = filedialog.askopenfilename(parent=root, title="Open",
+                                          filetypes=[("Text", "*.txt"), ("All files", "*")])
+        if path:
+            root.title("Inventory - " + path)
     menubar = tk.Menu(root)
     filemenu = tk.Menu(menubar, tearoff=0)
     filemenu.add_command(label="New", accelerator="Ctrl+N")
-    filemenu.add_command(label="Open...", accelerator="Ctrl+O")
+    filemenu.add_command(label="Open...", accelerator="Ctrl+O", command=open_file)
     filemenu.add_separator()
     filemenu.add_command(label="Quit", command=root.destroy)
     menubar.add_cascade(label="File", menu=filemenu)

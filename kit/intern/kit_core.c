@@ -155,6 +155,7 @@ static const BKClass *const g_classes[] = {
     &bk_cls_gridview, &bk_cls_ramp,      &bk_cls_curve,      &bk_cls_normal,
     &bk_cls_histogram, &bk_cls_frame,     &bk_cls_radio,      &bk_cls_canvas,
     &bk_cls_textarea,  &bk_cls_image,     &bk_cls_meter,      &bk_cls_custom,
+    &bk_cls_filebrowser,
 };
 
 const BKClass *bk_class_find(const char *name)
@@ -768,6 +769,7 @@ static const struct {
     {"viewevents", NF_VIEWEVENTS, false}, {"noscrollbar", NF_NOSCROLLBAR, true},
     {"opaque", NF_OPAQUE, false},
     {"html", NF_HTML, true}, /* Chrome's form-control look (kit_widgets.c) */
+    {"active_default", NF_ACTIVE_DEFAULT, false},
 };
 
 static int g_view_watchers; /* > 0 once any node asked for view events */
@@ -1135,6 +1137,9 @@ static void edit_follow_text(BKNode *n)
 
 int BK_set_str(BKNode *n, const char *key, const char *v)
 {
+  if (n->cls->set_str && n->cls->set_str(n, key, v)) {
+    return 1;
+  }
   if (strcmp(key, "text") == 0 || strcmp(key, "title") == 0) {
     bk_set_text(&n->text, v);
     bk_relayout(n);
@@ -1215,6 +1220,12 @@ int BK_set_str(BKNode *n, const char *key, const char *v)
 
 const char *BK_get_str(BKNode *n, const char *key)
 {
+  if (n->cls->get_str) {
+    const char *s = n->cls->get_str(n, key);
+    if (s) {
+      return s;
+    }
+  }
   if (strcmp(key, "value") == 0 && n->cls == &bk_cls_textarea) {
     return bk_textarea_text(n);
   }
@@ -1289,6 +1300,9 @@ int BK_get_color(BKNode *n, const char *key, float r[4])
 
 int BK_set_strs(BKNode *n, const char *key, const char *const *v, int count)
 {
+  if (n->cls->set_strs && n->cls->set_strs(n, key, v, count)) {
+    return 1;
+  }
   if (strcmp(key, "headers") == 0) { /* tree/table column headers */
     bk_strs_set(&n->shortcuts, v, count);
     bk_relayout(n);
@@ -1329,11 +1343,19 @@ int BK_set_strs(BKNode *n, const char *key, const char *const *v, int count)
 
 int BK_strs_count(BKNode *n, const char *key)
 {
+  const BKStrs *own = n->cls->get_strs ? n->cls->get_strs(n, key) : NULL;
+  if (own) {
+    return own->n;
+  }
   return strcmp(key, "items") == 0 ? n->items.n : 0;
 }
 
 const char *BK_strs_get(BKNode *n, const char *key, int i)
 {
+  const BKStrs *own = n->cls->get_strs ? n->cls->get_strs(n, key) : NULL;
+  if (own) {
+    return (i >= 0 && i < own->n) ? own->v[i] : "";
+  }
   if (strcmp(key, "items") == 0 && i >= 0 && i < n->items.n) {
     return n->items.v[i];
   }
@@ -1905,22 +1927,40 @@ static void draw_tooltip(BKContext *ctx)
  * lerps from V2D_SCROLL_MIN_WIDTH (5 px * scale + 2 * pixelsize) to V2D_SCROLL_WIDTH
  * (0.45 * widget_unit + 2 * pixelsize) by alpha_vert, padded 0.1 units from the region edge; the
  * thumb is at least V2D_SCROLL_THUMB_SIZE_MIN (30 px * scale). */
-static void region_scroll_rects(BKContext *ctx, BKRect *r_track, BKRect *r_thumb)
+void bk_scroller_rects(const BKRect *area, int scroll, int content_h, int alpha, BKRect *r_track,
+                       BKRect *r_thumb)
 {
-  const int top = ctx->header_h, view_h = ctx->win_h - top;
+  const int top = area->ymin, view_h = bk_rh(area);
   const float min_w = 5.0f * bk_scale_fac + 2.0f * bk_px();
   const float max_w = 0.45f * bk_unit() + 2.0f * bk_px();
-  const int sw = (int)((max_w - min_w) * (ctx->scroll_alpha / 255.0f) + min_w);
-  const int xmax = ctx->win_w - (int)(0.1f * bk_unit());
+  const int sw = (int)((max_w - min_w) * (alpha / 255.0f) + min_w);
+  const int xmax = area->xmax - (int)(0.1f * bk_unit());
   *r_track = bk_rect(xmax - sw, top, sw, view_h);
   const float thumb_min = 30.0f * bk_scale_fac;
-  float t0 = top + (float)view_h * ctx->scroll / ctx->content_h;
-  float t1 = top + (float)view_h * (ctx->scroll + view_h) / ctx->content_h;
+  float t0 = top + (float)view_h * scroll / content_h;
+  float t1 = top + (float)view_h * (scroll + view_h) / content_h;
   if (t1 - t0 < thumb_min) {
     t1 = BK_CLAMP(t0 + thumb_min, top + thumb_min, (float)(top + view_h));
     t0 = BK_CLAMP(t0, (float)top, top + view_h - thumb_min);
   }
   *r_thumb = bk_rect(r_track->xmin, (int)t0, sw, (int)(t1 - t0));
+}
+
+/* view2d_scrollers_draw_ex: alpha_fac maps alpha_vert 0..255 to V2D_SCROLL_MIN_ALPHA..1 */
+void bk_scroller_draw(const BKRect *track, const BKRect *thumb, int alpha, bool pressed)
+{
+  const float alpha_fac = (alpha / 255.0f) * (1.0f - 0.4f) + 0.4f;
+  BKWCol wc = bk_theme.scroll;
+  wc.inner[3] = wc.inner[3] == 0 ? (uchar)(0.25f * alpha) : (uchar)(wc.inner[3] * alpha_fac);
+  wc.item[3] = (uchar)(wc.item[3] * alpha_fac);
+  wc.outline[3] = 0; /* also disables the emboss, as widget_emboss[3] = 0 does */
+  bk_widget_scroll(&wc, track, thumb, pressed);
+}
+
+static void region_scroll_rects(BKContext *ctx, BKRect *r_track, BKRect *r_thumb)
+{
+  const BKRect area = bk_rect(0, ctx->header_h, ctx->win_w, ctx->win_h - ctx->header_h);
+  bk_scroller_rects(&area, ctx->scroll, ctx->content_h, ctx->scroll_alpha, r_track, r_thumb);
 }
 
 /* screen_ops.cc area_azone (AZ_SCROLL_VERT): alpha_vert = 1 - distance in x from the scroller /
@@ -1968,14 +2008,7 @@ static void draw_region(BKContext *ctx, const BKRect *rect)
   if (ctx->content_h > view_h) { /* region scrollbar */
     BKRect track, thumb;
     region_scroll_rects(ctx, &track, &thumb);
-    /* view2d_scrollers_draw_ex: alpha_fac maps alpha_vert 0..255 to V2D_SCROLL_MIN_ALPHA..1 */
-    const float a = ctx->scroll_alpha / 255.0f, alpha_fac = a * (1.0f - 0.4f) + 0.4f;
-    BKWCol wc = bk_theme.scroll;
-    wc.inner[3] = wc.inner[3] == 0 ? (uchar)(0.25f * ctx->scroll_alpha) :
-                                     (uchar)(wc.inner[3] * alpha_fac);
-    wc.item[3] = (uchar)(wc.item[3] * alpha_fac);
-    wc.outline[3] = 0; /* also disables the emboss, as widget_emboss[3] = 0 does */
-    bk_widget_scroll(&wc, &track, &thumb, false);
+    bk_scroller_draw(&track, &thumb, ctx->scroll_alpha, false);
   }
   for (int i = 0; i < ctx->npopups; i++) {
     bk_draw_tree(ctx->popups[i]);

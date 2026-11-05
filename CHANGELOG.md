@@ -67,6 +67,20 @@ All notable changes to **blenderui** (BUI). The format follows
 - **`fill=True`**: in a column, the component takes the spare height, as a region fills its area.
 - **`tools/blender_compare.py`**: renders BUI's version of a piece of Blender's UI next to a capture from a real Blender. **`tools/png_pixels.py`** reads pixels from PNGs.
 
+### Added (file browser)
+- **Blender's File Browser** (`kit/intern/kit_filebrowser.c` and the `kit_file*` / `kit_fsmenu.c` files), ported from `editors/space_file`. The Blender sources are in `ui/space_file` for reference.
+  - **Node:** `BK_node_new("filebrowser")`, with properties for the folder, file name, mode (open, save, folder), multiple selection, filters, sorting and search. It is the whole browser:
+    - bookmark panels: Volumes, System, Bookmarks (saved to `bookmarks.txt`) and Recent;
+    - the folder path bar;
+    - the file list: Name, Date Modified and Size columns; click a header to sort;
+    - the execute bar.
+  - **Keys:** Blender's file browser keymap. Return, Backspace, Alt+arrows for history, Ctrl+H for hidden files, Ctrl+B to bookmark, I for a new folder, F2 to rename, R to refresh, A / Alt+A to (de)select all.
+  - **Dialog:** `BK_file_dialog` shows the browser in its own window and returns the chosen paths.
+  - **Speed:** dates, sizes and icons are computed when a row is first drawn, and hover redraws only the changed rows.
+  - **Platforms:** Linux, BSD and macOS (`kit_filebrowser_posix.c`), and Windows (`kit_filebrowser_win32.c`).
+- **Python:** `bui.filebrowser.ask("open" | "save" | "directory", ...)`. `tkinter.filedialog` (through `bui.tksyntax`) and `QFileDialog` (through `bui.qtsyntax`) now show this browser. Set `BUI_FILEDIALOG=native` to get the operating system's dialogs instead.
+- **Theme:** the `space_file` colors (`file_back`, `file_text`, `file_header`, `file_row_alternate`).
+
 ### Added (platforms)
 - **Linux: native windows on X11** (`kit/intern/kit_window_x11.c`, the same `BK_window_*` API as Win32). Wayland sessions run it through XWayland.
   - **Input:** button and key mapping after Blender's `GHOST_SystemX11`; key repeat filtered.

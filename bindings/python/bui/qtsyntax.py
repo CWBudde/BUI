@@ -22,12 +22,13 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Callable, List, Optional
 
 import buipy
 
-from bui import _realtk, host
+from bui import _realtk, filebrowser, host
 from bui.components.core import (EV_ACTIVATE, EV_CHANGE, EV_CLICK, EV_DOUBLE, EV_ENTER,  # noqa: F401
                                  EV_KEY, EV_LEAVE, EV_MOTION, EV_PRESS, EV_RELEASE,
                                  EV_RENAME, EV_SUBMIT, EV_TOGGLE, EV_WHEEL)
@@ -2740,7 +2741,29 @@ class QMessageBox:
 
 class QFileDialog:
     @staticmethod
+    def _blender(kind, caption, directory, filter, multiple=False):  # noqa: A002
+        """Blender's file browser (bui.filebrowser); None when BUI_FILEDIALOG=native."""
+        if not filebrowser.enabled():
+            return None
+        initialdir, initialfile = (directory, None) if not directory or os.path.isdir(
+            directory) else os.path.split(directory)
+        result = filebrowser.ask(kind, title=caption or None, initialdir=initialdir or None,
+                                 initialfile=initialfile, multiple=multiple,
+                                 filters=filebrowser.qt_filters(filter))
+        if result is None:
+            return [] if multiple else ""
+        return result
+
+    @staticmethod
+    def getOpenFileNames(parent=None, caption="", directory="", filter="", *a):  # noqa: N802,A002
+        paths = QFileDialog._blender("open", caption, directory, filter, multiple=True)
+        return (paths or [], "")
+
+    @staticmethod
     def getOpenFileName(parent=None, caption="", directory="", filter="", *a):  # noqa: N802,A002
+        path = QFileDialog._blender("open", caption, directory, filter)
+        if path is not None:
+            return path, ""
         try:
             filedialog = _realtk.module("tkinter.filedialog")
             return filedialog.askopenfilename(title=caption), ""
@@ -2749,6 +2772,9 @@ class QFileDialog:
 
     @staticmethod
     def getSaveFileName(parent=None, caption="", directory="", filter="", *a):  # noqa: N802,A002
+        path = QFileDialog._blender("save", caption, directory, filter)
+        if path is not None:
+            return path, ""
         try:
             filedialog = _realtk.module("tkinter.filedialog")
             return filedialog.asksaveasfilename(title=caption), ""
@@ -2757,6 +2783,9 @@ class QFileDialog:
 
     @staticmethod
     def getExistingDirectory(parent=None, caption="", directory="", *a):  # noqa: N802
+        path = QFileDialog._blender("directory", caption, directory, "")
+        if path is not None:
+            return path
         try:
             filedialog = _realtk.module("tkinter.filedialog")
             return filedialog.askdirectory(title=caption)

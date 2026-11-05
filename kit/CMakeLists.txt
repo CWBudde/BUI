@@ -21,6 +21,14 @@ add_library(bui_kit STATIC
   intern/kit_regions.c
   intern/kit_nodes.c
   intern/kit_custom.c
+  intern/kit_filebrowser.c
+  intern/kit_filebrowser_paths.c
+  intern/kit_filebrowser_posix.c
+  intern/kit_filebrowser_win32.c
+  intern/kit_filelist.c
+  intern/kit_filelist_view.c
+  intern/kit_fileops.c
+  intern/kit_fsmenu.c
   # Blender's UI sources copied and edited for the kit (C++; see blender/bk_blender.h)
   intern/blender/interface_string_search.cc
   intern/blender/interface_utils.cc

@@ -53,6 +53,8 @@ typedef struct BKTheme {
   float menu_shadow_fac;
   int menu_shadow_width;
   float panel_roundness;
+  /* space_file */
+  uchar file_back[4], file_text[4], file_header[4], file_row_alternate[4];
 } BKTheme;
 
 extern BKTheme bk_theme;
@@ -162,7 +164,15 @@ int bk_icon_size(void);
 void bk_icon(int icon, float cx, float cy, const uchar *color, float alpha, float size);
 const float *bk_icon_tint(int icon); /* NULL: use text color */
 float bk_content_width(const char *s, int icon, bool bold);
-void bk_tria(float cx, float cy, char dir, const float c[4], float size);
+void bk_tria(float cx, float cy, char dir, const float c[4], float size); /* 'h' 'v' 'l' 't' */
+/* `c` drawn with its alpha over the opaque `back` (rounded), and shaded by `shade` (RGB). */
+void bk_color_over(const uchar c[4], const uchar back[4], uchar r_out[4]);
+void bk_color_shade(const uchar c[4], int shade, uchar r_out[4]);
+/* View2D vertical scroller along the right edge of `area` (view2d_scroller_size_get,
+ * view2d_scrollers_calc, view2d_scrollers_draw_ex); alpha is alpha_vert, 0..255. */
+void bk_scroller_rects(const BKRect *area, int scroll, int content_h, int alpha, BKRect *r_track,
+                       BKRect *r_thumb);
+void bk_scroller_draw(const BKRect *track, const BKRect *thumb, int alpha, bool pressed);
 void bk_chevron_down(float cx, float cy, const uchar c[4]);
 
 /* Browser-look primitives (kit_draw.c). Colors are 0xAARRGGBB. */
@@ -259,6 +269,12 @@ typedef struct BKClass {
    * (rows, lines, pixels): Tk's xview/yview and scrollbars build on this */
   void (*view)(BKNode *n, int axis, int *r_first, int *r_visible, int *r_total);
   void (*set_view)(BKNode *n, int axis, int first);
+  /* class-specific string and string-list properties (consulted before the generic ones;
+   * get_str / get_strs return NULL for keys they don't own) */
+  int (*set_str)(BKNode *n, const char *key, const char *v);
+  const char *(*get_str)(BKNode *n, const char *key);
+  int (*set_strs)(BKNode *n, const char *key, const char *const *v, int count);
+  const struct BKStrs *(*get_strs)(BKNode *n, const char *key);
 } BKClass;
 
 enum {
@@ -299,6 +315,7 @@ enum {
   NF_CONFIGURED = 1 << 23,  /* geometry changed since the host was told (BK_EV_CONFIGURE) */
   NF_OPAQUE = 1 << 24,      /* root: the host paints every pixel, skip the region clear */
   NF_HTML = 1 << 25,        /* "html": Chrome's default form-control look and interaction */
+  NF_ACTIVE_DEFAULT = 1 << 26, /* buttons: UI_BUT_ACTIVE_DEFAULT (drawn with the select colors) */
 };
 
 #define BK_HTML(n) (((n)->flags & NF_HTML) != 0)
@@ -594,6 +611,7 @@ float bk_hpx(float css);
 /* Chrome's text field content: text, selection (#3390ff / white text) and caret. */
 void bk_html_te_draw(BKTextEdit *te, const BKRect *content, const uchar color[4]);
 extern const BKClass bk_cls_meter;
+extern const BKClass bk_cls_filebrowser; /* kit_filebrowser.c */
 bool bk_textarea_html_measure(BKNode *n, int *r_w, int *r_h); /* kit_textarea.c */
 void bk_textarea_html_draw(BKNode *n);
 

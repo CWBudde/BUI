@@ -86,6 +86,8 @@ shared (`bui.host`).
 | `BUI_FONT`, `BUI_FONT_DIR` | A font file to replace the embedded Inter UI font, and an extra font folder |
 | `BUI_SLUG` | `0` draws GPU text from a per-glyph bitmap atlas instead of glyph outlines (Slug); `1` forces Slug. Overrides `bui.set_slug()` / `.slug()` / `BUI_gpu_set_slug()` |
 | `BUI_PROFILE=1` | Print per-phase frame times (raster and present) |
+| `BUI_FILEDIALOG=native` | File dialogs (`tkinter.filedialog`, `QFileDialog`) use the operating system's dialogs instead of Blender's File Browser |
+| `BUI_BOOKMARKS` | The file browser's bookmarks file (default `$XDG_CONFIG_HOME/bui/bookmarks.txt`, or `%APPDATA%\bui\bookmarks.txt` on Windows) |
 
 ## Window hosts
 
