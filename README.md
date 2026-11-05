@@ -1,8 +1,7 @@
 <div align="center">
   <p align="center">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="public/logo.png" />
-      <img alt="Zopra Logo" src="public/logo.png" width="300"/>
+      <img alt="BUI Logo" src="https://raw.githubusercontent.com/ppmpreetham/BUI/main/public/Logo.png" width="300"/>
     </picture>
   </p>
   
@@ -26,8 +25,6 @@ People spent decades building and optimizing Blender's GUI. It's battery and mem
 
 <img src="https://raw.githubusercontent.com/ppmpreetham/BUI/main/docs/images/components.png" width="330" alt="BUI's Blender components: panels, number sliders, vector fields, checkboxes and a color swatch">
 <img src="https://raw.githubusercontent.com/ppmpreetham/BUI/main/docs/images/tkinter_items.png" width="300" alt="An unmodified tkinter program running on BUI">
-
-<sub>Left: the Blender component library. Right: an unmodified tkinter program, now looking like Blender.</sub>
 
 </div>
 
