@@ -6,6 +6,8 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-06
+
 ### Added
 - **shadcn Data Table and virtual list for Rust** (`blenderui::shadcn`): the API of
   shadcn/ui's Data Table (TanStack `ColumnDef`, sorting, column and global filters,
