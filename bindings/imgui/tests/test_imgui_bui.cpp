@@ -7,7 +7,11 @@
 //    and copied to the clipboard, the wheel scrolls, the cursor shape follows;
 //  - an idle UI runs no frames; input runs one;
 //  - the font atlas reaches the raster (text pixels), and the GPU renderer (when a device
-//    exists) draws the same frame as the software raster.
+//    exists) draws the same frame as the software raster;
+//  - with Blender widgets (BUI_IMGUI_BLENDER_WIDGETS): Blender's interaction rules (number
+//    field drag steps, Shift precision, Ctrl snapping, click arrows, click / double-click to
+//    type, relative slider drags, checkbox drag-toggle). Expectations that differ from
+//    ImGui's own widgets are marked "variant".
 // BUI_IMGUI_SHOT=dir writes PNG screenshots (CPU and GPU).
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
@@ -71,6 +75,9 @@ struct TestState
     char text[64] = "";
     int clicks = 0;
     bool demo = true;
+    float drag = 0.0f;
+    bool check2 = false;
+    ImRect drag_rc, check2_rc;
     float slider_w = 0.0f;
     ImRect check, slider_rc, input, button, empty;
 };
@@ -92,6 +99,10 @@ static void Frame(void*)
     if (ImGui::Button("Button"))
         T.clicks++;
     T.button = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+    ImGui::DragFloat("Drag", &T.drag, 0.01f, 0.0f, 0.0f, "%.3f");
+    T.drag_rc = ImRect(ImGui::GetItemRectMin(), ImVec2(ImGui::GetItemRectMin().x + ImGui::CalcItemWidth(), ImGui::GetItemRectMax().y));
+    ImGui::Checkbox("Check 2", &T.check2);
+    T.check2_rc = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     ImGui::Dummy(ImVec2(200, 60));
     T.empty = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     ImGui::End();
@@ -118,6 +129,19 @@ static ImVec2 Center(const ImRect& r) { return ImVec2((r.Min.x + r.Max.x) * 0.5f
 static void Move(float x, float y) { BK_motion(g_ctx, (int)x, (int)y, 0); Render(2); }
 static void Press(float x, float y) { BK_motion(g_ctx, (int)x, (int)y, 0); Render(1); BK_press(g_ctx, (int)x, (int)y, BK_BUTTON1); Render(2); }
 static void Release(float x, float y) { BK_release(g_ctx, (int)x, (int)y, 0); Render(3); }
+// a drag in steps of `step` px with the button held (and `mods`), then the release
+static void Drag(float x0, float y, float dx, int mods, float step = 10.0f)
+{
+    Press(x0, y);
+    const int n = (int)ceilf(fabsf(dx) / step);
+    for (int i = 1; i <= n; i++)
+    {
+        BK_motion(g_ctx, (int)(x0 + dx * i / n), (int)y, BK_BUTTON1 | mods);
+        Render(1);
+    }
+    BK_release(g_ctx, (int)(x0 + dx), (int)y, mods);
+    Render(3);
+}
 static void Click(float x, float y) { Press(x, y); Release(x, y); }
 
 // typed characters arrive as text with the character as key name (Win32's WM_CHAR path),
@@ -228,6 +252,8 @@ int main()
     }
 
     // -- slider drag --
+    const bool blender = ImGui_ImplBUI_GetBlenderWidgets();
+    printf("info  widgets: %s\n", blender ? "Blender widgets (BUI_IMGUI_BLENDER_WIDGETS)" : "Dear ImGui widgets");
     {
         const ImVec2 c = Center(T.slider_rc);
         const float w = T.slider_w;
@@ -240,7 +266,10 @@ int main()
             Render(1);
         }
         Release(x1, c.y);
-        CHECK(at_press < 0.05f && T.slider > 0.95f, "slider dragged from %.3f to %.3f", at_press, T.slider);
+        if (blender) // variant: Blender's sliders move relative to the press, no jump to the click
+            CHECK(fabsf(at_press - 0.25f) < 1e-4f && T.slider > 0.95f, "slider dragged (relative, Blender) from %.3f to %.3f", at_press, T.slider);
+        else
+            CHECK(at_press < 0.05f && T.slider > 0.95f, "slider dragged from %.3f to %.3f", at_press, T.slider);
     }
 
     // -- button --
@@ -272,6 +301,84 @@ int main()
         // click elsewhere: the field lets go
         Click(Center(T.empty).x, Center(T.empty).y);
         CHECK(!io.WantTextInput, "text field released by a click elsewhere");
+    }
+
+    // -- Blender interaction (variant) --
+    if (blender)
+    {
+        const ImVec2 c = Center(T.drag_rc);
+        T.drag = 0.0f;
+        Drag(c.x, c.y, 60.0f, 0);
+        CHECK(fabsf(T.drag - 0.57f) < 0.011f, "DragFloat drag 60 px at speed 0.01: %.3f (Blender: v_speed per px past the 3 px origin)", T.drag);
+        T.drag = 0.0f;
+        Drag(c.x, c.y, 60.0f, BK_SHIFT);
+        CHECK(fabsf(T.drag - 0.057f) < 0.002f, "Shift drag: precision, 1/10 the speed: %.3f", T.drag);
+        T.drag = 0.0f;
+        Drag(c.x, c.y, 160.0f, BK_CTRL);
+        CHECK(T.drag == 2.0f, "Ctrl drag snaps (unbounded float: whole units): %.3f", T.drag);
+        T.drag = 0.0f;
+        Drag(c.x, c.y, 60.0f, BK_CTRL | BK_SHIFT);
+        CHECK(fabsf(T.drag - 0.1f * roundf(T.drag * 10.0f)) < 1e-4f && T.drag > 0.0f, "Ctrl+Shift drag snaps to tenths: %.3f", T.drag);
+        T.drag = 1.0f;
+        Click(T.drag_rc.Min.x + 3, c.y);
+        CHECK(fabsf(T.drag - 0.99f) < 1e-4f, "click on the left arrow steps down: %.3f", T.drag);
+        Click(T.drag_rc.Max.x - 3, c.y);
+        Click(T.drag_rc.Max.x - 3, c.y);
+        CHECK(fabsf(T.drag - 1.01f) < 1e-4f, "two clicks on the right arrow step up: %.3f", T.drag);
+        Move(c.x, c.y);
+        CHECK(BK_cursor(g_ctx) == BK_CURSOR_EW, "Blender's horizontal-arrows cursor over number fields (%d)", BK_cursor(g_ctx));
+        Click(c.x, c.y);
+        CHECK(io.WantTextInput, "a click (no drag) in the middle types a value");
+        Key("a", BK_CTRL);
+        Type("0.25");
+        Key("Return", 0);
+        CHECK(fabsf(T.drag - 0.25f) < 1e-4f && !io.WantTextInput, "typed 0.25 + Return: %.3f", T.drag);
+        // double-click: text editing as well
+        Press(c.x, c.y);
+        BK_release(g_ctx, (int)c.x, (int)c.y, 0);
+        Render(2); // (WantTextInput follows a frame later)
+        CHECK(io.WantTextInput, "double-click (first click) enters text editing");
+        BK_press(g_ctx, (int)c.x, (int)c.y, BK_BUTTON1);
+        BK_release(g_ctx, (int)c.x, (int)c.y, 0);
+        Render(3);
+        CHECK(io.WantTextInput, "double-click keeps text editing (selects the word)");
+        Key("Escape", 0);
+        CHECK(!io.WantTextInput && fabsf(T.drag - 0.25f) < 1e-4f, "Escape leaves text editing, value kept %.3f", T.drag);
+        // Ctrl+click: types too
+        BK_motion(g_ctx, (int)c.x, (int)c.y, 0);
+        Render(1);
+        BK_key(g_ctx, "", "Control_L", BK_CTRL);
+        Render(1);
+        BK_press(g_ctx, (int)c.x, (int)c.y, BK_BUTTON1 | BK_CTRL);
+        Render(2);
+        BK_release(g_ctx, (int)c.x, (int)c.y, BK_CTRL);
+        BK_key_release(g_ctx, "Control_L", 0);
+        Render(3);
+        CHECK(io.WantTextInput, "Ctrl+click types a value");
+        Key("Escape", 0);
+        // a slider click (no drag) types too
+        Click(Center(T.slider_rc).x, Center(T.slider_rc).y);
+        CHECK(io.WantTextInput, "slider: a click types a value (Blender), no jump");
+        Key("Escape", 0);
+        // checkbox drag-toggle: press one, drag over the other
+        T.checked = false;
+        T.check2 = false;
+        const float h = T.check.GetHeight();
+        Press(T.check.Min.x + h * 0.5f, T.check.Min.y + h * 0.5f);
+        CHECK(T.checked, "checkbox toggles on press (Blender)");
+        for (float y = T.check.Min.y + h * 0.5f; y <= T.check2_rc.Min.y + h * 0.5f; y += 8.0f)
+        {
+            BK_motion(g_ctx, (int)(T.check.Min.x + h * 0.5f), (int)y, BK_BUTTON1);
+            Render(1);
+        }
+        BK_motion(g_ctx, (int)(T.check2_rc.Min.x + h * 0.5f), (int)(T.check2_rc.Min.y + h * 0.5f), BK_BUTTON1);
+        Render(2);
+        Release(T.check2_rc.Min.x + h * 0.5f, T.check2_rc.Min.y + h * 0.5f);
+        CHECK(T.checked && T.check2, "drag-toggle: dragging over the second checkbox turned it on too (%d %d)", T.checked, T.check2);
+        T.checked = false;
+        T.check2 = false;
+        Render(2);
+        Move(Center(T.empty).x, Center(T.empty).y);
     }
 
     // -- idle: no frames without input --
@@ -315,7 +422,22 @@ int main()
                 bad += d > 8;
             }
             CHECK(ImGui_ImplBUI_FrameCount() == f0, "GPU render replayed the frame without running ImGui");
-            CHECK(bad < W * H / 1000, "GPU frame matches the software raster: %d pixels differ by more than 8 (max %d)", bad, maxd);
+            if (blender)
+            {
+                // variant: the kit's text (BUI's own glyph rendering) differs by AA levels between
+                // the renderers, as in gpu/tests/test_gpu_parity.c: only gross differences count
+                int gross = 0;
+                for (size_t i = 0; i < cpu_copy.size(); i++)
+                {
+                    int d = 0;
+                    for (int s = 0; s < 24; s += 8)
+                        d = ImMax(d, abs((int)((cpu_copy[i] >> s) & 0xFF) - (int)((gp[i] >> s) & 0xFF)));
+                    gross += d > 64;
+                }
+                CHECK(bad < W * H / 100 && gross < W * H / 2000, "GPU frame matches the software raster (text AA aside): %d pixels differ by more than 8, %d by more than 64 (max %d)", bad, gross, maxd);
+            }
+            else
+                CHECK(bad < W * H / 1000, "GPU frame matches the software raster: %d pixels differ by more than 8 (max %d)", bad, maxd);
             Shot("imgui_gpu.png", gp);
         }
         else

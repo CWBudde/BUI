@@ -55,6 +55,11 @@ CIMGUI_API int     cImGui_ImplBUI_FrameCount(void);
 CIMGUI_API void    cImGui_ImplBUI_StyleBlender(ImGuiStyle* dst, float scale);
 CIMGUI_API float   cImGui_ImplBUI_BlenderFontSize(float scale);
 CIMGUI_API ImFont* cImGui_ImplBUI_AddBlenderFont(float size_pixels);
+/* Blender widgets (built with BUI_IMGUI_BLENDER_WIDGETS): ImGui's widgets drawn and handled
+ * as Blender's. Has: built with them; Set/Get: the runtime switch (on when built). */
+CIMGUI_API bool    cImGui_ImplBUI_HasBlenderWidgets(void);
+CIMGUI_API void    cImGui_ImplBUI_SetBlenderWidgets(bool on);
+CIMGUI_API bool    cImGui_ImplBUI_GetBlenderWidgets(void);
 /* BUI's UI scale (DPI): BK_scale() / BK_set_scale(). */
 CIMGUI_API float   cImGui_ImplBUI_GetScale(void);
 CIMGUI_API void    cImGui_ImplBUI_SetScale(float scale);

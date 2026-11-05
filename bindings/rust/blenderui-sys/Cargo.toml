@@ -26,6 +26,9 @@ portable-text = []
 # Also build and link Dear ImGui on BUI and its C API (bindings/imgui: bui_cimgui,
 # bui_imgui; C++). Used by the blenderui-imgui crate.
 imgui = []
+# With `imgui`: ImGui's widgets drawn and handled as Blender's widgets (CMake
+# BUI_IMGUI_BLENDER_WIDGETS; bindings/imgui/blender). Same API.
+imgui-blender-widgets = ["imgui"]
 
 [build-dependencies]
 cmake = "0.1"

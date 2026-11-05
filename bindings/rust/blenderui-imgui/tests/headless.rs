@@ -138,6 +138,12 @@ fn headless_widgets_and_input() {
     let (a, b) = st.borrow().rects["slider"];
     let w = st.borrow().slider_w;
     app.click(a.x + w * 0.9, (a.y + b.y) / 2.0);
+    if blenderui_imgui::blender_widgets() {
+        // variant (Blender widgets): a click types a value instead of jumping to the pointer
+        app.key("a", 2); // BK_CTRL
+        app.type_text("0.9");
+        app.key("Return", 0);
+    }
     assert!(st.borrow().slider > 0.8, "slider {}", st.borrow().slider);
     // text
     let (x, y) = center(&st, "input");

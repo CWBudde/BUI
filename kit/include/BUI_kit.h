@@ -474,6 +474,68 @@ int BK_window_wake_init(void (*cb)(void));
 void BK_window_wake(void);
 void BK_window_set_keep_alive(int on);
 
+/* One of Blender's widgets drawn straight into a raster, outside any BKContext: the same
+ * drawing (interface_widgets.cc port, theme, Inter text) the kit's own nodes use. For
+ * other toolkits drawing Blender's widgets (Dear ImGui's Blender widgets,
+ * bindings/imgui/blender). Coordinates in raster pixels at BK_scale(). */
+enum {
+  BK_WIDGET_BUTTON = 1,   /* push button (wcol_regular), text centered */
+  BK_WIDGET_TOGGLE,       /* toggle button (wcol_toggle), SELECTED = on */
+  BK_WIDGET_CHECKBOX,     /* option box + text (wcol_option), SELECTED = checked */
+  BK_WIDGET_RADIO,        /* round option + text, SELECTED = chosen */
+  BK_WIDGET_NUMBER,       /* number field with step arrows (wcol_num) */
+  BK_WIDGET_SLIDER,       /* number slider (wcol_numslider), value = fill factor */
+  BK_WIDGET_TEXT,         /* text field (wcol_text) */
+  BK_WIDGET_MENU,         /* menu button with the pulldown arrows (wcol_menu) */
+  BK_WIDGET_PULLDOWN,     /* header pulldown (wcol_pulldown) */
+  BK_WIDGET_MENU_ITEM,    /* menu row (wcol_menu_item); text2 = shortcut; value: 1/2 = check
+                             box off/on at aux[0..1], 3 = submenu arrow */
+  BK_WIDGET_LIST_ITEM,    /* list row (wcol_list_item) */
+  BK_WIDGET_SWATCH,       /* color swatch, color = rgba (checker under alpha) */
+  BK_WIDGET_PROGRESS,     /* progress bar (wcol_progress), value = factor */
+  BK_WIDGET_TAB,          /* tab (wcol_tab), SELECTED = the current tab */
+  BK_WIDGET_PANEL_HEADER, /* panel header: disclosure arrow + title, OPEN */
+  BK_WIDGET_DISCLOSURE,   /* tree row: hover/selected row, disclosure triangle, text, OPEN;
+                             aux[0] = triangle center x (0: no triangle) */
+  BK_WIDGET_MENU_BACK,    /* menu / popup backdrop with its shadow */
+  BK_WIDGET_TOOLTIP_BACK, /* tooltip backdrop */
+  BK_WIDGET_SEPARATOR,    /* separator line (horizontal unless h > w) */
+  BK_WIDGET_LABEL,        /* text alone, at text_rect, color (a < 0: theme text) */
+  BK_WIDGET_ARROW,        /* push button with a triangle, value = 0 right 1 down 2 left 3 up */
+  BK_WIDGET_BOX,          /* box backdrop (wcol_box) */
+};
+enum {
+  BK_WS_HOVER = 1 << 0,
+  BK_WS_PRESSED = 1 << 1,
+  BK_WS_SELECTED = 1 << 2,
+  BK_WS_DISABLED = 1 << 3,
+  BK_WS_EDITING = 1 << 4,    /* text being typed (text field look) */
+  BK_WS_HOVER_LEFT = 1 << 5, /* number field: over the left / right step arrow */
+  BK_WS_HOVER_RIGHT = 1 << 6,
+  BK_WS_MIXED = 1 << 7,      /* checkbox: indeterminate */
+  BK_WS_FLAT = 1 << 8,       /* no emboss: backdrop on hover only */
+  BK_WS_OPEN = 1 << 9,       /* panel header / tree row expanded */
+};
+/* Corners for aligned groups (Blender's CNR_*): top-left 1, top-right 2, bottom-right 4,
+ * bottom-left 8; BK_CORNERS_ALL for a lone widget. */
+enum { BK_CORNERS_ALL = 15 };
+typedef struct BKWidgetDraw {
+  int kind, state, corners;
+  int align;          /* text alignment: 0 left, 1 center, 2 right; -1 the widget's own */
+  float rect[4];      /* x, y, w, h */
+  float clip[4];      /* x0, y0, x1, y1 narrowing the raster's clip; x1 <= x0: none */
+  float text_rect[4]; /* where text goes for LABEL / LIST_ITEM / MENU_ITEM / DISCLOSURE;
+                         w <= 0: the widget's own text placement */
+  float value;
+  float color[4];     /* SWATCH color; LABEL text color (a < 0: theme) */
+  float aux[4];
+  const char *text;   /* label (UTF-8, may be NULL) */
+  const char *text2;  /* NUMBER / SLIDER: value text drawn right of `text`; MENU_ITEM: shortcut */
+} BKWidgetDraw;
+void BK_draw_widget(BuiRaster *r, const BKWidgetDraw *w);
+/* Width of `s` (len < 0: NUL-terminated) in the UI font at BK_scale(). */
+float BK_text_width(const char *s, int len);
+
 /* Evaluate Blender-style number input ("2*pi", "1/3 + 2^2"). */
 int BK_eval_number(const char *expr, double *r_value);
 

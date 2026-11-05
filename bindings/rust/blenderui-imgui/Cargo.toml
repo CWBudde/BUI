@@ -12,3 +12,7 @@ categories = ["gui", "api-bindings"]
 [dependencies]
 # builds and links bui_cimgui (Dear ImGui + its C API + the BUI backend) with the C kit
 blenderui-sys = { path = "../blenderui-sys", version = "0.1.0", features = ["imgui"] }
+
+[features]
+# ImGui's widgets drawn and handled as Blender's widgets (bindings/imgui/blender)
+blender-widgets = ["blenderui-sys/imgui-blender-widgets"]

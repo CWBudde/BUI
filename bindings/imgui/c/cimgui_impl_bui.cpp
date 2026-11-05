@@ -77,6 +77,9 @@ CIMGUI_API int cImGui_ImplBUI_FrameCount(void) { return ImGui_ImplBUI_FrameCount
 
 CIMGUI_API void cImGui_ImplBUI_StyleBlender(ImGuiStyle* dst, float scale) { ImGui_ImplBUI_StyleBlender(reinterpret_cast<::ImGuiStyle*>(dst), scale); }
 CIMGUI_API float cImGui_ImplBUI_BlenderFontSize(float scale) { return ImGui_ImplBUI_BlenderFontSize(scale); }
+CIMGUI_API bool cImGui_ImplBUI_HasBlenderWidgets(void) { return ImGui_ImplBUI_HasBlenderWidgets(); }
+CIMGUI_API void cImGui_ImplBUI_SetBlenderWidgets(bool on) { ImGui_ImplBUI_SetBlenderWidgets(on); }
+CIMGUI_API bool cImGui_ImplBUI_GetBlenderWidgets(void) { return ImGui_ImplBUI_GetBlenderWidgets(); }
 CIMGUI_API ImFont* cImGui_ImplBUI_AddBlenderFont(float size_pixels) { return reinterpret_cast<ImFont*>(ImGui_ImplBUI_AddBlenderFont(size_pixels)); }
 CIMGUI_API float cImGui_ImplBUI_GetScale(void) { return BK_scale(); }
 CIMGUI_API void cImGui_ImplBUI_SetScale(float scale) { BK_set_scale(scale); }

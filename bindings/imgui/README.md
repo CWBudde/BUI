@@ -17,6 +17,12 @@ Blender's UI font (Inter, embedded in BUI).
   (`py -3 -I bindings/imgui/gen/gen.py`): the C API `c/cimgui.h` (CMake `bui_cimgui`, with
   `c/cimgui_impl_bui.h` for this backend), `blenderui.imgui` for Python (`_buiimgui`) and the
   `blenderui-imgui` crate. See [docs/imgui.md](../../docs/imgui.md).
+- **Blender widgets:** `-DBUI_IMGUI_BLENDER_WIDGETS=ON` (default OFF) compiles
+  `blender/imgui_widgets_blender.cpp` instead of `imgui_widgets.cpp`: ImGui's widgets are
+  then drawn by the kit as Blender's own widgets (same pixels as the kit's native ones) and
+  number fields, sliders and checkboxes follow Blender's interaction; same API and ABI, so
+  every binding gets them (cargo feature `blender-widgets`). Mapping, behavior differences
+  and gaps: [blender/README.md](blender/README.md).
 
 ## Using it
 
@@ -109,8 +115,8 @@ unit (U = 20 px at scale 1) and `uiStyle`:
 
 "Hover" is Blender's `widget_active_color`: HSL saturation x1.15, lightness x1.2.
 
-Metrics (scaled by `BK_scale()`): frame height one widget unit (FramePadding.y = (20 -
-font) / 2), FrameRounding / ChildRounding / PopupRounding / TabRounding = roundness 0.2 x U
+Metrics (scaled by `BK_scale()`): frame height one widget unit (FramePadding.y = (U -
+font) / 2 after ImGui's rounding of the font to whole pixels: 3.5 at scale 1), FrameRounding / ChildRounding / PopupRounding / TabRounding = roundness 0.2 x U
 = 4 px, WindowRounding = `panel_roundness` 0.4 x U / 2 = 4 px, scrollbars `V2D_SCROLL_WIDTH`
 (0.45 U + 2 = 11 px) with round ends, ItemSpacing = `buttonspacex/y` (8, 2),
 ItemInnerSpacing.x = `templatespace` (5), IndentSpacing = U, 1 px window/frame/popup
