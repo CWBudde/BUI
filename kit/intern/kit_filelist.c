@@ -264,19 +264,49 @@ static void sort_visible(FBData *f)
 /** \name Filtering (filelist_filter.cc)
  * \{ */
 
-/* fnmatch() with FNM_CASEFOLD for '*' and '?' (portable). */
+static int fold(unsigned char c)
+{
+  return (c >= 'A' && c <= 'Z') ? c + 32 : c;
+}
+
+/* A "[...]" class ("[!..]" / "[^..]" negate, "a-z" ranges) or a "\x" escape at `p` against the
+ * folded `c`: the item's length * 2, + 1 when `c` matches. An unclosed '[' is a literal and a
+ * lone '\' matches nothing, as in fnmatch. */
+static int special_match(const char *p, int c)
+{
+  if (*p == '\\') {
+    return p[1] ? 4 + (fold(p[1]) == c) : 2;
+  }
+  const bool negate = p[1] == '!' || p[1] == '^';
+  bool m = false;
+  const char *q = p + 1 + negate;
+  for (const char *first = q; *q && (*q != ']' || q == first); q++) {
+    q += *q == '\\' && q[1];
+    const char *hi = (q[1] == '-' && q[2] && q[2] != ']') ? q + 2 + (q[2] == '\\' && q[3]) : q;
+    m |= fold(*q) <= c && c <= fold(*hi);
+    q = hi;
+  }
+  return *q == ']' ? (int)(q + 1 - p) * 2 + (m != negate) : 2 + (c == '[');
+}
+
+/* fnmatch() with FNM_CASEFOLD (portable): '*', '?', "[...]" and "\x"; ASCII case folding. */
 static bool glob_match(const char *p, const char *s)
 {
   const char *star = NULL, *retry = NULL;
+  const bool plain = strpbrk(p, "[\\") == NULL; /* usually: no item to check */
   while (*s) {
-    const int cp = (*p >= 'A' && *p <= 'Z') ? *p + 32 : *p;
-    const int cs = (*s >= 'A' && *s <= 'Z') ? *s + 32 : *s;
+    const int cp = fold(*p), cs = fold(*s);
+    int k;
     if (*p == '*') {
       star = p++;
       retry = s;
     }
-    else if (*p && (*p == '?' || cp == cs)) {
+    else if (*p && (*p == '?' || cp == cs) && (plain || (*p != '[' && *p != '\\'))) {
       p++;
+      s++;
+    }
+    else if (!plain && (*p == '[' || *p == '\\') && ((k = special_match(p, cs)) & 1)) {
+      p += k >> 1;
       s++;
     }
     else if (star) { /* let the last '*' take one more character */
