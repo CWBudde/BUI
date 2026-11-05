@@ -9,6 +9,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 """
 
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -557,8 +558,37 @@ def test_hidden_root_is_not_default_root():
     assert seen == "linked", "StringVar went to the hidden root: Entry shows %r" % seen
 
 
+_FIT_AT_SCALE = """
+import bui, buipy
+from bui import host
+from bui.tksyntax import Label, Listbox, Tk, Toplevel, simpledialog
+if host.native_available():
+    root = Tk()
+    Listbox(root, height=5).pack()
+    root.update()
+    top = Toplevel(root)
+    for _ in range(4):  # larger than the dialog's minimum size
+        Label(top, text="wider than the minimum " * 5).pack()
+    simpledialog._place_window(top)
+    root.update()
+    for win in (root, top):
+        need, got = win._node.natural(), win._window.size
+        assert 0 <= got[0] - need[0] <= 1 and 0 <= got[1] - need[1] <= 1, (need, got)
+    assert buipy.kit_scale() == 2.0
+    root.destroy()
+"""
+
+
+def test_window_fits_content_at_ui_scale():
+    """HiDPI: a window fitting its content isn't scaled twice (natural() is in raster
+    pixels). In a child process: the UI scale is read when the first window opens."""
+    env = dict(os.environ, BUI_UI_SCALE="2", PYTHONPATH=os.pathsep.join(sys.path))
+    subprocess.run([sys.executable, "-c", _FIT_AT_SCALE], env=env, check=True, timeout=60)
+
+
 def main() -> int:
     test_hidden_root_is_not_default_root()
+    test_window_fits_content_at_ui_scale()
     test_programs_match_stdlib()
     test_install_runs_unchanged_scripts()
     print("tkinter compatibility tests passed")

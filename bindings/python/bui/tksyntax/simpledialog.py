@@ -17,7 +17,7 @@ def _place_window(w, parent=None):
     """Center `w` over its parent (or the screen) and show it."""
     w.wm_withdraw()
     w.update_idletasks()
-    rw, rh = w._node.natural()
+    rw, rh = w._fit_size()
     w.geometry("%dx%d" % (max(rw, 240), max(rh, 60)))
     if parent is not None and parent.winfo_ismapped():
         px, py = parent.winfo_rootx(), parent.winfo_rooty()
