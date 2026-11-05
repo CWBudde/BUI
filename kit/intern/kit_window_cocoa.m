@@ -649,6 +649,23 @@ static CGColorSpaceRef srgb(void)
   return NSTerminateCancel;
 }
 
+/* Quit on an NSApp someone else made (see route_quit): with no window of ours
+ * left, the quit is theirs. */
+- (void)quit:(id)sender
+{
+  if (g_open == 0) {
+    [NSApp terminate:sender];
+  }
+  else {
+    [self applicationShouldTerminate:NSApp];
+  }
+}
+
+- (void)quitEvent:(NSAppleEventDescriptor *)event withReply:(NSAppleEventDescriptor *)reply
+{
+  [self quit:nil];
+}
+
 - (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app
 {
   return YES;
@@ -664,6 +681,26 @@ static NSMenuItem *menu_add(NSMenu *menu, NSString *title, SEL action, NSString 
   NSMenuItem *item = [menu addItemWithTitle:title action:action keyEquivalent:key];
   [item setKeyEquivalentModifierMask:mask];
   return item;
+}
+
+/* An NSApp someone else made quits on its own terms. Tk's terminate: only
+ * queues a Tcl event, which our loop doesn't service (and Tk would then exit
+ * without asking the windows). So its Quit menu item and the Quit Apple Event
+ * (the Dock's Quit, logout) come to our delegate. */
+static void route_quit(void)
+{
+  NSMenu *app_menu = [[[[NSApp mainMenu] itemArray] firstObject] submenu];
+  for (NSMenuItem *item in [app_menu itemArray]) {
+    if ([item action] == @selector(terminate:)) {
+      [item setTarget:g_app_delegate];
+      [item setAction:@selector(quit:)];
+    }
+  }
+  [[NSAppleEventManager sharedAppleEventManager]
+      setEventHandler:g_app_delegate
+          andSelector:@selector(quitEvent:withReply:)
+        forEventClass:'aevt'
+           andEventID:'quit'];
 }
 
 static int app_init(void)
@@ -720,9 +757,12 @@ static int app_init(void)
       [window_menu release];
       [bar release];
     }
+    g_app_delegate = [[BUIKitAppDelegate alloc] init]; /* kept: NSApp doesn't retain it */
     if ([NSApp delegate] == nil) {
-      g_app_delegate = [[BUIKitAppDelegate alloc] init]; /* kept: NSApp doesn't retain it */
       [NSApp setDelegate:g_app_delegate];
+    }
+    if (!created) {
+      route_quit();
     }
     /* GHOST: no automatic window tabbing */
     [NSWindow setAllowsAutomaticWindowTabbing:NO];

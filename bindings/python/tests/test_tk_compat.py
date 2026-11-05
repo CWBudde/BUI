@@ -596,8 +596,44 @@ def test_window_fits_content_at_ui_scale():
     subprocess.run([sys.executable, "-c", _FIT_AT_SCALE], env=env, check=True, timeout=60)
 
 
+def test_quit_asks_windows_to_close():
+    """macOS: Quit in Tk's menu (Cmd+Q) runs the windows' close handlers, as it does
+    on BUI's own NSApp."""
+    if sys.platform != "darwin":
+        return
+    import ctypes
+    import ctypes.util
+    from bui.tksyntax import Tk
+    objc = ctypes.CDLL(ctypes.util.find_library("objc"))
+    objc.objc_getClass.restype = objc.sel_registerName.restype = ctypes.c_void_p
+
+    def msg(obj, sel, *args):
+        # PYFUNCTYPE keeps the GIL: Quit runs the Python close handler inside the call
+        call = ctypes.PYFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                                 *[ctypes.c_long] * len(args))(("objc_msgSend", objc))
+        return call(obj, objc.sel_registerName(sel), *args)
+    root = Tk()
+    closed = []
+    root.protocol("WM_DELETE_WINDOW", lambda: (closed.append(1), root.destroy()))
+
+    def choose_quit():
+        app = msg(objc.objc_getClass(b"NSApplication"), b"sharedApplication")
+        menu = msg(msg(msg(app, b"mainMenu"), b"itemAtIndex:", 0), b"submenu")
+        for i in range(msg(menu, b"numberOfItems") or 0):
+            key = msg(msg(menu, b"itemAtIndex:", i), b"keyEquivalent")
+            if ctypes.cast(msg(key, b"UTF8String"), ctypes.c_char_p).value == b"q":
+                msg(menu, b"performActionForItemAtIndex:", i)
+                return
+        raise AssertionError("no Quit item in Tk's application menu")
+    root.after(50, choose_quit)
+    root.after(3000, root.destroy)  # the failure case: Quit did nothing
+    root.mainloop()
+    assert closed, "Quit didn't reach the window"
+
+
 def main() -> int:
     test_hidden_root_is_not_default_root()
+    test_quit_asks_windows_to_close()
     test_window_fits_content_at_ui_scale()
     test_programs_match_stdlib()
     test_install_runs_unchanged_scripts()
