@@ -56,8 +56,9 @@ fn main() {
         println!("cargo:rustc-link-lib=static={lib}");
     }
     let target = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if imgui && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
-        // the C++ runtime of Dear ImGui (MSVC links its own)
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+        // the C++ runtime: the kit and core carry Blender C++ sources (string
+        // search, expressions, ...), and Dear ImGui with `imgui` (MSVC links its own)
         println!("cargo:rustc-link-lib={}", if target == "macos" { "c++" } else { "stdc++" });
     }
     if target == "windows" {

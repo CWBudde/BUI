@@ -18,6 +18,11 @@
 #  include <string>
 #endif
 
+/* BUI: string.c is compiled as C; C++ callers (core/intern/*.cc) need C linkage. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 /* Buffer size of maximum `uint64` plus commas and terminator. */
 #define BLI_STR_FORMAT_UINT64_GROUPED_SIZE 27
@@ -241,7 +246,7 @@ size_t BLI_str_escape(char *__restrict dst, const char *__restrict src, size_t d
 
 #ifdef __cplusplus
 /** Same as above, but returns an std::string. */
-std::string BLI_str_escape(const char *str);
+extern "C++" std::string BLI_str_escape(const char *str); /* BUI: extern "C++" */
 #endif
 
 /**
@@ -694,8 +699,14 @@ void BLI_string_debug_size_after_nil(char *str, size_t str_maxncpy);
 
 /* Upstream-compatible safe copy for fixed-size char arrays. */
 #ifdef __cplusplus
+extern "C++" { /* BUI */
 template<size_t N> inline char *STRNCPY(char (&dst)[N], const char *src)
 {
   return BLI_strncpy(dst, src, N);
 }
+}
+#endif
+
+#ifdef __cplusplus
+} /* BUI: extern "C" */
 #endif

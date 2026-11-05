@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "blender/bk_blender.h"
 #include "kit_intern.h"
 
 /* -------------------------------------------------------------------- */
@@ -69,7 +70,10 @@ static void format_number(const BKNode *n, double v, char *buf, int size)
     snprintf(buf, (size_t)size, "%d", (int)floor(v + 0.5));
   }
   else {
-    snprintf(buf, (size_t)size, "%.*f", n->precision, v);
+    /* Blender's UI_calc_float_precision (blender/interface_utils.cc): more
+     * decimals for small values, so 0.00001 doesn't read "0.000" */
+    const int prec = n->precision > 6 ? n->precision : bk_calc_float_precision(n->precision, v);
+    snprintf(buf, (size_t)size, "%.*f", prec, v);
   }
 }
 
@@ -96,6 +100,16 @@ static void number_text(const BKNode *n, char *buf, int size)
   if (n->suffix) {
     strncat(buf, n->suffix, (size_t)(size - (int)strlen(buf) - 1));
   }
+}
+
+const char *bk_number_display(BKNode *n)
+{
+  static char buf[256];
+  if (n->cls != &bk_cls_number && n->cls != &bk_cls_slider) {
+    return NULL;
+  }
+  number_text(n, buf, sizeof(buf));
+  return buf;
 }
 
 static const char *item_text(const BKNode *n, int i)

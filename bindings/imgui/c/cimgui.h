@@ -995,8 +995,6 @@ enum ImGuiViewportFlags_ {
     ImGuiViewportFlags_IsPlatformMonitor = 2,
     ImGuiViewportFlags_OwnedByApp = 4,
 };
-enum ImDrawListFlags_ {
-};
 
 // Callbacks
 typedef int (*ImGuiInputTextCallback)(ImGuiInputTextCallbackData* data);

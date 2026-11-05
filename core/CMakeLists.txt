@@ -37,7 +37,34 @@ set(SRC
   intern/wcwidth/wcwidth.c
 )
 
-add_library(bui_core STATIC ${SRC})
+# Blender C++ (blenlib) used through C wrappers (include/BUI_blender_c.h):
+# an object library (no forced C shim) whose objects go into bui_core.
+add_library(bui_core_cxx OBJECT
+  intern/expr_pylike_eval.cc
+  intern/string_search.cc
+  intern/bui_blender_c.cc
+)
+target_include_directories(bui_core_cxx PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/types/dna/include
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/intern
+)
+
+add_library(bui_core STATIC ${SRC} $<TARGET_OBJECTS:bui_core_cxx>)
+
+# Blender builds with unsigned `char` (-funsigned-char, /J); blenlib's UTF-8
+# decoding (string_utf8.c, `c < 128` / `c >= 192` tests) depends on it.
+foreach(_t bui_core bui_core_cxx)
+  if(MSVC)
+    target_compile_options(${_t} PRIVATE /J)
+  else()
+    target_compile_options(${_t} PRIVATE -funsigned-char)
+  endif()
+endforeach()
+if(MSVC)
+  target_compile_options(bui_core_cxx PRIVATE /permissive-)
+endif()
 add_library(bui::core ALIAS bui_core)
 
 target_include_directories(bui_core PUBLIC

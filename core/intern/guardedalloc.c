@@ -121,6 +121,11 @@ void *MEM_new_zeroed(size_t size, const char *str)
 
 void *MEM_new_uninitialized_aligned(size_t size, size_t alignment, const char *str)
 {
+  /* malloc already aligns to 16 bytes; blocks from here are released with
+   * MEM_delete_void -> free(), which must not get a Windows _aligned_malloc block. */
+  if (alignment <= MEM_MIN_CPP_ALIGNMENT) {
+    return MEM_mallocN(size ? size : 1, str);
+  }
   return MEM_mallocN_aligned(size, alignment, str);
 }
 

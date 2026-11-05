@@ -1104,10 +1104,11 @@ def emit_c(api, model):
         if name and not name.endswith("_"):
             w("typedef %s %s;" % (e["underlying"] or "int", name))
         tag = name if name.endswith("_") else name + "_"
+        values = [v for v in e["values"] if not v["obsolete"]]
+        if not values:
+            continue  # C has no empty enums (gcc: "empty enum is invalid")
         w("enum %s {" % tag)
-        for v in e["values"]:
-            if v["obsolete"]:
-                continue
+        for v in values:
             w("    %s = %d," % (v["name"], v["value"]))
         w("};")
     w("")

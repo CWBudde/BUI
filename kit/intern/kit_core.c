@@ -20,6 +20,8 @@
 #  include <windows.h>
 #endif
 
+#include "BUI_blender_c.h"
+#include "blender/bk_blender.h"
 #include "kit_intern.h"
 
 /* Blender's UTF-8 cursor stepping (blenlib, linked from bui_core). */
@@ -1239,6 +1241,10 @@ const char *BK_get_str(BKNode *n, const char *key)
   if (strcmp(key, "edit") == 0) {
     return n->edit ? n->edit->text : "";
   }
+  if (strcmp(key, "display") == 0) { /* number fields: the value text as drawn */
+    const char *s = bk_number_display(n);
+    return s ? s : "";
+  }
   if (strcmp(key, "type") == 0) {
     return n->cls->name;
   }
@@ -1481,7 +1487,10 @@ void bk_forget(BKContext *ctx, BKNode *subtree)
   undo_forget(ctx, subtree);
   for (int i = ctx->nanim - 1; i >= 0; i--) {
     if (is_within(ctx->anim[i], subtree)) {
-      ctx->anim[i] = ctx->anim[--ctx->nanim];
+      const int last = --ctx->nanim;
+      ctx->anim[i] = ctx->anim[last];
+      ctx->anim_start[i] = ctx->anim_start[last];
+      ctx->anim_from[i] = ctx->anim_from[last];
     }
   }
   for (int i = 0; i < ctx->nmulti; i++) {
@@ -2795,12 +2804,16 @@ BKTextEdit *bk_te_new(const char *text, bool select_all)
   memcpy(te->text, text ? text : "", (size_t)te->len + 1);
   te->caret = te->len;
   te->anchor = select_all ? 0 : -1;
+  /* ui_textedit_begin: textedit_undo_stack_create + push of the initial string */
+  te->undo = bk_textedit_undo_stack_create();
+  bk_textedit_undo_push(te->undo, te->text, te->caret);
   return te;
 }
 
 void bk_te_free(BKTextEdit *te)
 {
   if (te) {
+    bk_textedit_undo_stack_destroy(te->undo);
     free(te->text);
     free(te);
   }
@@ -2875,7 +2888,43 @@ static int te_step(BKTextEdit *te, int pos, bool next, bool word)
   return pos;
 }
 
+static int te_key(BKTextEdit *te, BKContext *ctx, const char *text, const char *ks, int mods);
+
+/* Blender's ui_do_but_textedit undo: Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y) step
+ * the edit's own stack (interface_undo.cc); every other change is pushed. */
 int bk_te_key(BKTextEdit *te, BKContext *ctx, const char *text, const char *ks, int mods)
+{
+  if ((mods & BK_CTRL) && !(mods & BK_ALT) && (bk_keysym_is(ks, "z") || bk_keysym_is(ks, "y"))) {
+    const bool is_redo = (mods & BK_SHIFT) || bk_keysym_is(ks, "y");
+    int undo_pos;
+    const char *undo_str = bk_textedit_undo(te->undo, is_redo ? 1 : -1, &undo_pos);
+    if (undo_str != NULL) {
+      te->len = (int)strlen(undo_str);
+      if (te->len + 1 > te->cap) {
+        te->cap = te->len + 64;
+        te->text = (char *)realloc(te->text, (size_t)te->cap);
+      }
+      memcpy(te->text, undo_str, (size_t)te->len + 1);
+      /* Set the cursor & clear selection. */
+      te->caret = BK_CLAMP(undo_pos, 0, te->len);
+      te->anchor = -1;
+    }
+    return TE_CHANGED;
+  }
+  char stack_buf[256];
+  char *before = te->len < (int)sizeof(stack_buf) ? stack_buf : (char *)malloc((size_t)te->len + 1);
+  memcpy(before, te->text, (size_t)te->len + 1);
+  const int res = te_key(te, ctx, text, ks, mods);
+  if (res == TE_CHANGED && strcmp(before, te->text) != 0) {
+    bk_textedit_undo_push(te->undo, te->text, te->caret);
+  }
+  if (before != stack_buf) {
+    free(before);
+  }
+  return res;
+}
+
+static int te_key(BKTextEdit *te, BKContext *ctx, const char *text, const char *ks, int mods)
 {
   const bool ctrl = mods & BK_CTRL, shift = mods & BK_SHIFT;
   if (bk_keysym_is(ks, "ISO_Left_Tab")) { /* X11's Shift+Tab */
@@ -3052,191 +3101,12 @@ void bk_te_draw(BKTextEdit *te, const BKRect *rect, const uchar color[4])
 /** \name Number expressions ("2*pi", "1/3+2^2")
  * \{ */
 
-typedef struct Parser {
-  const char *s;
-  bool err;
-} Parser;
-
-static void skip_ws(Parser *p)
-{
-  while (*p->s == ' ' || *p->s == '\t') {
-    p->s++;
-  }
-}
-
-static double parse_expr(Parser *p);
-
-static double parse_atom(Parser *p)
-{
-  skip_ws(p);
-  if (*p->s == '(') {
-    p->s++;
-    const double v = parse_expr(p);
-    skip_ws(p);
-    if (*p->s == ')') {
-      p->s++;
-    }
-    else {
-      p->err = true;
-    }
-    return v;
-  }
-  if (isalpha((uchar)*p->s)) {
-    char name[16];
-    int n = 0;
-    while (isalnum((uchar)*p->s) && n < 15) {
-      name[n++] = *p->s++;
-    }
-    name[n] = 0;
-    if (strcmp(name, "pi") == 0) {
-      return 3.14159265358979323846;
-    }
-    if (strcmp(name, "tau") == 0) {
-      return 6.28318530717958647692;
-    }
-    if (strcmp(name, "e") == 0) {
-      return 2.71828182845904523536;
-    }
-    /* functions */
-    skip_ws(p);
-    if (*p->s == '(') {
-      const double a = parse_atom(p);
-      if (strcmp(name, "sqrt") == 0) {
-        return sqrt(a);
-      }
-      if (strcmp(name, "sin") == 0) {
-        return sin(a);
-      }
-      if (strcmp(name, "cos") == 0) {
-        return cos(a);
-      }
-      if (strcmp(name, "tan") == 0) {
-        return tan(a);
-      }
-      if (strcmp(name, "abs") == 0) {
-        return fabs(a);
-      }
-      if (strcmp(name, "radians") == 0) {
-        return a * 3.14159265358979323846 / 180.0;
-      }
-      if (strcmp(name, "degrees") == 0) {
-        return a * 180.0 / 3.14159265358979323846;
-      }
-    }
-    p->err = true;
-    return 0.0;
-  }
-  char *end;
-  const double v = strtod(p->s, &end);
-  if (end == p->s) {
-    p->err = true;
-    return 0.0;
-  }
-  p->s = end;
-  return v;
-}
-
-static double parse_unary(Parser *p);
-
-static double parse_power(Parser *p)
-{
-  const double base = parse_atom(p);
-  skip_ws(p);
-  if ((p->s[0] == '*' && p->s[1] == '*') || p->s[0] == '^') {
-    p->s += p->s[0] == '^' ? 1 : 2;
-    return pow(base, parse_unary(p)); /* right associative */
-  }
-  return base;
-}
-
-static double parse_unary(Parser *p)
-{
-  skip_ws(p);
-  if (*p->s == '-') {
-    p->s++;
-    return -parse_unary(p);
-  }
-  if (*p->s == '+') {
-    p->s++;
-    return parse_unary(p);
-  }
-  return parse_power(p);
-}
-
-static double parse_term(Parser *p)
-{
-  double v = parse_unary(p);
-  while (!p->err) {
-    skip_ws(p);
-    const char c = *p->s;
-    if (c == '*' && p->s[1] != '*') {
-      p->s++;
-      v *= parse_unary(p);
-    }
-    else if (c == '/' && p->s[1] == '/') {
-      p->s += 2;
-      const double d = parse_unary(p);
-      if (d == 0.0) {
-        p->err = true;
-        return 0.0;
-      }
-      v = floor(v / d);
-    }
-    else if (c == '/') {
-      p->s++;
-      const double d = parse_unary(p);
-      if (d == 0.0) {
-        p->err = true;
-        return 0.0;
-      }
-      v /= d;
-    }
-    else if (c == '%') {
-      p->s++;
-      const double d = parse_unary(p);
-      if (d == 0.0) {
-        p->err = true;
-        return 0.0;
-      }
-      v = fmod(v, d);
-    }
-    else {
-      break;
-    }
-  }
-  return v;
-}
-
-static double parse_expr(Parser *p)
-{
-  double v = parse_term(p);
-  while (!p->err) {
-    skip_ws(p);
-    if (*p->s == '+') {
-      p->s++;
-      v += parse_term(p);
-    }
-    else if (*p->s == '-') {
-      p->s++;
-      v -= parse_term(p);
-    }
-    else {
-      break;
-    }
-  }
-  return v;
-}
-
+/* Blender's BLI_expr_pylike_eval (core/intern/expr_pylike_eval.cc, through
+ * BUI_blender_c.h): what Blender uses for number fields when Python is off,
+ * with BUI's `**`/`^`, `//`, `%`, `e` and `tau`. */
 int BK_eval_number(const char *expr, double *r_value)
 {
-  Parser p = {expr, false};
-  const double v = parse_expr(&p);
-  skip_ws(&p);
-  if (p.err || *p.s != 0 || !isfinite(v)) {
-    return 0;
-  }
-  *r_value = v;
-  return 1;
+  return BUI_expr_eval(expr, NULL, NULL, 0, r_value);
 }
 
 /** \} */
@@ -3548,7 +3418,9 @@ static void undo_forget(BKContext *ctx, BKNode *subtree)
 }
 
 static int g_animations = 1;
-#define ANIM_SECONDS 0.12
+/* Blender's panel animation (interface_panel.cc): ANIMATION_TIME 0.30 s, eased
+ * by do_animate's `fac = min_ff(sqrtf(fac), 1.0f)` (fast start, slow end). */
+#define ANIMATION_TIME 0.30
 
 void BK_set_animations(int enabled)
 {
@@ -3567,15 +3439,22 @@ void bk_anim_start(BKNode *n)
     n->anim = (n->flags & NF_COLLAPSED) ? 0.0f : 1.0f;
     return;
   }
+  const double now = bk_time();
   for (int i = 0; i < ctx->nanim; i++) {
     if (ctx->anim[i] == n) {
-      return; /* already running: it just reverses direction */
+      /* already running: reverse from where it is (Blender restarts its
+       * animation from the panels' current offsets) */
+      ctx->anim_start[i] = now;
+      ctx->anim_from[i] = n->anim;
+      return;
     }
   }
   if (ctx->nanim < BK_MAX_ANIM) {
     if (!ctx->nanim) {
-      ctx->anim_t = bk_time();
+      ctx->anim_t = now;
     }
+    ctx->anim_start[ctx->nanim] = now;
+    ctx->anim_from[ctx->nanim] = n->anim;
     ctx->anim[ctx->nanim++] = n;
     bk_ctx_request(ctx);
   }
@@ -3587,19 +3466,19 @@ static void anim_step(BKContext *ctx)
     return;
   }
   const double now = bk_time();
-  const float step = (float)((now - ctx->anim_t) / ANIM_SECONDS);
   ctx->anim_t = now;
   for (int i = ctx->nanim - 1; i >= 0; i--) {
     BKNode *n = ctx->anim[i];
     const float target = (n->flags & NF_COLLAPSED) ? 0.0f : 1.0f;
-    if (n->anim < target) {
-      n->anim = BK_MIN(target, n->anim + step);
-    }
-    else {
-      n->anim = BK_MAX(target, n->anim - step);
-    }
+    /* do_animate: fac = (now - starttime) / ANIMATION_TIME; fac = min(sqrt(fac), 1) */
+    float fac = (float)((now - ctx->anim_start[i]) / ANIMATION_TIME);
+    fac = BK_MIN(sqrtf(BK_MAX(fac, 0.0f)), 1.0f);
+    n->anim = fac >= 1.0f ? target : ctx->anim_from[i] + (target - ctx->anim_from[i]) * fac;
     if (n->anim == target) {
-      ctx->anim[i] = ctx->anim[--ctx->nanim];
+      const int last = --ctx->nanim;
+      ctx->anim[i] = ctx->anim[last];
+      ctx->anim_start[i] = ctx->anim_start[last];
+      ctx->anim_from[i] = ctx->anim_from[last];
     }
   }
   g_gen++;

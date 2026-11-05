@@ -12,19 +12,20 @@
 /* Upstream reserves bytes for per-block bookkeeping; this shim keeps none. */
 #define MEM_SIZE_OVERHEAD ((size_t)0)
 
-/* Modern MEM API used by the C++ BLI headers. */
-void *MEM_new_uninitialized(size_t size, const char *name);
-void *MEM_new_zeroed(size_t size, const char *name);
-void *MEM_new_uninitialized_aligned(size_t size, size_t alignment, const char *name);
-void MEM_delete_void(void *ptr);
-void *MEM_dupalloc_void(const void *vmemh);
-
 /* Alignment guaranteed by MEM_new_zeroed / malloc on all supported targets. */
 #define MEM_MIN_CPP_ALIGNMENT ((size_t)16)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Modern MEM API used by the C++ BLI headers (C linkage: guardedalloc.c is C,
+ * and core/intern/*.cc call it). */
+void *MEM_new_uninitialized(size_t size, const char *name);
+void *MEM_new_zeroed(size_t size, const char *name);
+void *MEM_new_uninitialized_aligned(size_t size, size_t alignment, const char *name);
+void MEM_delete_void(void *ptr);
+void *MEM_dupalloc_void(const void *vmemh);
 
 void *MEM_mallocN(size_t len, const char *str);
 void *MEM_malloc_arrayN(size_t len, size_t size, const char *str);

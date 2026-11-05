@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "BUI_blender_c.h"
+#include "blender/bk_blender.h"
 #include "kit_intern.h"
 
 static int u(void)
@@ -416,6 +418,10 @@ static void menu_pick(BKNode *n, int row)
   void *data = items[row].data;
   void *ref = items[row].ref;
   BKNode *owner = menu_root(n)->parent;
+  if (MENU(menu_root(n))->query[0]) {
+    /* a menu-search result: remembered as a recent search (interface_string_search.cc) */
+    bk_search_recent_add(items[row].text);
+  }
   bk_retain(ref);
   BK_close_popups(ctx);
   if (fn) {
@@ -451,18 +457,7 @@ static void menu_filter_walk(MenuData *m, const BKMenuSpec *items, int count, co
       menu_filter_walk(m, it->sub, it->nsub, full, q, out, nout, cap);
       continue;
     }
-    /* case-insensitive substring */
-    bool hit = false;
-    for (const char *s = it->text; *s && !hit; s++) {
-      size_t k = 0;
-      while (q[k] && s[k] && tolower((unsigned char)s[k]) == tolower((unsigned char)q[k])) {
-        k++;
-      }
-      hit = q[k] == 0;
-    }
-    if (!hit) {
-      continue;
-    }
+    /* every leaf is a candidate; Blender's string search filters and ranks them */
     if (*nout == *cap) {
       *cap = *cap ? *cap * 2 : 16;
       *out = (BKMenuSpec *)realloc(*out, sizeof(BKMenuSpec) * (size_t)*cap);
@@ -484,8 +479,38 @@ static void menu_filter(BKNode *n)
   m->filtered = NULL;
   m->nfiltered = 0;
   if (m->query[0]) {
-    int cap = 0;
-    menu_filter_walk(m, m->all, m->nall, "", m->query, &m->filtered, &m->nfiltered, &cap);
+    /* Blender's menu search (interface_template_search_menu.cc): every leaf as
+     * "Menu ▸ Submenu ▸ Item", filtered and ranked by blenlib's
+     * string_search (word-initial matches, typo tolerance, recent items first),
+     * weighting the last group (the item itself). */
+    BKMenuSpec *all = NULL;
+    int nall = 0, cap = 0;
+    menu_filter_walk(m, m->all, m->nall, "", m->query, &all, &nall, &cap);
+    BUIStringSearch *search = BUI_string_search_new(bk_search_recent_cache(),
+                                                    BUI_SEARCH_MAIN_LAST);
+    for (int i = 0; i < nall; i++) {
+      BUI_string_search_add(search, all[i].text, (void *)(intptr_t)(i + 1), 0);
+    }
+    void **found = (void **)malloc(sizeof(void *) * (size_t)(nall ? nall : 1));
+    const int nfound = BUI_string_search_query(search, m->query, found, nall);
+    BUI_string_search_free(search);
+    bool *used = (bool *)calloc((size_t)(nall ? nall : 1), sizeof(bool));
+    m->filtered = nfound ? (BKMenuSpec *)malloc(sizeof(BKMenuSpec) * (size_t)nfound) : NULL;
+    for (int k = 0; k < nfound && k < nall; k++) {
+      const int i = (int)(intptr_t)found[k] - 1;
+      m->filtered[m->nfiltered++] = all[i];
+      used[i] = true;
+    }
+    for (int i = 0; i < nall; i++) {
+      if (!used[i]) {
+        free((char *)all[i].text);
+        free((char *)all[i].shortcut);
+        bk_release(all[i].ref);
+      }
+    }
+    free(used);
+    free(found);
+    free(all);
   }
   n->hot = (m->query[0] && m->nfiltered) ? 0 : -1;
   BKContext *ctx = bk_ctx(n);
