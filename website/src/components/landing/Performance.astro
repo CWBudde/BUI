@@ -1,0 +1,97 @@
+---
+// Benchmark highlights and charts. Every number comes from src/data/bench.ts, which
+// follows README.md "Performance" (a Ryzen 7 5800U laptop, Windows 11, on AC power).
+import BenchChart from "../charts/BenchChart.astro";
+import Icon from "../site/Icon.astro";
+import { benchCaveat, highlights, machine } from "../../data/bench";
+import { href, repoFile } from "../../lib/docs";
+---
+
+<ul class="grid grid-cols-1 border-b border-border sm:grid-cols-2 xl:grid-cols-4">
+  {
+    highlights.map((h, i) => {
+      const max = Math.max(h.ours, h.theirs.value) || 1;
+      return (
+        <li
+          class:list={[
+            "speed-tile chart flex flex-col gap-3 border-border p-5 sm:p-7 [--scale:0.5]",
+            "border-b xl:border-b-0",
+            i % 2 === 0 && "sm:border-r",
+            i < 3 && "xl:border-r",
+            i >= 2 && "sm:border-b-0",
+          ]}
+          data-chart
+          style={`--reveal-i:${i}`}
+        >
+          <p class="flex items-baseline justify-between gap-3">
+            <span class="kicker text-muted">{h.label}</span>
+            <span class="speed-claim">{h.claim}</span>
+          </p>
+          <p class="tabular flex items-baseline gap-1.5 font-light tracking-[-0.04em]">
+            <span class="text-[3.4rem] leading-none sm:text-[3.9rem]">{h.value}</span>
+            <span class="text-xl text-muted">{h.unit}</span>
+          </p>
+          <div class="flex flex-col gap-1.5 text-[12px]" aria-label={`BUI ${h.value} ${h.unit}, ${h.theirs.name} ${h.theirs.display}`}>
+            <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-2">
+              <span class="font-semibold">BUI</span>
+              <span class="chart-track is-thin" style="--i:0">
+                <span class="chart-bar is-ours" style={`--p:${Math.max((h.ours / max) * 100, 0.4).toFixed(2)}%`} />
+                <span class="chart-value" style={`--p:${((h.ours / max) * 100).toFixed(2)}%`}>
+                  <span class="tabular font-medium">
+                    {h.value} {h.unit}
+                  </span>
+                </span>
+              </span>
+            </div>
+            <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-2">
+              <span class="truncate text-muted">{h.theirs.name}</span>
+              <span class="chart-track is-thin" style="--i:1">
+                <span class="chart-bar is-other" style="--p:100%" />
+                <span class="chart-value" style="--p:100%">
+                  <span class="tabular text-muted">{h.theirs.display}</span>
+                </span>
+              </span>
+            </div>
+          </div>
+          <p class="text-[12.5px] leading-5 text-muted">{h.note}</p>
+        </li>
+      );
+    })
+  }
+</ul>
+
+<div class="grid lg:grid-cols-2">
+  <div class="border-b border-border lg:border-r"><BenchChart id="first-frame" bare /></div>
+  <div class="border-b border-border"><BenchChart id="start-time" bare /></div>
+  <div class="border-b border-border lg:border-r"><BenchChart id="cpu-per-frame" bare /></div>
+  <div class="border-b border-border"><BenchChart id="ram" bare /></div>
+</div>
+
+<div class="flex flex-col gap-3 px-5 py-5 text-[13px] leading-6 text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8">
+  <p class="max-w-[80ch]">
+    <Icon name="info" size={14} class="mr-1 inline -translate-y-px" />
+    {machine}. {benchCaveat} gpui figures don't include their GPU time.
+  </p>
+  <p class="flex shrink-0 flex-wrap gap-x-5 gap-y-1">
+    <a class="group inline-flex items-center gap-1.5 font-medium text-link" href={href("docs/performance/benchmarks/")}>
+      Every benchmark <Icon name="arrow-right" size={14} class="transition-transform duration-200 group-hover:translate-x-0.5" />
+    </a>
+    <a class="hover:text-foreground" href={repoFile("bindings/rust/bench/README.md")}>Method and raw data</a>
+  </p>
+</div>
+
+<style>
+  .speed-tile {
+    background: var(--background);
+    transition: background-color 200ms ease-out;
+  }
+  .speed-tile:hover {
+    background: var(--surface);
+  }
+  .speed-claim {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--link);
+    white-space: nowrap;
+  }
+</style>

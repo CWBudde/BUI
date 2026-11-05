@@ -1,0 +1,55 @@
+---
+/**
+ * Two columns side by side (stacked on phones): before/after, or option A/option B.
+ *
+ * <Compare left="Standard tkinter" right="On BUI">
+ *   <div slot="left">
+ *
+ *   Markdown, code or a <Figure /> …
+ *
+ *   </div>
+ *   <div slot="right">
+ *
+ *   …
+ *
+ *   </div>
+ * </Compare>
+ *
+ * Keep the blank lines inside the slot divs so Markdown is parsed.
+ */
+interface Props {
+  left: string;
+  right: string;
+  /** Emphasize the right column (the "after"). Default true. */
+  highlightRight?: boolean;
+}
+const { left, right, highlightRight = true } = Astro.props;
+---
+
+<div class="compare grid border border-border md:grid-cols-2">
+  <section class="min-w-0 border-b border-border md:border-r md:border-b-0" aria-label={left}>
+    <p class="kicker border-b border-border bg-surface px-4 py-2 text-muted">{left}</p>
+    <div class="compare-body p-4"><slot name="left" /></div>
+  </section>
+  <section class="min-w-0" aria-label={right}>
+    <p class:list={["kicker border-b border-border px-4 py-2", highlightRight ? "bg-primary text-white" : "bg-surface text-muted"]}>
+      {right}
+    </p>
+    <div class="compare-body p-4"><slot name="right" /></div>
+  </section>
+</div>
+
+<style>
+  .compare-body :global(> * + *),
+  .compare-body :global(> div > * + *) {
+    margin-top: 0.75rem;
+  }
+  .compare-body {
+    font-size: 0.9375rem;
+    line-height: 1.7;
+  }
+  .compare-body :global(code:not(pre code)) {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
+</style>

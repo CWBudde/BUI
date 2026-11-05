@@ -61,10 +61,13 @@ def stage_extension() -> str:
 
 
 ext_name = stage_extension()
+# the one version (bui/_version.py, also read by CMake and pyproject.toml)
+with open(os.path.join(HERE, "bui", "_version.py"), encoding="utf-8") as f:
+    VERSION = f.read().split('__version__ = "')[1].split('"')[0]
 
 setup(
     name="bui",
-    version="0.1.0",
+    version=VERSION,
     description="BUI — Blender-derived UI toolkit with Qt/tkinter-style Python syntax",
     packages=["bui"],
     package_data={"bui": [ext_name]},

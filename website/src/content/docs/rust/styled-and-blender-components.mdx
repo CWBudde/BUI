@@ -1,0 +1,289 @@
+---
+title: Browser look, styled and Blender components
+sidebarLabel: The three looks
+description: Make any part of your Rust UI look like a web page or like Blender, and use Blender's real widgets as components.
+section: Rust
+order: 50
+languages: ["rust"]
+sources: ["docs/rust.md", "bindings/rust/blenderui/src/html.rs", "bindings/rust/blenderui/src/components.rs", "bindings/rust/blenderui/src/element.rs", "bindings/rust/blenderui/src/widgets.rs", "bindings/rust/blenderui/src/events.rs", "bindings/rust/blenderui/examples/forms.rs", "bindings/rust/blenderui/tests/basic_css.rs", "bindings/rust/blenderui/tests/effects.rs"]
+---
+
+Some apps should look like a web page. Some should look like Blender. Most want a bit of both: a clean document with a few Blender sliders in it. **In BUI you choose the look per element**, and the choice flows down to everything inside.
+
+<Figure
+  src="images/rust-forms.png"
+  alt="Three rows of the same form controls. Top, on white: browser-style button, text field, number field, checkbox, radio, slider, dropdown, progress bars, color picker and textarea. Middle, on dark grey: the same controls as Blender widgets. Bottom: Blender components for a button, text field, number slider and checkbox."
+  caption="The same controls three ways, from <code>examples/forms.rs</code> (<code>cargo run --example forms</code>)."
+  width={620}
+  height={620}
+/>
+
+## The three looks
+
+1. **Plain HTML** looks like a browser draws it: black text on white, 16 px, `#0000ee` underlined links, and a web browser's form controls, all in Blender's UI font, Inter.
+2. **Inside `styled`**, an element and everything in it get Blender's look: the `#303030` background, `#e6e6e6` 13 px text, blue links, dark `code` and `pre`, themed tables, fieldsets and dialogs, and Blender's widgets for the form controls.
+3. **Blender components** (`Button`, `NumberSlider`, `ColorSwatch` …) are Blender's widgets always, inside `styled` or not.
+
+Here's how `forms.rs` builds the screenshot above. One function makes the controls; the page shows it twice and then adds the components. The example is written with gpui builders; the `rsx!` tab is the same window in markup.
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust title="src/main.rs"
+use blenderui::prelude::*;
+
+fn controls() -> impl IntoElement {
+    rsx! {
+        <div flex gap-2 items-center p-3>
+            <button>"Button"</button>
+            <input value="Text field" />
+            <input type="number" value="42" />
+            <input type="range" min={0.0} max={10.0} value="6" />
+        </div>
+    }
+}
+
+struct Forms;
+
+impl Render for Forms {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        rsx! {
+            <body m-0 flex flex-col>
+                <h3>"Plain HTML (browser look)"</h3>
+                {controls()}
+                <div styled>
+                    <h3>"Inside styled (Blender look)"</h3>
+                    {controls()}
+                </div>
+                <h3>"Blender components"</h3>
+                <div flex gap-2 p-3>
+                    <Button>"Button"</Button>
+                    <TextField value="Text" />
+                    <NumberSlider min={0.0} max={10.0} value="6" />
+                    <Checkbox checked={true} />
+                </div>
+            </body>
+        }
+    }
+}
+
+fn main() {
+    Application::new().run(|cx| {
+        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Forms)).unwrap();
+    });
+}
+```
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust title="examples/forms.rs (shortened)"
+use blenderui::prelude::*;
+
+fn controls() -> Div {
+    div().flex().gap_2().items_center().p_3()
+        .child(button().child("Button"))
+        .child(input().value("Text field"))
+        .child(input().input_type("number").value("42"))
+        .child(input().input_type("range").min(0.0).max(10.0).value("6"))
+}
+
+struct Forms;
+
+impl Render for Forms {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        body().m_0().flex().flex_col()
+            .child(h3().child("Plain HTML (browser look)"))
+            .child(controls())
+            .child(div().styled().child(h3().child("Inside styled (Blender look)")).child(controls()))
+            .child(h3().child("Blender components"))
+            .child(div().flex().gap_2().p_3()
+                .child(Button().child("Button"))
+                .child(TextField().value("Text"))
+                .child(NumberSlider().min(0.0).max(10.0).value("6"))
+                .child(Checkbox().checked(true)))
+    }
+}
+
+fn main() {
+    Application::new().run(|cx| {
+        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Forms)).unwrap();
+    });
+}
+```
+
+</Tab>
+</Tabs>
+
+## Blender's look with styled
+
+Mark an element `styled` and it, and everything inside it, switches to Blender's built-in stylesheet:
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust
+rsx! { <div styled class="p-4">"Blender look"</div> }
+rsx! { <div styled><div styled="false">"Browser look again"</div></div> } // opt a subtree back out
+```
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust
+div().styled().p_4().child("Blender look")
+div().styled().child(div().attr("styled", "false").child("Browser look again")) // opt a subtree back out
+```
+
+</Tab>
+</Tabs>
+
+- **Your own CSS still wins** over either set of defaults. `styled` only swaps the user-agent stylesheet underneath.
+- **`styled="false"`** turns it back off for a subtree.
+- **What changes:** besides the background, text color and size, `styled` gives `pre` a dark padded block, `blockquote` a blue left bar, `kbd` a border, `mark` Blender's orange, `thead` a darker row, `fieldset` and `dialog` Blender's greys and rounded corners, and `hr` a thin grey line.
+
+Want the whole window in Blender's look? Put `styled` on the root element, as the showcase example does with `html().styled()`.
+
+<Compare left="Plain HTML" right="Inside styled">
+  <div slot="left">
+
+<Figure
+  shot="rust-html-plain"
+  alt="An export form and a table with a browser's default look"
+  caption="<code>examples/site_plain_html.rs</code>"
+/>
+
+  </div>
+  <div slot="right">
+
+<Figure
+  shot="rust-html-styled"
+  alt="The same form and table in Blender's theme, with Blender's widgets"
+  caption="<code>examples/site_styled.rs</code>: the same markup"
+/>
+
+  </div>
+</Compare>
+
+## Blender components
+
+These ten components are Blender's widgets, wherever you put them:
+
+| Component | What you get | Same element as |
+| --- | --- | --- |
+| `Button` | Blender's push button | `button()` |
+| `Checkbox` | Blender's checkbox | `input type="checkbox"` |
+| `Radio` | Blender's radio button, grouped by `name` | `input type="radio"` |
+| `NumberField` | A number field: drag to change, click to step, double-click to type | `input type="number"` |
+| `NumberSlider` | A number slider: the field fills with the value | `input type="range"` |
+| `TextField` | A single-line text field | `input type="text"` |
+| `TextArea` | A multi-line text editor | `textarea()` |
+| `ColorSwatch` | A color swatch that opens Blender's color picker | `input type="color"` |
+| `Dropdown` | A dropdown menu; options are `option()` children | `select()` |
+| `ProgressBar` | A progress bar (`value`, `max`) | `progress()` |
+
+Each one *is* the element it stands for, so every element method and attribute works on it: `min`, `max`, `step`, `value`, `checked`, `placeholder`, `disabled`, `on_change`, `on_click`, styling and so on.
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust
+rsx! {
+    <NumberSlider min={0.0} max={10.0} value="2.5" onChange={|e: &ChangeEvent| println!("{:?}", e.number)} />
+    <Button onClick={|| println!("apply")}>"Apply"</Button>
+    <Dropdown><option>"Cube"</option><option>"Sphere"</option></Dropdown>
+}
+```
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust
+div()
+    .child(NumberSlider().min(0.0).max(10.0).value("2.5")
+        .on_change(|e: &ChangeEvent, _, _| println!("{:?}", e.number)))
+    .child(Button().child("Apply").on_click(|_, _, _| println!("apply")))
+    .child(Dropdown().child(option().child("Cube")).child(option().child("Sphere")))
+```
+
+In builder style the components are functions with capitalized names. Listeners take all three parameters, `(event, window, cx)`.
+
+</Tab>
+</Tabs>
+
+<Figure
+  shot="rust-components"
+  alt="Camera properties built from Blender components: NumberField, NumberSlider, Dropdown, Checkbox, TextField, ColorSwatch, ProgressBar and Button"
+  caption="Blender components from Rust (<code>examples/site_components.rs</code>)."
+/>
+
+## Form controls
+
+Outside `styled`, form elements look and behave like a web browser's: its colors and shapes, typed number fields with spin buttons, a range thumb that jumps to the click. Inside `styled`, and as Blender components, they're Blender's widgets with Blender's interaction rules: drag a number to change it, double-click to type (number fields also take math such as `2*pi`), <Kbd keys="Ctrl+Z" /> to undo, <Kbd>Esc</Kbd> to cancel.
+
+| HTML | Blender widget | What `ChangeEvent` carries |
+| --- | --- | --- |
+| `button()` with text, or `input()` of type `submit`, `button` or `reset` | Button | (use `on_click`) |
+| `input()`: `text`, `password` (masked), `email`, `search`, `url`, `tel`, `date` … | Text field | `value` |
+| `input().input_type("number")` | Number field | `number`, `value` |
+| `input().input_type("range")` | Slider | `number`, `value` |
+| `input().input_type("checkbox")` | Checkbox | `checked` |
+| `input().input_type("radio")`, grouped by `name` | Radio button | `checked` |
+| `input().input_type("color")` | Color swatch (opens Blender's picker) | `value` as `#rrggbb` |
+| `select()` with `option()` / `optgroup()` | Dropdown menu | `number` (the index), `value` (the text) |
+| `textarea()` | Multi-line text editor | `value` |
+| `progress()`, `meter()` | Progress bar | (display only) |
+
+### Reading and controlling values
+
+`on_input` and `on_change` both fire when the value changes. Each gets a `ChangeEvent { value, checked, number }`:
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust
+rsx! {
+    <input id="vol" type="range" min={0.0} max={100.0} value={format!("{}", self.volume)}
+           onInput={cx.listener(|this, e: &ChangeEvent, _, cx| {
+               this.volume = e.number;
+               cx.notify();
+           })} />
+}
+```
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust
+input().id("vol").input_type("range").min(0.0).max(100.0)
+    .value(format!("{}", self.volume))
+    .on_input(cx.listener(|this, e: &ChangeEvent, _, cx| {
+        this.volume = e.number;
+        cx.notify();
+    }))
+```
+
+</Tab>
+</Tabs>
+
+- **Values you pass are pushed to the widget only when they change between renders.** A field the user is typing in isn't reset under their fingers.
+- **To control a field**, keep its value in your state and update it from `on_change`, as above. Give it an `.id(...)` so it keeps its identity across renders.
+- **A `button()` holding elements other than text** is laid out as an ordinary box (style it with CSS) and still gets `on_click`.
+
+<Callout type="warning" title="Widgets sit on top">
+Form widgets draw above page content. A `z-index`ed box, such as a `<dialog>`, over a form field doesn't cover the field.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Events" href="docs/rust/events/" icon="zap" kicker="Rust">
+    Every listener and what its event carries.
+  </Card>
+  <Card title="Blender's widgets in depth" href="docs/concepts/blender-widgets/" icon="sparkles" kicker="Concepts">
+    Scrubbing, snapping, drag-toggle and undo.
+  </Card>
+  <Card title="CSS and Tailwind" href="docs/rust/css-and-tailwind/" icon="layers" kicker="Rust">
+    Style the widgets and everything around them.
+  </Card>
+</CardGrid>

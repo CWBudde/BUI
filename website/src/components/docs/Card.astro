@@ -1,0 +1,53 @@
+---
+/**
+ * <Card title="…" href="docs/…/" icon="book" kicker="Tutorial">One or two sentences.</Card>
+ * Without `href` it's a plain cell. Internal links are site-relative (no leading slash).
+ * icon: any Phosphor name (https://phosphoricons.com) or an alias from src/components/site/Icon.astro.
+ */
+import Icon, { type IconName } from "../site/Icon.astro";
+import { href as link } from "../../lib/docs";
+
+interface Props {
+  title: string;
+  href?: string;
+  icon?: IconName;
+  kicker?: string;
+  soon?: boolean;
+}
+
+const { title, href, icon, kicker, soon = false } = Astro.props;
+const url = href ? link(href) : undefined;
+const external = href ? /^https?:/.test(href) : false;
+const Tag = url ? "a" : "div";
+---
+
+<Tag
+  href={url}
+  class:list={[
+    "group relative flex flex-col gap-2 bg-background p-5 transition-colors duration-150 ease-out",
+    url && "hover:bg-surface focus-visible:z-10",
+  ]}
+>
+  <span class="flex items-center gap-2.5">
+    {
+      icon && (
+        <span class="inline-flex size-8 items-center justify-center border border-border text-link transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-white">
+          <Icon name={icon} weight="duotone" size={17} />
+        </span>
+      )
+    }
+    <span class="flex flex-col">
+      {kicker && <span class="kicker text-muted">{kicker}</span>}
+      <span class="font-semibold leading-6 group-hover:text-link">{title}</span>
+    </span>
+    {soon && <span class="ml-auto border border-primary px-1 text-[10px] font-medium uppercase leading-4 tracking-[0.08em] text-link">Soon</span>}
+    {
+      url && !soon && (
+        <span class="ml-auto text-muted transition-transform duration-150 ease-out group-hover:translate-x-0.5 group-hover:text-link">
+          <Icon name={external ? "arrow-up-right" : "arrow-right"} size={16} />
+        </span>
+      )
+    }
+  </span>
+  <div class="text-[14.5px] leading-6 text-muted [&_code]:font-mono [&_code]:text-[0.85em] [&_p+p]:mt-2"><slot /></div>
+</Tag>

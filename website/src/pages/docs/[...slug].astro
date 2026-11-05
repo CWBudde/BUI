@@ -1,0 +1,23 @@
+---
+import { render } from "astro:content";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import * as mdxComponents from "../../components/docs";
+import { getDocs, type Doc } from "../../lib/docs";
+
+export async function getStaticPaths() {
+  const docs = await getDocs();
+  return docs.map((doc) => ({ params: { slug: doc.id }, props: { doc } }));
+}
+
+interface Props {
+  doc: Doc;
+}
+
+const { doc } = Astro.props;
+const { Content, headings } = await render(doc);
+---
+
+<DocsLayout doc={doc} headings={headings}>
+  {/* Every docs component is available in MDX without an import. */}
+  <Content components={mdxComponents} />
+</DocsLayout>

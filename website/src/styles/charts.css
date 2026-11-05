@@ -1,0 +1,134 @@
+/* Charts (src/components/charts). Bars grow in when the chart scrolls into view
+   (.motion + .in, see Base.astro); without JavaScript or with reduced motion they're
+   simply drawn. */
+
+.chart {
+  background: var(--background);
+}
+
+.chart-hatch,
+.chart-bar.is-other {
+  background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.28) 0 1px, transparent 1px 4px);
+}
+[data-theme="dark"] .chart-hatch,
+[data-theme="dark"] .chart-bar.is-other {
+  background-image: repeating-linear-gradient(135deg, rgb(0 0 0 / 0.32) 0 1px, transparent 1px 4px);
+}
+
+.chart-track {
+  position: relative;
+  display: block;
+  height: 1.625rem;
+  /* faint quarter lines */
+  background-image: linear-gradient(90deg, var(--chart-grid) 1px, transparent 1px);
+  background-size: 20.5% 100%;
+  background-position: 0 0;
+}
+.chart-track.is-thin {
+  height: 1.125rem;
+}
+
+.chart-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  /* the longest bar takes two thirds of the track, so every value label fits after it */
+  width: calc(var(--p) * var(--scale, 0.66));
+  min-width: 2px;
+  background-color: var(--c, var(--chart-other));
+  transform-origin: left center;
+}
+.chart-bar.is-ours {
+  background-color: var(--c, var(--primary));
+}
+
+.chart-value {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--p) * var(--scale, 0.66) + 0.5rem);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.chart-ratio {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--status-warn);
+}
+
+.chart-headline {
+  border-left: 0;
+}
+
+/* Line chart */
+.chart-grid {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+}
+.chart-axis {
+  fill: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-label {
+  fill: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-label.is-ours {
+  fill: var(--foreground);
+  font-weight: 600;
+}
+
+/* "Open bench" */
+.chart-details[open] > summary {
+  color: var(--foreground);
+}
+
+/* ---- motion ---- */
+.motion .chart .chart-bar {
+  transition: transform 900ms var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 60ms + 120ms);
+}
+.motion .chart .chart-value {
+  transition: opacity 500ms ease-out;
+  transition-delay: calc(var(--i, 0) * 60ms + 500ms);
+}
+.motion .chart:not(.in) .chart-bar {
+  transform: scaleX(0);
+}
+.motion .chart:not(.in) .chart-value {
+  opacity: 0;
+}
+
+.chart-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.motion .chart .chart-path {
+  transition: stroke-dashoffset 1200ms var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 180ms + 150ms);
+}
+.motion .chart:not(.in) .chart-path {
+  stroke-dashoffset: 1;
+}
+.motion .chart .chart-point {
+  transition: opacity 400ms ease-out;
+  transition-delay: calc(var(--i, 0) * 180ms + var(--j, 0) * 250ms + 300ms);
+}
+.motion .chart:not(.in) .chart-point {
+  opacity: 0;
+}
+
+/* Phones: shorter bars so the labels fit; the headline carries the ratio. */
+@media (max-width: 639.98px) {
+  .chart-track {
+    --scale: 0.5;
+  }
+  .chart-ratio {
+    display: none;
+  }
+}

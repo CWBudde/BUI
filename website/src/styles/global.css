@@ -1,0 +1,589 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+@import "./charts.css";
+
+/* Dark mode follows <html data-theme="dark">, set before paint by Base.astro. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ------------------------------------------------------------------------
+   Design tokens. Blender's default theme, read for the web.
+   Light is the base; dark comes from the toggle (data-theme) or, without
+   JavaScript, from the system. Keep the two dark blocks in sync.
+   ------------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+
+  /* Blender's selection blue and its active orange */
+  --primary: #4772b3;
+  --primary-hover: #3d65a3;
+  --primary-ink: #ffffff; /* text on a primary fill */
+  --primary-soft: #e3ebf6; /* a quiet blue surface: current sidebar section, selected rows */
+  --accent: #c94a00;
+  --link: #2f5896; /* primary darkened for body text on light */
+
+  --background: #fbfbfa;
+  --foreground: #161616;
+  --surface: #f2f2f0;
+  --surface-2: #e8e8e5;
+  --muted: #545452;
+  --border: #d3d3cf;
+  --border-strong: #b4b4b0;
+  --border-soft: #e5e5e1;
+  --hatch: rgb(71 114 179 / 0.24);
+  --hatch-soft: rgb(22 22 22 / 0.07);
+  --outline: rgb(0 0 0 / 0.1);
+  --code-bg: #f6f6f4;
+  --scrollbar: #c4c4c0;
+  --shadow: 0 1px 0 rgb(0 0 0 / 0.03), 0 22px 44px -26px rgb(0 0 0 / 0.3);
+  --stage: #eceeef; /* behind screenshots */
+
+  /* charts */
+  --chart-other: #9a9a96;
+  --chart-other-2: #bcbcb8;
+  --chart-other-3: #d5d5d1;
+  --chart-ours-2: #84a4d6;
+  --chart-ours-3: #b8cae7;
+  --chart-grid: rgb(0 0 0 / 0.07);
+
+  /* Blender widget colors for the demos that mimic Blender's UI. Light comes
+     from Blender's "Blender Light" preset, dark from "Blender Dark" (the same
+     XML that kit/intern/kit_theme_presets.c is generated from). */
+  --bl-stage: #a8a8a8; /* behind a demo, like the 3D viewport */
+  --bl-stage-hatch: rgb(255 255 255 / 0.13);
+  --bl-region: #b3b3b3; /* region_bg */
+  --bl-panel: #cccccc; /* panel header / back */
+  --bl-panel-line: rgb(0 0 0 / 0.14);
+  --bl-outline: #999999;
+  --bl-widget: #dbdbdb; /* wcol_regular inner */
+  --bl-widget-hover: #e8e8e8;
+  --bl-sel: #5680c2; /* inner_sel */
+  --bl-text: #1a1a1a;
+  --bl-muted: #4d4d4d;
+  --bl-footer: #999999; /* header_bg */
+  --bl-menu: #c0c0c0; /* wcol_menu_back inner */
+  --bl-menu-outline: #a6a6a6;
+  --bl-menu-text: #1a1a1a;
+  --bl-menu-match: #a34700; /* the matched letters in menu search */
+  --bl-field: #282828; /* wcol_text inner: dark in Blender Light too */
+  --bl-field-text: #dddddd;
+  --bl-pie: #212121; /* wcol_pie_menu inner: dark in Blender Light too */
+  --bl-pie-text: #d9d9d9;
+  --bl-pie-outline: #333333;
+  --bl-pie-ring: #585858;
+  --bl-shadow: rgb(0 0 0 / 0.3);
+
+  --status-stable: #23744a;
+  --status-preview: #8a5700;
+  --status-experimental: #7449ad;
+  --status-soon: #2f5896;
+  --status-warn: #b04000;
+
+  --header-h: 3.5rem;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --primary-hover: #5680c2;
+  --primary-soft: #253041;
+  --accent: #ed5700;
+  --link: #8cb0ea;
+  --background: #1b1b1b;
+  --foreground: #e8e8e8;
+  --surface: #222222;
+  --surface-2: #2b2b2b;
+  --muted: #a6a6a6;
+  --border: #383838;
+  --border-strong: #4c4c4c;
+  --border-soft: #2d2d2d;
+  --hatch: rgb(71 114 179 / 0.42);
+  --hatch-soft: rgb(255 255 255 / 0.06);
+  --outline: rgb(255 255 255 / 0.08);
+  --code-bg: #171717;
+  --scrollbar: #474747;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.02), 0 24px 50px -24px rgb(0 0 0 / 0.8);
+  --stage: #141414;
+  --chart-other: #6b6b6b;
+  --chart-other-2: #555555;
+  --chart-other-3: #444444;
+  --chart-ours-2: #7d9fd4;
+  --chart-ours-3: #3a5680;
+  --chart-grid: rgb(255 255 255 / 0.07);
+  --status-stable: #6fcf97;
+  --status-preview: #f2c14e;
+  --status-experimental: #c3a1f0;
+  --status-soon: #8cb0ea;
+  --status-warn: #ff9a5c;
+  --bl-stage: #1b1b1b;
+  --bl-stage-hatch: rgb(71 114 179 / 0.16);
+  --bl-region: #303030;
+  --bl-panel: #3d3d3d;
+  --bl-panel-line: #262626;
+  --bl-outline: #1d1d1d;
+  --bl-widget: #545454;
+  --bl-widget-hover: #656565;
+  --bl-sel: #4772b3;
+  --bl-text: #e6e6e6;
+  --bl-muted: #a6a6a6;
+  --bl-footer: #232323;
+  --bl-menu: #282828;
+  --bl-menu-outline: #1d1d1d;
+  --bl-menu-text: #e6e6e6;
+  --bl-menu-match: #ffb27a;
+  --bl-field: #1d1d1d;
+  --bl-field-text: #e6e6e6;
+  --bl-pie: #282828;
+  --bl-pie-text: #e6e6e6;
+  --bl-pie-outline: #1d1d1d;
+  --bl-pie-ring: #545454;
+  --bl-shadow: rgb(0 0 0 / 0.65);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --primary-hover: #5680c2;
+    --primary-soft: #253041;
+    --accent: #ed5700;
+    --link: #8cb0ea;
+    --background: #1b1b1b;
+    --foreground: #e8e8e8;
+    --surface: #222222;
+    --surface-2: #2b2b2b;
+    --muted: #a6a6a6;
+    --border: #383838;
+    --border-strong: #4c4c4c;
+    --border-soft: #2d2d2d;
+    --hatch: rgb(71 114 179 / 0.42);
+    --hatch-soft: rgb(255 255 255 / 0.06);
+    --outline: rgb(255 255 255 / 0.08);
+    --code-bg: #171717;
+    --scrollbar: #474747;
+    --shadow: 0 1px 0 rgb(255 255 255 / 0.02), 0 24px 50px -24px rgb(0 0 0 / 0.8);
+    --stage: #141414;
+    --chart-other: #6b6b6b;
+    --chart-other-2: #555555;
+    --chart-other-3: #444444;
+    --chart-ours-2: #7d9fd4;
+    --chart-ours-3: #3a5680;
+    --chart-grid: rgb(255 255 255 / 0.07);
+    --status-stable: #6fcf97;
+    --status-preview: #f2c14e;
+    --status-experimental: #c3a1f0;
+    --status-soon: #8cb0ea;
+    --status-warn: #ff9a5c;
+    --bl-stage: #1b1b1b;
+    --bl-stage-hatch: rgb(71 114 179 / 0.16);
+    --bl-region: #303030;
+    --bl-panel: #3d3d3d;
+    --bl-panel-line: #262626;
+    --bl-outline: #1d1d1d;
+    --bl-widget: #545454;
+    --bl-widget-hover: #656565;
+    --bl-sel: #4772b3;
+    --bl-text: #e6e6e6;
+    --bl-muted: #a6a6a6;
+    --bl-footer: #232323;
+    --bl-menu: #282828;
+    --bl-menu-outline: #1d1d1d;
+    --bl-menu-text: #e6e6e6;
+    --bl-menu-match: #ffb27a;
+    --bl-field: #1d1d1d;
+    --bl-field-text: #e6e6e6;
+    --bl-pie: #282828;
+    --bl-pie-text: #e6e6e6;
+    --bl-pie-outline: #1d1d1d;
+    --bl-pie-ring: #545454;
+    --bl-shadow: rgb(0 0 0 / 0.65);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-ink: var(--primary-ink);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent: var(--accent);
+  --color-link: var(--link);
+  --color-code: var(--code-bg);
+  --color-stage: var(--stage);
+  --color-bl-stage: var(--bl-stage);
+  --color-bl-region: var(--bl-region);
+  --color-bl-widget: var(--bl-widget);
+  --color-bl-outline: var(--bl-outline);
+  --color-bl-text: var(--bl-text);
+  --color-bl-muted: var(--bl-muted);
+  --font-sans: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ------------------------------------------------------------------------
+   Base
+   ------------------------------------------------------------------------ */
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--header-h) + 1rem);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01"; /* Inter's single-storey a off, straight 1 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--primary) 32%, transparent);
+}
+
+/* In the base layer, so a utility like `outline-none` can opt out (the search field). */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  [data-theme="dark"] :focus-visible {
+    outline-color: #7fa3e0;
+  }
+}
+
+/* Small, square scrollbars everywhere (the sidebar, code blocks, tables), both themes. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+@supports selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    border-radius: 0;
+  }
+  *::-webkit-scrollbar-thumb:hover,
+  *::-webkit-scrollbar-thumb:active {
+    background: var(--primary);
+  }
+  *::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  z-index: 100;
+  padding: 0.5rem 0.75rem;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.875rem;
+}
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+/* The signature: diagonal hatch dividers */
+.hatch {
+  background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 6px);
+}
+
+.hatch-soft {
+  background-image: repeating-linear-gradient(135deg, var(--hatch-soft) 0 1px, transparent 1px 6px);
+}
+
+.hatch-strong {
+  background-image: repeating-linear-gradient(135deg, var(--hatch) 0 2px, transparent 2px 4px);
+}
+
+.img-outline {
+  outline: 1px solid var(--outline);
+  outline-offset: -1px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.kicker {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* Screenshots that come in light and dark pairs (<ThemedImage>, <Figure dark light>) */
+.themed-light {
+  display: block;
+}
+.themed-dark {
+  display: none;
+}
+:root[data-theme="dark"] .themed-light {
+  display: none;
+}
+:root[data-theme="dark"] .themed-dark {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .themed-light {
+    display: none;
+  }
+  :root:not([data-theme]) .themed-dark {
+    display: block;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Motion. Things fade up as they scroll in. Only when JavaScript runs and the
+   reader hasn't asked for reduced motion (Base.astro adds .motion to <html>).
+   ------------------------------------------------------------------------ */
+.motion [data-reveal] {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 700ms var(--ease-out),
+    transform 700ms var(--ease-out);
+  transition-delay: calc(var(--reveal-i, 0) * 70ms);
+}
+.motion [data-reveal].in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Prose (docs pages). Plain Markdown gets these styles automatically.
+   ------------------------------------------------------------------------ */
+.prose {
+  font-size: 1rem;
+  line-height: 1.75;
+  text-wrap: pretty;
+  color: var(--foreground);
+}
+
+.prose > * + * {
+  margin-top: 1.15rem;
+}
+
+.prose :where(h2, h3, h4) {
+  text-wrap: balance;
+  letter-spacing: -0.015em;
+  scroll-margin-top: calc(var(--header-h) + 1.25rem);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.prose h2 {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--border-soft);
+  font-size: 1.5rem;
+}
+
+.prose > h2:first-child {
+  margin-top: 0;
+}
+
+.prose h3 {
+  margin-top: 2.25rem;
+  font-size: 1.1875rem;
+}
+
+.prose h4 {
+  margin-top: 1.75rem;
+  font-size: 1rem;
+}
+
+.prose :where(h2, h3, h4) + * {
+  margin-top: 0.75rem;
+}
+
+.prose :where(h2, h3, h4) a.heading-anchor {
+  margin-left: 0.4rem;
+  color: var(--muted);
+  opacity: 0;
+  text-decoration: none;
+  transition: opacity 120ms ease-out;
+}
+
+.prose :where(h2, h3, h4):hover a.heading-anchor,
+.prose a.heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.prose a:not(.unstyled):not(:where(.not-prose, .not-prose *)) {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--link) 40%, transparent);
+  transition: text-decoration-color 120ms ease-out;
+}
+
+.prose a:not(.unstyled):not(:where(.not-prose, .not-prose *)):hover {
+  text-decoration-color: var(--link);
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose :where(ul, ol) {
+  padding-left: 1.35rem;
+}
+
+.prose ul {
+  list-style: square;
+}
+
+.prose ul > li::marker {
+  color: var(--primary);
+}
+
+.prose ol {
+  list-style: decimal;
+}
+
+.prose ol > li::marker {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose li + li {
+  margin-top: 0.4rem;
+}
+
+.prose li > :where(ul, ol) {
+  margin-top: 0.4rem;
+}
+
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.12em 0.36em;
+  background: var(--surface-2);
+  outline: 1px solid var(--outline);
+  outline-offset: -1px;
+  overflow-wrap: anywhere;
+}
+
+.prose blockquote {
+  padding: 0.25rem 0 0.25rem 1rem;
+  color: var(--muted);
+  background-image: linear-gradient(var(--border-strong), var(--border-strong));
+  background-size: 1px 100%;
+  background-repeat: no-repeat;
+}
+
+.prose hr {
+  border: 0;
+  height: 0.75rem;
+  margin-block: 2.5rem;
+  background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 6px);
+  border-block: 1px solid var(--border);
+}
+
+.prose img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Tables: bordered; wide ones scroll sideways (DocsLayout wraps them in .table-wrap) */
+.prose > table {
+  border: 1px solid var(--border);
+}
+
+.prose .table-wrap {
+  position: relative;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+
+.prose table:not(:where(.not-prose *)) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.prose th:not(:where(.not-prose *)) {
+  text-align: left;
+  font-weight: 600;
+  padding: 0.6rem 0.85rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.prose td:not(:where(.not-prose *)) {
+  padding: 0.6rem 0.85rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.prose tr:last-child td:not(:where(.not-prose *)) {
+  border-bottom: 0;
+}
+
+.prose td[align="right"],
+.prose th[align="right"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Expressive Code blocks sit flush with the prose rhythm */
+.prose .expressive-code {
+  margin-top: 1.25rem;
+}
+
+.prose > .expressive-code + * {
+  margin-top: 1.25rem;
+}
+
+/* Mobile drawers (site menu, docs sidebar) open with [data-open] */
+@media (max-width: 767.98px) {
+  [data-menu]:not([data-open]) {
+    display: none;
+  }
+}

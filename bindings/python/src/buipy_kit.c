@@ -1836,6 +1836,38 @@ static PyObject *kit_unit(PyObject *m, PyObject *unused)
   return PyLong_FromLong(BK_unit());
 }
 
+static PyObject *kit_set_theme(PyObject *m, PyObject *arg)
+{
+  const char *name = PyUnicode_AsUTF8(arg);
+  if (!name) {
+    return NULL;
+  }
+  if (!BK_set_theme(name)) {
+    PyErr_Format(PyExc_ValueError, "unknown theme %R (expected 'dark' or 'light')", arg);
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+static PyObject *kit_theme_name(PyObject *m, PyObject *unused)
+{
+  return PyUnicode_FromString(BK_theme_name());
+}
+
+static PyObject *kit_theme_color(PyObject *m, PyObject *arg)
+{
+  const char *key = PyUnicode_AsUTF8(arg);
+  float c[4];
+  if (!key) {
+    return NULL;
+  }
+  if (!BK_theme_color(key, c)) {
+    PyErr_Format(PyExc_KeyError, "%R", arg);
+    return NULL;
+  }
+  return Py_BuildValue("(dddd)", (double)c[0], (double)c[1], (double)c[2], (double)c[3]);
+}
+
 static PyObject *kit_set_font(PyObject *m, PyObject *arg)
 {
   BK_set_font(PyUnicode_AsUTF8(arg));
@@ -1870,6 +1902,9 @@ static PyMethodDef kit_functions[] = {
     {"kit_scale", kit_scale, METH_NOARGS, ""},
     {"kit_unit", kit_unit, METH_NOARGS, "U.widget_unit in pixels."},
     {"kit_set_font", kit_set_font, METH_O, "UI font family."},
+    {"kit_set_theme", kit_set_theme, METH_O, "Theme: 'dark' (default) or 'light' (Blender's presets)."},
+    {"kit_theme_name", kit_theme_name, METH_NOARGS, "The active theme: 'dark' or 'light'."},
+    {"kit_theme_color", kit_theme_color, METH_O, "A theme color as (r, g, b, a) 0..1, e.g. 'region_bg', 'regular.inner'."},
     {"kit_icon_names", kit_icon_names, METH_NOARGS, "All icon names."},
     {"kit_eval_number", kit_eval_number, METH_O, "Evaluate number input ('2*pi')."},
     {"kit_link_fields", kit_link_fields, METH_O, "Link number fields for Alt editing."},

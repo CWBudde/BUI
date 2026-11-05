@@ -1,0 +1,107 @@
+---
+title: Damage rendering
+description: Why an idle BUI window uses no CPU, and why a hover redraws one widget instead of the whole window. The trick, step by step.
+section: Concepts
+order: 40
+sources: ["README.md", "ARCHITECTURE.md", "kit/intern/kit_core.c", "kit/intern/kit_intern.h", "gpu/include/GPU_raster.h", "gpu/intern/gpu_raster.c", "gpu/intern/gpu_d3d11.h", "kit/intern/kit_window_win32.c", "kit/intern/kit_window_x11.c", "kit/intern/kit_window_cocoa.m", "bindings/rust/bench/README.md"]
+---
+
+Leave a BUI window open and walk away: it uses **no CPU at all**. Hover a button, and BUI redraws that button, not the window. This is **damage rendering**, and it's the main reason BUI is easy on laptop batteries.
+
+The idea is simple: keep track of which parts of the screen are "damaged" (out of date), and redraw only those. Here's how BUI does it, from the widget all the way to the screen.
+
+## The short version
+
+- A change marks only its widget's rectangle as dirty.
+- If nothing is dirty, BUI doesn't render. The event loop sleeps until the next input or timer.
+- When something is dirty, BUI redraws only those rectangles.
+- The renderer then finds which pixels really changed, and only those reach the screen.
+
+On the full components demo (520×900, Ryzen 7 5800U laptop), that's the difference between about **0.7 ms** for a complete frame and about **0.05 ms** for a hover or number-scrub frame.
+
+<BenchChart id="frame-times" />
+
+## Step by step
+
+<Steps>
+
+1. **A widget marks itself dirty.**
+
+   When a value, text or state changes, the kit marks that node's rectangle as dirty, plus a few pixels of margin. Popups get a wider margin, to cover their shadow. Nothing is drawn yet.
+
+2. **Dirty rectangles merge.**
+
+   The kit keeps a short list of dirty rectangles per window: up to 24. A new rectangle that overlaps one already in the list is merged into it. If the list is full, everything merges into one rectangle.
+
+3. **The loop decides whether to render.**
+
+   On the next turn of the event loop, the kit checks for dirty rectangles. If there are none, and nothing needs a new layout, it returns without drawing anything. This is why an idle window costs nothing: there's no timer redrawing it "just in case".
+
+4. **Only the dirty regions are drawn.**
+
+   For each dirty rectangle, the kit draws the widgets that touch it, clipped to the rectangle. Everything outside keeps last frame's pixels.
+
+   If the layout changed (the window resized, or a widget was added), positions may have moved everywhere, so the whole window is redrawn once.
+
+5. **The renderer finds what actually changed.**
+
+   The software raster compares the new frame with the previous one in tiles of 64×32 pixels, but only the tiles under the redrawn area. Runs of changed tiles become the **damage list**. A redraw that produced the same pixels (a hover that didn't change a color) reports nothing.
+
+6. **Only damaged tiles reach the screen.**
+
+   The window host presents just the damage list:
+
+   - **Windows:** the damaged regions are copied straight to the window.
+   - **Linux (X11):** each damaged rectangle is sent with `XPutImage`.
+   - **macOS:** each damaged rectangle is invalidated on the view, which redraws it from the frame.
+   - **GPU renderer:** frames render into a persistent target, so only damaged regions are drawn on the GPU. On Windows, the flip-model swap chain gets dirty rectangles, so the system compositor only recomposes what changed.
+
+</Steps>
+
+## Animation and frame pacing
+
+Some things do need frames over time: a panel collapsing, a CSS transition, a React app calling `requestAnimationFrame`. BUI renders frames **only while something animates**, and stops as soon as it's done.
+
+- **Paced to the display.** On Windows, animation frames wait for the display's next refresh (`DwmFlush`), at its refresh rate. On Linux and macOS, the event loop paces them with a timer.
+- **Late frames don't wait.** A frame that's already late starts right away instead of waiting for another refresh.
+- **One rebuild per frame.** Rust and JavaScript rebuild the scene right before the render (`BK_window_request_frame` in C), so changes made in an animation callback join that same frame.
+- **Damage still applies.** If one cell of a grid animates, only that cell is redrawn each frame.
+
+Headless windows (tests and screenshots) run on a virtual clock that tests advance by hand, so animations step exactly and tests don't wait.
+
+## What it adds up to
+
+From the start-time benchmark, measured on a Ryzen 7 5800U laptop: the CPU each app used while its window sat idle, per minute.
+
+<BenchChart id="idle-all" />
+
+<BenchChart id="idle-cpu" />
+
+Node's own event loop accounts for the JavaScript idle figure. On the same gpui source, gpui itself keeps working while idle. The full table is on the [Benchmarks](../../performance/benchmarks/) page.
+
+## Keeping your app cheap
+
+Damage rendering works without any effort from you. A few habits keep it working well:
+
+- **Change values, not layouts.** Setting a value redraws one widget. Adding or removing widgets triggers a layout pass and a full redraw. Both are fast, but the first is nearly free.
+- **Don't poll.** A timer in your code that sets the same value every few milliseconds keeps the event loop awake. Prefer callbacks.
+- **Keep big lists on signals (JavaScript).** A signal updates one node; re-rendering a 3,000-item list re-renders everything. See [Profiling](../../performance/profiling/).
+- **Measure.** `BUI_PROFILE=1` prints per-phase frame times, so you can see whether frames are full or partial.
+
+<Callout type="joke">
+Damage rendering is the art of doing nothing, very precisely. Your laptop fan may start to wonder if you left.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Rendering" href="docs/concepts/rendering/" icon="cpu" kicker="Concepts">
+    The CPU raster and the GPU renderer in depth.
+  </Card>
+  <Card title="Benchmarks" href="docs/performance/benchmarks/" icon="zap" kicker="Performance">
+    Start time, idle cost and frame times, measured.
+  </Card>
+  <Card title="Window hosts" href="docs/concepts/window-hosts/" icon="monitor" kicker="Concepts">
+    The native windows that put the tiles on screen.
+  </Card>
+</CardGrid>

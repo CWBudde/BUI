@@ -1,0 +1,207 @@
+---
+title: Headless testing
+description: Run your Rust UI without a window, click and type into it from a test, read its pixels, save screenshots and step animations on a virtual clock.
+section: Rust
+order: 80
+languages: ["rust"]
+sources: ["docs/rust.md", "bindings/rust/blenderui/src/window.rs", "bindings/rust/blenderui/tests/headless.rs", "bindings/rust/blenderui/tests/animation.rs", "bindings/rust/blenderui/tests/rsx.rs", "bindings/rust/blenderui/tests/hooks.rs", "bindings/rust/blenderui/tests/parity.rs", "bindings/rust/blenderui/examples/hello.rs"]
+---
+
+The best UI bug is the one your test catches before anyone sees it. **BUI can run your whole app off-screen**: same code, same layout, same pixels, no window. Your tests click buttons, type text, scroll lists and check the result, in plain `cargo test`, on CI machines with no display.
+
+## Your first UI test
+
+Put this in `tests/counter.rs`:
+
+```rust title="tests/counter.rs"
+use blenderui::prelude::*;
+
+struct Counter { count: i32 }
+
+impl Render for Counter {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().child(
+            div().id("plus").w(px(60.0)).h(px(20.0)).bg(rgb(0x4772b3))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.count += 1;
+                    cx.notify();
+                })),
+        )
+    }
+}
+
+#[test]
+fn clicking_plus_counts() {
+    Application::headless().run(|cx| {
+        let win = cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Counter { count: 0 }))
+            .unwrap();
+        let b = cx.element_bounds(win.id, "plus").unwrap();        // the element with .id("plus")
+        cx.simulate_click(win.id, b.origin.x + 2.0, b.origin.y + 2.0);
+        assert_eq!(win.root().read(cx).count, 1);
+    });
+}
+```
+
+Run it with `cargo test`. Here's what each piece does:
+
+- **`Application::headless()`** runs the same code as `Application::new()`, but nothing appears on screen. It's also what you get automatically on a platform without native windows.
+- **`cx.element_bounds(window, "plus")`** finds the element with `.id("plus")` and returns its box in logical pixels.
+- **`cx.simulate_click(window, x, y)`** moves the pointer there, then presses and releases the left button.
+- **`win.root().read(cx)`** gives you your view, so you can check its state.
+
+## Simulating input
+
+| Method | What it does |
+| --- | --- |
+| `simulate_mouse_move(window, x, y)` | Move the pointer, which triggers `:hover` styles and `on_hover` |
+| `simulate_click(window, x, y)` | Move, then press and release the left button |
+| `simulate_scroll(window, x, y, lines)` | Turn the wheel at a point: positive `lines` scroll the content up, negative scroll down |
+| `simulate_key(window, text, keysym)` | Type text, or press a key by its X11 keysym name: `"Return"`, `"BackSpace"`, `"a"` … |
+
+Coordinates are logical pixels. Each call handles the events it caused and re-renders before returning, so you can assert right after it.
+
+```rust
+let field = cx.element_bounds(win.id, "name").unwrap();
+cx.simulate_click(win.id, field.origin.x + 5.0, field.origin.y + 5.0);  // focus it
+cx.simulate_key(win.id, "a", "a");                                     // type "a"
+cx.simulate_key(win.id, "", "Return");                                 // press Enter
+```
+
+To change your view from a test, as the app would, use `update`:
+
+```rust
+win.root().update(cx, |view, cx| {
+    view.items.remove(0);
+    cx.notify();
+});
+```
+
+`cx.notify_all()` marks every window for a re-render.
+
+## Reading pixels
+
+`cx.draw(window)` renders the window and hands you its pixels: `(width, height, pixels)`, in **device pixels**, each a `u32` as `0x00RRGGBB`.
+
+```rust
+let (w, h, px) = cx.draw(win.id);
+let scale = w as f32 / 300.0;                          // device pixels per logical pixel
+let at = |x: f32, y: f32| px[(y * scale) as usize * w + (x * scale) as usize];
+assert_eq!(at(10.0, 10.0), 0xff0000);                  // the red box is where it should be
+```
+
+Divide by your window's logical width to get the scale, as above, so the test passes on HiDPI machines too.
+
+## Saving a screenshot
+
+Turn the pixels into a PNG with the `png` crate. This is how the examples' `--screenshot` flag works (`cargo run --example showcase -- --screenshot a.png`):
+
+```rust
+let (w, h, px) = cx.draw(win.id);
+let rgba: Vec<u8> = px.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 255]).collect();
+let file = std::fs::File::create("shot.png").expect("create png");
+let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
+enc.set_color(png::ColorType::Rgba);
+enc.set_depth(png::BitDepth::Eight);
+enc.write_header().expect("png").write_image_data(&rgba).expect("png");
+```
+
+The image is a real render: the same pixels a native window would show.
+
+## Test animations with a virtual clock
+
+Headless windows run on a **virtual clock** that stands still until you move it. `cx.advance_clock(duration)` moves every window's clock forward, so animations and transitions land on exact values every time:
+
+```rust title="tests/grow.rs"
+use std::time::Duration;
+use blenderui::prelude::*;
+
+struct Page;
+
+impl Render for Page {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        body().child(div().id("a")).child(style().child("
+            body { margin: 0 } div { height: 10px; width: 30px }
+            @keyframes grow { 0% { width: 0 } 50% { width: 100px } 100% { width: 50px } }
+            #a { animation: grow 2s linear }"))
+    }
+}
+
+#[test]
+fn grows_then_settles() {
+    Application::headless().run(|cx| {
+        let win = cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Page)).unwrap();
+        let width = |cx: &mut App| cx.element_bounds(win.id, "a").unwrap().size.width;
+        cx.draw(win.id);
+        assert_eq!(width(cx), 0.0);
+        cx.advance_clock(Duration::from_millis(500));
+        assert_eq!(width(cx), 50.0);                       // halfway to the 50% keyframe
+        cx.advance_clock(Duration::from_millis(500));
+        assert_eq!(width(cx), 100.0);
+        cx.advance_clock(Duration::from_millis(1100));
+        assert_eq!(width(cx), 30.0);                       // finished: back to the CSS width
+        cx.draw(win.id);
+        assert!(!cx.window(win.id).unwrap().is_animating());
+    });
+}
+```
+
+`window.is_animating()` tells you whether animations or transitions are still running, and `window.needs_render()` whether a render is pending. Together they make a good "the window is idle" check. On native windows, `advance_clock` adds to real time instead.
+
+## Sizing the test window
+
+`WindowOptions::default()` opens a 1024 × 700 window. Pick a size when layout matters:
+
+```rust
+let opts = WindowOptions {
+    window_bounds: Some(WindowBounds::Windowed(Bounds {
+        origin: point(px(0.0), px(0.0)),
+        size: size(px(300.0), px(200.0)),
+    })),
+    ..Default::default()
+};
+let win = cx.open_window(opts, |_, cx| cx.new(|_| MyView)).unwrap();
+```
+
+`@media` queries and Tailwind breakpoints follow this size, so you can test `md:` layouts by opening a wider window.
+
+## One app at a time
+
+The C kit has global state, so **one `Application` runs at a time per process**. `run` takes a lock, so tests that run in parallel simply queue up; you don't need `--test-threads=1`.
+
+## The repository's own tests
+
+BUI's Rust tests are a good library of working examples. From `bindings/rust`:
+
+```sh
+cargo test                                  # everything
+cargo test --test headless                  # layout, painting and input
+cargo test --test parity -- --nocapture     # print the HTML and CSS coverage report
+```
+
+| File | What it shows |
+| --- | --- |
+| `tests/headless.rs` | Layout, clicks, hover, stylesheets, tables, the canvas painter, incremental frames |
+| `tests/rsx.rs` | `rsx!` control flow, variant attributes, Tailwind attributes |
+| `tests/hooks.rs` | Hooks, context, keys and optional props |
+| `tests/animation.rs` | Keyframes, fill modes, easing, transitions and the virtual clock |
+| `tests/effects.rs` | Filters, transforms, clip paths, masks, blend modes, scroll snap, Blender components |
+| `tests/basic_css.rs`, `tests/modern_css.rs` | Borders, counters, `styled`, variables, grid areas, selectors, at-rules |
+| `tests/parity.rs` | The coverage numbers |
+
+<Callout type="joke">
+Headless mode: all of the UI, none of the window. Like rendering with the viewport set to wireframe and the monitor switched off.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Events" href="docs/rust/events/" icon="zap" kicker="Rust">
+    The listeners your simulated input triggers.
+  </Card>
+  <Card title="Effects and animations" href="docs/rust/effects-and-animations/" icon="sparkles" kicker="Rust">
+    The animations you'll be stepping through.
+  </Card>
+  <Card title="gpui syntax" href="docs/rust/gpui-syntax/" icon="book" kicker="Rust">
+    Views, entities and windows: what your tests open and read.
+  </Card>
+</CardGrid>

@@ -1,0 +1,172 @@
+---
+title: Testing without a window
+sidebarLabel: Headless testing
+description: Render Blender components into memory, drive them with simulated clicks, drags and keys, and check values, pixels and frame times in ordinary tests.
+section: Python
+order: 50
+languages: ["python"]
+sources: ["docs/components.md", "bindings/python/tests/test_components.py", "bindings/python/bui/components/app.py", "bindings/python/bui/components/core.py"]
+---
+
+A UI you can't test is a UI you're afraid to change. With BUI you can test yours like any other code: no window, no screen, no sleeping while a robot moves the mouse. You render into memory, press and drag with function calls, and assert on the results. It runs anywhere Python runs, including CI servers without a display.
+
+BUI's own test suite works this way: `bindings/python/tests/test_components.py` tests every component, and checks that frames stay inside a 120 Hz budget.
+
+## Render a frame
+
+`app.render_raster()` lays out and draws the whole window into a **raster**, an image in memory, without opening anything:
+
+```py
+from blenderui.components import App, NumberField
+
+size = NumberField("Size", 1.0)
+app = App("Test", (400, 300), size)
+
+raster = app.render_raster()     # draws the window at its size, (400, 300)
+print(raster.size)               # (400, 300)
+print(size.rect)                 # where the field ended up: (x, y, w, h)
+print(raster.pixel(10, 10))      # (r, g, b)
+```
+
+- `render_raster(w=None, h=None, full=False)` uses the app's size unless you give one.
+- After rendering, every component knows its place: `x`, `y`, `w`, `h` and `rect`.
+- The raster is kept between calls. Later calls **redraw only what changed**, exactly as in a window; pass `full=True` to redraw everything.
+
+## Simulate input
+
+The `App` has the same input methods a window uses. Coordinates are pixels in the window:
+
+| Method | Simulates |
+| --- | --- |
+| `app.press(x, y, mods=None)` | Pressing the left mouse button |
+| `app.motion(x, y, mods=None)` | Moving the pointer (hover, or drag while pressed) |
+| `app.release(x, y, mods=None)` | Releasing the button |
+| `app.key(char, keysym, keycode=0, mods=None)` | A key press: `char` is the typed text, `keysym` its name (`"a"`, `"Return"`, `"BackSpace"`, `"Tab"`) |
+| `app.wheel(x, y, delta, mods=None)` | The mouse wheel |
+| `app.context_menu(x, y, mods=None)` | A right-click |
+
+`mods` holds modifier keys as bits. Import them from `blenderui.components.core`: `SHIFT`, `CTRL`, `ALT`, and `BUTTON1` for "the left button is held". Combine them with `|`, for example `CTRL | SHIFT`. An object with `shift`, `ctrl`, `alt` and `button1` attributes works too.
+
+## A complete test file
+
+```py title="test_my_panel.py"
+from blenderui.components import App, Checkbox, NumberField, TextField
+from blenderui.components.core import CTRL
+
+def center(c):
+    x, y, w, h = c.rect
+    return x + w // 2, y + h // 2
+
+def test_dragging_scrubs_and_undo_restores():
+    size = NumberField("Size", 1.0)
+    app = App("test", (400, 300), size)
+    app.render_raster()
+    x, y = center(size)
+    app.press(x, y)
+    app.motion(x + 40, y)            # drag to the right
+    app.release(x + 40, y)
+    assert size.value > 1.0
+    app.key("z", "z", mods=CTRL)     # Ctrl+Z
+    assert size.value == 1.0
+
+def test_typing_a_name():
+    seen = []
+    name = TextField("Name", "Cube", on_change=seen.append)
+    app = App("test", (400, 300), name)
+    app.render_raster()
+    x, y = center(name)
+    app.press(x, y)
+    app.release(x, y)                # click: start editing
+    app.render_raster()
+    app.key("a", "a", mods=CTRL)     # select all
+    for ch in "Suzanne":
+        app.key(ch, ch)
+    app.key("", "Return")
+    assert name.value == "Suzanne"
+    assert seen == ["Suzanne"]
+
+def test_checkbox_click_changes_pixels():
+    box = Checkbox("Smooth", False)
+    app = App("test", (300, 100), box)
+    raster = app.render_raster()
+    x, y = box.x + 8, box.y + box.h // 2
+    before = raster.pixel(x, y)
+    app.press(x, y)
+    app.release(x, y)
+    raster = app.render_raster()
+    assert box.value is True
+    assert raster.pixel(x, y) != before
+```
+
+These are plain functions with `assert`, so pytest finds and runs them. Each test builds its own `App`, so they don't share state.
+
+<Callout type="tip" title="Turn off animations">
+Panels animate when they collapse. For tests that check sizes right after a click, switch animations off once at the top of the file: `import buipy; buipy.kit_set_animations(False)`. BUI's own tests do this.
+</Callout>
+
+## Check what was redrawn
+
+BUI only redraws the parts of the window that changed. Your tests can check that too, through the context's `render`, which returns **how many regions it redrew**:
+
+```py
+from blenderui.components import App, Column, NumberField, Button
+
+field = NumberField("N", 1.0)
+app = App("test", (400, 600), Column(field, *[Button("b%d" % i) for i in range(20)]))
+raster = app.render_raster()
+w, h = app.size
+
+assert app.ctx.render(w, h, raster) == 0      # idle: nothing to draw
+app.motion(field.x + 10, field.y + 5)         # hover the field
+assert app.ctx.render(w, h, raster) >= 1      # something was redrawn
+print(raster.damage())                         # the redrawn rectangles
+```
+
+`raster.damage()` lists the rectangles of the last frame. BUI's suite uses it to check that hovering a field redraws only that widget's tiles, never the whole window.
+
+## Frame budgets
+
+You can time frames the same way. BUI's own test renders the full components demo 50 times and requires:
+
+| Frame | Budget in `test_components.py` |
+| --- | ---: |
+| A full redraw of the components demo | under 8.3 ms (one frame at 120 Hz) |
+| A hover over a number field | under 1 ms |
+
+```py
+import time
+
+def test_frames_are_fast():
+    app = build_my_app()                       # your App
+    w, h = app.size
+    raster = app.render_raster()
+    t0 = time.perf_counter()
+    for _ in range(50):
+        app.ctx.render(w, h, raster, True)     # full redraws
+    full_ms = (time.perf_counter() - t0) / 50 * 1000
+    assert full_ms < 8.3
+```
+
+Timing tests depend on the machine. Keep the budget generous enough for your slowest CI runner.
+
+## More from the context
+
+`app.ctx` is the kit context. A few of its methods are handy in tests:
+
+- `app.ctx.popup_count()`: how many menus or popups are open.
+- `app.ctx.undo()` and `app.ctx.redo()`: undo and redo without keys.
+- `app.ctx.set_host(schedule=..., cursor=..., warp=...)`: receive what a window would get, such as timer requests, cursor changes and pointer warps. The test suite uses it to check that the cursor hides and warps during a drag.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Components reference" href="docs/python/components-reference/" icon="book" kicker="Python">
+    Every component's members, for your assertions.
+  </Card>
+  <Card title="Damage rendering" href="docs/concepts/damage-rendering/" icon="zap" kicker="Concepts">
+    Why an idle window costs nothing, and how redraws stay small.
+  </Card>
+  <Card title="Blender components" href="docs/python/components/" icon="layers" kicker="Python">
+    The App, layout and menus your tests drive.
+  </Card>
+</CardGrid>

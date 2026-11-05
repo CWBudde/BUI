@@ -2357,6 +2357,13 @@ class _TkApp:
 _ROOT_BG = (0.188, 0.188, 0.188, 1.0)  # Blender's editor background (#303030)
 
 
+def _root_bg():
+    """The window background: the theme's region color (bui.set_theme / BUI_THEME)."""
+    if buipy.kit_theme_name() == "dark":
+        return _ROOT_BG
+    return buipy.kit_theme_color("region_bg")
+
+
 class Tk(_WindowHost, Misc, Wm):
     """Toplevel widget of Tk which represents mostly the main window of an
     application (a native window on Windows, Blender-styled)."""
@@ -2366,7 +2373,7 @@ class Tk(_WindowHost, Misc, Wm):
 
     def __init__(self, screenName=None, baseName=None, className="Tk", useTk=True, sync=False,
                  use=None, gpu=None):
-        """``gpu=True`` draws this window on the GPU (Direct3D 11) instead of
+        """``gpu=True`` draws this window on the GPU (Direct3D 11 / OpenGL) instead of
         the software raster: same pixels, rasterization off the CPU. ``None``
         follows ``bui.set_gpu()`` / the ``BUI_GPU`` environment variable."""
         global _default_root
@@ -2377,7 +2384,7 @@ class Tk(_WindowHost, Misc, Wm):
         self._opts = {}
         self._className = className
         self._node = _Node("frame", self)
-        self._node.set("bg", _ROOT_BG)
+        self._node.set("bg", _root_bg())
         self.tk = _TkApp(self)
         self._init_window(className)
         if baseName is None:  # tkinter titles the window after the script
@@ -2472,7 +2479,7 @@ class Toplevel(_WindowHost, BaseWidget, Wm):
         kw = _gm_kw(cnf, kw)
         menu = kw.pop("menu", None)
         BaseWidget.__init__(self, master, "toplevel", {}, {})
-        self._node.set("bg", _ROOT_BG)
+        self._node.set("bg", _root_bg())
         self._init_window("Toplevel")
         self._window.title(self._root().title())
         self._title = self._root().title()

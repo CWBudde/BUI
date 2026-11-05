@@ -10,7 +10,7 @@ drawing or input code:
 | `pack` / `grid` / `place`, Qt box / grid / form layouts | kit C geometry managers (`kit/intern/kit_frame.c`, a port of Tk's packer and gridder) |
 | `Canvas` items, `QPainter` | kit canvas display list (rect, round rect, oval, line, polygon, arc, text, image) |
 | Input, hover, focus, popups, menus, undo | `BKContext` in C |
-| Windows, timers | `bui.host` → native Win32 window (`kit/intern/kit_window.c`) or Tk fallback |
+| Windows, timers | `bui.host` → native window (`kit/intern/kit_window_win32.c` on Windows, `kit_window_x11.c` on Linux, `kit_window_cocoa.m` on macOS, experimental) or Tk fallback (`BUI_HOST=tk`) |
 | Signals, variables, traces, item/tag models | Python (small) |
 
 Anything not listed raises `AttributeError` — nothing fails silently.
@@ -40,7 +40,7 @@ Anything not listed raises `AttributeError` — nothing fails silently.
 | `Signal` (`pyqtSignal`, `Signal_`) | class-level signals; `connect/disconnect/emit`; slots taking fewer arguments are called with fewer |
 | `QTimer`, `QPropertyAnimation`, `QEasingCurve` | `start/stop/singleShot/setInterval/setSingleShot`, `timeout`; animation at 120 Hz with easing, `finished/valueChanged` |
 | Value types | `QColor`, `QPen`, `QBrush`, `QFont`, `QPoint`, `QSize`, `QRect`, `QPixmap`/`QImage`, `QIcon`, `QMargins`, `QSizePolicy`, `Qt` constants, events (`QMouseEvent`, `QKeyEvent`, `QWheelEvent`, `QPaintEvent`, `QCloseEvent`) |
-| `QMessageBox` / `QFileDialog` | non-blocking stubs / stdlib file dialogs |
+| `QMessageBox` / `QFileDialog` | non-blocking stubs (not drawn yet) / Blender's File Browser (`BUI_FILEDIALOG=native` for the OS dialogs) |
 
 ¹ `setStyleSheet`: `color`, `background(-color)` on containers, `font-weight: bold`.
 
@@ -58,7 +58,7 @@ python -m bui.tksyntax my_tk_app.py      # or call bui.tksyntax.install() first
 **Coverage:** every public member of every tkinter / ttk widget class,
 `Tk`, `Toplevel`, the variables, `Event`, `PhotoImage` and `BitmapImage`
 exists (7846 of 7846 names, measured against the stdlib), and
-`tests/test_tk_compat.py` runs nine real tkinter programs (calculator,
+`bindings/python/tests/test_tk_compat.py` runs nine real tkinter programs (calculator,
 to-do list with scrollbar, validated form, text editor with menus, sortable
 table, canvas, scrollable frame, notebook/paned window/option menu, events and
 variables) on both the stdlib and BUI and requires identical results.
@@ -87,7 +87,7 @@ per bindtag (widget, class, toplevel, `all`) and stop on `"break"`, a
 | Canvas | all item types (incl. `window` for scrollable frames, smoothed lines, arrows), tags and tag expressions, `find_*` / `addtag_*`, `tag_bind` with `current` and `<Enter>`/`<Leave>` per item, shape-accurate hit tests, `move` / `moveto` / `scale` / `coords`, text-item editing |
 | Text | full index grammar (`line.char`, `end`, marks, `tag.first`, `@x,y`, `+N chars/lines`, `linestart`, `wordend` ...), tags with foreground/background and priorities, `tag_bind`, marks with gravity, `search` (regexp, backwards, count), `dump`, `count`, undo stack, `<<Modified>>`, peers |
 | Windows | native window: `geometry` (size and position), `attributes` (`-topmost`, `-alpha`, `-fullscreen`, `-disabled`), `resizable`, `minsize` / `maxsize`, `overrideredirect`, `state` / `iconify` / `withdraw`, `transient`, `protocol`, `grab_set` (disables other windows), clipboard |
-| Dialogs | `messagebox` and `simpledialog` (`Dialog`, `SimpleDialog`, `ask*`) as Blender-styled modal windows, `colorchooser` with Blender's color picker, `filedialog` with the OS dialogs |
+| Dialogs | `messagebox` and `simpledialog` (`Dialog`, `SimpleDialog`, `ask*`) as Blender-styled modal windows, `colorchooser` with Blender's color picker, `filedialog` with Blender's File Browser (`BUI_FILEDIALOG=native` for the OS dialogs) |
 | Images | `PhotoImage` (PNG and PPM/PGM read and written in Python, GIF through Tk; `put`/`get`/`copy`/`zoom`/`subsample`/`copy_replace`/`data`/`write`), `BitmapImage` (XBM) |
 
 Not supported, because nothing in the kit corresponds: `send` (raises like

@@ -1,0 +1,110 @@
+---
+// A pie menu, Blender style: items around the pointer; the direction you move picks one.
+// Decorative sketch; move the pointer over it to aim.
+const items = [
+  { label: "Object Mode", angle: 180 },
+  { label: "Edit Mode", angle: 0 },
+  { label: "Sculpt Mode", angle: 90 },
+  { label: "Vertex Paint", angle: 270 },
+  { label: "Weight Paint", angle: 225 },
+  { label: "Texture Paint", angle: 315 },
+  { label: "Pose Mode", angle: 135 },
+  { label: "Draw Mode", angle: 45 },
+];
+const R = { x: 118, y: 78 };
+---
+
+<div class="pie" data-pie role="img" aria-label="A Blender pie menu: eight modes arranged around the pointer; moving toward one highlights it">
+  <div class="pie-title">Mode</div>
+  <div class="pie-center" aria-hidden="true">
+    <svg width="44" height="44" viewBox="-22 -22 44 44">
+      <circle r="17" fill="none" stroke="var(--bl-pie-ring)" stroke-width="5"></circle>
+      <path d="M0 -17 A17 17 0 0 1 12 -12" fill="none" stroke="var(--bl-sel)" stroke-width="5" data-pie-arc></path>
+    </svg>
+  </div>
+  {
+    items.map((it, i) => {
+      const a = (it.angle * Math.PI) / 180;
+      const x = Math.cos(a) * R.x;
+      const y = -Math.sin(a) * R.y;
+      return (
+        <span class="pie-item" data-pie-item data-angle={it.angle} aria-hidden="true" style={`transform: translate(calc(-50% + ${x.toFixed(1)}px), calc(-50% + ${y.toFixed(1)}px))`} data-active={i === 0 ? "" : undefined}>
+          {it.label}
+        </span>
+      );
+    })
+  }
+</div>
+
+<style>
+  .pie {
+    position: relative;
+    width: 100%;
+    height: 250px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--bl-pie-text);
+    touch-action: pan-y;
+  }
+  .pie-title {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .pie-center {
+    position: absolute;
+    left: 50%;
+    top: calc(50% + 6px);
+    transform: translate(-50%, -50%);
+  }
+  .pie-item {
+    position: absolute;
+    left: 50%;
+    top: calc(50% + 6px);
+    padding: 3px 10px;
+    white-space: nowrap;
+    background: var(--bl-pie);
+    border: 1px solid var(--bl-pie-outline);
+    border-radius: 4px;
+    box-shadow: 0 6px 14px -6px var(--bl-shadow);
+    transition: background-color 90ms ease-out;
+  }
+  .pie-item[data-active] {
+    background: var(--bl-sel);
+    color: #fff;
+  }
+  [data-pie-arc] {
+    transform-origin: 0 0;
+    transition: transform 90ms ease-out;
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-pie]").forEach((pie) => {
+    const items = [...pie.querySelectorAll<HTMLElement>("[data-pie-item]")];
+    const arc = pie.querySelector<SVGPathElement>("[data-pie-arc]")!;
+    const aim = (deg: number) => {
+      let best = items[0], bestD = 999;
+      for (const it of items) {
+        const d = Math.abs(((+it.dataset.angle! - deg + 540) % 360) - 180);
+        if (d < bestD) (bestD = d), (best = it);
+      }
+      items.forEach((it) => it.toggleAttribute("data-active", it === best));
+      // the arc starts at 12 o'clock (90°) and points the way you move
+      arc.style.transform = `rotate(${90 - +best.dataset.angle! - 17}deg)`;
+    };
+    aim(180);
+    pie.addEventListener("pointermove", (e) => {
+      const r = pie.getBoundingClientRect();
+      const dx = e.clientX - (r.left + r.width / 2);
+      const dy = e.clientY - (r.top + r.height / 2);
+      if (Math.hypot(dx, dy) < 12) return;
+      aim(((Math.atan2(-dy, dx) * 180) / Math.PI + 360) % 360);
+    });
+  });
+</script>

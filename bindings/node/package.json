@@ -1,6 +1,6 @@
 {
   "name": "@blender-ui/native",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Blender's UI from JavaScript: native windows (CPU or Direct3D 11), HTML elements, CSS and Tailwind classes, signals. Node.js and Bun, through napi-rs.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -36,10 +36,13 @@
     "node": ">=18"
   },
   "os": [
-    "win32"
+    "win32",
+    "linux",
+    "darwin"
   ],
   "cpu": [
-    "x64"
+    "x64",
+    "arm64"
   ],
   "license": "GPL-2.0-or-later",
   "repository": {
@@ -47,7 +50,7 @@
     "url": "git+https://github.com/ppmpreetham/BUI.git",
     "directory": "bindings/node"
   },
-  "homepage": "https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md",
+  "homepage": "https://bui.preetham.top",
   "bugs": {
     "url": "https://github.com/ppmpreetham/BUI/issues"
   },

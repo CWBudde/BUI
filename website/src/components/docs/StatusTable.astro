@@ -1,0 +1,67 @@
+---
+/**
+ * A status table with a legend.
+ *
+ * <StatusTable
+ *   columns={["Area", "Status", "Notes"]}      // optional; these are the defaults
+ *   rows={[
+ *     ["tkinter syntax", "done", "Every public tkinter and ttk name"],
+ *     ["Qt syntax", "partial", "About 25% of the common classes"],
+ *     ["macOS window host", "experimental", "Written, not yet run on a Mac"],
+ *     ["WebAssembly", "planned", "The kit in the browser"],
+ *   ]}
+ * />
+ *
+ * Status values (Phosphor icons): done (check-circle) · partial (circle-half) ·
+ * experimental (flask) · planned (hourglass). Notes may contain inline HTML (e.g. <code>).
+ */
+import StatusMark, { statusMeta, type Status } from "./StatusMark.astro";
+
+interface Props {
+  rows: [string, Status, string?][];
+  columns?: [string, string, string?];
+  legend?: boolean;
+}
+
+const { rows, columns = ["Area", "Status", "Notes"], legend = true } = Astro.props;
+const hasNotes = rows.some((r) => r[2]);
+const used = (Object.keys(statusMeta) as Status[]).filter((s) => rows.some((r) => r[1] === s));
+---
+
+<div class="not-prose">
+  <div class="relative overflow-x-auto border border-border">
+    <table class="w-full border-collapse text-sm leading-6">
+      <thead>
+        <tr class="bg-surface text-left">
+          <th scope="col" class="border-b border-border px-3.5 py-2.5 font-semibold">{columns[0]}</th>
+          <th scope="col" class="border-b border-border px-3.5 py-2.5 font-semibold whitespace-nowrap">{columns[1]}</th>
+          {hasNotes && <th scope="col" class="border-b border-border px-3.5 py-2.5 font-semibold">{columns[2]}</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {
+          rows.map(([area, status, note]) => (
+            <tr class="border-b border-border-soft transition-colors duration-150 last:border-b-0 hover:bg-surface/60">
+              <th scope="row" class="px-3.5 py-2.5 text-left align-top font-medium [&_code]:font-mono [&_code]:text-[0.85em]" set:html={area} />
+              <td class="px-3.5 py-2.5 align-top whitespace-nowrap">
+                <StatusMark status={status} />
+              </td>
+              {hasNotes && <td class="px-3.5 py-2.5 align-top text-muted [&_code]:font-mono [&_code]:text-[0.85em]" set:html={note ?? ""} />}
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  {
+    legend && used.length > 1 && (
+      <p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted" aria-label="Legend">
+        {used.map((s) => (
+          <span class="inline-flex items-center gap-1">
+            <StatusMark status={s} compact /> {statusMeta[s].hint}
+          </span>
+        ))}
+      </p>
+    )
+  }
+</div>

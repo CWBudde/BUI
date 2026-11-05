@@ -1,0 +1,65 @@
+---
+import Base from "../layouts/Base.astro";
+import Header from "../components/site/Header.astro";
+import SearchPalette from "../components/site/SearchPalette.astro";
+import Icon from "../components/site/Icon.astro";
+import { href } from "../lib/docs";
+---
+
+<Base title="Page not found" description="This page doesn't exist." noindex>
+  <Header />
+  <SearchPalette />
+  <main id="main" class="mx-auto flex min-h-[calc(100dvh-var(--header-h))] max-w-3xl flex-col justify-center gap-8 px-5 py-16">
+    <div class="hatch h-10 border-y border-border" aria-hidden="true"></div>
+    <div class="flex flex-col gap-4" data-reveal>
+      <p class="kicker inline-flex items-center gap-2 text-link"><Icon name="arrow-counter-clockwise" weight="bold" size={13} /> Error 404</p>
+      <h1 class="text-balance text-4xl font-light leading-[1.08] tracking-[-0.03em] sm:text-6xl">This page got undone.</h1>
+      <p class="max-w-[54ch] text-pretty text-lg leading-8 text-muted">
+        Press <kbd class="k">Ctrl</kbd>+<kbd class="k">Z</kbd> to undo the undo. (It takes you back to where you were;
+        this whole site works that way.) Or search: the page may have moved.
+      </p>
+    </div>
+    <div class="flex flex-wrap gap-3">
+      <button
+        type="button"
+        data-go-back
+        class="inline-flex h-11 items-center gap-2 bg-primary px-5 text-[15px] font-medium text-white transition-colors hover:bg-primary-hover"
+      >
+        <Icon name="arrow-counter-clockwise" size={16} /> Undo the undo
+      </button>
+      <button
+        type="button"
+        data-search-open
+        class="inline-flex h-11 items-center gap-2 border border-border px-5 text-[15px] transition-colors hover:bg-foreground/5"
+      >
+        <Icon name="magnifying-glass" size={16} /> Search the docs
+      </button>
+      <a href={href("")} class="inline-flex h-11 items-center gap-2 border border-border px-5 text-[15px] transition-colors hover:bg-foreground/5">
+        <Icon name="house" size={16} /> Go home
+      </a>
+    </div>
+  </main>
+</Base>
+
+<style>
+  .k {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 0 0.4em;
+    font-family: var(--font-sans);
+    font-size: 0.8em;
+    font-weight: 500;
+    text-align: center;
+    color: var(--foreground);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+  }
+</style>
+
+<script>
+  document.querySelector("[data-go-back]")?.addEventListener("click", () => {
+    if (history.length > 1) history.back();
+    else location.href = document.querySelector<HTMLAnchorElement>("a[aria-label='BUI home']")?.href ?? "/";
+  });
+</script>

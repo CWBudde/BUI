@@ -1,0 +1,42 @@
+---
+/**
+ * One status, as an icon and a word. Used by <StatusTable>; usable inline too:
+ *   <StatusMark status="experimental" />
+ * status: done | partial | experimental | planned  (also: stable, preview, coming-soon)
+ */
+import Icon from "../site/Icon.astro";
+
+export type Status = "done" | "partial" | "experimental" | "planned";
+type Alias = Status | "stable" | "preview" | "coming-soon";
+
+export const statusMeta: Record<Status, { icon: string; label: string; hint: string; color: string }> = {
+  done: { icon: "check-circle", label: "Works", hint: "Works today", color: "var(--status-stable)" },
+  partial: { icon: "circle-half", label: "Partial", hint: "Partly there", color: "var(--status-preview)" },
+  experimental: { icon: "flask", label: "Experimental", hint: "Written, not yet proven", color: "var(--status-experimental)" },
+  planned: { icon: "hourglass-medium", label: "Planned", hint: "Not built yet", color: "var(--status-soon)" },
+};
+
+const aliases: Record<Alias, Status> = {
+  done: "done",
+  partial: "partial",
+  experimental: "experimental",
+  planned: "planned",
+  stable: "done",
+  preview: "partial",
+  "coming-soon": "planned",
+};
+
+interface Props {
+  status: Alias;
+  /** Icon only (the label stays for screen readers). */
+  compact?: boolean;
+}
+
+const { status, compact = false } = Astro.props;
+const m = statusMeta[aliases[status] ?? "planned"];
+---
+
+<span class="inline-flex items-center gap-1.5 align-middle" style={`color:${m.color}`}>
+  <Icon name={m.icon} weight="duotone" size={compact ? 14 : 16} />
+  <span class:list={[compact ? "sr-only" : "text-[13px] font-medium"]}>{m.label}</span>
+</span>

@@ -1,0 +1,20 @@
+---
+/**
+ * Language tabs that remember the reader's choice across pages.
+ *
+ * <LangTabs>
+ *   <Tab label="Python">…</Tab>
+ *   <Tab label="Rust">…</Tab>
+ *   <Tab label="JavaScript">…</Tab>
+ * </LangTabs>
+ *
+ * Use the labels from src/config/nav.ts (`languages`) so the choice carries over:
+ * Python, Rust, JavaScript, C, C++, Dear ImGui. Pages may also use other labels
+ * (e.g. "tkinter", "Components"); they sync with any other LangTabs that has them.
+ */
+import Tabs from "./Tabs.astro";
+---
+
+<Tabs sync="lang" label="Language">
+  <slot />
+</Tabs>

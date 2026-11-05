@@ -1,0 +1,39 @@
+---
+/**
+ * Lists docs pages by status, straight from the content collection.
+ * <PageStatusList status="coming-soon" />   or   status="preview"
+ * Used on the roadmap so it never drifts from the pages themselves.
+ */
+import { docHref, getDocs } from "../../lib/docs";
+import Icon from "../site/Icon.astro";
+
+interface Props {
+  status: "preview" | "coming-soon";
+  empty?: string;
+}
+const { status, empty = "Nothing here right now." } = Astro.props;
+const docs = (await getDocs()).filter((d) => d.data.status === status);
+---
+
+{
+  docs.length === 0 ? (
+    <p class="text-muted">{empty}</p>
+  ) : (
+    <ul class="not-prose grid gap-px border border-border bg-border sm:grid-cols-2">
+      {docs.map((d) => (
+        <li class="bg-background">
+          <a href={docHref(d)} class="group flex h-full items-start gap-3 p-4 hover:bg-surface">
+            <span class="mt-0.5 text-link">
+              <Icon name={status === "coming-soon" ? "hourglass-medium" : "circle-half"} weight="duotone" size={17} />
+            </span>
+            <span class="flex min-w-0 flex-col gap-0.5">
+              <span class="font-medium leading-6 group-hover:text-link">{d.data.title}</span>
+              <span class="text-[13.5px] leading-5 text-muted">{d.data.description}</span>
+              <span class="kicker mt-1 text-muted">{d.data.section}</span>
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  )
+}

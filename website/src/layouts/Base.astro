@@ -1,0 +1,150 @@
+---
+import "../styles/global.css";
+import { site } from "../config/site";
+import { href } from "../lib/docs";
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** Path of the OG image, relative to the site root. */
+  image?: string;
+  type?: "website" | "article";
+  noindex?: boolean;
+}
+
+const { title, description = site.description, image = "og.png", type = "website", noindex = false } = Astro.props;
+const fullTitle = title ? `${title} · ${site.name}` : site.title;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = new URL(href(image), Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <meta name="generator" content={Astro.generator} />
+
+    <link rel="icon" type="image/png" sizes="16x16" href={href("favicon-16.png")} />
+    <link rel="icon" type="image/png" sizes="32x32" href={href("favicon-32.png")} />
+    <link rel="icon" type="image/png" sizes="48x48" href={href("favicon-48.png")} />
+    <link rel="apple-touch-icon" href={href("apple-touch-icon.png")} />
+    <link rel="sitemap" href={href("sitemap-index.xml")} />
+    <meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b1b1b" media="(prefers-color-scheme: dark)" />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <!-- Pick the theme before the first paint, so there's no flash. -->
+    <script is:inline>
+      (() => {
+        let stored = null;
+        try {
+          stored = localStorage.getItem("bui:theme");
+        } catch {}
+        const dark = stored ? stored === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+        const root = document.documentElement;
+        root.dataset.theme = dark ? "dark" : "light";
+        // Scroll-in motion only when JavaScript runs and the reader is fine with motion.
+        root.classList.add("js");
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) root.classList.add("motion");
+      })();
+    </script>
+    <slot name="head" />
+  </head>
+  <body class="min-h-dvh">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <slot />
+    <div class="undo-toast" role="status" aria-live="polite" data-undo-toast></div>
+
+    <style is:global>
+      .undo-toast {
+        position: fixed;
+        left: 50%;
+        bottom: 1.5rem;
+        z-index: 90;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.85rem;
+        font-size: 13px;
+        color: #e8e8e8;
+        background: #232323;
+        border: 1px solid #3d3d3d;
+        box-shadow: 0 18px 40px -16px rgb(0 0 0 / 0.6);
+        opacity: 0;
+        transform: translate(-50%, 0.75rem);
+        pointer-events: none;
+        transition:
+          opacity 180ms ease-out,
+          transform 220ms var(--ease-out);
+      }
+      .undo-toast[data-show] {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+    </style>
+
+    <script>
+      // Scroll-in reveals and charts: add .in once an element is on screen.
+      const targets = document.querySelectorAll<HTMLElement>("[data-reveal], [data-chart]");
+      if (!("IntersectionObserver" in window) || !document.documentElement.classList.contains("motion")) {
+        targets.forEach((el) => el.classList.add("in"));
+      } else {
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              if (!e.isIntersecting) continue;
+              e.target.classList.add("in");
+              io.unobserve(e.target);
+            }
+          },
+          { rootMargin: "0px 0px -6% 0px", threshold: 0.1 },
+        );
+        targets.forEach((el) => io.observe(el));
+        // Printing or jumping to the end shouldn't leave things invisible.
+        addEventListener("beforeprint", () => targets.forEach((el) => el.classList.add("in")));
+      }
+
+      // Ctrl+Z (Cmd+Z) goes back a page, like undoing the last click. Real undo keeps
+      // working wherever you're typing, and demos that handle Ctrl+Z themselves win.
+      const toast = document.querySelector<HTMLElement>("[data-undo-toast]");
+      let hide = 0;
+      const say = (text: string) => {
+        if (!toast) return;
+        toast.textContent = text;
+        toast.setAttribute("data-show", "");
+        clearTimeout(hide);
+        hide = window.setTimeout(() => toast.removeAttribute("data-show"), 1600);
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.defaultPrevented || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
+        if (document.querySelector("dialog[open]")) return;
+        e.preventDefault();
+        if (history.length > 1) {
+          say("Undo: back to the previous page");
+          setTimeout(() => history.back(), 140);
+        } else {
+          say("Nothing to undo yet: this is the first page in this tab");
+        }
+      });
+    </script>
+  </body>
+</html>

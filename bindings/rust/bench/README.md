@@ -21,6 +21,13 @@ with a centred number), built with the same element tree in both
 - **blenderui (uncapped)**: animation without vsync pacing (`--uncapped`), for
   both renderers.
 
+> **When these were measured.** The results below come from a Ryzen 7 5800U
+> laptop on Windows 11 (Direct3D 11 for the GPU rows), before the latest
+> features landed: Dear ImGui, the Linux OpenGL renderer, the light theme and
+> Blender's search and expression code. Rerun them with the steps below to see
+> today's numbers on your machine. The benchmark is Windows-only (gpui needs
+> `fxc.exe`, and `run.py` reads Windows' GPU counters).
+
 ## Running
 
 ```sh

@@ -1,0 +1,60 @@
+---
+/**
+ * The end-of-page summary. Wrap a short Markdown list (3–5 points):
+ *
+ * <Recap>
+ * - BUI draws Blender's widgets in your app.
+ * - You pick the syntax: tkinter, Qt, components, Rust, React, ImGui or C.
+ * </Recap>
+ */
+import Icon from "../site/Icon.astro";
+
+interface Props {
+  title?: string;
+}
+const { title = "Recap" } = Astro.props;
+---
+
+<aside class="recap not-prose border border-border" aria-label={title}>
+  <div class="flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
+    <Icon name="check-circle" weight="duotone" size={15} class="text-link" />
+    <p class="kicker text-muted">{title}</p>
+  </div>
+  <div class="recap-body px-4 py-3.5 text-[15px] leading-7 sm:px-5">
+    <slot />
+  </div>
+</aside>
+
+<style>
+  .recap-body :global(ul) {
+    list-style: none;
+    padding: 0;
+  }
+  .recap-body :global(li) {
+    position: relative;
+    padding-left: 1.5rem;
+  }
+  .recap-body :global(li + li) {
+    margin-top: 0.35rem;
+  }
+  .recap-body :global(li::before) {
+    content: "";
+    position: absolute;
+    left: 0.15rem;
+    top: 0.68em;
+    width: 0.55rem;
+    height: 0.55rem;
+    background: var(--primary);
+  }
+  .recap-body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    padding: 0.1em 0.3em;
+    background: var(--surface-2);
+  }
+  .recap-body :global(a) {
+    color: var(--link);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+</style>

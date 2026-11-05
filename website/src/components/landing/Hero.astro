@@ -1,0 +1,98 @@
+---
+import Icon from "../site/Icon.astro";
+import InstallTabs from "./InstallTabs.astro";
+import ThemedImage from "../docs/ThemedImage.astro";
+import { href } from "../../lib/docs";
+---
+
+<section class="hero relative overflow-hidden bg-stage text-foreground" aria-labelledby="hero-title">
+  <div class="grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+    <div class="flex flex-col justify-center gap-7 px-5 py-14 sm:px-10 sm:py-20 lg:border-r lg:border-border lg:px-14 lg:py-24">
+      <p class="kicker inline-flex items-center gap-2 text-link">
+        <span class="inline-block size-2 bg-accent" aria-hidden="true"></span>
+        Blender's UI, as a library
+      </p>
+      <h1 id="hero-title" class="max-w-[15ch] text-balance text-[2.6rem] font-light leading-[1.04] tracking-[-0.035em] sm:text-6xl lg:text-[4.25rem]">
+        Blender's interface, for your app.
+      </h1>
+      <p class="max-w-[52ch] text-pretty text-[17px] leading-7 text-muted">
+        BUI lifts Blender's widgets and the way they feel out of Blender and into a small, fast C library. Keep the
+        syntax you know: <span class="text-foreground">tkinter, Qt, Rust, React, Dear ImGui or C</span>.
+      </p>
+
+      <div class="w-full max-w-xl">
+        <InstallTabs />
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <a
+          href={href("docs/start/introduction/")}
+          class="inline-flex h-11 items-center gap-2 bg-primary px-5 text-[15px] font-medium text-primary-ink transition-[background-color,transform] duration-150 ease-out hover:bg-primary-hover active:scale-[0.98]"
+        >
+          Start here <Icon name="arrow-right" size={16} />
+        </a>
+        <a
+          href={href("docs/tutorials/first-app-python/")}
+          class="inline-flex h-11 items-center gap-2 border border-border-strong px-5 text-[15px] text-foreground transition-[background-color,border-color] duration-150 ease-out hover:border-muted hover:bg-surface"
+        >
+          Build your first app
+        </a>
+      </div>
+
+      <a href="#performance" class="hero-speed group flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-5 text-[13px] text-muted">
+        <span class="inline-flex items-center gap-1.5"><Icon name="lightning" weight="fill" size={14} class="text-accent" /><b class="tabular font-semibold text-foreground">~5 ms</b> first frame</span>
+        <span><b class="tabular font-semibold text-foreground">40×</b> sooner than gpui-fast</span>
+        <span><b class="tabular font-semibold text-foreground">0 ms</b> idle CPU</span>
+        <span class="inline-flex items-center gap-1 text-link">See the numbers <Icon name="arrow-down" size={13} class="transition-transform duration-200 group-hover:translate-y-0.5" /></span>
+      </a>
+    </div>
+
+    <div class="relative flex items-center justify-center border-t border-border px-5 py-12 sm:px-10 lg:border-t-0 lg:py-16">
+      <div class="hero-hatch absolute inset-0" aria-hidden="true"></div>
+      <figure class="relative">
+        <div class="relative">
+          <ThemedImage
+            shot="python-tkinter"
+            alt=""
+            class="absolute -left-10 top-14 hidden w-[300px] -rotate-[3deg] opacity-80 shadow-[0_24px_60px_-20px_var(--bl-shadow)] outline outline-1 -outline-offset-1 outline-[var(--outline)] xl:block"
+            loading="eager"
+          />
+          <ThemedImage
+            shot="c-kit-app"
+            alt="A real BUI window: a Blender modifier stack with collapsible panels, enum rows, number fields, dropdowns, a slider, checkboxes and buttons"
+            loading="eager"
+            fetchpriority="high"
+            class="hero-shot relative w-full max-w-[420px] shadow-[0_40px_90px_-30px_var(--bl-shadow)] outline outline-1 -outline-offset-1 outline-[var(--outline)] xl:translate-x-10"
+          />
+        </div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero-shot {
+    animation: hero-in 900ms var(--ease-out) both;
+  }
+  @keyframes hero-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+  }
+  @media (min-width: 1280px) {
+    @keyframes hero-in {
+      from {
+        opacity: 0;
+        transform: translate(2.5rem, 18px);
+      }
+      to {
+        transform: translate(2.5rem, 0);
+      }
+    }
+  }
+  .hero-hatch {
+    background-image: repeating-linear-gradient(135deg, rgb(71 114 179 / 0.22) 0 1.5px, transparent 1.5px 7px);
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 78%);
+  }
+</style>

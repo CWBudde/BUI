@@ -5,8 +5,8 @@ layouts, `clicked.connect(...)`) that runs on BUI's C kit, with Blender's
 look. Neither Qt nor PySide is needed.
 
 > **Status: partial.** The everyday subset below works and is tested.
-> Measured against Qt's widget headers, about a quarter of the method names
-> on the main widget classes exist. See [Coverage](#coverage) for what's
+> Measured against Qt's widget headers, about 24% of the method names
+> on the main widget classes exist (about 220 of 920). See [Coverage](#coverage) for what's
 > missing and the plan.
 
 ![Qt syntax on BUI](images/qt.png)
@@ -144,7 +144,8 @@ public method names** across 25 core widget classes (~24%).
 **Plan.** Reach parity with the tkinter layer:
 
 1. Measure against PySide6 itself, and run the same programs on real Qt
-   and on BUI to compare, as `test_tk_compat.py` does for tkinter.
+   and on BUI to compare, as `bindings/python/tests/test_tk_compat.py` does
+   for tkinter.
 2. Make widgets wrap kit nodes instead of being them (as `bui.tksyntax`
    does), which removes name clashes like `rect()` and `children()`.
 3. Fill in the classes above, then add `install()` so `import PySide6`

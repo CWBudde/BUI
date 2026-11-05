@@ -1,0 +1,168 @@
+---
+title: Window hosts
+description: The native Win32, X11 and Cocoa windows, the Tk fallback, headless mode, HiDPI scaling, and running on Linux machines without X11.
+section: Concepts
+order: 50
+languages: ["python", "rust", "javascript", "c"]
+sources: ["docs/getting-started.md", "README.md", "ARCHITECTURE.md", "kit/CMakeLists.txt", "kit/intern/kit_window_win32.c", "kit/intern/kit_window_x11.c", "kit/intern/kit_window_cocoa.m", "bindings/python/bui/host.py", "bindings/rust/blenderui-sys/build.rs", "docs/javascript.md", "docs/rust.md", "docs/components.md"]
+---
+
+A **window host** is the small piece of BUI that talks to your operating system. It opens the window, shows the frame BUI drew, and passes the mouse and keyboard back to the kit. You rarely think about it, and that's the point: the right one is picked for you.
+
+This page explains each host, how to choose one yourself, and what to expect on each platform.
+
+## The hosts at a glance
+
+<StatusTable columns={["Host", "Status", "Where and what"]} rows={[
+  ["<strong>Win32</strong>", "done", "Windows. Native, written in C"],
+  ["<strong>X11</strong>", "done", "Linux (Wayland sessions through XWayland). Native, written in C"],
+  ["<strong>Cocoa</strong>", "experimental", "macOS. Native, written but not yet run on a Mac"],
+  ["<strong>Tk</strong>", "done", "Anywhere Python has <code>tkinter</code>. Python only; the fallback"],
+  ["<strong>Headless</strong>", "done", "Anywhere. No window: tests and screenshots"],
+]} />
+
+All of them run the same kit, so your UI looks and behaves the same in each. They differ in how pixels reach the screen and how input arrives.
+
+## Native windows
+
+The native hosts are written in C (`kit/intern/kit_window_win32.c`, `kit_window_x11.c`, `kit_window_cocoa.m`). Input goes straight into the kit, and only the changed tiles are put on screen. Nothing on the input → render → present path leaves C, which is why an input event reaches the screen in about 0.06 ms.
+
+Every native host gives you:
+
+- **HiDPI** that follows the display (see [below](#hidpi-and-scaling)).
+- **Clipboard** copy and paste.
+- **Cursors**, including the hidden cursor while you scrub a number field, and pointer warping so the drag never hits the screen edge.
+- **Frame-paced animation** and window-manager features (title, size limits, position).
+- **One event loop** for all windows and timers.
+
+### Windows (Win32)
+
+A plain Win32 window. Redraw requests coalesce into one render message, and the damaged regions are copied straight to the window. The process is per-monitor DPI aware, so moving a window to another monitor rescales it. Animation frames wait for the display's refresh (`DwmFlush`).
+
+### Linux (X11)
+
+The same API on Xlib. Button and key mapping follow Blender's `GHOST_SystemX11`. Damaged rectangles go to the window with `XPutImage`, or through GLX with the [GPU renderer](../rendering/). Timers, cross-thread wakes and frame pacing all run in one `select()` loop.
+
+Wayland sessions run it through XWayland, which every mainstream desktop provides.
+
+### macOS (Cocoa) <Badge tone="preview">Experimental</Badge>
+
+A port of Blender's own Cocoa code (GHOST's `GHOST_SystemCocoa.mm` and `GHOST_WindowCocoa.mm`), with Retina scaling. It's written, but it hasn't been run on a real Mac yet.
+
+- AppKit only works on the **main thread**, so every window call must come from it. On any other thread, the native host reports itself unavailable and Python falls back to Tk.
+- That's also why **JavaScript is headless on macOS** for now: Node runs BUI on its own UI thread, which isn't the main thread.
+- The renderer is the CPU raster; there's no GPU renderer on macOS yet.
+
+<Callout type="tip" title="Have a Mac?">
+Running the Cocoa host and reporting what happens is one of the most useful things you can do for BUI right now. See [Contributing](../../project/contributing/).
+</Callout>
+
+## The Tk window (Python)
+
+Python can also show BUI in a standard `tkinter` window. The Tk window displays the kit's frame and forwards input to it. The UI and the API are identical; presenting is just a little slower.
+
+BUI uses it automatically where no native host works. To force it:
+
+```sh
+BUI_HOST=tk python my_app.py
+```
+
+On macOS this needs a Python with `tkinter` (for example from python.org, or `brew install python-tk`). There, BUI also starts a hidden Tk root before the first Cocoa window, because Tk and the native host must share one `NSApplication`. `BUI_MAC_TK=0` skips that step.
+
+## Headless: no window at all
+
+**Headless** means BUI lays out, handles input and draws exactly as usual, into memory, with no window. It's what tests and screenshot tools use, and it works on servers without a display.
+
+<LangTabs>
+<Tab label="Python">
+
+```py
+from blenderui.components import App, NumberField
+
+app = App("Test", (400, 300), NumberField("Size", 1.0))
+raster = app.render_raster()     # draws without a window
+```
+
+`app.press`, `app.motion` and `app.release` simulate input.
+
+</Tab>
+<Tab label="Rust">
+
+```rust
+Application::headless().run(|cx| { /* same code, off-screen */ });
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```js
+const app = new App({ headless: true })   // renders off-screen
+```
+
+Apps built with `bui build` run headless with `BUI_HEADLESS=1` or `--headless`.
+
+</Tab>
+<Tab label="C">
+
+Render a `BKContext` into a `BuiRaster` with `BK_render` and read the pixels with `BUI_raster_pixels`; no `BKWindow` needed.
+
+</Tab>
+</LangTabs>
+
+Headless windows run on a virtual clock that tests advance by hand, so animations step exactly.
+
+## HiDPI and scaling
+
+On a high-density display, BUI scales its widgets up so they stay a comfortable size. The scale comes from:
+
+| Platform | Source |
+| --- | --- |
+| Windows | The monitor's DPI, per monitor (DPI ÷ 96) |
+| Linux | `Xft.dpi` from the X resources, as Blender reads it (96 if unset) |
+| macOS | The window's Retina backing scale |
+
+At scale 1, a widget is 20 pixels tall (Blender's "widget unit") and text is 11 pt. To force a scale, set `BUI_UI_SCALE`:
+
+```sh
+BUI_UI_SCALE=1.5 python my_app.py
+```
+
+The scale is clamped to 0.5–4.
+
+## Linux without X11
+
+On Linux, `libX11` (and, for the GPU renderer, `libGL`) is loaded when the **first window opens**, not when BUI loads. So:
+
+- BUI imports and renders headless on servers and in containers without X11.
+- Where X11 is present, you get native windows.
+- Where OpenGL is missing, the GPU renderer falls back to the CPU raster.
+
+Building from source needs the X11 **headers** (`libx11-dev` on Debian and Ubuntu, `libX11-devel` on Fedora). No GL headers are needed. If CMake can't find the X11 headers, the build still works, without native Linux windows: Python then uses Tk or runs headless. The published Linux wheels are built with the headers, so they have the native host.
+
+<Callout type="note" title="Rust links libX11">
+The Rust crate's build script links `libX11` directly on Linux, so Rust binaries need it installed to start, even headless.
+</Callout>
+
+## Running the loop (Python)
+
+All Python windows share one event loop in `bui.host`:
+
+- `bui.host.run()` runs the loop for every window.
+- `bui.host.update()` processes pending events once and returns.
+- `bui.host.quit()` stops the loop.
+
+`mainloop()`, `app.exec()` and `App.run()` call into the same loop. If a window never appears, the loop probably isn't running.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Platforms" href="docs/reference/platforms/" icon="monitor" kicker="Reference">
+    The full matrix: languages, renderers and packages per OS.
+  </Card>
+  <Card title="Damage rendering" href="docs/concepts/damage-rendering/" icon="zap" kicker="Concepts">
+    How hosts put only the changed tiles on screen.
+  </Card>
+  <Card title="Environment variables" href="docs/reference/environment-variables/" icon="terminal" kicker="Reference">
+    <code>BUI_HOST</code>, <code>BUI_UI_SCALE</code> and the rest.
+  </Card>
+</CardGrid>

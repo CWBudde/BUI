@@ -215,7 +215,7 @@ pub struct WindowOptions {
     pub titlebar: Option<TitlebarOptions>,
     pub is_resizable: Option<bool>,
     pub window_min_size: Option<Size<Pixels>>,
-    /// Draw this window on the GPU (Direct3D 11) instead of the software
+    /// Draw this window on the GPU (Direct3D 11 / OpenGL 3.3) instead of the software
     /// raster; `None` follows [`Application::gpu`] / the `BUI_GPU` variable.
     pub gpu: Option<bool>,
 }
@@ -226,6 +226,7 @@ pub struct Application {
     gpu: Option<bool>,
     slug: Option<bool>,
     keep_alive: bool,
+    theme: Option<String>,
 }
 
 impl Default for Application {
@@ -237,7 +238,7 @@ impl Default for Application {
 impl Application {
     /// Native windows.
     pub fn new() -> Application {
-        Application { headless: false, gpu: None, slug: None, keep_alive: false }
+        Application { headless: false, gpu: None, slug: None, keep_alive: false, theme: None }
     }
 
     /// Draw every window on the GPU (Direct3D 11 on Windows): the same
@@ -258,6 +259,13 @@ impl Application {
         self
     }
 
+    /// Blender's `"dark"` (default) or `"light"` theme for every window (see
+    /// [`crate::set_theme`]); the `BUI_THEME` variable applies otherwise.
+    pub fn theme(mut self, name: &str) -> Application {
+        self.theme = Some(name.to_string());
+        self
+    }
+
     /// Keep the event loop running with no windows open, until
     /// [`App::quit`]: for apps driven from another thread ([`App::ui_sender`]).
     pub fn keep_alive(mut self, on: bool) -> Application {
@@ -268,7 +276,7 @@ impl Application {
     /// Off-screen windows (tests, screenshots, CI): nothing is shown, the
     /// `simulate_*` and `draw` methods drive it.
     pub fn headless() -> Application {
-        Application { headless: true, gpu: None, slug: None, keep_alive: false }
+        Application { headless: true, gpu: None, slug: None, keep_alive: false, theme: None }
     }
 
     /// Run `f`, then the event loop until every window is closed.
@@ -282,6 +290,16 @@ impl Application {
         }
         if let Some(on) = self.slug {
             crate::set_slug(on);
+        }
+        if let Some(t) = &self.theme {
+            crate::set_theme(t);
+        }
+        if headless {
+            // off-screen windows have no monitor DPI: BUI_UI_SCALE (e.g. 2 for
+            // retina-sharp screenshots) sets the resolution scale
+            if let Some(s) = std::env::var("BUI_UI_SCALE").ok().and_then(|v| v.parse::<f32>().ok()) {
+                unsafe { sys::BK_set_scale(s) };
+            }
         }
         let mut app = App::create(headless);
         f(&mut app);
@@ -876,6 +894,7 @@ impl Window {
                 win.phys = ((w * win.scale).round() as i32, (h * win.scale).round() as i32);
                 win.native = Some(n);
             }
+            win.caches.text.set_scale(win.scale);
             Ok(win)
         }
     }

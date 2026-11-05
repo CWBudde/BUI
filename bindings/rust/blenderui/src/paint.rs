@@ -900,8 +900,9 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
                         p.fill(inner, crate::color::rgb(0x282828));
                         let label = frame.attr(i, "alt").unwrap_or(tag);
                         let w = tc.width(label, c.font_size, 0);
+                        let base = text::baseline(inner.origin.y, inner.size.height, c.font_size);
                         p.styled_text(inner.origin.x + (inner.size.width - w) / 2.0,
-                                      inner.origin.y + (inner.size.height - c.font_size) / 2.0,
+                                      text::item_top(base, c.font_size),
                                       label, c.font_size, 0, crate::color::rgb(0x8a8a8a));
                     }
                 }
@@ -927,9 +928,10 @@ fn paint_text_line(p: &mut Painter, tc: &mut TextCache, c: &Computed, s: &str, x
                    width: Option<f32>) {
     let flags = text::flags(c);
     let size = c.font_size;
-    let top = y + ((lh - size) / 2.0).max(0.0);
+    let base = text::baseline(y, lh, size);
     let s: std::borrow::Cow<str> = if c.small_caps { s.to_uppercase().into() } else { s.into() };
     let size_draw = if c.small_caps { size * 0.8 } else { size };
+    let top = text::item_top(base, size_draw);
     if let Some(sh) = c.text_shadow {
         p.styled_text(x + sh.x, top + sh.y, &s, size_draw, flags, sh.color);
     }
@@ -948,18 +950,15 @@ fn paint_text_line(p: &mut Painter, tc: &mut TextCache, c: &Computed, s: &str, x
         let thick = c.decoration_thickness.unwrap_or(size / 14.0).max(1.0);
         let dc = c.decoration_color.unwrap_or(c.color);
         if c.underline {
-            // the offset is measured from the baseline (about 0.8em down)
-            let y = match c.underline_offset {
-                Some(o) => top + size * 0.8 + o,
-                None => top + size * 0.92,
-            };
+            // `text-underline-offset` is measured from the baseline
+            let y = base + c.underline_offset.unwrap_or(size * text::UNDERLINE);
             decoration(p, c.decoration_style, x, y, w, thick, dc);
         }
         if c.line_through {
-            decoration(p, c.decoration_style, x, top + size * 0.48, w, thick, dc);
+            decoration(p, c.decoration_style, x, base - size * text::STRIKEOUT - thick / 2.0, w, thick, dc);
         }
         if c.overline {
-            decoration(p, c.decoration_style, x, top, w, thick, dc);
+            decoration(p, c.decoration_style, x, text::ascent_top(base, size), w, thick, dc);
         }
     }
 }
@@ -1014,6 +1013,7 @@ fn paint_box(n: &BoxNode, c: &Computed, p: &mut Painter, vp: (f32, f32), skip_ba
     let clip_box = edge_box(c, b, c.bg_clip, &bw);
     let clip_r = (r - (clip_box.origin.x - b.origin.x)).max(0.0);
     match &c.gradient {
+        Some(g) if clip_r > 0.0 => with_rounded_clip(p, clip_box, clip_r, |p| paint_gradient(p, g, clip_box)),
         Some(g) => p.with_clip(clip_box, |p| paint_gradient(p, g, clip_box)),
         None if skip_background && c.bg_clip == BoxEdge::Border => {}
         None => p.quad(clip_box, clip_r, c.background, Rgba::TRANSPARENT, 0.0),
@@ -1428,6 +1428,33 @@ fn paint_edges(p: &mut Painter, b: Bounds<f32>, w: [f32; 4], col: [Rgba; 4], sty
 fn mix(a: Rgba, b: Rgba, t: f32) -> Rgba {
     Rgba { r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t,
            a: a.a + (b.a - a.a) * t }
+}
+
+/// Runs `f` clipped to the rounded box `b` (radius `r`): one clip for the
+/// straight middle, and thin rows across the corners, each as wide as the
+/// rounded outline at its height (gradients have no rounded fill of their own).
+fn with_rounded_clip(p: &mut Painter, b: Bounds<f32>, r: f32, f: impl Fn(&mut Painter)) {
+    let (x, y, w, h) = (b.origin.x, b.origin.y, b.size.width, b.size.height);
+    let r = r.min(w / 2.0).min(h / 2.0);
+    if r < 0.5 {
+        p.with_clip(b, |p| f(p));
+        return;
+    }
+    p.with_clip(rect(x, y + r, w, h - 2.0 * r), |p| f(p));
+    const ROW: f32 = 0.5; // device rows at 2x
+    let rows = (r / ROW).ceil() as usize;
+    for k in 0..rows {
+        let y0 = k as f32 * ROW;
+        let rh = ROW.min(r - y0);
+        let dy = r - (y0 + rh / 2.0); // distance from the corner centres' line
+        let inset = r - (r * r - dy * dy).max(0.0).sqrt();
+        let rw = w - 2.0 * inset;
+        if rw <= 0.0 {
+            continue;
+        }
+        p.with_clip(rect(x + inset, y + y0, rw, rh), |p| f(p));
+        p.with_clip(rect(x + inset, y + h - y0 - rh, rw, rh), |p| f(p));
+    }
 }
 
 /// Colour at position `t` (0..1) along a gradient.

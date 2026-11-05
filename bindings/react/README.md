@@ -103,7 +103,8 @@ cover yet.
   [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native),
   and `act(fn)` is for tests.
   - Window options: `title`, `width`, `height`, `resizable`, `gpu`,
-    `headless`.
+    `slug`, `headless`, and `theme` (`'dark'`, the default, or `'light'`:
+    Blender's Light theme; `BUI_THEME` applies otherwise).
 
 ## Standalone apps
 
@@ -129,7 +130,8 @@ lists updating through signals, or use `--bun`.
 
 ## Benchmarks
 
-Ryzen 7 5800U laptop, Windows 11, GPU renderer, React's production build.
+Ryzen 7 5800U laptop, Windows 11, GPU renderer, React's production build,
+measured before the latest features landed.
 The full method is in the [guide](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md#performance).
 
 **Startup:** a small React app that quits at its first frame; medians of 12
@@ -156,10 +158,14 @@ launches.
 
 ## Requirements
 
-- **Windows x64** for native windows; `headless: true` renders off-screen.
+- **Windows x64** prebuilt. On **Linux**, build the `@blender-ui/native`
+  addon from source (`npm run build` in `bindings/node`) and windows are
+  native X11 windows. On **macOS** it's headless for now. `headless: true`
+  renders off-screen anywhere.
 - **Node.js 18** or newer, or Bun.
 - **React 19.3.**
 
 Guide: [docs/javascript.md](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md) ·
+Website: [bui.preetham.top](https://bui.preetham.top) ·
 Source: [github.com/ppmpreetham/BUI](https://github.com/ppmpreetham/BUI) ·
 License: GPL-2.0-or-later

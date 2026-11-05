@@ -1,0 +1,64 @@
+---
+/**
+ * <Figure src="images/components.png" alt="…" caption="…" width={520} />
+ *
+ * Light and dark screenshots: pass both, and the reader sees the one matching the site's theme.
+ *   <Figure light="images/shots/components-light.png" dark="images/shots/components-dark.png" alt="…" />
+ *   <Figure shot="components" src="images/components.png" alt="…" />   (pair from images/shots/, `src` until it exists)
+ *
+ * Paths are relative to website/public (no leading slash needed). Screenshots of BUI are
+ * shown at their natural size (up to the column width) on a hatched stage, so small
+ * windows don't get blown up and blurry. `alt` describes the picture; `caption` explains it.
+ * Width and height are read from the file when you leave them out.
+ */
+import ThemedImage from "./ThemedImage.astro";
+
+interface Props {
+  src?: string;
+  light?: string;
+  dark?: string;
+  shot?: string;
+  alt: string;
+  caption?: string;
+  /** Natural width in CSS pixels (usually the PNG's width). */
+  width?: number;
+  height?: number;
+  /** "stage" (default) puts the image on a hatched backdrop; "bleed" fills the column. */
+  variant?: "stage" | "bleed";
+  /**
+   * "eager" (default) or "lazy". Lazy images below the fold stay blank in full-page
+   * screenshots, print and some readers; docs pages have few images, so load them eagerly
+   * unless a page has many.
+   */
+  loading?: "eager" | "lazy";
+}
+
+const { src, light, dark, shot, alt, caption, width, height, variant = "stage", loading = "eager" } = Astro.props;
+if (!src && !light && !dark && !shot) throw new Error(`<Figure alt="${alt}">: give src, light/dark or shot.`);
+---
+
+<figure class="figure not-prose border border-border" data-reveal>
+  <div class:list={[variant === "stage" ? "figure-stage hatch flex justify-center px-4 py-6 sm:px-8 sm:py-9" : ""]}>
+    <ThemedImage
+      alt={alt}
+      light={light ?? src}
+      dark={dark ?? src}
+      shot={shot}
+      fallback={src}
+      width={width}
+      height={height}
+      loading={loading}
+      class:list={["img-outline h-auto max-w-full", variant === "stage" && "figure-img", variant === "bleed" && "w-full"]}
+    />
+  </div>
+  {caption && <figcaption class="border-t border-border bg-surface px-4 py-2.5 text-[13px] leading-5 text-muted [&_code]:font-mono [&_code]:text-[0.9em]" set:html={caption} />}
+</figure>
+
+<style>
+  .figure-stage {
+    background-color: var(--stage);
+  }
+  .figure-img {
+    box-shadow: var(--shadow);
+  }
+</style>

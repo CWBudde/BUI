@@ -1,0 +1,137 @@
+---
+/**
+ * <Tabs>
+ *   <Tab label="pip">…</Tab>
+ *   <Tab label="uv">…</Tab>
+ * </Tabs>
+ *
+ * `sync="key"` keeps every Tabs with the same key on the page (and on later pages) on the
+ * same label, remembered in localStorage. <LangTabs> is <Tabs sync="lang">.
+ * Don't nest Tabs inside Tabs.
+ */
+interface Props {
+  sync?: string;
+  /** Accessible name for the tab list, e.g. "Language". */
+  label?: string;
+}
+
+const { sync, label = "Choose one" } = Astro.props;
+
+const html = await Astro.slots.render("default");
+const labels = [...html.matchAll(/data-tab-label="([^"]*)"/g)].map((m) => m[1]);
+const uid = `t${Math.random().toString(36).slice(2, 8)}`;
+
+let i = 0;
+const panels = html.replace(/<div data-tab-panel/g, () => {
+  const n = i++;
+  return `<div id="${uid}-p${n}" aria-labelledby="${uid}-t${n}" tabindex="0"${n === 0 ? "" : " hidden"} data-tab-panel`;
+});
+
+const decode = (s: string) =>
+  s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+---
+
+<div class="tabs border border-border" data-tabs data-sync={sync}>
+  <div role="tablist" aria-label={label} class="flex overflow-x-auto border-b border-border bg-surface [scrollbar-width:none]">
+    {
+      labels.map((l, n) => (
+        <button
+          type="button"
+          role="tab"
+          id={`${uid}-t${n}`}
+          aria-controls={`${uid}-p${n}`}
+          aria-selected={n === 0 ? "true" : "false"}
+          tabindex={n === 0 ? 0 : -1}
+          data-tab={decode(l)}
+          class="relative h-10 shrink-0 whitespace-nowrap px-4 text-sm text-muted transition-colors duration-150 ease-out hover:text-foreground aria-selected:bg-background aria-selected:font-medium aria-selected:text-foreground aria-selected:after:absolute aria-selected:after:inset-x-0 aria-selected:after:top-0 aria-selected:after:h-0.5 aria-selected:after:bg-primary"
+        >
+          {decode(l)}
+        </button>
+      ))
+    }
+  </div>
+  <div class="tab-panels" set:html={panels} />
+</div>
+
+<style>
+  .tab-panels :global([data-tab-panel]) {
+    padding: 1rem;
+    font-size: 0.9375rem;
+    line-height: 1.7;
+  }
+  .tab-panels :global([data-tab-panel] > * + *) {
+    margin-top: 0.9rem;
+  }
+  .tab-panels :global([data-tab-panel]:focus-visible) {
+    outline-offset: -2px;
+  }
+  .tab-panels :global(.expressive-code) {
+    margin-top: 0.9rem;
+  }
+  .tab-panels :global([data-tab-panel] > .expressive-code:first-child) {
+    margin-top: 0;
+  }
+</style>
+
+<script>
+  const KEY = (k: string) => `bui:tabs:${k}`;
+
+  function select(root: HTMLElement, label: string, focus = false) {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>(":scope > [role=tablist] > [role=tab]")];
+    const tab = tabs.find((t) => t.dataset.tab === label);
+    if (!tab) return false;
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      const panel = document.getElementById(t.getAttribute("aria-controls")!);
+      if (panel) panel.hidden = !on;
+    }
+    if (focus) tab.focus();
+    return true;
+  }
+
+  function choose(root: HTMLElement, label: string, focus = false) {
+    const sync = root.dataset.sync;
+    if (!sync) return void select(root, label, focus);
+    // Keep the clicked tab list where it is while panels above change height.
+    const before = root.getBoundingClientRect().top;
+    document.querySelectorAll<HTMLElement>(`[data-tabs][data-sync="${sync}"]`).forEach((r) => select(r, label, focus && r === root));
+    const after = root.getBoundingClientRect().top;
+    if (after !== before) window.scrollBy({ top: after - before, behavior: "instant" as ScrollBehavior });
+    try {
+      localStorage.setItem(KEY(sync), label);
+    } catch {}
+    document.dispatchEvent(new CustomEvent("bui:tabs", { detail: { sync, label } }));
+  }
+
+  document.querySelectorAll<HTMLElement>("[data-tabs]").forEach((root) => {
+    const list = root.querySelector<HTMLElement>(":scope > [role=tablist]")!;
+    list.addEventListener("click", (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLButtonElement>("[role=tab]");
+      if (tab) choose(root, tab.dataset.tab!);
+    });
+    list.addEventListener("keydown", (e) => {
+      const tabs = [...list.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+      const at = tabs.indexOf(document.activeElement as HTMLButtonElement);
+      if (at < 0) return;
+      let next = -1;
+      if (e.key === "ArrowRight") next = (at + 1) % tabs.length;
+      else if (e.key === "ArrowLeft") next = (at - 1 + tabs.length) % tabs.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = tabs.length - 1;
+      if (next >= 0) {
+        e.preventDefault();
+        choose(root, tabs[next].dataset.tab!, true);
+      }
+    });
+    const sync = root.dataset.sync;
+    if (sync) {
+      let saved: string | null = null;
+      try {
+        saved = localStorage.getItem(KEY(sync));
+      } catch {}
+      if (saved) select(root, saved);
+    }
+  });
+</script>

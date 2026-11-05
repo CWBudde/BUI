@@ -1,0 +1,121 @@
+---
+// Blender's interaction habits beyond the number field (which the components section
+// demonstrates): pie menus, menu search, and the small keyboard habits.
+import PieTile from "./PieTile.astro";
+import SearchTile from "./SearchTile.astro";
+import Icon from "../site/Icon.astro";
+
+const habits = [
+  { keys: "Ctrl+Wheel", text: "steps a value" },
+  { keys: "Ctrl+C / Ctrl+V", text: "copy and paste values" },
+  { keys: "Backspace", text: "resets to the default" },
+  { keys: "Tab", text: "moves between fields" },
+];
+
+const cards = [
+  {
+    icon: "cursor-click",
+    title: "Press, drag, release",
+    body: "Menus open on press and pick on release, so a whole choice is one gesture. Drag across checkboxes to set them all.",
+  },
+  {
+    icon: "arrows-vertical",
+    title: "Multi-field drags",
+    body: "Drag down across X, Y and Z to edit all three at once. Panels collapse with Blender's own animation.",
+  },
+  {
+    icon: "code",
+    title: "Real Blender code",
+    body: "Widget drawing is a C port of interface_widgets.cc; interaction follows interface_handlers.cc.",
+  },
+];
+---
+
+<div class="grid lg:grid-cols-3">
+  <div class="flex flex-col border-b border-border lg:border-r" data-reveal>
+    <div class="flex flex-col gap-1 px-5 pt-6 sm:px-8">
+      <h3 class="text-lg font-semibold">Pie menus</h3>
+      <p class="text-[14.5px] leading-6 text-muted">Press a key, flick toward a choice, release. Point here to aim.</p>
+    </div>
+    <div class="feel-stage mx-5 my-5 flex flex-1 items-center sm:mx-8">
+      <PieTile />
+    </div>
+  </div>
+
+  <div class="flex flex-col border-b border-border lg:border-r" data-reveal style="--reveal-i:1">
+    <div class="flex flex-col gap-1 px-5 pt-6 sm:px-8">
+      <h3 class="text-lg font-semibold">Menu search that gets you</h3>
+      <p class="text-[14.5px] leading-6 text-muted">
+        “ad cu” finds Add Cube; typos are forgiven. It's Blender's search, ported, and it also runs this site's {" "}
+        <button type="button" data-search-open class="text-link underline underline-offset-4">docs search</button>.
+      </p>
+    </div>
+    <div class="feel-stage mx-5 my-5 flex flex-1 items-start justify-center px-4 py-6 sm:mx-8">
+      <SearchTile />
+    </div>
+  </div>
+
+  <div class="flex flex-col border-b border-border" data-reveal style="--reveal-i:2">
+    <div class="flex flex-col gap-1 px-5 pt-6 sm:px-8">
+      <h3 class="text-lg font-semibold">Your fingers already know it</h3>
+      <p class="text-[14.5px] leading-6 text-muted">The keyboard habits of Blender users, in every app.</p>
+    </div>
+    <ul class="mx-5 my-5 flex flex-1 flex-col border border-border sm:mx-8">
+      {
+        habits.map((h) => (
+          <li class="flex items-center justify-between gap-3 border-b border-border-soft px-4 py-3 text-[14px] last:border-b-0">
+            <span class="text-muted">{h.text}</span>
+            <span class="flex shrink-0 items-center gap-1">
+              {h.keys.split(" / ").map((combo, i) => (
+                <>
+                  {i > 0 && <span class="text-muted">/</span>}
+                  {combo.split("+").map((k, j) => (
+                    <>
+                      {j > 0 && <span class="text-[11px] text-muted">+</span>}
+                      <kbd class="kbd-key">{k}</kbd>
+                    </>
+                  ))}
+                </>
+              ))}
+            </span>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</div>
+
+<div class="grid sm:grid-cols-3">
+  {
+    cards.map((s, i) => (
+      <div class:list={["group flex flex-col gap-2 border-b border-border p-5 sm:border-b-0 sm:p-8", i < 2 && "sm:border-r"]} data-reveal style={`--reveal-i:${i}`}>
+        <span class="inline-flex size-9 items-center justify-center border border-border text-link transition-colors duration-200 group-hover:border-primary group-hover:bg-primary group-hover:text-white">
+          <Icon name={s.icon} weight="duotone" size={19} />
+        </span>
+        <h3 class="mt-1 text-lg font-semibold">{s.title}</h3>
+        <p class="text-[14.5px] leading-6 text-muted">{s.body}</p>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .feel-stage {
+    background-color: var(--bl-stage);
+    background-image: repeating-linear-gradient(135deg, var(--bl-stage-hatch) 0 1px, transparent 1px 7px);
+  }
+  .kbd-key {
+    display: inline-block;
+    min-width: 1.5em;
+    padding: 0 0.4em;
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.6;
+    text-align: center;
+    color: var(--foreground);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+  }
+</style>

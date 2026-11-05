@@ -1,0 +1,175 @@
+---
+title: Your first app, in C
+sidebarLabel: First app (C)
+description: "Read kit_hello.c line by line (a slider and a button in a native window) and learn the kit's five ideas: nodes, properties, geometry managers, the host and the window loop."
+section: Tutorials
+order: 70
+languages: ["c"]
+badges: ["20 minutes", "Intermediate"]
+sources: ["docs/c-api.md", "examples/kit_hello.c", "examples/CMakeLists.txt", "kit/include/BUI_kit.h", "docs/getting-started.md"]
+---
+
+Every BUI app, whatever language it's written in, ends up as calls into one small C library: the **kit**. Using it directly is the most hands-on way to see how BUI works, and it's what you'd use to bring BUI to a new language.
+
+This tutorial reads `examples/kit_hello.c` from top to bottom. It's about 60 lines, and it shows the five ideas the whole kit is built on.
+
+<Callout type="note" title="What you need">
+A clone of the repository, CMake 3.20 or newer and a C11 / C++20 compiler (MSVC, GCC or MinGW-w64, or Clang). On Linux, also the X11 headers. See [installation](../../start/installation/).
+</Callout>
+
+## Build and run it
+
+```sh
+cmake -S . -B build -DBUI_BUILD_EXAMPLES=ON
+cmake --build build --target bui_kit_hello
+```
+
+Then run `bui_kit_hello` from the build folder. A small window opens with a **Size** slider and an **Apply** button. Drag the slider and watch your terminal: every change prints a line, and so does each click.
+
+<Figure
+  src="images/c-kit-hello.png"
+  alt="A small dark window with a Size slider at 2.500 and an Apply button below it"
+  caption="The nodes from <code>kit_hello.c</code>, rendered headless at 320 × 120. (Made with the same kit calls, rendered headless without compiling the example.)"
+  width={320}
+  height={120}
+/>
+
+## The code, line by line
+
+<Steps>
+
+1. **Include the header.**
+
+   ```c
+   #include <stdio.h>
+   #include "BUI_kit.h"
+   ```
+
+   `BUI_kit.h` is the whole public API, and it doubles as the reference: every function has a one-line comment. In CMake, linking `bui::kit` gives you the header and the library.
+
+2. **Write an event callback.**
+
+   ```c
+   static void on_event(void *data, BKNode *node, int kind, void *ref, double a, double b)
+   {
+     if (kind == BK_EV_CLICK) {
+       printf("clicked %s\n", BK_get_str(node, "text"));
+     }
+     else if (kind == BK_EV_CHANGE) {
+       printf("%s = %g\n", BK_get_str(node, "label"), BK_get_num(node, "value"));
+     }
+   }
+   ```
+
+   The kit tells you about everything through **one function**. `node` is the widget it's about, and `kind` says what happened: `BK_EV_CLICK` for a button, `BK_EV_CHANGE` when a value changed. Others include `BK_EV_CALL` (a menu item or hotkey), `BK_EV_RENAME` and `BK_EV_SUBMIT`. `a`, `b` and `ref` carry extra details for some kinds.
+
+3. **Create the root node.**
+
+   ```c
+   BKNode *root = BK_node_new("frame");
+   BK_set_num(root, "padding", 8);
+   ```
+
+   Idea one, **nodes**: everything on screen is a node, made by type name. A `frame` is a container. Others are `slider`, `button`, `checkbox`, `text`, `panel`, `tree`, `canvas` and many more; the header lists them all.
+
+   Idea two, **properties**: you configure nodes by name, with `BK_set_num`, `BK_set_str`, `BK_set_color` and `BK_set_strs`, and read them back with `BK_get_*`. Here, 8 pixels of padding.
+
+4. **Add a slider, packed.**
+
+   ```c
+   BKNode *size = BK_node_new("slider");
+   BK_set_str(size, "label", "Size");
+   BK_set_num(size, "min", 0);
+   BK_set_num(size, "max", 10);
+   BK_set_num(size, "value", 2.5);
+   BK_node_add(root, size, -1);              /* -1: append */
+   BK_geom_set_manager(size, BK_GEOM_PACK);  /* Tk's packer */
+   BK_geom_set(size, "fill", 1);             /* fill x */
+   ```
+
+   - `BK_node_add(parent, child, index)` puts the slider in the frame; `-1` appends.
+   - Idea three, **geometry managers**: a child of a frame is placed by a manager, exactly as in Tk. `BK_GEOM_PACK` is a C port of Tk's packer; `BK_GEOM_GRID` and `BK_GEOM_PLACE` are the other two.
+   - `BK_geom_set` sets the manager's options by name. For the packer, `fill` is 1 for x, 2 for y and 3 for both.
+
+5. **Add a button.**
+
+   ```c
+   BKNode *apply = BK_node_new("button");
+   BK_set_str(apply, "text", "Apply");
+   BK_node_add(root, apply, -1);
+   BK_geom_set_manager(apply, BK_GEOM_PACK);
+   BK_geom_set(apply, "fill", 1);
+   BK_geom_set(apply, "pady0", 6);
+   ```
+
+   The same pattern. `pady0` is the padding above the button (`pady1` would be below), so it sits 6 pixels under the slider.
+
+6. **Make a context and connect your callback.**
+
+   ```c
+   BKContext *ctx = BK_context_new(root);
+   BKHost host = {0};
+   host.emit = on_event;
+   BK_context_set_host(ctx, &host);
+   ```
+
+   Idea four, **the context and the host**. A `BKContext` owns a tree's live state: input, hover, focus, popups and undo. The `BKHost` is how the context talks back to whoever runs it: `emit` for events, plus `request` (please render), `set_cursor`, `warp`, the clipboard and `schedule` for timers.
+
+   You only fill in `emit`. The window you're about to open supplies the rest, and keeps your `emit`.
+
+7. **Open a window and run the loop.**
+
+   ```c
+   if (BK_window_supported()) {
+     BKWindow *win = BK_window_new(ctx, "BUI from C", 320, 120);
+     BK_window_show(win);
+     BK_window_run();
+     BK_window_free(win);
+   }
+   ```
+
+   Idea five, **the window loop**. `BK_window_new` puts the context in a native window: Win32 on Windows, X11 on Linux, Cocoa on macOS (still experimental). `BK_window_run` handles messages until every window is closed. From then on, input goes in, frames come out, and only the changed parts of the window are redrawn, all without leaving C.
+
+8. **Or render without a window.**
+
+   ```c
+   else {
+     BuiRaster *r = BUI_raster_create(320, 120);
+     BK_render(ctx, r, 320, 120, 1);
+     BUI_raster_free(r);
+   }
+   ```
+
+   Where there's no window system, the example renders one frame into a **raster**, an image in memory. `BK_render(ctx, raster, w, h, full)` returns how many regions it redrew; 0 means nothing changed. This is also how you'd test a UI or take a screenshot.
+
+9. **Clean up.**
+
+   ```c
+   BK_context_free(ctx);
+   BK_node_free(root);
+   return 0;
+   ```
+
+   Free the context first, then the tree.
+
+</Steps>
+
+## Going further
+
+- **Drive input yourself.** Without a window, feed the context with `BK_press`, `BK_motion`, `BK_release`, `BK_key` and `BK_wheel`, then call `BK_render`. That's how BUI's own tests work.
+- **Use the GPU.** Call `BUI_gpu_set_default(1)` before opening windows, or `BK_window_set_gpu(win, 1)` for one window. Or set `BUI_GPU=1` without changing code.
+- **Draw your own widget.** A `custom` node draws and handles input itself. Dear ImGui runs on BUI that way.
+
+## Next steps
+
+<CardGrid>
+  <Card title="The C API" href="docs/c/c-api/" icon="book" kicker="C & C++">
+    Every concept in the kit, with the functions that go with it.
+  </Card>
+  <Card title="Embedding BUI" href="docs/c/embedding/" icon="layers" kicker="C & C++">
+    Draw BUI inside your own renderer with render sinks.
+  </Card>
+  <Card title="Dear ImGui" href="docs/tutorials/first-app-imgui/" icon="sparkles" kicker="Tutorial">
+    Prefer immediate mode? Run the real Dear ImGui on the same kit.
+  </Card>
+</CardGrid>

@@ -318,6 +318,28 @@ static PyObject* bi_set_scale(PyObject*, PyObject* args)
     Py_RETURN_NONE;
 }
 
+// This extension carries its own copy of the kit: bui.set_theme() forwards here.
+extern "C" int BK_set_theme(const char* name);
+extern "C" const char* BK_theme_name(void);
+
+static PyObject* bi_set_theme(PyObject*, PyObject* args)
+{
+    const char* name;
+    if (!PyArg_ParseTuple(args, "s", &name))
+        return nullptr;
+    if (!BK_set_theme(name))
+    {
+        PyErr_Format(PyExc_ValueError, "unknown theme '%s' (expected 'dark' or 'light')", name);
+        return nullptr;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject* bi_theme_name(PyObject*, PyObject*)
+{
+    return PyUnicode_FromString(BK_theme_name());
+}
+
 static PyObject* bi_sizeof(PyObject*, PyObject* args)
 {
     const char* n;
@@ -333,6 +355,8 @@ static PyMethodDef bi_module_methods_extra[] = {
     { "set_blender_widgets", bi_set_blender_widgets, METH_O, "set_blender_widgets(on) -- switch Blender's widgets on or off (when built with them)" },
     { "get_ui_scale", bi_get_scale, METH_NOARGS, "get_ui_scale() -> BUI's UI scale (DPI)" },
     { "set_ui_scale", bi_set_scale, METH_VARARGS, "set_ui_scale(scale)" },
+    { "set_theme", bi_set_theme, METH_VARARGS, "set_theme(name) -- Blender's 'dark' or 'light' theme (also bui.set_theme)" },
+    { "theme_name", bi_theme_name, METH_NOARGS, "theme_name() -> 'dark' or 'light'" },
     { "_sizeof", bi_sizeof, METH_VARARGS, "_sizeof(type_name) -> sizeof() in C++ (tests)" },
     { nullptr, nullptr, 0, nullptr },
 };

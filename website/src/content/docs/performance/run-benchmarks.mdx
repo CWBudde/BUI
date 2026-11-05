@@ -1,0 +1,180 @@
+---
+title: Run the benchmarks yourself
+sidebarLabel: Run the benchmarks
+description: Every command behind BUI's published numbers, one benchmark at a time, with what each one needs and what it prints.
+section: Performance
+order: 20
+languages: ["python", "rust", "javascript"]
+sources: ["README.md", "bindings/rust/bench/README.md", "bindings/rust/bench/run.py", "bindings/rust/bench/common/measure.rs", "bench/run.py", "bindings/node/bench/cells.js", "bindings/node/bench/startup.js", "bindings/node/bench/first-frame.js", "bindings/python/bench/tk_canvas_bench.py", "docs/javascript.md"]
+---
+
+Don't take our word for it. Every number on the [Benchmarks](../benchmarks/) page comes from a script in the repository, and you can run each one on your own machine in a few minutes.
+
+This page lists them all, from the quickest to the most involved.
+
+## Before you start
+
+Benchmarks are only as good as the conditions they run in. For numbers you can trust:
+
+- **Build in release mode.** Debug builds are many times slower.
+- **Plug the laptop in**, and close other heavy apps (browsers, IDEs, video calls).
+- **Run one benchmark, and one build, at a time.** Parallel builds and benchmarks fight for the same cores and skew the results.
+- **Compare within one session.** Laptop clocks drift between sessions, so run the things you compare back to back.
+
+You need a clone of the repository:
+
+```sh
+git clone https://github.com/ppmpreetham/BUI && cd BUI
+```
+
+<Callout type="note" title="Windows command syntax">
+The commands below use `cmd.exe` syntax where they set variables (`set BUI_GPU=1`), as the README does. In PowerShell, write `$env:BUI_GPU = "1"` instead. On Linux and macOS, put the variable before the command: `BUI_GPU=1 ./app`.
+</Callout>
+
+## Inside any app: per-phase frame times
+
+The quickest benchmark is your own app. Run it with `BUI_PROFILE=1` to print frame times broken down by phase, and with `BUI_GPU=1` or `BUI_GPU=0` to pick the renderer:
+
+```sh
+BUI_PROFILE=1 BUI_GPU=0 python my_app.py
+BUI_PROFILE=1 BUI_GPU=1 python my_app.py
+```
+
+[Profiling](../profiling/) explains what each phase means.
+
+## tkinter: canvas frame cost
+
+**Any platform, headless, about a second.** Moves canvas items every frame through the tkinter syntax, renders (damage only), and prints the time per frame for Python (the tkinter layer) and render (the C kit), averaged over 120 frames.
+
+```sh
+py bindings/python/bench/tk_canvas_bench.py 3000 all    # move 3,000 canvas items every frame
+py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
+```
+
+The arguments are the item count (default 2000) and the mode, `all` or `one` (default `all`). Use `python` instead of `py` outside Windows. The script imports `bui`, so either install BUI (`pip install blenderui`) or build it and put `bindings/python` on `PYTHONPATH`.
+
+## JavaScript: animated cells and startup
+
+**From `bindings/node`, after building the addon** (`npm run build`). The cell benchmark is the Rust benchmark's `one` mode in JavaScript: a 1000×800 window with a grid of N cells, where one cell changes colour and label every frame. It prints frames per second, CPU per frame for the whole process, and resident memory.
+
+```sh
+cd bindings/node
+node bench/cells.js 3000                       # DOM-like API, one cell changing per frame
+node bench/cells.js 3000 --react               # React re-rendering the grid
+node bench/cells.js 3000 --react --signals     # React with signals: no re-render
+node bench/cells.js 3000 --gpu                 # on the GPU renderer
+bun bench/cells.js 3000                        # on Bun
+node cli.js run bench/cells.js -- 3000         # on the 5 MB QuickJS runtime
+node bench/startup.js                          # launch to first frame: Node, Bun and both executables
+```
+
+- `cells.js` runs React's production build; add `--dev` for the development build. `--seconds=N` changes the measured time (default 5, after a 3-second warm-up).
+- `startup.js` builds both executables, then launches each way of running the app 12 times after a warm-up launch, and prints one JSON line per runtime: median and best times, the app's own first-frame time, its memory then, and the file size. Pass a number to change the launch count. It needs Bun installed.
+
+<Callout type="tip">
+The first launch of a freshly built executable can take seconds while antivirus software scans it. That's why `startup.js` doesn't count the warm-up launch.
+</Callout>
+
+## Rust: blenderui against gpui and gpui-fast
+
+**Windows, about 12 minutes for the full run.** Three apps draw the same scene: a 1000×800 window filled with N rounded, numbered cells. `bui-bench` is blenderui, `gpui-bench` is Zed's gpui 0.2.2, and `gpui-fast-bench` is gpui-fast 0.1.13. Both gpui apps compile the identical source file.
+
+There are three modes:
+
+- **anim:** every cell changes every frame. The worst case.
+- **one:** one cell changes per frame, like a hover or a ticking value.
+- **idle:** nothing changes.
+
+<Steps>
+
+1. **Point gpui at the shader compiler.**
+
+   gpui needs `fxc.exe` from the Windows SDK:
+
+   ```sh
+   cd bindings/rust/bench
+   set GPUI_FXC_PATH=C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\fxc.exe
+   ```
+
+2. **Build all three apps.**
+
+   ```sh
+   cargo build --release
+   ```
+
+3. **Run them.**
+
+   ```sh
+   py run.py --reps 3                                   # all apps, 100 / 1000 / 3000 cells
+   py run.py --cells 3000 --apps blenderui,blenderui-gpu --reps 1
+   ```
+
+   `run.py` prints a Markdown table and writes `results.json`. Its options:
+
+   | Option | Default | Meaning |
+   | --- | --- | --- |
+   | `--reps` | `3` | Runs per configuration; the table shows medians |
+   | `--warmup` | `3` | Seconds before measuring |
+   | `--seconds` | `10` | Seconds measured |
+   | `--cells` | `100,1000,3000` | Cell counts to run |
+   | `--apps` | `gpui,gpui-fast,blenderui,blenderui-gpu` | Apps to run; `blenderui-gpu` is `bui-bench` with `BUI_GPU=1` |
+
+4. **Or run one by hand.**
+
+   ```sh
+   target\release\bui-bench --cells 3000 --mode anim               # --mode one / idle, --uncapped
+   set BUI_GPU=1 && target\release\bui-bench --cells 3000 --mode anim   # on the GPU renderer
+   ```
+
+   `--uncapped` animates without waiting for the display, to see the raw frame rate.
+
+</Steps>
+
+**How it measures.** Each app measures itself with the same code (`common/measure.rs`): process CPU **cycles** across all threads (`QueryProcessCycleTime`), converted to time with the clock frequency calibrated during warm-up; frames rendered; the working set, sampled every 100 ms; and private bytes at the end. `run.py` adds each process's GPU 3D-engine utilisation and GPU memory from Windows' performance counters, because GPU work isn't process CPU time.
+
+<Callout type="note" title="Why cycles, not GetProcessTimes">
+An earlier version used `GetProcessTimes`. Windows charges that per ~15.6 ms clock tick, which aliases with a 60 Hz frame loop and badly under-reported CPU: gpui at 1,000 cells showed 6.3 ms per frame when it really used 19 ms. Every published number uses the cycle counter.
+</Callout>
+
+## Start time and battery: the five ways and gpui
+
+**Windows, the most setup.** The same small settings window, written each of the five ways (Rust, JavaScript, Blender components, tkinter and Qt syntax), plus one gpui-syntax file compiled for blenderui, gpui and gpui-fast. Every BUI app runs twice, with `BUI_GPU=0` and `BUI_GPU=1`.
+
+For each app it measures the median time from launch until the first frame is on screen, the CPU used to get there, the memory then, and the CPU used while the window sits idle. It writes `bench/results.json`.
+
+<Steps>
+
+1. **Build everything it launches**, one build at a time, from the repository root:
+
+   ```sh
+   cmake -S . -B build && cmake --build build --config Release --target buipy  # Python extension
+   cd bindings/node && npm run build && cd ../..                                # Node addon
+   cd bindings/rust && cargo build --release --example bench_app && cd ../..    # Rust app
+   cd bindings/rust/bench && cargo build --release --bins && cd ../../..        # gpui comparison
+   ```
+
+2. **Run it.**
+
+   ```sh
+   py -3 bench/run.py 10 20
+   ```
+
+   The arguments are the launches per app (default 10) and the seconds of idle measurement (default 10). The published numbers used `10 20`.
+
+</Steps>
+
+The script uses the Windows API for process times, so it runs on Windows only.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Benchmarks" href="docs/performance/benchmarks/" icon="zap" kicker="Performance">
+    The published results to compare yours with.
+  </Card>
+  <Card title="Profiling" href="docs/performance/profiling/" icon="clock" kicker="Performance">
+    Read per-phase timings and fix slow paths.
+  </Card>
+  <Card title="Contributing" href="docs/project/contributing/" icon="github" kicker="Project">
+    Changing rendering? Include before and after numbers.
+  </Card>
+</CardGrid>

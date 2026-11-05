@@ -1,0 +1,78 @@
+---
+title: License and credits
+description: BUI is free software under GPL-2.0-or-later, because it's built from Blender. What that means, the licenses of the parts BUI includes, and the projects it stands on.
+section: Project
+order: 60
+sources: ["README.md", "LICENSE", "pyproject.toml", "bindings/rust/Cargo.toml", "bindings/node/package.json", "bindings/react/package.json", "gpu/extern/Inter-LICENSE.txt", "gpu/extern/stb_truetype.h", "gpu/extern/freetype/LICENSE.TXT", "kit/extern/nanosvg/README.blender", "bindings/imgui/extern/imgui/LICENSE.txt", "bindings/rust/blenderui-tailwind/src/theme.rs", "CONTRIBUTING.md"]
+---
+
+BUI is free software. You can use it, study it, change it and share it. It exists because thousands of people built Blender's interface over decades and shared it under a free license; BUI keeps that promise going.
+
+## BUI's license: GPL-2.0-or-later
+
+BUI is derived from Blender's source code, which is licensed under the **GNU General Public License, version 2 or later**, so BUI is too. Every source file keeps its SPDX header:
+
+```c
+SPDX-License-Identifier: GPL-2.0-or-later
+```
+
+The Python package (`pyproject.toml`), the Rust crates (`Cargo.toml`) and the npm packages (`package.json`) all declare `GPL-2.0-or-later`. The repository's `LICENSE` file holds the text of version 3 of the GNU GPL, one of the versions that "or later" covers.
+
+### What it means for you
+
+In plain words, and not as legal advice:
+
+- **Using BUI** to build and run your own programs is free, for any purpose, commercial included.
+- **Changing BUI** is free too.
+- **Distributing** a program that includes BUI (shipping an app, publishing a package) means distributing it under the GPL as well, with its source code available to the people you give it to.
+
+If you need different terms, ask a lawyer before you ship.
+
+### Contributing
+
+Contributions are accepted under the same license, and new files carry the same SPDX header. See [Contributing](../contributing/).
+
+## Third-party parts
+
+Some parts of BUI come from other projects and keep their own licenses:
+
+| Part | What it does in BUI | License |
+| --- | --- | --- |
+| [Blender](https://www.blender.org) sources | Widget drawing, interaction rules, theme, icons, `blenlib`, GHOST window code, the file browser and node editor | GPL-2.0-or-later |
+| [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut | The immediate-mode GUI that runs on BUI | MIT |
+| [Inter](https://rsms.me/inter) by Rasmus Andersson | The embedded UI font, as in Blender (`gpu/extern/Inter-LICENSE.txt`) | SIL Open Font License 1.1 |
+| [FreeType](https://freetype.org) 2.13.3 | Glyph loading, hinting and rendering, like Blender's BLF | FreeType License or GPLv2 (dual-licensed) |
+| [stb_truetype](https://github.com/nothings/stb) by Sean Barrett | Font metrics, and the fallback text rasterizer | Public domain |
+| [NanoSVG](https://github.com/memononen/nanosvg) by Mikko Mononen, as edited by Blender | Rasterizing Blender's SVG icons | Zlib |
+| [Slug](https://github.com/EricLengyel/Slug) by Eric Lengyel | The GPU glyph coverage algorithm (shader code "Copyright 2017 by Eric Lengyel") | MIT |
+| [Tailwind CSS](https://tailwindcss.com) | The v4 default theme values behind the Tailwind support | MIT |
+
+The Rust and JavaScript bindings also depend on crates and packages such as taffy, napi-rs, React and QuickJS, each under its own license.
+
+## Acknowledgments
+
+BUI stands on the work of many people. Thank you to:
+
+- **[Blender](https://www.blender.org)** and its community: the UI this project is built from, including its GHOST window code and `blenlib`.
+- **[Dear ImGui](https://github.com/ocornut/imgui)** by Omar Cornut: the immediate-mode GUI that runs on BUI.
+- **[taffy](https://github.com/DioxusLabs/taffy)**: flexbox, grid and block layout for the Rust crate.
+- **[Tailwind CSS](https://tailwindcss.com)**: the v4 theme behind the Tailwind support.
+- **[stb_truetype](https://github.com/nothings/stb)**: the text engine.
+- **[Inter](https://rsms.me/inter)** by Rasmus Andersson: the embedded UI font, as in Blender.
+- **[Slug](https://github.com/EricLengyel/Slug)** by Eric Lengyel: the GPU glyph coverage algorithm.
+- **[gpui](https://github.com/zed-industries/zed)**, **[zopra](https://github.com/ppmpreetham/zopra)** and **[Leptos](https://leptos.dev)**: the APIs the Rust syntax follows.
+
+<Callout type="joke">
+The license is longer than most of our examples. That's fine: unlike a render, you only have to read it once.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="FAQ" href="docs/project/faq/" icon="info" kicker="Project">
+    More questions about BUI, answered.
+  </Card>
+  <Card title="Contributing" href="docs/project/contributing/" icon="github" kicker="Project">
+    Help make BUI better.
+  </Card>
+</CardGrid>

@@ -1,0 +1,93 @@
+---
+/**
+ * A small line chart (SVG), for a value measured at a few sizes.
+ *
+ *   <LineChart
+ *     title="Uncapped frame rate" unit="fps" better="higher"
+ *     x={[100, 1000, 3000]} xLabel="animated cells"
+ *     lines={[
+ *       { name: "blenderui GPU", ours: true, values: [1491, 309, 94] },
+ *       { name: "blenderui CPU", values: [649, 202, 76] },
+ *     ]}
+ *   />
+ *
+ * x values are spaced evenly (they're categories, like scene sizes).
+ */
+import ChartFrame from "./ChartFrame.astro";
+import type { Table, TableId } from "../../data/bench";
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  unit: string;
+  better?: "lower" | "higher";
+  headline?: { value: string; text: string };
+  x: number[];
+  xLabel: string;
+  lines: { name: string; ours?: boolean; values: number[] }[];
+  table?: TableId | Table;
+  source?: string;
+  bare?: boolean;
+  class?: string;
+}
+
+const { x, xLabel, lines, unit, better = "higher", ...frame } = Astro.props;
+
+const W = 520, H = 230, L = 48, R = 20, T = 22, B = 40;
+const raw = Math.max(...lines.flatMap((l) => l.values), 1);
+const mag = 10 ** Math.floor(Math.log10(raw));
+const top = Math.ceil(raw / mag / (raw / mag > 5 ? 2 : 1)) * mag * (raw / mag > 5 ? 2 : 1);
+const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
+const px = (i: number) => L + (x.length === 1 ? (W - L - R) / 2 : (i / (x.length - 1)) * (W - L - R));
+const py = (v: number) => T + (1 - v / top) * (H - T - B);
+const colors = lines.map((l, i) => (l.ours ? "var(--primary)" : i % 2 ? "var(--chart-ours-2)" : "var(--chart-other)"));
+const legend = lines.map((l, i) => ({ name: l.name, color: colors[i] }));
+const summary = lines.map((l) => `${l.name}: ${l.values.map((v, i) => `${v} ${unit} at ${x[i]} ${xLabel}`).join(", ")}`).join(". ");
+---
+
+<ChartFrame {...frame} better={better} legend={legend}>
+  <svg viewBox={`0 0 ${W} ${H}`} class="chart-line block h-auto w-full" role="img" aria-label={summary}>
+    {
+      ticks.map((t) => (
+        <g>
+          <line x1={L} x2={W - R} y1={py(t)} y2={py(t)} class="chart-grid" />
+          <text x={L - 8} y={py(t)} dy="0.32em" text-anchor="end" class="chart-axis">
+            {t.toLocaleString("en-US")}
+          </text>
+        </g>
+      ))
+    }
+    {
+      x.map((v, i) => (
+        <text x={px(i)} y={H - B + 18} text-anchor="middle" class="chart-axis">
+          {v.toLocaleString("en-US")}
+        </text>
+      ))
+    }
+    <text x={(L + W - R) / 2} y={H - 4} text-anchor="middle" class="chart-axis">{xLabel} · {unit}</text>
+    {
+      lines.map((l, li) => (
+        <g style={`--c:${colors[li]};--i:${li}`}>
+          <polyline
+            points={l.values.map((v, i) => `${px(i)},${py(v)}`).join(" ")}
+            pathLength="1"
+            class="chart-path"
+            fill="none"
+            stroke="var(--c)"
+            stroke-width={l.ours ? 2.5 : 2}
+            stroke-linejoin="round"
+            stroke-linecap="square"
+          />
+          {l.values.map((v, i) => (
+            <g class="chart-point" style={`--j:${i}`}>
+              <rect x={px(i) - 3.5} y={py(v) - 3.5} width="7" height="7" fill="var(--c)" />
+              <text x={px(i) + (i === l.values.length - 1 ? -8 : 8)} y={py(v) - 9} text-anchor={i === l.values.length - 1 ? "end" : "start"} class:list={["chart-label", l.ours && "is-ours"]}>
+                {v.toLocaleString("en-US")}
+              </text>
+            </g>
+          ))}
+        </g>
+      ))
+    }
+  </svg>
+</ChartFrame>

@@ -5,12 +5,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 rust-version.workspace = true
+documentation = "https://docs.rs/blenderui-macros"
 keywords = ["gui", "jsx", "rsx", "tailwind", "css"]
 categories = ["gui"]
+include = ["src/**", "Cargo.toml"]
 
 [lib]
 proc-macro = true
 
 [dependencies]
-blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.1.0" }
+blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.2.0" }

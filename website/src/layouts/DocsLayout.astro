@@ -1,0 +1,188 @@
+---
+import type { MarkdownHeading } from "astro";
+import Base from "./Base.astro";
+import Header from "../components/site/Header.astro";
+import Sidebar from "../components/site/Sidebar.astro";
+import Toc from "../components/site/Toc.astro";
+import SearchPalette from "../components/site/SearchPalette.astro";
+import Icon from "../components/site/Icon.astro";
+import { currentTopLink, languages } from "../config/nav";
+import { site } from "../config/site";
+import { docHref, getNeighbours, href, lastUpdated, repoFile, statusLabel, type Doc } from "../lib/docs";
+
+interface Props {
+  doc: Doc;
+  headings: MarkdownHeading[];
+}
+
+const { doc, headings } = Astro.props;
+const { title, description, section, status, badges, sources } = doc.data;
+const { prev, next } = await getNeighbours(doc);
+const updated = lastUpdated(doc.filePath);
+const editUrl = site.editBase + (doc.filePath?.replace(/^.*src\/content\/docs\//, "") ?? `${doc.id}.mdx`);
+const langNames = doc.data.languages.map((id) => languages.find((l) => l.id === id)?.label ?? id);
+const dateFmt = new Intl.DateTimeFormat("en", { year: "numeric", month: "long", day: "numeric" });
+---
+
+<Base title={title} description={description} type="article">
+  <Header menuTarget="docs-sidebar" current={currentTopLink(section, doc.id)} />
+  <SearchPalette />
+
+  <div class="mx-auto w-full max-w-[1480px] md:grid md:grid-cols-[264px_minmax(0,1fr)] xl:grid-cols-[264px_minmax(0,1fr)_232px]">
+    <aside
+      id="docs-sidebar"
+      data-menu
+      class="fixed inset-x-0 top-(--header-h) bottom-0 z-30 overflow-y-auto overscroll-contain bg-background md:sticky md:top-(--header-h) md:z-auto md:h-[calc(100dvh-var(--header-h))] md:border-r md:border-border md:bg-surface/45"
+    >
+      <Sidebar currentId={doc.id} />
+    </aside>
+    <script is:inline>
+      // Keep the sidebar where the reader left it, and make sure the current page is in view
+      // (centered), before the first paint so nothing jumps.
+      (() => {
+        const aside = document.getElementById("docs-sidebar");
+        if (!aside) return;
+        const key = "bui:sidebar-scroll";
+        try {
+          const saved = sessionStorage.getItem(key);
+          if (saved) aside.scrollTop = +saved;
+        } catch {}
+        const active = aside.querySelector("[aria-current=page]");
+        if (active) {
+          const a = active.getBoundingClientRect();
+          const b = aside.getBoundingClientRect();
+          if (a.top < b.top + 40 || a.bottom > b.bottom - 40) {
+            aside.scrollTop += a.top - b.top - (b.height - a.height) / 2;
+          }
+        }
+        const save = () => {
+          try {
+            sessionStorage.setItem(key, String(aside.scrollTop));
+          } catch {}
+        };
+        addEventListener("pagehide", save);
+        aside.addEventListener("click", save);
+      })();
+    </script>
+
+    <main id="main" class="min-w-0">
+      <article class="mx-auto w-full max-w-[46rem] px-4 pb-20 sm:px-8 lg:px-10">
+        <nav aria-label="Breadcrumb" class="pt-7 text-[13px] text-muted">
+          <ol class="flex flex-wrap items-center gap-1.5">
+            <li><a href={href("docs/start/introduction/")} class="hover:text-foreground">Docs</a></li>
+            <li aria-hidden="true"><Icon name="chevron-right" size={12} /></li>
+            <li>{section}</li>
+          </ol>
+        </nav>
+
+        <header class="mt-4 border-b border-border pb-8 mb-9">
+          <h1 class="text-balance text-[2rem] font-semibold leading-[1.15] tracking-[-0.025em] sm:text-[2.5rem]">{title}</h1>
+          <p class="mt-3 text-pretty text-lg leading-7 text-muted">{description}</p>
+          {
+            (status !== "stable" || badges.length > 0 || langNames.length > 0) && (
+              <ul class="mt-5 flex flex-wrap gap-2" aria-label="About this page">
+                {status !== "stable" && (
+                  <li
+                    class:list={[
+                      "inline-flex h-6 items-center gap-1.5 border px-2 text-xs font-medium",
+                      status === "coming-soon" ? "border-(--status-soon) text-(--status-soon)" : "border-(--status-preview) text-(--status-preview)",
+                    ]}
+                  >
+                    <Icon name={status === "coming-soon" ? "hourglass-medium" : "circle-half"} weight="bold" size={12} />
+                    {statusLabel[status]}
+                  </li>
+                )}
+                {badges.map((b) => (
+                  <li class="inline-flex h-6 items-center border border-border px-2 text-xs text-muted">{b}</li>
+                ))}
+                {langNames.map((l) => (
+                  <li class="inline-flex h-6 items-center bg-surface-2 px-2 text-xs text-muted">{l}</li>
+                ))}
+              </ul>
+            )
+          }
+        </header>
+
+        <div class="prose" data-prose>
+          <slot />
+        </div>
+
+        {
+          sources.length > 0 && (
+            <aside class="mt-14 border border-border bg-surface px-4 py-3 text-sm" aria-label="Sources">
+              <p class="kicker mb-1.5 inline-flex items-center gap-1.5 text-muted"><Icon name="git-branch" size={13} /> Based on</p>
+              <ul class="flex flex-wrap gap-x-4 gap-y-1">
+                {sources.map((s) => (
+                  <li>
+                    <a href={repoFile(s)} class="font-mono text-[12.5px] text-link underline-offset-4 hover:underline">
+                      {s}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </aside>
+          )
+        }
+
+        <div class="mt-10 flex flex-col gap-2 border-t border-border pt-5 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+          <a href={editUrl} class="inline-flex items-center gap-2 hover:text-foreground">
+            <Icon name="pencil-simple-line" size={15} /> Edit this page on GitHub
+          </a>
+          {updated && <p>Last updated <time datetime={updated.toISOString()}>{dateFmt.format(updated)}</time></p>}
+        </div>
+
+        {
+          (prev || next) && (
+            <nav aria-label="Previous and next pages" class="mt-8 grid gap-px border border-border bg-border sm:grid-cols-2">
+              {prev ? (
+                <a href={docHref(prev)} class="group flex flex-col gap-1 bg-background p-5 transition-colors hover:bg-surface">
+                  <span class="kicker inline-flex items-center gap-1.5 text-muted">
+                    <Icon name="arrow-left" size={12} /> Previous
+                  </span>
+                  <span class="font-medium group-hover:text-link">{prev.data.title}</span>
+                </a>
+              ) : (
+                <div class="hatch hidden bg-background sm:block" aria-hidden="true" />
+              )}
+              {next ? (
+                <a href={docHref(next)} class="group flex flex-col items-end gap-1 bg-background p-5 text-right transition-colors hover:bg-surface">
+                  <span class="kicker inline-flex items-center gap-1.5 text-muted">
+                    Next <Icon name="arrow-right" size={12} />
+                  </span>
+                  <span class="font-medium group-hover:text-link">{next.data.title}</span>
+                </a>
+              ) : (
+                <div class="hatch hidden bg-background sm:block" aria-hidden="true" />
+              )}
+            </nav>
+          )
+        }
+      </article>
+    </main>
+
+    <div class="hidden xl:block">
+      <div class="sticky top-(--header-h) max-h-[calc(100dvh-var(--header-h))] overflow-y-auto px-5 py-8">
+        <Toc headings={headings} />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // "#" links on headings, and wide tables wrapped so they scroll on phones.
+    const prose = document.querySelector("[data-prose]");
+    prose?.querySelectorAll<HTMLElement>(":scope > h2[id], :scope > h3[id]").forEach((h) => {
+      const a = document.createElement("a");
+      a.href = `#${h.id}`;
+      a.className = "heading-anchor unstyled";
+      a.setAttribute("aria-label", `Link to ${h.textContent}`);
+      a.textContent = "#";
+      h.append(a);
+    });
+    prose?.querySelectorAll(":scope > table").forEach((t) => {
+      const wrap = document.createElement("div");
+      wrap.className = "table-wrap";
+      t.replaceWith(wrap);
+      wrap.append(t);
+    });
+  </script>
+</Base>

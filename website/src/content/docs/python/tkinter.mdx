@@ -1,0 +1,183 @@
+---
+title: tkinter on BUI
+sidebarLabel: tkinter
+description: BUI implements the whole tkinter API. Run existing programs unchanged, or write new ones, and get Blender's look and interactions.
+section: Python
+order: 10
+languages: ["python"]
+sources: ["docs/tkinter.md", "SYNTAX_COVERAGE.md", "README.md", "pyproject.toml", "bindings/python/bui/tksyntax/__init__.py", "bindings/python/bui/tksyntax/__main__.py", "bindings/python/bui/tksyntax/filedialog.py", "bindings/python/bui/filebrowser.py", "bindings/python/tests/test_tk_compat.py", "docs/getting-started.md"]
+---
+
+tkinter is Python's built-in UI toolkit, and there's a lot of tkinter code in the world. BUI runs it. **Every public name in `tkinter` and `tkinter.ttk` exists on BUI**, 7,846 of 7,846 measured against the standard library, and nine real tkinter programs are tested to behave identically on both.
+
+Your code stays tkinter. What changes is what people see and feel: Blender's widgets, Blender's theme, and Blender's interactions on its fields.
+
+<Figure
+  src="images/tkinter_items.png"
+  alt="A plain tkinter Inventory program on BUI: menu bar, tabs, a New item panel with text, dropdown, number and slider fields, and a table"
+  caption="<code>examples/tk_unchanged_app.py</code>: plain tkinter, no BUI imports, run with <code>blenderui-tk</code>."
+  width={386}
+  height={408}
+/>
+
+## Three ways in
+
+| You want to | Do this |
+| --- | --- |
+| Run an existing program, unchanged | `blenderui-tk my_app.py [args...]` (the same as `python -m bui.tksyntax my_app.py`) |
+| Switch from inside a program | Call `blenderui.tksyntax.install()` before the first `import tkinter` |
+| Write new code for BUI | `import blenderui.tksyntax as tk` and `from blenderui.tksyntax import ttk, messagebox` |
+
+**Running unchanged.** `blenderui-tk` is installed with `pip install blenderui`. It points `tkinter` and its submodules at BUI, adds the script's folder to `sys.path`, and runs the script as `__main__`. Arguments after the script's name reach it in `sys.argv`.
+
+**Switching inside.** `install()` makes `import tkinter` return BUI's tkinter for the rest of the process. It covers the submodules too: `ttk`, `messagebox`, `filedialog`, `simpledialog`, `colorchooser`, `commondialog`, `dialog`, `font`, `scrolledtext` and `constants`.
+
+```py
+import blenderui.tksyntax
+blenderui.tksyntax.install()   # before the first `import tkinter`
+
+import tkinter as tk
+from tkinter import ttk
+```
+
+**Importing by name** is the clearest choice for new code, and it unlocks BUI-only options such as `tk.Tk(gpu=True)`.
+
+The [tkinter tutorial](../../tutorials/tkinter-app/) walks through all three with a real program.
+
+## Module map
+
+| tkinter | On BUI | Notes |
+| --- | --- | --- |
+| `tkinter` | `blenderui.tksyntax` | `Tk`, `Toplevel`, every classic widget, the variables, `Event`, `PhotoImage`, `BitmapImage`, `mainloop`, constants |
+| `tkinter.ttk` | `.ttk` | Themed widgets, including `Treeview`, `Notebook`, `Progressbar`, `Combobox`, `Separator`, `Sizegrip`, `LabeledScale`, `Panedwindow` and `Style`; `state()` and `instate()` work |
+| `tkinter.messagebox` | `.messagebox` | Blender-styled modal dialogs, with tkinter's return values (`"ok"`, `True`, `None` …) |
+| `tkinter.simpledialog` | `.simpledialog` | `Dialog` (override `body`, `validate`, `apply`), `SimpleDialog`, `askstring`, `askinteger`, `askfloat` |
+| `tkinter.filedialog` | `.filedialog` | Blender's File Browser in its own window, with tkinter's options and return values. `BUI_FILEDIALOG=native` uses the operating system's dialogs instead |
+| `tkinter.colorchooser` | `.colorchooser` | `askcolor` with Blender's color picker; returns `((r, g, b), "#rrggbb")` |
+| `tkinter.font` | `.font` | `Font`, named fonts (`TkDefaultFont` …), `measure` and `metrics` through BUI's text engine |
+| `tkinter.scrolledtext` | `.scrolledtext` | `ScrolledText`, as in tkinter |
+| `tkinter.dialog`, `.commondialog`, `.constants` | the same names | |
+
+<Figure
+  src="images/tkinter_messagebox.png"
+  alt="A Blender-styled dialog asking Save changes to the inventory before closing, with Yes and No buttons"
+  caption="<code>messagebox.askyesno</code> on BUI."
+  width={330}
+  height={102}
+/>
+
+## What you get
+
+Everything below is tkinter behaviour, implemented on BUI's C runtime.
+
+- **Geometry managers.** `pack`, `grid` and `place` with every option: `in_`, `before` and `after`, `ipadx`, `sticky`, spans, `columnconfigure` weights and `minsize`, `grid_remove`, the `*_info` and `*_slaves` methods, `grid_bbox`, `grid_location`, `grid_size` and `pack_propagate(False)`. The packer and gridder are C ports of Tk's own algorithms.
+- **Scrolling.** `xview`, `yview`, `*_moveto`, `*_scroll` and `xscrollcommand` / `yscrollcommand` work on `Listbox`, `Text`, `Treeview` and `Canvas`. `Canvas` adds `scrollregion`, `confine`, scroll increments and `scan_*`. The classic scrollable frame (a `Canvas` with `create_window` and a `<Configure>` binding) works too.
+- **Bindings.** `bind`, `bind_all`, `bind_class`, `bindtags`, `unbind*`, `event_add` and `event_generate`, with modifiers, `Double-`, buttons 1 to 3, `<B1-Motion>`, `<KeyPress>` and `<KeyRelease>`, `<MouseWheel>` (Button-4 and Button-5 on X11), `<Enter>`, `<Leave>`, `<Configure>`, `<Map>`, `<Destroy>`, `<FocusIn>`, `<FocusOut>` and virtual events. Callbacks run once per bindtag and stop on `"break"`.
+- **Widgets.** `Entry` with `show="*"` and `validatecommand` (all the `%P %s %S %d %i %V %W` codes). `Listbox` with every `selectmode`, including Ctrl and Shift clicks. `Treeview` with sortable headings, `show="headings"` tables, `<<TreeviewOpen>>` and `<<TreeviewClose>>`, and `move`, `detach`, `reattach`. Also `Notebook`, `PanedWindow` with draggable sashes, `OptionMenu`, `Menubutton` and `Message`.
+- **Canvas.** All item types, including `window`, smoothed lines and arrowheads; tag expressions such as `"a&&!b"`; `find_*` and `addtag_*`; `tag_bind` with `current` and per-item `<Enter>` / `<Leave>`; shape-accurate hit tests; `move`, `moveto`, `scale` and `coords`; and editing text items in place.
+- **Text.** The full index grammar (`3.5`, `end-1c`, `insert lineend`, `@x,y`, `tag.first`, `+N lines`, `wordstart` …), tags with colors, priorities and `tag_bind`, marks with gravity, `search` (regexp, backwards, `count`), `dump`, `count`, the undo stack, `<<Modified>>` and peers.
+- **Windows.** `geometry`, `attributes` (`-topmost`, `-alpha`, `-fullscreen`, `-disabled`), `resizable`, `minsize` and `maxsize`, `overrideredirect`, `state`, `iconify`, `withdraw`, `transient`, `protocol("WM_DELETE_WINDOW")`, `grab_set`, the clipboard, `after`, `after_idle`, `after_info`, `wait_window`, `wait_variable` and every `winfo_*`.
+- **Images.** `PhotoImage` reads PNG, PPM and PGM in pure Python, and GIF through Tk. It supports `put`, `get`, `copy`, `zoom`, `subsample`, `copy_replace`, `data` and `write` (PNG, PPM). `BitmapImage` reads XBM.
+
+## The Blender look
+
+The look always comes from Blender's theme. Some widgets turn into their Blender twin:
+
+| tkinter | On BUI |
+| --- | --- |
+| `tk.Scale`, `ttk.Scale` | A Blender slider |
+| `Spinbox` | A Blender number field |
+| `ttk.Combobox`, `OptionMenu` | A Blender enum dropdown |
+| `LabelFrame` | A Blender panel |
+| `Checkbutton(indicatoron=0)` | A Blender toggle button |
+| `Menu` as the window's menu | A Blender menu bar |
+| `Scrollbar` | A Blender scroller |
+
+**Options that apply:** `bg` on `Frame`, `Canvas` and windows; `fg` on text; `font` (size and bold, for example `font=("Arial", 18, "bold")`); `cursor` (`"hand2"`, `"xterm"`, `"fleur"` …); `width` and `height` in characters or pixels, as in Tk; `image`; and `state`.
+
+**Options that are accepted but don't change the drawing:** the ones that only style Tk itself, such as `relief`, `borderwidth`, `highlightthickness`, `activebackground`, `selectcolor` and `ttk.Style` settings. `cget` returns what you set, so code that reads them keeps working.
+
+On top of that, the widgets get Blender's interactions. `Spinbox` and `Scale` become Blender number fields and sliders: drag them sideways to change the value, or click and type a number or a sum such as `2*pi`. `Entry` stays a text field and keeps what you type as text. Everywhere, <Kbd keys="Ctrl+Z" /> and <Kbd keys="Ctrl+Shift+Z" /> undo and redo edits, and <Kbd>Tab</Kbd> moves to the next field. The [Blender widgets](../../concepts/blender-widgets/) page covers them all.
+
+<Figure
+  shot="python-tkinter"
+  alt="An unchanged tkinter glTF export dialog on BUI: Entry, Button, LabelFrame, Checkbutton, Radiobutton, Spinbox, OptionMenu, Scale and Listbox drawn as Blender widgets"
+  caption="Classic Tk widgets, unchanged (<code>examples/site/tk_export.py</code>): the <code>Spinbox</code> is a number field and the <code>Scale</code> a slider."
+/>
+
+<Figure
+  shot="python-ttk"
+  alt="An unchanged ttk render-farm queue on BUI: Combobox, Spinbox, Notebook, Treeview, Progressbar and Checkbutton"
+  caption="ttk widgets, unchanged (<code>examples/site/ttk_queue.py</code>)."
+/>
+
+### GPU rendering
+
+```py
+import blenderui.tksyntax as tk
+
+root = tk.Tk(gpu=True)    # Direct3D 11 on Windows, OpenGL 3.3 on Linux
+```
+
+For apps you run unchanged, set `BUI_GPU=1`, or call `blenderui.set_gpu(True)` before the first `Tk()`. The pixels are the same as on the CPU, but busy `Canvas` scenes cost far less CPU. The first frames draw on the CPU while the GPU starts, and without a usable GPU the window stays on the CPU renderer.
+
+## Behaviour notes
+
+BUI follows Tk's semantics, and its tests check them against the standard library. Some are easy to miss, on any tkinter:
+
+- `textvariable` overrides `text`, and `cget("text")` returns the variable's value.
+- A `Scale`'s `command` and `<<TreeviewSelect>>` run when the loop is idle, not inside `set()` or `selection_set()`.
+- `validatecommand` also sees programmatic `insert` and `delete`.
+- Generated key events (`event_generate("<Control-q>")`) go to the widget with keyboard focus.
+- Menus keep Tk's tear-off entry at index 0 unless you pass `tearoff=0`.
+- `Text` keeps the trailing newline: `get("1.0", "end")` ends with `"\n"`, so use `"end-1c"`.
+- `edit_undo()` does nothing while `undo` is off.
+- A `Notebook` asks for the size of its largest page.
+- A `Toplevel` appears when the loop is next idle, sized to its content.
+- `Checkbutton` and `Radiobutton` create a variable if you don't give one, as Tk does.
+
+## Limitations
+
+There are a few things BUI can't do, because nothing in it corresponds:
+
+- **No Tcl interpreter.** `root.tk.call(...)` handles a few common commands (`tk scaling`, `wm …`, `set`, `info patchlevel`) and raises `TclError` for the rest.
+- **`send`** raises `TclError`, as it does on Windows Tk.
+- **Images and windows embedded in a `Text`** (`image_create`, `window_create`) are kept and listed, but not drawn.
+- **Canvas `dash`, `stipple` and `postscript` output** are accepted but not rendered.
+
+## Test your app against tkinter
+
+If something behaves differently from standard tkinter, that's a bug, and there's a tool to prove it. `bindings/python/tests/test_tk_compat.py` runs small programs on both the standard library and BUI, and compares what they observe. A program is a function that takes the `tk` and `ttk` modules and returns a result:
+
+```py
+def prog_mine(tk, ttk):
+    root = tk.Tk()
+    lb = tk.Listbox(root)
+    lb.insert("end", "a", "b")
+    lb.selection_set(1)
+    result = {"sel": lb.curselection()}
+    root.destroy()
+    return result
+```
+
+Add your function to the `PROGRAMS` list in that file, then run it:
+
+```sh
+python bindings/python/tests/test_tk_compat.py
+```
+
+If the two results differ, you've found something worth [an issue](https://github.com/ppmpreetham/BUI/issues), and you already have the test case.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Run a tkinter app" href="docs/tutorials/tkinter-app/" icon="sparkles" kicker="Tutorial">
+    A real program, run unchanged, step by step.
+  </Card>
+  <Card title="Qt syntax" href="docs/python/qt-syntax/" icon="layers" kicker="Python">
+    The same engine with `QWidget`, layouts and signals.
+  </Card>
+  <Card title="Blender components" href="docs/python/components/" icon="book" kicker="Python">
+    Go beyond tkinter: pie menus, node editors and Blender's panels.
+  </Card>
+</CardGrid>

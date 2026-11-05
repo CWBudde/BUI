@@ -43,13 +43,13 @@ int main(void)
   host.emit = on_event; /* callbacks; the window adds the rest */
   BK_context_set_host(ctx, &host);
 
-  if (BK_window_supported()) { /* Windows: a native window */
+  if (BK_window_supported()) { /* Win32, X11 or Cocoa (experimental) */
     BKWindow *win = BK_window_new(ctx, "BUI from C", 320, 120);
     BK_window_show(win);
     BK_window_run();
     BK_window_free(win);
   }
-  else { /* elsewhere: render a frame into a raster */
+  else { /* no window system (headless): render a frame into a raster */
     BuiRaster *r = BUI_raster_create(320, 120);
     BK_render(ctx, r, 320, 120, 1);
     BUI_raster_free(r);

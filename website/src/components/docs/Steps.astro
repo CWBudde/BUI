@@ -1,0 +1,190 @@
+---
+/**
+ * Numbered steps. Wrap a normal Markdown ordered list:
+ *
+ * <Steps>
+ *
+ * 1. **Install the package.**
+ *
+ *    ```sh
+ *    pip install blenderui
+ *    ```
+ *
+ * 2. **Run the example.**
+ *
+ * </Steps>
+ *
+ * Leave a blank line after <Steps> and before </Steps>. Start each step with a bold
+ * sentence: it becomes the step's title, which stays pinned under the header while you
+ * read that step. A rail on the left fills as you go, and the step you're on is lit.
+ */
+---
+
+<div class="steps" data-steps>
+  <slot />
+</div>
+
+<style>
+  .steps :global(> ol) {
+    position: relative;
+    list-style: none;
+    padding-left: 0;
+    counter-reset: step;
+    --rail-x: 0.9rem;
+  }
+  /* the rail, and its progress fill */
+  .steps :global(> ol::before),
+  .steps :global(> ol::after) {
+    content: "";
+    position: absolute;
+    left: calc(var(--rail-x) - 0.5px);
+    top: 1rem;
+    width: 1px;
+  }
+  .steps :global(> ol::before) {
+    bottom: 1.5rem;
+    background: var(--border);
+  }
+  .steps :global(> ol::after) {
+    width: 2px;
+    left: calc(var(--rail-x) - 1px);
+    height: var(--progress, 0px);
+    max-height: calc(100% - 2.5rem);
+    background: var(--primary);
+    transition: height 160ms linear;
+  }
+
+  .steps :global(> ol > li) {
+    position: relative;
+    counter-increment: step;
+    padding-left: 2.85rem;
+    padding-bottom: 2rem;
+  }
+  .steps :global(> ol > li + li) {
+    margin-top: 0;
+  }
+  .steps :global(> ol > li > * + *) {
+    margin-top: 0.75rem;
+  }
+
+  /* The step's title: pinned under the site header while its step is on screen. */
+  .steps :global(> ol > li > :first-child) {
+    position: sticky;
+    top: var(--header-h);
+    z-index: 3;
+    margin-left: -2.85rem;
+    padding: 0.55rem 0.5rem 0.55rem 2.85rem;
+    font-weight: 500;
+    line-height: 1.5;
+    background: color-mix(in oklab, var(--background) 92%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .steps :global(> ol > li > :first-child strong) {
+    font-weight: 600;
+  }
+  .steps :global(> ol > li > :first-child::before) {
+    content: counter(step);
+    position: absolute;
+    left: calc(var(--rail-x) - 0.95rem);
+    top: 0.5rem;
+    display: grid;
+    place-items: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    background: var(--background);
+    border: 1px solid var(--border-strong);
+    transition:
+      background-color 200ms ease-out,
+      color 200ms ease-out,
+      border-color 200ms ease-out,
+      box-shadow 200ms ease-out;
+  }
+  /* no JS, or steps already read: filled */
+  :global(html:not(.js)) .steps :global(> ol > li > :first-child::before),
+  .steps :global(> ol > li.is-done > :first-child::before),
+  .steps :global(> ol > li.is-current > :first-child::before) {
+    color: var(--primary-ink);
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+  .steps :global(> ol > li.is-current > :first-child::before) {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 22%, transparent);
+  }
+  .steps :global(> ol > li.is-current > :first-child) {
+    box-shadow: 0 1px 0 var(--border-soft);
+  }
+  .steps :global(.steps-count) {
+    float: right;
+    margin-left: 0.75rem;
+    padding-top: 0.15rem;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .steps :global(> ol > li:not(.is-current) .steps-count) {
+    visibility: hidden;
+  }
+</style>
+
+<script>
+  // Lights the step you're reading and fills the rail up to it.
+  const roots = [...document.querySelectorAll<HTMLElement>("[data-steps]")];
+  const all = roots.map((root) => {
+    const ol = root.querySelector<HTMLOListElement>(":scope > ol");
+    const items = ol ? [...ol.querySelectorAll<HTMLLIElement>(":scope > li")] : [];
+    items.forEach((li, i) => {
+      const head = li.firstElementChild;
+      if (!head) return;
+      const count = document.createElement("span");
+      count.className = "steps-count";
+      count.setAttribute("aria-hidden", "true");
+      count.textContent = `${i + 1} / ${items.length}`;
+      head.prepend(count);
+    });
+    return { ol, items };
+  });
+
+  let queued = false;
+  const update = () => {
+    queued = false;
+    const headerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) * 16 || 56;
+    const line = headerH + window.innerHeight * 0.25;
+    for (const { ol, items } of all) {
+      if (!ol || !items.length) continue;
+      const olTop = ol.getBoundingClientRect().top;
+      let current = -1;
+      items.forEach((li, i) => {
+        if (li.getBoundingClientRect().top <= line) current = i;
+      });
+      // At the very bottom of the page, the last step is the one you're on.
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4 && items[items.length - 1].getBoundingClientRect().top < window.innerHeight) {
+        current = items.length - 1;
+      }
+      items.forEach((li, i) => {
+        li.classList.toggle("is-current", i === current);
+        li.classList.toggle("is-done", i < current);
+      });
+      const progress = Math.max(0, Math.min(line - olTop, ol.offsetHeight));
+      ol.style.setProperty("--progress", `${current < 0 ? 0 : progress}px`);
+    }
+  };
+  if (all.length) {
+    const queue = () => {
+      if (!queued) {
+        queued = true;
+        requestAnimationFrame(update);
+      }
+    };
+    addEventListener("scroll", queue, { passive: true });
+    addEventListener("resize", queue);
+    update();
+  }
+</script>

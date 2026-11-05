@@ -24,7 +24,8 @@ function loadAddon () {
   } catch (err) {
     throw new Error(`@blender-ui/native: no native addon for ${process.platform}-${process.arch}. ` +
       'Prebuilt binaries are for Windows x64; elsewhere, build it from a clone of ' +
-      'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler).',
+      'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler), ' +
+      'then use that package, or point BUI_NODE_ADDON at the built blenderui.<platform>-<arch>.node.',
     { cause: err })
   }
 }
@@ -501,7 +502,7 @@ class Window {
 
 class App {
   /**
-   * @param {{ gpu?: boolean, slug?: boolean, headless?: boolean,
+   * @param {{ gpu?: boolean, slug?: boolean, headless?: boolean, theme?: 'dark' | 'light',
    *           quitOnLastWindowClosed?: boolean }} [options]
    */
   constructor (options = {}) {
@@ -509,7 +510,7 @@ class App {
     this._nextWindow = 1
     this.quitOnLastWindowClosed = options.quitOnLastWindowClosed ?? true
     this.native = new native.NativeApp(
-      { gpu: options.gpu, slug: options.slug, headless: options.headless },
+      { gpu: options.gpu, slug: options.slug, headless: options.headless, theme: options.theme },
       raw => this._event(raw))
   }
 
@@ -524,6 +525,11 @@ class App {
 
   /** GPU text: Slug (glyph outlines) or the glyph atlas. */
   setSlug (on) { this.native.setSlug(!!on) }
+
+  /** Blender's 'dark' (default) or 'light' theme; open windows redraw. */
+  setTheme (name) {
+    if (!this.native.setTheme(String(name))) throw new RangeError(`unknown theme ${name} (expected 'dark' or 'light')`)
+  }
 
   /** Close every window and end the UI thread (Node may then exit). */
   quit () {

@@ -10,6 +10,7 @@
 #include "imgui_impl_bui.h"
 #include "imgui_internal.h" // ImMin, ImMax, ImFormatString
 
+#include "BUI_kit.h"     // BK_theme_color: the active theme (BK_set_theme / BUI_THEME)
 #include "GPU_raster.h" // BUI_text_default_font
 
 #include <cmath>
@@ -136,38 +137,44 @@ void ImGui_ImplBUI_StyleBlender(ImGuiStyle* dst, float scale)
     // scale 1) and ScaleAllSizes() truncates the padding, which made frames 19 px.
     style.FramePadding.y = ImMax(1.0f, (IM_ROUND(unit * scale) - IM_ROUND(font * scale)) * 0.5f);
 
-    // -- colors --
-    const ImVec4 text = Rgba(0xe6e6e6ff);        // wcol_regular.text
-    const ImVec4 region = Rgba(0x303030ff);      // space back (region background)
-    const ImVec4 inner = Rgba(0x545454ff);       // wcol_regular / num / option .inner
-    const ImVec4 outline = Rgba(0x3d3d3dff);     // wcol_*.outline
-    const ImVec4 select = Rgba(0x4772b3ff);      // inner_sel: the selection blue
-    const ImVec4 select_menu = Rgba(0x4772b3b3); // wcol_menu.inner_sel
-    const ImVec4 panel_header = Rgba(0x3d3d3dff);
-    const ImVec4 dark = Rgba(0x1d1d1dff);        // wcol_text.inner, wcol_tab.inner
+    // -- colors: the kit's active theme (Blender's Dark by default, or its Light preset:
+    // BK_set_theme / BUI_THEME); the hex values are the dark defaults --
+    auto T = [](const char* key, uint32_t dark_default) {
+        float f[4];
+        return BK_theme_color(key, f) ? ImVec4(f[0], f[1], f[2], f[3]) : Rgba(dark_default);
+    };
+    auto A = [](ImVec4 c, float a) { return ImVec4(c.x, c.y, c.z, a); };
+    const ImVec4 text = T("regular.text", 0xe6e6e6ffu);          // wcol_regular.text
+    const ImVec4 region = T("region_bg", 0x303030ffu);           // space back (region background)
+    const ImVec4 inner = T("regular.inner", 0x545454ffu);        // wcol_regular / num / option .inner
+    const ImVec4 outline = T("regular.outline", 0x3d3d3dffu);    // wcol_*.outline
+    const ImVec4 select = T("regular.inner_sel", 0x4772b3ffu);   // inner_sel: the selection blue
+    const ImVec4 select_menu = T("menu.inner_sel", 0x4772b3b3u); // wcol_menu.inner_sel
+    const ImVec4 panel_header = T("panel_header", 0x3d3d3dffu);
+    const ImVec4 dark = T("tab.inner", 0x1d1d1dffu);             // wcol_tab.inner
     ImVec4* c = style.Colors;
     c[ImGuiCol_Text] = text;
-    c[ImGuiCol_TextDisabled] = Rgba(0x999999ff);          // wcol_menu_back.text (muted)
+    c[ImGuiCol_TextDisabled] = T("menu_back.text", 0x999999ffu); // muted
     c[ImGuiCol_WindowBg] = region;
     c[ImGuiCol_ChildBg] = Rgba(0x00000000);
-    c[ImGuiCol_PopupBg] = Rgba(0x181818ff);               // wcol_menu_back.inner
+    c[ImGuiCol_PopupBg] = T("menu_back.inner", 0x181818ffu);
     c[ImGuiCol_Border] = outline;
     c[ImGuiCol_BorderShadow] = Rgba(0x00000000);
     c[ImGuiCol_FrameBg] = inner;                          // wcol_num.inner
     c[ImGuiCol_FrameBgHovered] = Hover(inner);
-    c[ImGuiCol_FrameBgActive] = Rgba(0x222222ff);         // wcol_num.inner_sel (dragging / editing)
+    c[ImGuiCol_FrameBgActive] = T("num.inner_sel", 0x222222ffu); // dragging / editing
     c[ImGuiCol_TitleBg] = dark;
     c[ImGuiCol_TitleBgActive] = panel_header;
-    c[ImGuiCol_TitleBgCollapsed] = Rgba(0x1d1d1dcc);
+    c[ImGuiCol_TitleBgCollapsed] = A(dark, dark.w * 0.8f);
     c[ImGuiCol_MenuBarBg] = dark;
     c[ImGuiCol_ScrollbarBg] = Rgba(0x22222200);           // wcol_scroll.inner
     c[ImGuiCol_ScrollbarGrab] = inner;                    // wcol_scroll.item
     c[ImGuiCol_ScrollbarGrabHovered] = Hover(inner);
     c[ImGuiCol_ScrollbarGrabActive] = Hover(Hover(inner));
-    c[ImGuiCol_CheckMark] = Rgba(0xffffffff);             // wcol_option.item
-    c[ImGuiCol_CheckboxSelectedBg] = select;              // wcol_option.inner_sel
-    c[ImGuiCol_SliderGrab] = select;                      // wcol_numslider.item
-    c[ImGuiCol_SliderGrabActive] = Hover(select);
+    c[ImGuiCol_CheckMark] = T("option.item", 0xffffffffu);
+    c[ImGuiCol_CheckboxSelectedBg] = T("option.inner_sel", 0x4772b3ffu);
+    c[ImGuiCol_SliderGrab] = T("numslider.item", 0x4772b3ffu);
+    c[ImGuiCol_SliderGrabActive] = Hover(c[ImGuiCol_SliderGrab]);
     c[ImGuiCol_Button] = inner;                           // wcol_regular.inner
     c[ImGuiCol_ButtonHovered] = Hover(inner);
     c[ImGuiCol_ButtonActive] = select;                    // wcol_regular.inner_sel
@@ -180,28 +187,28 @@ void ImGui_ImplBUI_StyleBlender(ImGuiStyle* dst, float scale)
     c[ImGuiCol_ResizeGrip] = Rgba(0xffffff1a);
     c[ImGuiCol_ResizeGripHovered] = select_menu;
     c[ImGuiCol_ResizeGripActive] = select;
-    c[ImGuiCol_InputTextCursor] = Rgba(0x71a8ffff);       // widget_text_cursor
+    c[ImGuiCol_InputTextCursor] = T("cursor", 0x71a8ffffu); // widget_text_cursor
     c[ImGuiCol_Tab] = dark;                               // wcol_tab.inner
     c[ImGuiCol_TabHovered] = panel_header;
-    c[ImGuiCol_TabSelected] = region;                     // wcol_tab.inner_sel
+    c[ImGuiCol_TabSelected] = T("tab.inner_sel", 0x303030ffu);
     c[ImGuiCol_TabSelectedOverline] = select;
     c[ImGuiCol_TabDimmed] = dark;
-    c[ImGuiCol_TabDimmedSelected] = region;
-    c[ImGuiCol_TabDimmedSelectedOverline] = Rgba(0x4772b380);
-    c[ImGuiCol_PlotLines] = Rgba(0xccccccff);
+    c[ImGuiCol_TabDimmedSelected] = c[ImGuiCol_TabSelected];
+    c[ImGuiCol_TabDimmedSelectedOverline] = A(select, 128.0f / 255.0f);
+    c[ImGuiCol_PlotLines] = T("list_item.text", 0xccccccffu);
     c[ImGuiCol_PlotLinesHovered] = Rgba(0xffffffff);
-    c[ImGuiCol_PlotHistogram] = select;                   // wcol_progress.item
-    c[ImGuiCol_PlotHistogramHovered] = Hover(select);
+    c[ImGuiCol_PlotHistogram] = T("progress.item", 0x4772b3ffu);
+    c[ImGuiCol_PlotHistogramHovered] = Hover(c[ImGuiCol_PlotHistogram]);
     c[ImGuiCol_TableHeaderBg] = panel_header;
     c[ImGuiCol_TableBorderStrong] = dark;
     c[ImGuiCol_TableBorderLight] = outline;
     c[ImGuiCol_TableRowBg] = Rgba(0x00000000);
     c[ImGuiCol_TableRowBgAlt] = Rgba(0xffffff0a);
     c[ImGuiCol_TextLink] = Rgba(0x6fa9e6ff);              // theme link
-    c[ImGuiCol_TextSelectedBg] = Rgba(0x4772b3cc);
+    c[ImGuiCol_TextSelectedBg] = A(select, 0.8f);
     c[ImGuiCol_TreeLines] = Rgba(0xffffff1f);
     c[ImGuiCol_DragDropTarget] = select;
-    c[ImGuiCol_DragDropTargetBg] = Rgba(0x4772b333);
+    c[ImGuiCol_DragDropTargetBg] = A(select, 0.2f);
     c[ImGuiCol_UnsavedMarker] = text;
     c[ImGuiCol_NavCursor] = select;
     c[ImGuiCol_NavWindowingHighlight] = Rgba(0xffffffb3);

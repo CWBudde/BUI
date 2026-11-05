@@ -20,6 +20,8 @@
 #include "blender/bk_blender.h"
 #include "kit_intern.h"
 
+static void menu_text_path(float x, float baseline, float cy, const char *s, const uchar c[4]);
+
 static int u(void)
 {
   return bk_unit();
@@ -722,7 +724,7 @@ static void menu_draw(BKNode *n)
     }
     bk_clip_push(row.xmin, row.ymin, bk_rw(&row), rh);
     BKRect lr = bk_rect(row.xmin, ry, bk_rw(&row), rh);
-    bk_text(tx, bk_text_baseline(&lr), it->text, -1, w.text, false);
+    menu_text_path(tx, bk_text_baseline(&lr), ry + rh * 0.5f, it->text, w.text);
     if (it->shortcut) {
       uchar sc[4];
       memcpy(sc, w.text, 4);
@@ -739,6 +741,29 @@ static void menu_draw(BKNode *n)
       bk_icon(bk_icons_lookup("RIGHTARROW"), row.xmax - 0.5f * uu, ry + rh * 0.5f, ac, 1.0f,
               0.6f * uu);
     }
+  }
+}
+
+/* Search results read "Menu > Item" (UI_MENU_ARROW_SEP). The UI font has no
+ * U+25B8, so the separators are drawn as small triangles (Blender's glyph). */
+static void menu_text_path(float x, float baseline, float cy, const char *s, const uchar c[4])
+{
+  static const char sep[] = " \xe2\x96\xb8 ";
+  const int sl = (int)sizeof(sep) - 1;
+  float fc[4];
+  bk_rgba(c, fc);
+  for (;;) {
+    const char *hit = strstr(s, sep);
+    const int len = hit ? (int)(hit - s) : (int)strlen(s);
+    bk_text(x, baseline, s, len, c, false);
+    if (!hit) {
+      return;
+    }
+    x += bk_text_width(s, len, false);
+    const float gap = bk_text_width(" ", 1, false), tri = 0.3f * bk_font_size();
+    bk_tria(x + gap + tri * 0.4f, cy, 'h', fc, tri * 0.5f);
+    x += 2.0f * gap + tri;
+    s = hit + sl;
   }
 }
 

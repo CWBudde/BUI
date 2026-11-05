@@ -1,0 +1,191 @@
+---
+title: Your first app, in Python
+sidebarLabel: First app (Python components)
+description: Build a small Blender-style tool window with BUI's components, one line at a time. About ten minutes, no Blender required.
+section: Tutorials
+order: 10
+languages: ["python"]
+badges: ["10 minutes", "Beginner"]
+sources: ["docs/components.md", "README.md", "examples/components_demo.py", "bindings/python/bui/components/app.py"]
+---
+
+In about ten minutes you'll have a real window with a Blender panel, a slider you can drag, a checkbox, a color picker, a button and a pie menu. It takes about 20 lines of Python, and you'll understand every one of them.
+
+We'll use BUI's **Blender components**: Python classes like `Panel` and `NumberSlider` that map one-to-one to Blender's own widgets.
+
+<Callout type="note" title="What you need">
+Python 3.11 or newer, and BUI installed with `pip install blenderui`. If you haven't done that yet, [install it first](../../start/installation/). Two minutes, tops.
+</Callout>
+
+## The finished app
+
+Here's where we're heading. Don't worry about reading it all now; we'll build it piece by piece.
+
+```py title="first_app.py"
+from blenderui.components import (App, Panel, NumberSlider, Checkbox,
+                                  ColorSwatch, Button, MenuItem, PieMenu)
+
+def on_size(value):
+    print("size is now", value)
+
+size = NumberSlider("Size", 1.0, min=0, max=10, on_change=on_size,
+                    description="How big the object is")
+smooth = Checkbox("Smooth", True)
+color = ColorSwatch("Color", (0.8, 0.3, 0.1, 1.0))
+
+def apply():
+    print("apply:", size.value, smooth.value, color.value)
+
+app = App("My first BUI app", (360, 300),
+          Panel("Object", size, smooth, color),
+          Button("Apply", on_click=apply))
+
+app.bind("q", lambda: PieMenu.show(app.ctx, [MenuItem("Object Mode"),
+                                             MenuItem("Edit Mode")], "Mode"))
+app.run()
+```
+
+## Build it, step by step
+
+<Steps>
+
+1. **Open an empty window.**
+
+   Create a file called `first_app.py` with three lines:
+
+   ```py title="first_app.py"
+   from blenderui.components import App
+
+   App("My first BUI app", (360, 300)).run()
+   ```
+
+   Run it with `python first_app.py`. An empty, dark window appears.
+
+   - `App` is your window. Its first argument is the title, the second is the size in pixels (width, height).
+   - `.run()` opens the window and starts the **event loop**: the part that waits for clicks and keys and keeps the window alive. Your script stays on this line until you close the window.
+
+2. **Add a panel with a slider.**
+
+   ```py title="first_app.py" ins={1,3-4}
+   from blenderui.components import App, Panel, NumberSlider
+
+   App("My first BUI app", (360, 300),
+       Panel("Object", NumberSlider("Size", 1.0, min=0, max=10))).run()
+   ```
+
+   - A `Panel` is Blender's collapsible box with a title. Everything after the title goes inside it.
+   - A `NumberSlider` is Blender's slider: a label, a starting value (`1.0`) and limits (`min`, `max`).
+
+   Run it again and drag the slider. Then click its header arrow: the panel collapses with Blender's animation.
+
+3. **React when the value changes.**
+
+   Widgets tell you about changes through **callbacks**: functions you hand over, which BUI calls later.
+
+   ```py
+   def on_size(value):
+       print("size is now", value)
+
+   size = NumberSlider("Size", 1.0, min=0, max=10, on_change=on_size,
+                       description="How big the object is")
+   ```
+
+   - `on_change=on_size` means "call `on_size` with the new value whenever it changes". Drag the slider and watch your terminal.
+   - `description=` is the tooltip. Hover over the slider for a moment to see it.
+
+   We also gave the slider a name, `size`, so we can read it later.
+
+4. **Add a checkbox and a color.**
+
+   ```py
+   smooth = Checkbox("Smooth", True)
+   color = ColorSwatch("Color", (0.8, 0.3, 0.1, 1.0))
+   ```
+
+   - `Checkbox` takes a label and whether it starts checked.
+   - `ColorSwatch` takes a label and a color as (red, green, blue, alpha), each from 0 to 1. Click it in the app: you get Blender's color picker, with the HSV wheel, a hex field and an eyedropper.
+
+   Put all three in the panel: `Panel("Object", size, smooth, color)`.
+
+5. **Add a button that reads everything.**
+
+   ```py
+   def apply():
+       print("apply:", size.value, smooth.value, color.value)
+   ```
+
+   Every value component has a `.value` you can read (or set) at any time. Pass the function to a button with `Button("Apply", on_click=apply)`, after the panel.
+
+6. **Add a pie menu.**
+
+   ```py
+   app.bind("q", lambda: PieMenu.show(app.ctx, [MenuItem("Object Mode"),
+                                                MenuItem("Edit Mode")], "Mode"))
+   ```
+
+   - `app.bind("q", ...)` runs a function when you press <Kbd>Q</Kbd> in the window. It understands combinations too, like `"ctrl+s"`.
+   - `PieMenu.show(...)` opens a Blender pie menu at the pointer with the items you give it.
+
+   To call `bind`, we need the app in a variable, so the last lines become `app = App(...)`, then `app.bind(...)`, then `app.run()`. That's the finished file from the top of the page.
+
+</Steps>
+
+## Run it
+
+```sh
+python first_app.py
+```
+
+You'll see one panel titled **Object** with the slider, the checkbox and the color, and an **Apply** button below it.
+
+<Figure
+  src="images/first-app-python.png"
+  alt="The finished first app: an Object panel with a Size slider at 1.000, a checked Smooth checkbox and an orange Color swatch, with an Apply button below"
+  caption="<code>first_app.py</code>, rendered by BUI at its real size (360 × 300). Want to see more parts together? Run <code>examples/components_demo.py</code>."
+  width={360}
+  height={300}
+/>
+
+Now play. Each of these works without a single extra line of code:
+
+- **Drag** the slider. Hold <Kbd>Shift</Kbd> for fine control, <Kbd>Ctrl</Kbd> to snap.
+- **Click** the slider and type `2*pi` or `10/4`, then press <Kbd>Enter</Kbd>.
+- Hover the slider and press <Kbd keys="Ctrl+Wheel" /> to step it, or <Kbd>Backspace</Kbd> to reset it.
+- **Right-click** any value for Copy, Paste and Reset.
+- Press <Kbd keys="Ctrl+Z" /> to undo your last edit, and <Kbd keys="Ctrl+Shift+Z" /> to redo.
+- Press <Kbd>Q</Kbd> for the pie menu, then flick toward a choice.
+
+## What just happened
+
+You described *what* the window contains, and BUI did the rest. Your Python code built a small tree: an app, holding a panel and a button; the panel holding three widgets. That tree went to BUI's C runtime, the **kit**, which:
+
+- laid the widgets out like Blender's properties editor,
+- drew them with a port of Blender's widget code,
+- handled the mouse and keyboard with Blender's rules (everything you just tried), and
+- called your Python functions only when something changed.
+
+When nothing changes, the window costs no CPU at all. When you drag, BUI redraws only the slider, not the whole window.
+
+<Callout type="joke">
+If you pressed <Kbd>Q</Kbd> expecting to quit: that's a pie menu now. You've been Blendered.
+</Callout>
+
+## Where to go from here
+
+- **Change the layout.** Put widgets side by side with `Row(...)`, or line up X/Y/Z fields with `VectorField("Location", (0.0, 1.25, 0.0))`.
+- **Add a menu bar.** Pass `header=MenuBar(...)` to `App`.
+- **Test it without a window.** `app.render_raster()` draws headlessly, and `app.press(...)` / `app.release(...)` simulate input. Handy for tests.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Installation" href="docs/start/installation/" icon="terminal" kicker="Start here">
+    Other languages, platform notes, and what to do if something goes wrong.
+  </Card>
+  <Card title="Blender components" href="docs/python/components/" icon="book" kicker="Python">
+    Layout, the common API, menus and pie menus, explained.
+  </Card>
+  <Card title="Testing without a window" href="docs/python/headless-testing/" icon="zap" kicker="Python">
+    Render, click and drag in a test, then check values and pixels.
+  </Card>
+</CardGrid>

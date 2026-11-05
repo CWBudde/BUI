@@ -1,0 +1,120 @@
+---
+title: Benchmarks
+description: "BUI's published numbers with their full context: start time and battery cost for every API, frame times, Rust against gpui, and JavaScript startup and animation."
+section: Performance
+order: 10
+badges: ["Ryzen 7 5800U", "Windows 11"]
+sources: ["README.md", "bindings/rust/bench/README.md", "docs/javascript.md", "bench/run.py", "bench/apps", "bindings/rust/bench/common/settings.rs", "bindings/node/bench/startup.js", "bindings/node/bench/cells.js"]
+---
+
+BUI is fast where it matters to people: it opens quickly, it sits at zero CPU while you're not touching it, and it stays smooth when thousands of things move. Here are the numbers, with everything you need to judge them.
+
+<Callout type="warning" title="Where these numbers come from">
+Every number on this page was measured on **one laptop: a Ryzen 7 5800U** (8 cores, 16 threads, AMD Radeon integrated GPU, 60 Hz display), running **Windows 11 on AC power**, with release builds. They were measured **before the latest features landed**: Dear ImGui support, the Linux GPU renderer, and Blender's search and expression code. Your machine will give different numbers; the comparisons are what carry over. [Run the benchmarks yourself](../run-benchmarks/) to check.
+</Callout>
+
+## Start time and battery
+
+**What was measured:** the same small settings window (a label, a text field, a checkbox, a slider and a button), written each of the five ways, from [`bench/apps`](https://github.com/ppmpreetham/BUI/tree/main/bench/apps). Each ran on BUI's CPU renderer (the default) and on its GPU renderer (`BUI_GPU=1`).
+
+The last rows are one gpui-syntax source file, [`settings.rs`](https://github.com/ppmpreetham/BUI/blob/main/bindings/rust/bench/common/settings.rs), compiled **unchanged** against blenderui, Zed's [gpui](https://crates.io/crates/gpui) and [gpui-fast](https://github.com/longbridge/gpui-fast). gpui has no form widgets, so there the controls are styled divs.
+
+**How:** the median of 10 launches, from process start until the first frame is on screen, with Python 3.14 and Node 22.
+
+<BenchChart id="start-all" />
+
+<BenchTable id="startup" />
+
+**What it means:**
+
+- On the same code, blenderui shows its first frame about **5× sooner** than gpui and gpui-fast, spends about **8× less CPU** getting there, and on the CPU renderer uses **half the memory**.
+- Idle, gpui keeps about 1.2% of a core busy. blenderui uses none.
+- The GPU renderer starts a little slower and uses more memory (the GPU device). It pays off on large, animated scenes, below.
+
+<BenchChart id="start-time" />
+
+<BenchChart id="idle-cpu" />
+
+**How battery cost is measured:** laptops can't report energy per app, so the benchmark uses CPU time as a proxy. It counts the CPU an app spends starting up, and the CPU it uses over 20 seconds while the window sits idle: that's what drains a battery while an app is open. BUI redraws only when something changes and otherwise sleeps, so idle use is near zero on either renderer.
+
+**Fine print:** Node's event loop accounts for the JavaScript idle figure. Python's times include starting the interpreter. Memory doesn't count GPU memory.
+
+## Frame times
+
+**What was measured:** the full Blender components demo (520×900), from Python and C.
+
+<BenchChart id="frame-times" />
+
+## Rust against gpui and gpui-fast
+
+**What was measured:** a 1000×800 window filled with N rounded, numbered cells, built with the same element tree in every framework. In this table, every cell changes every frame (the worst case), with 3,000 cells. All apps ran in the same session.
+
+<BenchChart id="fps" />
+
+<BenchChart id="cpu-per-frame" />
+
+<BenchTable id="cells3000" />
+
+More results, at 100 and 1,000 cells:
+
+<BenchChart id="uncapped-fps" />
+
+<BenchTable id="cellsFull" />
+
+**What it means:**
+
+- **The GPU renderer beats gpui-fast on every measurement.** It uses 2.2× less CPU per frame at 100 cells, 4.4× less at 1,000 and 2.8× less at 3,000, where it also runs at nearly twice the frame rate. It uses less RAM and the same GPU memory.
+- **The GPU renderer halves blenderui's own CPU cost** (22.0 to 11.6 ms at 3,000 cells). What stays on the CPU is the Rust side: cascade, layout and the paint list.
+- **The CPU raster stays the lightest on memory** and remains the default.
+
+**How:** each app measures its own CPU **cycles** across all threads (Windows' `QueryProcessCycleTime`), its frames and its memory, over a 10-second window after a 3-second warm-up. The runner adds GPU utilisation and GPU memory from Windows' performance counters, because GPU work isn't process CPU time. "+ GPU" means gpui's numbers exclude its GPU work, so read them with the GPU columns in the [full results](https://github.com/ppmpreetham/BUI/blob/main/bindings/rust/bench/README.md).
+
+**Fine print:** one laptop, one 60 Hz display (which caps every app), an integrated GPU.
+
+## JavaScript and React
+
+### Startup
+
+**What was measured:** a small React app (a counter) that quits as soon as its first frame is on screen. Each figure is the median of 12 launches after a warm-up launch (`node bench/startup.js`).
+
+<BenchChart id="js-first-frame" />
+
+<BenchTable id="jsStartup" />
+
+### Animation
+
+**What was measured:** the same scene as the Rust table, in `one` mode: one cell changes per frame, like a hover or a ticking value. GPU renderer, medians of 3 runs, React's production build. CPU is the whole process, counted with the cycle counter as for Rust.
+
+- **Plain JS** uses `@blender-ui/native`.
+- **React with signals** passes the changing values as signals, so the grid renders once.
+- **React with state** re-renders the grid every frame.
+
+<BenchChart id="js-cpu-3000" />
+
+<BenchTable id="jsAnim3000" />
+
+<BenchTable id="jsAnim1000" />
+
+**What it means:**
+
+- **JavaScript costs little over Rust:** 0.4–2.4 ms per frame, for sending changes to BUI's UI thread.
+- **Signals make React as cheap as the plain API:** the component doesn't re-render.
+- **QuickJS** starts fastest and uses the least memory, from a 5 MB file. It has no JIT, so re-rendering a 3,000-element list every frame drops it to 20 FPS. Keep big lists on signals, or build with `--bun`.
+
+<Callout type="joke">
+Unlike a Cycles render, these numbers don't get any less noisy if you leave them running overnight. Run each benchmark a few times instead.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Run the benchmarks" href="docs/performance/run-benchmarks/" icon="terminal" kicker="Performance">
+    Every command behind these tables, one at a time.
+  </Card>
+  <Card title="Profiling" href="docs/performance/profiling/" icon="clock" kicker="Performance">
+    Measure your own app and fix the slow parts.
+  </Card>
+  <Card title="Damage rendering" href="docs/concepts/damage-rendering/" icon="zap" kicker="Concepts">
+    Why the idle numbers are zero.
+  </Card>
+</CardGrid>

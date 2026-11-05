@@ -1,0 +1,212 @@
+---
+title: Your first app, in Qt syntax
+sidebarLabel: First app (Qt syntax)
+description: Build a small export dialog with QApplication, layouts and signals, drawn by BUI in Blender's look. No Qt or PySide install needed.
+section: Tutorials
+order: 30
+languages: ["python"]
+badges: ["15 minutes", "Partial API"]
+sources: ["docs/qt.md", "examples/qt_syntax_demo.py", "bindings/python/bui/qtsyntax.py", "SYNTAX_COVERAGE.md"]
+---
+
+If you've written Qt before, you already know how to build this app: a `QApplication`, a few widgets in layouts, and signals connected to slots. BUI runs that style of code on its own engine, so you get Blender's widgets **without installing Qt or PySide**.
+
+By the end you'll have an export dialog where dragging a slider moves a progress bar, and a button that reads every field.
+
+<Callout type="warning" title="Qt syntax is partial">
+The everyday widgets, layouts and signals in this tutorial work and are tested. But measured against Qt's own headers, only about a quarter of the methods on the main widget classes exist so far, and some classes (model/view, docks, toolbars, splitters) are missing. Anything not there raises `AttributeError`; nothing fails silently. The [Qt syntax guide](../../python/qt-syntax/) has the full list.
+</Callout>
+
+<Callout type="note" title="What you need">
+Python 3.11 or newer and `pip install blenderui` ([installation](../../start/installation/)).
+</Callout>
+
+## The finished app
+
+```py title="export_dialog.py"
+import sys
+from blenderui.qtsyntax import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+                                QFormLayout, QLineEdit, QComboBox, QSlider,
+                                QProgressBar, QPushButton, QLabel, Qt)
+
+app = QApplication(sys.argv)
+
+window = QWidget()
+window.setWindowTitle("Export")
+layout = QVBoxLayout(window)
+
+form = QFormLayout()
+name = QLineEdit()
+name.setPlaceholderText("file name")
+kind = QComboBox()
+kind.addItems(["glTF", "FBX", "OBJ"])
+quality = QSlider(Qt.Horizontal)
+quality.setRange(0, 100)
+form.addRow("Name:", name)
+form.addRow("Format:", kind)
+form.addRow("Quality:", quality)
+layout.addLayout(form)
+
+bar = QProgressBar()
+quality.valueChanged.connect(bar.setValue)
+layout.addWidget(bar)
+
+status = QLabel("Ready.")
+layout.addWidget(status)
+
+def export():
+    status.setText("Exporting %s as %s at %d%%" % (
+        name.text() or "untitled", kind.currentText(), quality.value()))
+
+buttons = QHBoxLayout()
+go = QPushButton("Export")
+go.clicked.connect(export)
+cancel = QPushButton("Close")
+cancel.clicked.connect(app.quit)
+buttons.addWidget(go)
+buttons.addWidget(cancel)
+layout.addLayout(buttons)
+
+quality.setValue(75)
+bar.setValue(quality.value())
+window.resize(360, 190)
+window.show()
+sys.exit(app.exec())
+```
+
+<Figure
+  src="images/qt-export.png"
+  alt="The export dialog on BUI: Name, Format and Quality rows, a slider at 75, a progress bar at 75%, a Ready label, and Export and Close buttons"
+  caption="<code>export_dialog.py</code>, drawn by BUI at its real size."
+  width={360}
+  height={190}
+/>
+
+## Build it, step by step
+
+<Steps>
+
+1. **Start the application and a window.**
+
+   ```py title="export_dialog.py"
+   import sys
+   from blenderui.qtsyntax import QApplication, QWidget
+
+   app = QApplication(sys.argv)
+   window = QWidget()
+   window.setWindowTitle("Export")
+   window.resize(360, 190)
+   window.show()
+   sys.exit(app.exec())
+   ```
+
+   - The import is the only line that's different from PySide or PyQt: `blenderui.qtsyntax` instead of `PySide6.QtWidgets`.
+   - `QApplication` must exist before any widget, as in Qt.
+   - `window.show()` asks for the window; `app.exec()` opens it and runs the **event loop**, the part that waits for input. It returns when every window is closed, or when you call `app.quit()`.
+
+2. **Lay out a form.**
+
+   ```py
+   layout = QVBoxLayout(window)
+
+   form = QFormLayout()
+   name = QLineEdit()
+   name.setPlaceholderText("file name")
+   kind = QComboBox()
+   kind.addItems(["glTF", "FBX", "OBJ"])
+   quality = QSlider(Qt.Horizontal)
+   quality.setRange(0, 100)
+   form.addRow("Name:", name)
+   form.addRow("Format:", kind)
+   form.addRow("Quality:", quality)
+   layout.addLayout(form)
+   ```
+
+   - `QVBoxLayout(window)` stacks things vertically and owns the window's contents. Passing the window is the same as calling `window.setLayout(layout)` later.
+   - `QFormLayout.addRow` puts a label next to each field.
+   - On BUI, `QLineEdit` is a Blender text field, `QComboBox` a Blender dropdown and `QSlider` a Blender slider. You'll feel the difference in a moment.
+
+3. **Connect a signal.**
+
+   ```py
+   bar = QProgressBar()
+   quality.valueChanged.connect(bar.setValue)
+   layout.addWidget(bar)
+   ```
+
+   A **signal** is an event a widget announces; a **slot** is any function you connect to it. Here, every time the slider's value changes, BUI calls `bar.setValue` with the new value. Slots can be any Python callable: a method, a function, a `lambda`.
+
+4. **Add a label and buttons.**
+
+   ```py
+   status = QLabel("Ready.")
+   layout.addWidget(status)
+
+   def export():
+       status.setText("Exporting %s as %s at %d%%" % (
+           name.text() or "untitled", kind.currentText(), quality.value()))
+
+   buttons = QHBoxLayout()
+   go = QPushButton("Export")
+   go.clicked.connect(export)
+   cancel = QPushButton("Close")
+   cancel.clicked.connect(app.quit)
+   buttons.addWidget(go)
+   buttons.addWidget(cancel)
+   layout.addLayout(buttons)
+   ```
+
+   `clicked` sends a `checked` argument (a `bool`), as in Qt. `export` takes none, and that's fine: on BUI, a slot that takes fewer arguments than the signal sends simply gets fewer.
+
+5. **Set starting values.**
+
+   ```py
+   quality.setValue(75)
+   bar.setValue(quality.value())
+   ```
+
+   We set the bar too, because the window isn't open yet. In our testing, a `setValue` before the window opens doesn't emit `valueChanged`, so connected slots don't run. Once the window is up, every change does.
+
+</Steps>
+
+## Run it
+
+```sh
+python export_dialog.py
+```
+
+Now try it:
+
+- **Drag the slider** and watch the progress bar follow. Hold <Kbd>Shift</Kbd> to move it slowly.
+- **Click the slider** and type a number, or a sum like `50+25`: it's a Blender slider, so it evaluates math. `QLineEdit` stays a plain text field.
+- **Type a name**, pick a format, and click **Export**: the label updates.
+- Press <Kbd keys="Ctrl+Z" /> to undo an edit.
+
+## How Qt maps onto BUI
+
+There's no Qt underneath. Each Qt widget is a node in BUI's C runtime, the **kit**:
+
+- `QVBoxLayout` and `QHBoxLayout` run on the kit's box layout, written in C, with Qt's rules for stretch factors and spacing.
+- `QGridLayout` and `QFormLayout` run on the kit's grid layout.
+- Signals are plain Python objects.
+- `app.exec()` opens a native window (Win32, X11 or Cocoa), or a Tk-hosted one if you set `BUI_HOST=tk`.
+
+So the layout, input and drawing are fast native code, and your Python only builds the tree and handles signals.
+
+<Callout type="joke">
+No QWidgets were subclassed in the making of this dialog. They'll get their turn in the Qt guide's custom-painting section.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Qt syntax guide" href="docs/python/qt-syntax/" icon="book" kicker="Python">
+    Every supported class, custom painting with QPainter, and what's still missing.
+  </Card>
+  <Card title="tkinter on BUI" href="docs/tutorials/tkinter-app/" icon="layers" kicker="Tutorial">
+    The tkinter layer is complete: every public name is there.
+  </Card>
+  <Card title="Blender components" href="docs/tutorials/first-app-python/" icon="sparkles" kicker="Tutorial">
+    Blender's own panels, pie menus and node editor, from Python.
+  </Card>
+</CardGrid>

@@ -1,0 +1,142 @@
+---
+title: Standalone executables
+sidebarLabel: Standalone executables
+description: Turn a JavaScript or React app into one executable of about 5 MB with bui build, or a full Bun executable with --bun. Plus the performance numbers behind the choice.
+section: JavaScript & React
+order: 40
+languages: ["javascript"]
+badges: ["Windows x64 prebuilt"]
+sources: ["docs/javascript.md", "bindings/node/cli.js", "bindings/node/README.md", "bindings/react/README.md", "bindings/node/bench/startup.js", "bindings/node/bench/cells.js"]
+---
+
+Your users shouldn't need Node.js to run your tool. **`bui build app.jsx` makes one executable of about 5 MB** that reaches its first frame in about 70 ms. Send them the file; they double-click it. That's the whole install.
+
+Under the hood it's BUI with a small JavaScript engine, [QuickJS](https://github.com/quickjs-ng/quickjs), built in. Your app's code is appended to it. Nothing is compiled per app, so a build takes well under a second.
+
+<Callout type="note" title="What you need">
+`bui` comes with `@blender-ui/native` (and so with `@blender-ui/react`). Bundling uses [Bun](https://bun.sh), so install Bun too, even if you develop on Node. The prebuilt runtime is for Windows x64; on other platforms, `npm run build` in `bindings/node` builds it from source.
+</Callout>
+
+## Build your app
+
+<Steps>
+
+1. **Start from a working app.**
+
+   Any entry file works: `.js`, `.jsx`, `.ts`. For example, the counter from the [React page](../react/), saved as `app.jsx`.
+
+2. **Build it.**
+
+   ```sh
+   npx bui build app.jsx
+   ```
+
+   `bui` prints the file it wrote, its size, the runtime (QuickJS) and how long the build took. The output is named after the entry file, with `.exe` on Windows.
+
+3. **Run it.**
+
+   Double-click `app.exe`, or run it from a terminal. No Node.js, no Bun, no browser, no webview.
+
+</Steps>
+
+## Commands and options
+
+```sh
+npx bui build app.jsx            # app.exe: BUI + QuickJS, about 5 MB
+npx bui build app.jsx --bun      # app.exe: a Bun executable, about 115 MB
+npx bui run app.jsx              # run on the QuickJS runtime, no executable
+```
+
+| Option | What it does |
+| --- | --- |
+| `-o <file>`, `--out <file>` | The output file. Default: the entry's name. |
+| `--bun` | Compile with `bun build --compile` instead of QuickJS. |
+| `--console` | Keep a console window for logs. By default, Windows builds open none, as an app should. |
+| `--dev` | Use React's development build. The default is the production build. |
+
+`bui run` is handy while you work: it bundles your app and runs it on the same QuickJS runtime a build would use, so you see exactly what your users will.
+
+## QuickJS or Bun?
+
+**The default build** runs your code on QuickJS, on BUI's UI thread, the way a browser runs page scripts. Your code and both packages run unchanged.
+
+- **It provides** `console`, timers, `queueMicrotask`, `performance`, and a `process` with `env`, `argv`, `exit` and `platform`.
+- **It doesn't provide** Node's modules (`fs`, `net` …). Apps that need them use `--bun`.
+- **It has no JIT,** so heavy JavaScript runs several times slower than on Bun or Node.
+
+**With `--bun`** you get `bun build --compile`: the full Bun runtime with Node's APIs and a JIT, and `@blender-ui/native`'s addon embedded in the executable.
+
+<BenchChart id="js-first-frame" table="jsStartupJs" />
+
+The QuickJS executable is 4.9 MB against 114 MB for `--bun`, and it starts with less memory. The trade-off is speed: QuickJS is an interpreter, while Bun has a JIT.
+
+No JIT matters less than it sounds, for two reasons:
+
+- **The renderer is native.** Layout, painting and the GPU cost the same on either runtime.
+- **Signals keep JavaScript light.** A change updates a node without re-rendering components. Re-rendering a 3,000-element list every frame is where QuickJS falls behind, so keep that kind of list on [signals](../signals/), or use `--bun`.
+
+<Callout type="joke">
+68 ms to the first frame. That's less time than it takes to find the default cube and press <Kbd>X</Kbd>.
+</Callout>
+
+## How it works
+
+1. **Bundle.** Bun bundles your entry and its packages into one script, with React's production build (unless `--dev`).
+2. **Append.** `bui` copies the prebuilt `bui-runtime` (BUI plus QuickJS, 4.9 MB), appends your script and a small trailer that marks where it starts.
+3. **Mark it as an app.** On Windows, unless you pass `--console`, the executable is marked as a windowed app, so no console appears.
+
+When the executable starts, `bui-runtime` finds the script at its end and runs it.
+
+## Performance
+
+These are the repository's own measurements. They come with their context, because numbers without one aren't worth much.
+
+**Machine:** a Ryzen 7 5800U laptop, Windows 11, 60 Hz display, GPU renderer, React's production build, Node.js 22.17 and Bun 1.4.4.
+
+### Startup
+
+`node bench/startup.js` launches a small React app (`bench/first-frame.js`) that quits as soon as its first frame is on screen. It does that 12 times for each way to run an app, after one warm-up launch, and reports the medians. **First frame** is measured inside the app, from the runtime's start; **launch to exit** is wall time from outside, including process creation and teardown.
+
+<BenchTable id="jsStartupJs" />
+
+Timings vary by about ±20% between sessions on this laptop; the ranking doesn't change. The first launch of a newly written executable can take seconds while antivirus software scans it, which is why the warm-up launch isn't counted.
+
+### Animation
+
+The benchmark's `one` mode: a 1000×800 window with a grid of N cells, where one cell changes colour and label every frame, driven from `requestAnimationFrame`. Run it with `bench/cells.js N --gpu [--react [--signals]]` under `node`, `bun` or `node cli.js run` (QuickJS).
+
+- **React, signals:** cell 0's style and label are signals, so the grid renders once.
+- **React, state:** the grid re-renders every frame, as with React's `useState`.
+- **CPU** is the whole process (JavaScript, BUI's UI thread and the runtime), counted with the process cycle counter. Medians of 3 runs. Bun and Node ran in one session; QuickJS in a later one.
+
+<BenchChart id="js-cpu-3000" table="jsAnim3000Js" />
+
+<BenchTable id="jsAnim3000Js" />
+
+<BenchTable id="jsAnim1000Js" />
+
+What they show:
+
+- **Most of the extra memory is the runtime.** Node alone is about 32 MB; Bun is about 10 MB smaller.
+- **QuickJS is the leanest in memory,** 38–67 MB, about 20–40 MB below Bun and Node. Re-rendering 3,000 elements every frame drops it to 20 FPS, so keep big lists on signals, or build with `--bun`.
+- **React with signals costs what the plain API does.** At 3,000 cells it uses about a quarter less CPU and memory than re-rendering.
+- **Measure with `NODE_ENV=production`.** React's development build re-rendering 3,000 cells took about 184 MB.
+- **Bun vs Node:** Bun is slightly faster with plain JS and signals, and leaner everywhere. Node is faster when React re-renders every frame.
+
+## Platforms
+
+The prebuilt `bui-runtime` and addon are for **Windows x64**. On Linux, build both from a clone of the repository (`npm run build` in `bindings/node`; you need Rust, CMake and a C compiler). Prebuilt runtimes for more platforms are <ComingSoon inline />.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Signals" href="docs/javascript/signals/" icon="zap" kicker="JavaScript">
+    The habit that keeps QuickJS builds fast.
+  </Card>
+  <Card title="React" href="docs/javascript/react/" icon="layers" kicker="JavaScript">
+    Write the app you're about to ship.
+  </Card>
+  <Card title="Roadmap" href="docs/project/roadmap/" icon="flag" kicker="Project">
+    Prebuilt packages for more platforms, and WebAssembly.
+  </Card>
+</CardGrid>

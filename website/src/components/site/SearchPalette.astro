@@ -1,0 +1,309 @@
+---
+// Ctrl+K / Cmd+K / "/" search. The index (/search.json) is fetched the first time it opens.
+// Matching is Blender's own menu search (src/lib/string-search.ts): word starts, initials
+// ("gs" finds "gpui syntax"), typos, and your recent picks first.
+import Icon from "./Icon.astro";
+import { href } from "../../lib/docs";
+---
+
+<dialog
+  id="search"
+  aria-label="Search the docs"
+  class="search-dialog m-0 h-full max-h-none w-full max-w-none bg-transparent p-0 backdrop:bg-black/45 backdrop:backdrop-blur-[3px] open:flex sm:items-start sm:justify-center sm:px-4 sm:pt-[11vh]"
+  data-index={href("search.json")}
+>
+  <div class="search-panel flex h-full w-full flex-col border-border bg-background text-foreground shadow-[0_32px_80px_-28px_rgb(0_0_0/0.55)] sm:h-auto sm:max-h-[74vh] sm:max-w-2xl sm:border" data-panel>
+    <div class="search-row flex items-center gap-3 border-b border-border px-4">
+      <Icon name="magnifying-glass" size={19} class="search-glass shrink-0 text-muted transition-colors duration-150" />
+      <label for="search-input" class="sr-only">Search</label>
+      <input
+        id="search-input"
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Search the docs: “drag scrub”, “tw cls”, “instal”…"
+        class="h-14 min-w-0 flex-1 bg-transparent text-base caret-[var(--primary)] outline-none focus:outline-none focus-visible:outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:hidden"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="search-results"
+        aria-autocomplete="list"
+      />
+      <button type="button" data-search-close class="inline-flex h-7 items-center border border-border px-2 text-xs text-muted transition-colors hover:text-foreground">
+        Esc
+      </button>
+    </div>
+    <ul id="search-results" role="listbox" aria-label="Results" class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2"></ul>
+    <div class="hidden items-center gap-4 border-t border-border bg-surface/60 px-4 py-2 text-xs text-muted sm:flex">
+      <span class="inline-flex items-center gap-1"><kbd class="sk">↑</kbd><kbd class="sk">↓</kbd> move</span>
+      <span class="inline-flex items-center gap-1"><kbd class="sk">Enter</kbd> open</span>
+      <span class="ml-auto inline-flex items-center gap-1.5">
+        <Icon name="lightning" size={13} />
+        Blender's menu search, ported: typos and initials welcome
+      </span>
+    </div>
+  </div>
+</dialog>
+<template id="sr-icons"
+  ><span data-k="page"><Icon name="file-text" size={16} /></span><span data-k="section"><Icon name="hash" size={16} /></span><span data-k="recent"
+    ><Icon name="clock-counter-clockwise" size={16} /></span
+  ><span data-k="go"><Icon name="arrow-elbow-down-left" size={14} /></span></template
+>
+
+<style>
+  .search-dialog:not([open]) {
+    display: none;
+  }
+  .search-dialog[open] .search-panel {
+    animation: search-in 180ms var(--ease-out);
+  }
+  @keyframes search-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.99);
+    }
+  }
+  /* Focus shows as a lit glass, not a ring around the field. */
+  .search-row:focus-within :global(.search-glass) {
+    color: var(--primary);
+  }
+  .sk {
+    min-width: 1.25rem;
+    padding: 0 0.3rem;
+    text-align: center;
+    font-family: var(--font-sans);
+    border: 1px solid var(--border);
+    background: var(--background);
+  }
+  :global(#search-results mark) {
+    background: none;
+    color: var(--link);
+    font-weight: 600;
+  }
+  :global(#search-results [aria-selected="true"] > a) {
+    background: var(--primary-soft);
+  }
+  :global(#search-results [aria-selected="true"] .sr-go) {
+    opacity: 1;
+  }
+</style>
+
+<script>
+  import { StringSearch, localRecentCache } from "../../lib/string-search";
+
+  interface Rec {
+    t: string;
+    h: string;
+    u: string;
+    s: string;
+    x: string;
+    st?: string;
+  }
+
+  const dialog = document.getElementById("search") as HTMLDialogElement | null;
+  const input = document.getElementById("search-input") as HTMLInputElement | null;
+  const list = document.getElementById("search-results") as HTMLUListElement | null;
+
+  const SEP = " ▸ ";
+  const key = (r: Rec) => [r.s, r.t, r.h].filter(Boolean).join(SEP);
+
+  if (dialog && input && list) {
+    const recent = localRecentCache("bui:search-recent", 30);
+    let index: Rec[] | null = null;
+    let engine: StringSearch<Rec> | null = null;
+    let loading: Promise<void> | null = null;
+    let results: { rec: Rec; recent?: boolean }[] = [];
+    let cursor = 0;
+    let opener: HTMLElement | null = null;
+
+    const build = () => {
+      if (!index) return;
+      engine = new StringSearch<Rec>("last", recent);
+      // Whole pages weigh more than their sections; unbuilt pages a little less.
+      for (const r of index) engine.add(key(r), r, (r.h ? 0 : 2) - (r.st === "coming-soon" ? 1 : 0));
+    };
+
+    const load = () =>
+      (loading ??= fetch(dialog.dataset.index!)
+        .then((r) => r.json())
+        .then((data: Rec[]) => {
+          index = data;
+          build();
+        })
+        .catch(() => {
+          index = [];
+        }));
+
+    const tpl = document.getElementById("sr-icons") as HTMLTemplateElement | null;
+    const icon = (k: string) => tpl?.content.querySelector(`[data-k="${k}"]`)?.innerHTML ?? "";
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+    const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    /** Marks the start of words that begin with a query word. */
+    function mark(text: string, words: string[]) {
+      let out = esc(text);
+      const ws = words.filter((w) => w.length > 0).sort((a, b) => b.length - a.length);
+      if (!ws.length) return out;
+      const re = new RegExp(`(^|[\\s\\-_/(.:,])(${ws.map((w) => reEsc(esc(w))).join("|")})`, "gi");
+      return out.replace(re, "$1<mark>$2</mark>");
+    }
+
+    function snippet(rec: Rec, words: string[]) {
+      const text = rec.x;
+      const lower = text.toLowerCase();
+      let at = -1;
+      for (const w of words) {
+        at = lower.indexOf(w);
+        if (at >= 0) break;
+      }
+      const start = Math.max(0, at - 40);
+      const body = (start > 0 ? "…" : "") + text.slice(start, start + 150) + (text.length > start + 150 ? "…" : "");
+      return mark(body, words);
+    }
+
+    function search(q: string) {
+      const words = q.toLowerCase().split(/[\s\-_/]+/).filter(Boolean);
+      if (!engine || !index) return { words, found: [] as { rec: Rec; recent?: boolean }[] };
+      if (!words.length) {
+        // Recent picks first (Blender's recent_searches), then every page once, in reading order.
+        const recents = recent
+          .list()
+          .map((k) => index!.find((r) => key(r) === k))
+          .filter((r): r is Rec => Boolean(r))
+          .slice(0, 5);
+        const pages = index.filter((r) => !r.h && !recents.includes(r)).slice(0, 10 - recents.length);
+        return { words, found: [...recents.map((rec) => ({ rec, recent: true })), ...pages.map((rec) => ({ rec }))] };
+      }
+      const titled = engine.query(q).slice(0, 18);
+      const seen = new Set(titled);
+      // Then pages whose text has every word, for things only the body mentions.
+      const inText = index.filter((r) => !seen.has(r) && words.every((w) => r.x.toLowerCase().includes(w))).slice(0, 24 - titled.length);
+      return { words, found: [...titled, ...inText].map((rec) => ({ rec })) };
+    }
+
+    function render() {
+      const q = input!.value.trim();
+      if (!index) {
+        list!.innerHTML = `<li class="px-3 py-8 text-center text-sm text-muted">Loading the index…</li>`;
+        return;
+      }
+      const { words, found } = search(q);
+      results = found;
+      cursor = 0;
+      if (!results.length) {
+        list!.innerHTML = `<li class="px-3 py-10 text-center text-sm text-muted">Nothing matches “${esc(q)}”. Try fewer words, or a language name like <em>Rust</em>.</li>`;
+        input!.removeAttribute("aria-activedescendant");
+        return;
+      }
+      let html = "";
+      let lastRecent: boolean | undefined;
+      results.forEach(({ rec: r, recent: isRecent }, i) => {
+        if (!q && isRecent !== lastRecent) {
+          html += `<li role="presentation" class="kicker px-3 pt-3 pb-1.5 text-muted">${isRecent ? "Recent" : "Pages"}</li>`;
+          lastRecent = isRecent;
+        }
+        html += `<li role="option" id="sr-${i}" data-i="${i}" aria-selected="false">
+            <a href="${esc(r.u)}" tabindex="-1" class="group flex items-start gap-3 px-3 py-2.5 transition-colors duration-100 hover:bg-foreground/4">
+              <span class="mt-0.5 shrink-0 text-muted">${icon(isRecent ? "recent" : r.h ? "section" : "page")}</span>
+              <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span class="flex items-baseline gap-2 text-sm">
+                  <span class="truncate font-medium">${mark(r.h || r.t, words)}</span>
+                  ${r.h ? `<span class="truncate text-xs text-muted">in ${mark(r.t, words)}</span>` : ""}
+                  ${r.st === "coming-soon" ? `<span class="shrink-0 border border-current px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-(--status-soon)">Soon</span>` : ""}
+                  <span class="ml-auto shrink-0 text-[10.5px] uppercase tracking-[0.12em] text-muted">${esc(r.s)}</span>
+                </span>
+                ${words.length ? `<span class="line-clamp-2 text-xs leading-5 text-muted">${snippet(r, words)}</span>` : `<span class="truncate text-xs text-muted">${esc(r.x.slice(0, 110))}</span>`}
+              </span>
+              <span class="sr-go mt-0.5 shrink-0 text-link opacity-0 transition-opacity">${icon("go")}</span>
+            </a>
+          </li>`;
+      });
+      list!.innerHTML = html;
+      sync();
+    }
+
+    function sync() {
+      list!.querySelectorAll<HTMLElement>("[role=option]").forEach((el) => {
+        const on = Number(el.dataset.i) === cursor;
+        el.setAttribute("aria-selected", String(on));
+        if (on) {
+          input!.setAttribute("aria-activedescendant", el.id);
+          el.scrollIntoView({ block: "nearest" });
+        }
+      });
+    }
+
+    const pick = (i: number) => {
+      const r = results[i]?.rec;
+      if (!r) return;
+      recent.remember(key(r));
+      close();
+      location.href = r.u;
+    };
+
+    function open() {
+      if (dialog!.open) return;
+      opener = document.activeElement as HTMLElement | null;
+      dialog!.showModal();
+      input!.select();
+      render();
+      load().then(render);
+    }
+
+    function close() {
+      dialog!.close();
+    }
+
+    dialog.addEventListener("close", () => opener?.focus());
+    input.addEventListener("input", render);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        // A search field would clear itself first; Escape closes the palette instead.
+        e.preventDefault();
+        close();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        cursor = Math.min(cursor + 1, results.length - 1);
+        sync();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        cursor = Math.max(cursor - 1, 0);
+        sync();
+      } else if (e.key === "Enter" && results[cursor]) {
+        e.preventDefault();
+        pick(cursor);
+      }
+    });
+    list.addEventListener("mousemove", (e) => {
+      const li = (e.target as HTMLElement).closest<HTMLElement>("[role=option]");
+      if (!li) return;
+      const i = Number(li.dataset.i);
+      if (i !== cursor) {
+        cursor = i;
+        sync();
+      }
+    });
+    list.addEventListener("click", (e) => {
+      const li = (e.target as HTMLElement).closest<HTMLElement>("[role=option]");
+      if (!li) return;
+      e.preventDefault();
+      pick(Number(li.dataset.i));
+    });
+    dialog.addEventListener("click", (e) => {
+      if (e.target === dialog) close(); // the backdrop
+    });
+    dialog.querySelector("[data-search-close]")?.addEventListener("click", close);
+    document.querySelectorAll("[data-search-open]").forEach((b) => b.addEventListener("click", open));
+    document.addEventListener("keydown", (e) => {
+      const typing = (e.target as HTMLElement).closest("input, textarea, select, [contenteditable]");
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        dialog.open ? close() : open();
+      } else if (e.key === "/" && !typing && !dialog.open) {
+        e.preventDefault();
+        open();
+      }
+    });
+    // Warm the index when the pointer heads for the button.
+    document.querySelectorAll("[data-search-open]").forEach((b) => b.addEventListener("pointerenter", () => load(), { once: true }));
+  }
+</script>

@@ -1,0 +1,260 @@
+---
+// "Write it the way you already write UI": a language picker, and inside each language a
+// syntax switcher (Python: tkinter / Qt; Rust: rsx! / gpui / HTML builder; …). Each
+// syntax shows real code and a screenshot (light or dark, following the site's theme).
+// The language choice is shared with the docs' <LangTabs> (localStorage "bui:tabs:lang").
+import { Code } from "astro-expressive-code/components";
+import Icon from "../site/Icon.astro";
+import ThemedImage from "../docs/ThemedImage.astro";
+import { languages } from "./snippets";
+import { href, repoFile } from "../../lib/docs";
+---
+
+<div class="ways" data-ways>
+  <div role="tablist" aria-label="Language" class="ways-langs grid grid-flow-col overflow-x-auto border-b border-border [scrollbar-width:none] lg:auto-cols-fr">
+    {
+      languages.map((l, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`lang-tab-${l.id}`}
+          aria-controls={`lang-${l.id}`}
+          aria-selected={i === 0 ? "true" : "false"}
+          tabindex={i === 0 ? 0 : -1}
+          data-lang={l.tab}
+          class:list={["ways-lang", i < languages.length - 1 && "border-r"]}
+        >
+          <Icon name={l.icon} size={18} weight="duotone" />
+          <span>{l.tab}</span>
+          {l.syntaxes.length > 1 && <span class="ways-count tabular">{l.syntaxes.length}</span>}
+        </button>
+      ))
+    }
+  </div>
+
+  {
+    languages.map((l, li) => (
+      <div id={`lang-${l.id}`} role="tabpanel" aria-labelledby={`lang-tab-${l.id}`} hidden={li !== 0} class="ways-lang-panel" data-lang-panel>
+        {l.syntaxes.length > 1 && (
+          <div class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3 sm:px-8">
+            <span class="kicker text-muted">Syntax</span>
+            <div role="tablist" aria-label={`${l.tab} syntax`} class="ways-syntaxes" data-syntaxes>
+              {l.syntaxes.map((s, si) => (
+                <button
+                  type="button"
+                  role="tab"
+                  id={`syn-tab-${l.id}-${s.id}`}
+                  aria-controls={`syn-${l.id}-${s.id}`}
+                  aria-selected={si === 0 ? "true" : "false"}
+                  tabindex={si === 0 ? 0 : -1}
+                  class="ways-syntax"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {l.syntaxes.map((s, si) => (
+          <div
+            id={`syn-${l.id}-${s.id}`}
+            role={l.syntaxes.length > 1 ? "tabpanel" : undefined}
+            aria-labelledby={l.syntaxes.length > 1 ? `syn-tab-${l.id}-${s.id}` : undefined}
+            hidden={si !== 0}
+            class="ways-panel grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]"
+            data-syntax-panel
+          >
+            <div class="flex min-w-0 flex-col gap-5 border-border p-5 sm:p-8 lg:border-r">
+              <div class="flex flex-col gap-2">
+                <h3 class="text-xl font-semibold tracking-[-0.01em]">{s.title}</h3>
+                <p class="max-w-[62ch] text-[15px] leading-7 text-muted">{s.blurb}</p>
+              </div>
+              <Code code={s.code} lang={s.lang} title={s.file} />
+              <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                <a href={href(s.docs)} class="group inline-flex items-center gap-1.5 font-medium text-link">
+                  Read the guide <Icon name="arrow-right" size={14} class="transition-transform duration-200 group-hover:translate-x-0.5" />
+                </a>
+                <a href={repoFile(s.source)} class="inline-flex items-center gap-1.5 text-muted hover:text-foreground">
+                  <Icon name="file-code" size={14} />
+                  <span class="font-mono text-[12.5px]">{s.source}</span>
+                </a>
+              </div>
+            </div>
+            <div class="ways-stage hatch flex min-w-0 flex-col items-center justify-center gap-4 border-t border-border p-6 sm:p-10 lg:border-t-0">
+              <figure class="flex w-full flex-col items-center gap-3">
+                <ThemedImage
+                  shot={s.shot}
+                  fallback={s.fallback}
+                  alt={s.alt}
+                  loading={li === 0 && si === 0 ? "eager" : "lazy"}
+                  class="ways-img img-outline h-auto max-h-[520px] w-auto max-w-full object-contain"
+                />
+                <figcaption class="bg-background px-2 py-0.5 font-mono text-xs text-muted">{s.caption}</figcaption>
+              </figure>
+              <p class="max-w-full truncate border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted">
+                <span class="text-accent">$</span> {s.install}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .ways-lang {
+    position: relative;
+    display: inline-flex;
+    height: 3.25rem;
+    min-width: 8.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    padding: 0 1.1rem;
+    white-space: nowrap;
+    font-size: 14px;
+    color: var(--muted);
+    border-color: var(--border);
+    transition:
+      background-color 160ms ease-out,
+      color 160ms ease-out;
+  }
+  .ways-lang:hover {
+    color: var(--foreground);
+    background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  }
+  .ways-lang[aria-selected="true"] {
+    color: var(--primary-ink);
+    font-weight: 500;
+    background: var(--primary);
+  }
+  .ways-count {
+    display: inline-grid;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    place-items: center;
+    font-size: 10.5px;
+    font-weight: 600;
+    border: 1px solid currentColor;
+    opacity: 0.6;
+  }
+  .ways-syntaxes {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .ways-syntax {
+    position: relative;
+    height: 2rem;
+    padding: 0 0.85rem;
+    font-size: 13px;
+    color: var(--muted);
+    transition:
+      color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .ways-syntax + .ways-syntax {
+    border-left: 1px solid var(--border);
+  }
+  .ways-syntax:hover {
+    color: var(--foreground);
+  }
+  .ways-syntax[aria-selected="true"] {
+    color: var(--foreground);
+    font-weight: 500;
+    background: var(--background);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+  .ways-stage {
+    background-color: var(--stage);
+  }
+  .ways-stage :global(.ways-img) {
+    box-shadow: var(--shadow);
+  }
+  /* Panels slide in, gently */
+  :global(.motion) .ways-panel:not([hidden]) {
+    animation: ways-in 380ms var(--ease-out);
+  }
+  :global(.motion) .ways-panel:not([hidden]) :global(.ways-img) {
+    animation: ways-img-in 520ms var(--ease-out);
+  }
+  @keyframes ways-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  @keyframes ways-img-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+  }
+</style>
+
+<script>
+  const KEY = "bui:tabs:lang";
+
+  function activate(tabs: HTMLButtonElement[], tab: HTMLButtonElement, focus = false) {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      const panel = document.getElementById(t.getAttribute("aria-controls")!);
+      if (panel) panel.hidden = !on;
+    }
+    if (focus) tab.focus();
+    // Keep the picked tab visible in a tab strip that scrolls sideways (phones), without
+    // scrolling the page.
+    const strip = tab.parentElement;
+    if (strip && strip.scrollWidth > strip.clientWidth) strip.scrollLeft = tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
+  }
+
+  function keys(list: HTMLElement, tabs: HTMLButtonElement[], onPick: (t: HTMLButtonElement) => void) {
+    list.addEventListener("keydown", (e) => {
+      const i = tabs.indexOf(document.activeElement as HTMLButtonElement);
+      if (i < 0) return;
+      const n =
+        e.key === "ArrowRight" ? (i + 1) % tabs.length : e.key === "ArrowLeft" ? (i - 1 + tabs.length) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
+      if (n >= 0) {
+        e.preventDefault();
+        activate(tabs, tabs[n], true);
+        onPick(tabs[n]);
+      }
+    });
+  }
+
+  document.querySelectorAll<HTMLElement>("[data-ways]").forEach((root) => {
+    const langList = root.querySelector<HTMLElement>(":scope > [role=tablist]")!;
+    const langs = [...langList.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+    const remember = (t: HTMLButtonElement) => {
+      try {
+        localStorage.setItem(KEY, t.dataset.lang!);
+      } catch {}
+    };
+    langs.forEach((t) =>
+      t.addEventListener("click", () => {
+        activate(langs, t);
+        remember(t);
+      }),
+    );
+    keys(langList, langs, remember);
+
+    root.querySelectorAll<HTMLElement>("[data-syntaxes]").forEach((list) => {
+      const tabs = [...list.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+      tabs.forEach((t) => t.addEventListener("click", () => activate(tabs, t)));
+      keys(list, tabs, () => {});
+    });
+
+    // Start on the language the reader picked here or in the docs.
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(KEY);
+    } catch {}
+    const start = langs.find((t) => t.dataset.lang === saved);
+    if (start) activate(langs, start);
+  });
+</script>

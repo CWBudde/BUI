@@ -1,0 +1,92 @@
+---
+/**
+ * Phosphor icons (https://phosphoricons.com, MIT), inlined at build time from
+ * @phosphor-icons/core. No icon font, no runtime JavaScript.
+ *
+ *   <Icon name="check-circle" />                      any Phosphor name
+ *   <Icon name="flask" weight="duotone" size={20} />  thin | light | regular | bold | fill | duotone
+ *   <Icon name="github" label="GitHub" />             with `label` it's announced; without, it's decorative
+ *
+ * A few short aliases are kept for older pages (book, zap, layers, terminal …), see `aliases`.
+ * A misspelled name fails the build, so typos never ship as blank squares.
+ */
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
+export type IconWeight = "thin" | "light" | "regular" | "bold" | "fill" | "duotone";
+
+/** Short names used across the site and in MDX, mapped to Phosphor names. */
+const aliases = {
+  search: "magnifying-glass",
+  menu: "list",
+  github: "github-logo",
+  edit: "pencil-simple",
+  alert: "warning",
+  bulb: "lightbulb",
+  smile: "smiley",
+  "chevron-right": "caret-right",
+  "chevron-down": "caret-down",
+  book: "book-open-text",
+  terminal: "terminal-window",
+  sparkles: "sparkle",
+  zap: "lightning",
+  layers: "stack",
+  undo: "arrow-counter-clockwise",
+  redo: "arrow-clockwise",
+  soon: "hourglass-medium",
+  copy: "copy-simple",
+} as const;
+
+export type IconAlias = keyof typeof aliases;
+/** Any alias or Phosphor icon name (e.g. "check-circle", "flask", "rocket-launch"). */
+export type IconName = IconAlias | (string & {});
+
+interface Props {
+  name: IconName;
+  weight?: IconWeight;
+  size?: number;
+  class?: string;
+  label?: string;
+}
+
+const { name, weight = "regular", size = 16, class: className, label } = Astro.props;
+
+const require = createRequire(import.meta.url);
+const cache: Map<string, string> = ((globalThis as any).__buiIcons ??= new Map());
+
+function load(icon: string, w: IconWeight): string {
+  const key = `${w}/${icon}`;
+  let svg = cache.get(key);
+  if (svg === undefined) {
+    const file = w === "regular" ? `${icon}.svg` : `${icon}-${w}.svg`;
+    let path: string;
+    try {
+      path = require.resolve(`@phosphor-icons/core/assets/${w}/${file}`);
+    } catch {
+      throw new Error(`<Icon>: no Phosphor icon "${icon}" (${w}). Browse names at https://phosphoricons.com`);
+    }
+    svg = readFileSync(path, "utf8")
+      .replace(/^[\s\S]*?<svg[^>]*>/, "")
+      .replace(/<\/svg>\s*$/, "");
+    cache.set(key, svg);
+  }
+  return svg;
+}
+
+const resolved = (aliases as Record<string, string>)[name] ?? name;
+const inner = load(resolved, weight);
+---
+
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width={size}
+  height={size}
+  viewBox="0 0 256 256"
+  fill="currentColor"
+  class:list={["icon shrink-0", className]}
+  aria-hidden={label ? undefined : "true"}
+  aria-label={label}
+  role={label ? "img" : undefined}
+  focusable="false"
+  set:html={inner}
+/>

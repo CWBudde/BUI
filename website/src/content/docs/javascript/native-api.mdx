@@ -1,0 +1,182 @@
+---
+title: The DOM-like API
+sidebarLabel: "@blender-ui/native"
+description: Build native windows from plain JavaScript with createElement, Tailwind classes, events and signals. No React, no browser, no build step.
+section: JavaScript & React
+order: 10
+languages: ["javascript"]
+badges: ["Node.js", "Bun"]
+sources: ["docs/javascript.md", "bindings/node/README.md", "bindings/node/index.js", "bindings/node/index.d.ts", "bindings/node/examples/counter.js", "bindings/node/package.json"]
+---
+
+If you've ever written `document.createElement`, you already know this API. **`@blender-ui/native` gives you the DOM's shape, Tailwind classes and signals, and draws the result in a native window** with BUI's engine. There's no browser underneath and no webview: just your script, Node.js or Bun, and a small native addon.
+
+It's also the layer the [React renderer](../react/) is built on, so everything here works there too.
+
+<Callout type="note" title="Before you start">
+You need Node.js 18 or newer, or Bun. Install with `npm install @blender-ui/native` (or `bun add @blender-ui/native`). The addon is prebuilt for Windows x64; on Linux, build it from source. The [installation page](../../start/installation/) has the details.
+</Callout>
+
+## A counter in 15 lines
+
+```js title="counter.js"
+const { App, signal } = require('@blender-ui/native')
+
+const app = new App({ gpu: true })
+const win = app.window({ title: 'Hello', width: 360, height: 220 })
+win.body.setAttribute('styled', '') // Blender's look for the whole page
+win.body.className = 'm-0 p-6 flex flex-col gap-3 bg-[#2b2b2b] text-[#e6e6e6]'
+
+const clicks = signal(0)
+const label = win.createElement('span')
+label.textContent = clicks // bound: the text follows the signal
+const button = win.createElement('button')
+button.textContent = 'Add one'
+button.addEventListener('click', () => clicks.value++)
+win.body.appendChild(label)
+win.body.appendChild(button)
+```
+
+Run it with `node counter.js` or `bun counter.js`. A window opens with a number and a button. Click the button and the number goes up.
+
+What's going on:
+
+- **`new App(...)`** starts BUI. It runs its own UI thread, so your script stays free.
+- **`app.window(...)`** opens a native window. Its `body` is the root element, like `document.body`.
+- **`setAttribute('styled', '')`** gives everything inside Blender's look. Without it, HTML elements look like a browser's defaults.
+- **`signal(0)`** is a value that remembers who's showing it. Assigning it to `textContent` binds the label to it, so `clicks.value++` updates that one text node and nothing else. [Signals](../signals/) have their own page.
+
+## The app and its windows
+
+```js
+const app = new App({ gpu: true, headless: false, quitOnLastWindowClosed: true })
+const win = app.window({ title: 'Tool', width: 400, height: 300, resizable: true })
+win.on('close', () => console.log('bye'))
+```
+
+| `new App(options)` | What it does |
+| --- | --- |
+| `gpu` | Draw on the GPU (Direct3D 11 on Windows, OpenGL on Linux). Off by default: the CPU renderer draws the same pixels. |
+| `slug` | GPU text from glyph outlines (Slug, the default) or a per-glyph atlas. `app.setSlug(on)` changes it later. |
+| `headless` | No native windows: renders off-screen, for tests and CI. |
+| `quitOnLastWindowClosed` | Quit when the last window closes. Default `true`. |
+
+`app.window(options)` takes `title`, `width`, `height`, `resizable` and `gpu` (to choose per window). `app.quit()` closes every window and ends the UI thread, so Node can exit.
+
+A window gives you `body`, `createElement(tag)`, `createTextNode(text)`, `requestAnimationFrame(cb)`, `screenshot()`, `click(x, y)`, `close()` and `on('close', fn)`.
+
+## Elements and attributes
+
+The tree behaves like the DOM: `appendChild`, `insertBefore`, `removeChild`, `remove()`, `parentNode`, `childNodes`, `firstChild`, `nextSibling` and friends.
+
+- **Moving a node:** `appendChild` or `insertBefore` on a node that already has a parent moves it.
+- **Mistakes throw:** inserting a node into itself, or before a node that isn't a child, throws an error, as in a browser.
+- **Freeing:** `destroy()` frees a removed subtree natively. Call it when you won't use the nodes again.
+
+Elements are HTML elements (`div`, `span`, `button`, `input`, `h1` …), laid out with CSS and drawn natively by BUI. They take the usual attributes:
+
+- **`class` / `className`**, including Tailwind classes: `'p-4 flex gap-2 bg-[#4772b3]'`.
+- **`style`**, as a CSS string (`'color: red'`) or an object (`{ backgroundColor: 'red', width: 40 }`).
+- **`id`, `href`, `value`, `src`** and the rest, through `setAttribute`.
+
+Any attribute, `style` and `textContent` can be a **signal**: the node then follows it. Setting a plain value later unbinds the signal.
+
+### Blender's widgets
+
+Capitalized tag names are Blender's own widgets, always drawn and handled the Blender way:
+
+```js
+const size = win.createElement('NumberSlider')
+size.setAttribute('min', 0)
+size.setAttribute('max', 10)
+size.setAttribute('value', 2.5)
+win.body.appendChild(size)
+```
+
+The names are `Button`, `Checkbox`, `Radio`, `NumberField`, `NumberSlider`, `TextField`, `TextArea`, `ColorSwatch`, `Dropdown` and `ProgressBar`. Each one is an HTML element underneath (`NumberSlider` is `<input type="range">`), so it takes the same attributes. Their lowercase twins look like a browser's form controls, except inside a `styled` element, where they look like Blender's too.
+
+<Figure
+  shot="js-dom-tasks"
+  alt="A task list built with createElement and appendChild: a Blender text field and Add button, tasks with Blender checkboxes, and a progress bar"
+  caption="Blender's widgets from plain JavaScript (<code>examples/site/js/todo_dom.js</code>)."
+/>
+
+## Events
+
+```js
+button.addEventListener('click', (event) => {
+  console.log(event.clientX, event.clientY, event.shiftKey)
+})
+```
+
+The events are `click`, `mousedown`, `mouseup`, `mousemove`, `mouseenter`, `mouseleave`, `wheel`, `keydown`, `keyup`, `input` and `change`. The event object carries `target`, `currentTarget`, `clientX`/`clientY`, `button`, `deltaY`, `key`, the modifier flags (`shiftKey`, `ctrlKey`, `altKey`, `metaKey`) and `timeStamp`.
+
+- **They bubble**, except `mouseenter` and `mouseleave`, as in the DOM. `stopPropagation()` and `stopImmediatePropagation()` work.
+- **`event.target`** is the deepest element listening for that event type.
+- **`preventDefault()` only marks the event.** Events reach JavaScript after BUI has already handled them, so it can't cancel what BUI did.
+- **Form controls** keep their latest value: read `el.value` or `el.checked` after an `input` or `change` event.
+
+## Frames and measuring
+
+```js
+let hue = 0
+function tick () {
+  hue = (hue + 2) % 360
+  box.style = { backgroundColor: `hsl(${hue} 60% 50%)` }
+  win.requestAnimationFrame(tick)
+}
+win.requestAnimationFrame(tick)
+```
+
+- **`win.requestAnimationFrame(cb)`** runs `cb` before the next frame, paced by the display. What you change inside it renders in that same frame. `cancelAnimationFrame(id)` stops it.
+- **`el.getBoundingClientRect()`** and **`win.screenshot()`** return promises, because the answer comes from the UI thread.
+- **Changes are sent once per tick.** `win.flush()` sends them right away, if you ever need to.
+
+## Testing without a window
+
+`new App({ headless: true })` renders off-screen. Combine it with `win.click(x, y)` and `win.screenshot()` to test a UI in CI:
+
+```js title="test.js"
+const { App } = require('@blender-ui/native')
+
+const app = new App({ headless: true })
+const win = app.window({ width: 200, height: 100 })
+const button = win.createElement('button')
+button.textContent = 'Go'
+let clicked = false
+button.addEventListener('click', () => { clicked = true })
+win.body.appendChild(button)
+
+button.getBoundingClientRect().then(async (r) => {
+  win.click(r.x + 5, r.y + 5)
+  const shot = await win.screenshot() // { width, height, data } in RGBA
+  console.log(shot.width, shot.height)
+  setTimeout(() => { console.log('clicked:', clicked); app.quit() }, 100)
+})
+```
+
+<Callout type="tip">
+On macOS, use `headless: true` for now. macOS only allows windows on the main thread, and BUI runs its own UI thread under Node. <ComingSoon inline />
+</Callout>
+
+## How it stays fast
+
+- **Its own UI thread.** BUI runs its message loop on a thread of its own. JavaScript is never blocked, and an idle window uses no CPU.
+- **Only changes cross.** Your script keeps the tree. Each tick, a window sends one `Int32Array` of operations plus a small string table to the UI thread.
+- **A retained mirror.** The UI thread keeps its own copy of the tree, so layout caches and form state persist, and a `style` string is parsed once, when you set it.
+
+The numbers, with their context, are on the [standalone executables](../standalone-executables/) page.
+
+## Next steps
+
+<CardGrid>
+  <Card title="React" href="docs/javascript/react/" icon="layers" kicker="JavaScript">
+    The same engine, written as JSX components with React's hooks.
+  </Card>
+  <Card title="Signals" href="docs/javascript/signals/" icon="zap" kicker="JavaScript">
+    How a signal updates one node without re-rendering anything.
+  </Card>
+  <Card title="Standalone executables" href="docs/javascript/standalone-executables/" icon="terminal" kicker="JavaScript">
+    Ship your app as one file of about 5 MB.
+  </Card>
+</CardGrid>

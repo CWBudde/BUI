@@ -1,0 +1,64 @@
+---
+/**
+ * The exact numbers behind a chart, as a table.
+ *
+ *   <BenchTable id="startup" />            a table from src/data/bench.ts (`tables`)
+ *   <BenchTable table={{ caption, columns, rows }} />
+ *
+ * Ids: startup, cells3000, cellsFull, frameTimes, jsStartup, jsAnim3000, jsAnim1000.
+ */
+import { tables, type Table, type TableId } from "../../data/bench";
+
+interface Props {
+  id?: TableId;
+  table?: Table;
+  /** Hide the caption visually (it stays for screen readers). */
+  quiet?: boolean;
+}
+
+const { id, table: given, quiet = false } = Astro.props;
+const table: Table | undefined = given ?? (id ? tables[id] : undefined);
+if (!table) throw new Error(`<BenchTable>: unknown table "${id}". Ids: ${Object.keys(tables).join(", ")}`);
+const numeric = new Set(table.numeric ?? []);
+---
+
+<div class="bench-table not-prose">
+  <div class="scroll-x relative overflow-x-auto border border-border">
+    <table class="w-full min-w-[520px] border-collapse text-[13px] leading-5">
+      <caption class:list={["px-3.5 py-2.5 text-left text-[12.5px] text-muted", quiet && "sr-only"]}>{table.caption}</caption>
+      <thead>
+        <tr class="bg-surface">
+          {
+            table.columns.map((c, i) => (
+              <th scope="col" class:list={["border-y border-border px-3.5 py-2 font-semibold whitespace-nowrap", numeric.has(i) ? "text-right" : "text-left"]}>
+                {c}
+              </th>
+            ))
+          }
+        </tr>
+      </thead>
+      <tbody class="tabular">
+        {
+          table.rows.map((row) => (
+            <tr class="border-b border-border-soft last:border-b-0 hover:bg-surface/70">
+              {row.map((cell, i) =>
+                i === 0 ? (
+                  <th scope="row" class="px-3.5 py-2 text-left font-medium [&_strong]:font-semibold" set:html={cell} />
+                ) : (
+                  <td
+                    class:list={[
+                      "px-3.5 py-2 text-muted [&_strong]:font-semibold [&_strong]:text-foreground",
+                      numeric.has(i) ? "text-right whitespace-nowrap" : "",
+                    ]}
+                    set:html={cell}
+                  />
+                ),
+              )}
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  {table.note && <p class="mt-2 text-[12.5px] leading-5 text-muted">{table.note}</p>}
+</div>

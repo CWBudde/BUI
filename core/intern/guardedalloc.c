@@ -4,6 +4,8 @@
 #include <string.h>
 #ifdef __GLIBC__
 #  include <malloc.h> /* malloc_usable_size */
+#elif defined(__APPLE__)
+#  include <malloc/malloc.h> /* malloc_size */
 #endif
 
 #include "BLI_compiler_attrs.h"
@@ -16,6 +18,10 @@ static size_t bui_malloc_usable_size(void *ptr)
   return ptr ? _msize(ptr) : 0;
 #elif defined(__GLIBC__)
   return ptr ? malloc_usable_size(ptr) : 0;
+#elif defined(__APPLE__)
+  /* macOS: without it MEM_dupallocN returned NULL (BLI_duplicatelist) and
+   * MEM_recallocN left the new tail uninitialized */
+  return ptr ? malloc_size(ptr) : 0;
 #else
   (void)ptr;
   return 0;

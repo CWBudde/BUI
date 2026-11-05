@@ -1,0 +1,55 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<button
+  type="button"
+  data-theme-toggle
+  class="inline-flex size-10 items-center justify-center text-muted transition-[background-color,color] duration-150 ease-out hover:bg-foreground/6 hover:text-foreground"
+  aria-label="Switch to dark theme"
+  title="Toggle light and dark"
+>
+  <Icon name="moon" size={18} class="theme-icon-moon" />
+  <Icon name="sun" size={18} class="theme-icon-sun" />
+</button>
+
+<style>
+  :global(.theme-icon-sun) {
+    display: none;
+  }
+  :global([data-theme="dark"] .theme-icon-sun) {
+    display: block;
+  }
+  :global([data-theme="dark"] .theme-icon-moon) {
+    display: none;
+  }
+</style>
+
+<script>
+  const root = document.documentElement;
+  const buttons = document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]");
+  const label = () =>
+    buttons.forEach((b) => b.setAttribute("aria-label", root.dataset.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"));
+  label();
+  buttons.forEach((button) =>
+    button.addEventListener("click", () => {
+      const next = root.dataset.theme === "dark" ? "light" : "dark";
+      root.dataset.theme = next;
+      try {
+        localStorage.setItem("bui:theme", next);
+      } catch {}
+      label();
+    }),
+  );
+  // Follow the system until the reader picks a theme themselves.
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+    let stored = null;
+    try {
+      stored = localStorage.getItem("bui:theme");
+    } catch {}
+    if (!stored) {
+      root.dataset.theme = e.matches ? "dark" : "light";
+      label();
+    }
+  });
+</script>

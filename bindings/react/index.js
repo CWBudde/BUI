@@ -321,7 +321,7 @@ function createRoot (window) {
  * @returns {{ app: App, window: import('@blender-ui/native').Window, root: ReturnType<typeof createRoot> }}
  */
 function render (element, options = {}) {
-  const app = options.app ?? new App({ gpu: options.gpu, slug: options.slug, headless: options.headless })
+  const app = options.app ?? new App({ gpu: options.gpu, slug: options.slug, headless: options.headless, theme: options.theme })
   const window = app.window(options)
   const root = createRoot(window)
   root.render(element)

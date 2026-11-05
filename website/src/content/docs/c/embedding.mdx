@@ -1,0 +1,210 @@
+---
+title: Embedding BUI in your own host
+sidebarLabel: Embedding
+description: Put BUI inside a game engine, a Qt app or your own renderer. Render the kit into a raster you upload, or receive BUI's primitives through a render sink.
+section: C & C++
+order: 20
+languages: ["c", "cpp", "python"]
+sources: ["INTEGRATION.md", "kit/include/BUI_kit.h", "gpu/include/GPU_raster.h", "gpu/include/GPU_backend_sink.h", "api/bui_c_api.h", "api/CMakeLists.txt", "backends/qt/BuiWidget.h", "backends/qt/BuiQtSink.h", "backends/qt/CMakeLists.txt", "bindings/python/bui/qt.py", "bindings/python/bui/svg.py", "examples/svg_demo.c", "examples/CMakeLists.txt"]
+---
+
+Your app already has a window, a render loop and opinions. That's fine. **BUI draws; you present.** The kit never insists on its own window: hand it input, take back pixels or primitives, and Blender's widgets live inside your engine, your Qt app or your test harness.
+
+There are a few ways in. Pick the one that matches what you already have:
+
+| You have | Use | Section |
+| --- | --- | --- |
+| Any renderer that can show an image (a game engine, OpenGL, Vulkan, SDL …) | The kit renders into a `BuiRaster`; you upload the pixels | [The kit in your loop](#the-kit-in-your-loop) |
+| A Qt Widgets app in C++ | `BUI::BuiWidget` from the Qt backend | [Qt from C++](#qt-from-c) |
+| A PySide6 or PyQt6 app | `BuiCanvas` | [Python](#python-pyside-pyqt-and-svg) |
+| Your own primitive renderer, or SVG output | A render sink through the stable C API | [Render sinks](#render-sinks-and-the-stable-c-api) |
+
+## The kit in your loop
+
+This is the path for the full widget kit. The kit draws a frame into a **raster** (a CPU frame buffer), tells you which rectangles changed, and you upload just those. You forward input the other way.
+
+<Steps>
+
+1. **Make a context and a host.**
+
+   The host's `request` callback is how the kit says "I need a frame". Keep a flag:
+
+   ```c
+   #include "BUI_kit.h"
+
+   static int needs_frame = 1;
+   static void request(void *data) { needs_frame = 1; }
+
+   BKContext *ctx = BK_context_new(root);       /* root: the tree you built */
+   BKHost host = {0};
+   host.request = request;
+   host.emit = on_event;                        /* your callbacks */
+   BK_context_set_host(ctx, &host);
+   BuiRaster *raster = BUI_raster_create(width, height);
+   ```
+
+   The other host callbacks are optional: `set_cursor`, `warp` (move the pointer while scrubbing), `clipboard_get` / `clipboard_set`, and `schedule` (call `BK_timer(ctx, timer)` after `ms` milliseconds, for tooltips and the like).
+
+2. **Forward input.**
+
+   Coordinates are in raster pixels. Modifiers are `BK_SHIFT`, `BK_CTRL` and `BK_ALT`.
+
+   ```c
+   BK_motion(ctx, x, y, mods);
+   BK_press(ctx, x, y, mods);
+   BK_release(ctx, x, y, mods);
+   BK_scroll(ctx, x, y, dx, dy, mods);          /* precise wheel, in notches */
+   BK_key(ctx, "a", "a", mods);                 /* typed text, X11 keysym name */
+   ```
+
+3. **Render only when needed.**
+
+   ```c
+   if (needs_frame || BK_animating(ctx)) {
+     needs_frame = 0;
+     if (BK_render(ctx, raster, width, height, 0) > 0) {
+       const uint32_t *pixels = BUI_raster_pixels(raster);   /* 0x00RRGGBB, stride = width */
+       const int (*rects)[4];
+       int n = BUI_raster_damage(raster, &rects);            /* {x, y, w, h} that changed */
+       /* upload those rectangles into your texture */
+     }
+   }
+   ```
+
+   `BK_render` returns how many regions it redrew; 0 means nothing changed, so you skip the upload entirely. `BK_animating(ctx)` stays non-zero while something animates, such as a panel opening.
+
+4. **Draw the texture** wherever you like: a full-screen quad, a side panel, a surface in a 3D scene.
+
+</Steps>
+
+The pixel layout is byte-compatible with a Win32 32-bpp DIB and Qt's `QImage::Format_RGB32`, so on those you can blit it with no conversion.
+
+**A GPU instead of pixels:** if your host is a Win32 or X11 window, `BUI_raster_gpu_attach(raster, handle, wait)` switches the raster to BUI's GPU renderer (Direct3D 11 or OpenGL 3.3) with the same API, clip and damage rules. With a `NULL` handle it renders off-screen and `BUI_raster_pixels` reads the frame back.
+
+## Qt from C++
+
+The Qt backend is a `QWidget` that hosts BUI's drawing. It needs Qt 5 or 6 with Widgets, and neither `moc` nor OpenGL.
+
+```sh
+cmake -S . -B build-qt -DBUI_BUILD_QT_BACKEND=ON
+cmake --build build-qt
+```
+
+Link `bui::qt`, then:
+
+```cpp title="main.cpp"
+#include "BuiWidget.h"   // backends/qt
+
+BUI::BuiWidget *canvas = new BUI::BuiWidget(window);
+canvas->render_func = [&](int w, int h) {
+  // BUI draw calls; the primitives land on QPainter
+};
+canvas->mouse_button = [&](int x, int y, int button, bool pressed) { /* hit-test */ };
+```
+
+`BUI::BuiWidget` handles painting, resizing and the mouse. Underneath, `BUI::QtSink` maps BUI's primitives onto a `QPainter`. Per-vertex colours reduce to the first vertex's colour per primitive, which matches how the toolkit draws shapes. You can also install the sink yourself in any paint event:
+
+```cpp
+QPainter p(widget);
+BUI::QtSink sink(&p);
+bui_set_render_sink(sink.gpuSink());
+// ... draw BUI content ...
+bui_set_render_sink(nullptr);
+```
+
+## Python: PySide, PyQt and SVG
+
+The `buipy` extension, part of `pip install blenderui`, exposes the same plumbing to Python, with no third-party packages.
+
+**In a PySide6 or PyQt6 window:**
+
+```py title="qt_canvas.py"
+import sys
+from PySide6.QtWidgets import QApplication   # PyQt6 works the same
+from blenderui.qt import BuiCanvas
+
+app = QApplication(sys.argv)
+canvas = BuiCanvas()            # by default, renders the demo scene
+canvas.resize(800, 600)
+canvas.show()
+sys.exit(app.exec())
+```
+
+`BuiCanvas` renders each frame into one BUI raster in C and paints it with a single `QPainter.drawImage`. Set `canvas.render_func` to draw your own content, and `on_press`, `on_release`, `on_motion` and `on_key` to receive input.
+
+**Headless, to an SVG file** (handy in CI):
+
+```py title="to_svg.py"
+import buipy
+from blenderui.svg import SvgSink
+
+sink = SvgSink(640, 480)
+buipy.set_backend(sink)
+buipy.demo_scene(640, 480)   # or your own draw calls
+sink.save("frame.svg")
+```
+
+## Render sinks and the stable C API
+
+At the lowest level, BUI's drawing layer (`gpu/`) turns everything drawn through it into flat lists of screen-space primitives and hands them to a **render sink**: a struct of callbacks you provide. This is what the Qt backend, `SvgSink` and the SVG demo use.
+
+The stable C API in `api/bui_c_api.h` is a small, ABI-stable facade for hosts that don't want to compile against the full toolkit headers: the library version, plus installing a sink.
+
+```c title="my_sink.c"
+#include "bui_c_api.h"
+
+static void my_triangles(void *user, const float (*coords)[2],
+                         const float (*colors)[4], int count)
+{
+  /* rasterize, record or forward `count` vertices (3 per triangle) */
+}
+
+void install(void *my_renderer_state)
+{
+  BuiGpuSink sink = {0};
+  sink.user = my_renderer_state;
+  sink.triangles = my_triangles;
+  /* lines, points, text, scissor, begin_frame and end_frame are optional */
+  bui_set_render_sink(&sink);
+  bui_set_viewport(1280, 720);   /* pixels */
+  /* ... drive BUI drawing ... */
+  bui_set_render_sink(NULL);     /* back to the discarding backend */
+}
+```
+
+Link the `bui_api` target. `bui_get_version(&major, &minor, &patch)` and `bui_version_string()` tell you which BUI you're talking to.
+
+**The contract:** 2D positions transformed by the current model matrix (identity matrices give pixel coordinates), and colours as RGBA floats from 0 to 1, not premultiplied.
+
+| Callback | What you receive |
+| --- | --- |
+| `begin_frame(user, w, h)` | Start of a batch; the viewport in pixels |
+| `scissor(user, x, y, w, h)` | Clip rectangle; `w` or `h` ≤ 0 removes it |
+| `triangles(user, coords, colors, n)` | Non-indexed triangles, 3 vertices each |
+| `lines(user, coords, colors, n)` | A line list, endpoints in pairs |
+| `points(user, coords, colors, n, size)` | Points, `size` pixels across |
+| `text(user, x, y, text, size, rgba)` | A UTF-8 text run at its baseline |
+| `end_frame(user)` | End of the batch |
+
+The complete example is `examples/svg_demo.c`. It installs an SVG recorder and draws through the immediate-mode layer:
+
+```sh
+cmake -S . -B build -DBUI_BUILD_EXAMPLES=ON
+cmake --build build --target bui_svg_demo
+./build/examples/bui_svg_demo out.svg
+```
+
+<Callout type="note" title="Which path draws Blender's widgets?">
+The kit's widgets draw straight into a `BuiRaster`, so to embed the full kit (panels, fields, menus), use [the raster path](#the-kit-in-your-loop). Render sinks receive what's drawn through BUI's `gpu/` immediate-mode layer, as in the SVG demo.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="The kit API" href="docs/c/c-api/" icon="book" kicker="C & C++">
+    Nodes, properties, layout, the context and events.
+  </Card>
+  <Card title="Dear ImGui inside BUI" href="docs/imgui/cpp/" icon="cpu" kicker="Dear ImGui">
+    Host ImGui in a kit node, inside any of these hosts.
+  </Card>
+</CardGrid>

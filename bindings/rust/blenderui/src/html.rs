@@ -69,7 +69,9 @@ pub fn custom(tag: &'static str) -> Div {
 /// The user-agent stylesheet: the browsers' defaults (WHATWG rendering
 /// section: black text on white). An element with the `styled` attribute
 /// (`div().styled()`, `<div styled>`) and everything inside it get Blender's
-/// dark theme instead. Form widgets are Blender widgets either way.
+/// theme (dark, or light with `BUI_THEME` / `set_theme`) instead. Outside
+/// `styled`, form controls are drawn like a browser's; inside it they are
+/// Blender's widgets, and the Blender components always are.
 pub const UA_CSS: &str = r#"
 html { display: block; background-color: #ffffff; color: #000000; font-size: 16px; }
 body { display: block; margin: 8px; }
@@ -203,10 +205,48 @@ pub fn ua_stylesheet() -> &'static Stylesheet {
     SHEET.get_or_init(|| Stylesheet::parse(UA_CSS))
 }
 
-/// The parsed [`UA_STYLED_CSS`] (shared, parsed once).
+/// [`UA_STYLED_CSS`]'s colours in Blender's Light theme (Blender_Light.xml:
+/// the properties editor's #b3b3b3 back and dark text), in sheet order.
+const UA_STYLED_LIGHT: &[(&str, &str)] = &[
+    ("background-color: #303030; color: #e6e6e6;", "background-color: #b3b3b3; color: #1a1a1a;"),
+    ("color: #b8b8b8; }", "color: #3d3d3d; }"),
+    ("color: #999999; }", "color: #4d4d4d; }"),
+    ("background-color: #232323; border-radius: 3px;", "background-color: #c7c7c7; border-radius: 3px;"),
+    ("border: 1px solid #555555; padding: 0 3px;", "border: 1px solid #8c8c8c; padding: 0 3px;"),
+    ("background-color: #232323; padding: 6px 8px;", "background-color: #c7c7c7; padding: 6px 8px;"),
+    ("a { color: #5294e2;", "a { color: #1f5bb5;"),
+    ("a:hover { color: #78aef0; }", "a:hover { color: #3a78d6; }"),
+    ("border-top: 1px solid #484848;", "border-top: 1px solid #8c8c8c;"),
+    ("thead { background-color: #282828; }", "thead { background-color: #a6a6a6; }"),
+    ("border: 1px solid #484848; border-radius: 4px;", "border: 1px solid #8c8c8c; border-radius: 4px;"),
+    ("background-color: #353535; border: 1px solid #555555;", "background-color: #cccccc; border: 1px solid #8c8c8c;"),
+    ("box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);", "box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);"),
+    ("figcaption { font-size: 0.9em; color: #b8b8b8; }", "figcaption { font-size: 0.9em; color: #3d3d3d; }"),
+    ("iframe, embed, object, video { border: 1px solid #484848; }", "iframe, embed, object, video { border: 1px solid #8c8c8c; }"),
+];
+
+/// The `styled` user-agent stylesheet for a theme (`"dark"` or `"light"`).
+pub fn ua_styled_css(theme: &str) -> String {
+    let mut css = UA_STYLED_CSS.to_string();
+    if theme == "light" {
+        for (dark, light) in UA_STYLED_LIGHT {
+            debug_assert!(css.contains(dark), "UA_STYLED_LIGHT out of date: {dark}");
+            css = css.replacen(dark, light, 1);
+        }
+    }
+    css
+}
+
+/// The parsed `styled` sheet for the active theme ([`crate::set_theme`],
+/// `BUI_THEME`): [`UA_STYLED_CSS`] or its light variant (each parsed once).
 pub fn ua_styled_stylesheet() -> &'static Stylesheet {
-    static SHEET: OnceLock<Stylesheet> = OnceLock::new();
-    SHEET.get_or_init(|| Stylesheet::parse(UA_STYLED_CSS))
+    static DARK: OnceLock<Stylesheet> = OnceLock::new();
+    static LIGHT: OnceLock<Stylesheet> = OnceLock::new();
+    if crate::theme_name() == "light" {
+        LIGHT.get_or_init(|| Stylesheet::parse(&ua_styled_css("light")))
+    } else {
+        DARK.get_or_init(|| Stylesheet::parse(UA_STYLED_CSS))
+    }
 }
 
 #[cfg(test)]

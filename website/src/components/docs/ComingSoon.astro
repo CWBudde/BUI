@@ -1,0 +1,66 @@
+---
+/**
+ * Marks a feature that isn't built yet. Friendly, honest, and links to the roadmap.
+ *
+ *   <ComingSoon />                                  generic banner
+ *   <ComingSoon feature="WebAssembly" />            names the feature
+ *   <ComingSoon feature="egui">Optional details in Markdown.</ComingSoon>
+ *   <ComingSoon inline />                           a small "Coming soon" chip inside a sentence or table
+ */
+import Icon from "../site/Icon.astro";
+import { href } from "../../lib/docs";
+
+interface Props {
+  feature?: string;
+  inline?: boolean;
+}
+
+const { feature, inline = false } = Astro.props;
+const hasBody = Astro.slots.has("default");
+---
+
+{
+  inline ? (
+    <span class="inline-flex translate-y-[-1px] items-center gap-1 border border-primary px-1.5 align-middle text-[11px] font-medium uppercase leading-[18px] tracking-[0.08em] text-link">
+      <Icon name="hourglass-medium" weight="bold" size={11} /> Coming soon
+    </span>
+  ) : (
+    <aside class="soon not-prose border border-border" aria-label={feature ? `${feature}: coming soon` : "Coming soon"}>
+      <div class="hatch h-2.5 border-b border-border" aria-hidden="true" />
+      <div class="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
+        <span class="inline-flex size-9 shrink-0 items-center justify-center bg-primary text-white">
+          <Icon name="rocket-launch" weight="duotone" size={19} />
+        </span>
+        <div class="min-w-0 flex-1 text-[15px] leading-7">
+          <p class="font-semibold">{feature ? `${feature} is coming soon` : "This part is coming soon"}</p>
+          <div class="soon-body text-muted">
+            {hasBody ? (
+              <slot />
+            ) : (
+              <p>It's planned, not built yet. Nothing on this page pretends otherwise.</p>
+            )}
+          </div>
+          <p class="mt-2 text-sm">
+            <a href={href("docs/project/roadmap/")} class="text-link underline underline-offset-4">
+              See the roadmap
+            </a>
+            <span class="text-muted"> · </span>
+            <a href="https://github.com/ppmpreetham/BUI/issues" class="text-link underline underline-offset-4">
+              Ask for it on GitHub
+            </a>
+          </p>
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+<style>
+  .soon-body :global(> * + *) {
+    margin-top: 0.5rem;
+  }
+  .soon-body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
+</style>

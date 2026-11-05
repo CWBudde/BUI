@@ -1,0 +1,55 @@
+---
+import type { MarkdownHeading } from "astro";
+
+interface Props {
+  headings: MarkdownHeading[];
+}
+
+const items = Astro.props.headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+{
+  items.length > 1 && (
+    <nav aria-label="On this page" class="toc">
+      <p class="kicker mb-3 text-muted">On this page</p>
+      <ul class="flex flex-col border-l border-border">
+        {items.map((h) => (
+          <li>
+            <a
+              href={`#${h.slug}`}
+              data-toc-link={h.slug}
+              class:list={[
+                "-ml-px flex min-h-8 items-center border-l-2 border-transparent py-1 pr-2 text-[13px] leading-5 text-muted transition-[color,border-color] duration-150 ease-out hover:text-foreground",
+                "aria-[current=true]:border-primary aria-[current=true]:font-medium aria-[current=true]:text-foreground",
+                h.depth === 3 ? "pl-6" : "pl-3",
+              ]}
+            >
+              {h.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+<script>
+  const links = [...document.querySelectorAll<HTMLAnchorElement>("[data-toc-link]")];
+  if (links.length) {
+    const targets = links
+      .map((l) => document.getElementById(l.dataset.tocLink!))
+      .filter((el): el is HTMLElement => Boolean(el));
+    const setActive = (id: string) =>
+      links.forEach((l) => (l.dataset.tocLink === id ? l.setAttribute("aria-current", "true") : l.removeAttribute("aria-current")));
+    const visible = new Set<string>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) e.isIntersecting ? visible.add(e.target.id) : visible.delete(e.target.id);
+        const first = targets.find((t) => visible.has(t.id));
+        if (first) setActive(first.id);
+      },
+      { rootMargin: "-72px 0px -62% 0px" },
+    );
+    targets.forEach((t) => observer.observe(t));
+  }
+</script>

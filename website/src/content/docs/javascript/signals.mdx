@@ -1,0 +1,154 @@
+---
+title: Hooks and signals
+sidebarLabel: Signals
+description: React's hooks by React's names, holding signals. Pass one into JSX to update a single node; read .value to re-render. Every hook, explained.
+section: JavaScript & React
+order: 30
+languages: ["javascript"]
+sources: ["docs/javascript.md", "bindings/react/README.md", "bindings/react/hooks.js", "bindings/react/index.d.ts", "bindings/node/index.d.ts", "bindings/react/test/hooks.test.js"]
+---
+
+Here's the trick that makes React on BUI fast: **the state your hooks hold is a signal.** Put it in JSX and a change updates that one node, without re-rendering your component. Read its value while rendering and you get plain React behaviour. You choose per use, and the code still looks like React.
+
+A **signal** is a box holding a value. It remembers who reads it, so when the value changes, BUI knows exactly what to update.
+
+## Two ways to use a signal
+
+```jsx title="counter.jsx" {5,9}
+/** @jsxImportSource @blender-ui/react */
+import { render, useState, useMemo } from '@blender-ui/react'
+
+function Counter () {
+  const [count, setCount] = useState(0)
+  const style = useMemo(() => ({ color: count.value > 9 ? '#e5a50a' : '#e6e6e6' }), [])
+  return (
+    <main className="p-6 flex flex-col gap-3">
+      <span style={style}>Clicks: {count}</span>
+      <button onClick={() => setCount(c => c + 1)}>Add one</button>
+    </main>
+  )
+}
+
+render(<Counter />, { title: 'Signals', width: 360, height: 200 })
+```
+
+- **Passed as a prop or child** (`{count}`, `style={style}`): a change updates that one node. The component doesn't re-render.
+- **Read while rendering** (`count.value`): the component re-renders when it changes, exactly as with React's own hooks.
+
+So in the example, a click updates one text node and one `style`, and `Counter` renders exactly once. The memo reads `count.value` *inside the memo*, not while rendering, so it recomputes on its own without touching the component.
+
+With no reconciler running on a click, there's no new element tree, no props diff and almost no garbage. That's why React with signals costs about what the plain DOM-like API does.
+
+<Callout type="warning" title="Conditions and === need .value">
+A signal is an object, so it's always truthy. Write `{isPending.value && <Spinner />}` and `count.value === 0`. TypeScript catches `===` mistakes, but not truthiness ones. In plain JavaScript, arithmetic and template strings read the value for you (`count + 1`, `count > 5`, a template string); TypeScript needs `.value` there too.
+</Callout>
+
+## Every hook
+
+The hooks that hold or react to state take React's arguments and run at React's moments:
+
+| Hook | Returns | Notes |
+| --- | --- | --- |
+| `useState(init)` | `[signal, setState]` | `setState(v)` or `setState(prev => next)`; setting the same value doesn't update |
+| `useReducer(reducer, arg, init?)` | `[signal, dispatch]` | Uses the latest render's reducer, as React does |
+| `useRef(v)` | a ref | Effects and memos see `.current` change (an element mounting re-runs them); reading it while rendering doesn't subscribe |
+| `useMemo(fn, deps?)` | a memo | Recomputes when the signals it read change; replaced when `deps` change; without deps, every render |
+| `useCallback(fn, deps?)` | a function | Identity follows `deps`; calls are batched and don't subscribe the caller |
+| `useEffectEvent(fn)` | a function | Calls the latest render's `fn`; batched and untracked |
+| `useEffect(fn, deps?)` | | React's timing, deps and cleanups; also re-runs when the signals it read change |
+| `useLayoutEffect(fn, deps?)` | | The same, at layout time |
+| `useInsertionEffect(fn, deps?)` | | The same, at insertion time |
+| `useSyncExternalStore(subscribe, get)` | a signal | Follows the store without re-rendering |
+| `useTransition()` | `[isPending, start]` | Updates caused by the writes in `start(action)` run after urgent ones, in 5 ms slices; `action` may be async |
+| `useDeferredValue(value, initial?)` | a signal | Follows a value or a signal at transition priority |
+| `useActionState(action, initial)` | `[state, dispatch, isPending]` | Actions queue and run in order; errors reach the error boundary |
+| `useOptimistic(state, reducer?)` | `[optimistic, add]` | Updates last until their transition or action ends |
+
+`use`, `useContext`, `useId`, `useDebugValue` and `useImperativeHandle` are React's own: they hold no state. For context, pass a signal as the value, and consumers bind to it without re-rendering.
+
+React's plain-value hooks are still there if you want them: import them from `react` and they work in this renderer too.
+
+### Extras
+
+- **`useSignal(v)` and `useComputed(fn)`** give a component its own signal or memo, kept for as long as the component is mounted.
+- **`useSignalValue(sig)`** re-renders its component when `sig` changes. Use it in components rendered without this package's JSX runtime or `createElement`.
+- **`batch(fn)`** turns several writes into one update. **`startTransition(fn)`** makes the writes in `fn` low priority.
+- **`computed`** is a standalone memo. (In `@blender-ui/native` it's called `memo`; here `memo` stays React's, for components.)
+
+## Reading and writing a signal
+
+| You want to | Write |
+| --- | --- |
+| Read, and subscribe the running memo or effect | `sig.value` or `sig.get()` |
+| Read without subscribing | `sig.peek()`, or `untrack(() => …)` |
+| Write | `sig.value = v`, `sig.set(v)` or `sig.update(fn)` |
+| Run code on every change | `sig.subscribe(fn)` (returns the unsubscribe function) |
+
+## Signals in plain JavaScript
+
+`@blender-ui/native` has the same core: `signal`, `memo`, `effect`, `batch`, `untrack` and `startTransition`.
+
+```js title="signals.js"
+const { signal, memo, effect } = require('@blender-ui/native')
+
+const price = signal(4)
+const qty = signal(3)
+const total = memo(() => price.value * qty.value)
+const stop = effect(() => console.log('total', total.value)) // prints 12
+
+qty.value = 5   // prints 20
+stop()          // dispose the effect
+```
+
+- **Bind to the tree:** `el.setAttribute(name, sig)`, `el.style = sig`, `el.textContent = sig` or `win.createTextNode(sig)`.
+- **Unbind:** set a plain value. `destroy()` frees the bindings of a whole subtree.
+- **Without the addon:** `require('@blender-ui/native/signals')` gives you just the signals, in any JavaScript runtime.
+
+### The same ideas, two spellings
+
+| `@blender-ui/native` | `@blender-ui/react` |
+| --- | --- |
+| `signal(v)` | `useSignal(v)` / `useState(v)` |
+| `memo(f)` | `useComputed(f)` / `useMemo(f, deps)` |
+| `effect(f)` (returns `dispose`) | `useEffect(f, [])` |
+| `createSignal(v)` (`[get, set]`) | `useState(v)` |
+
+## How they behave
+
+The signals are **push-pull and glitch-free**. In plain words:
+
+- **Each memo or effect runs at most once per change,** after all of its sources have settled. You never see a half-updated state.
+- **Memos stop changes early.** If a memo's value didn't change, nothing downstream runs.
+- **Unread memos hold nothing.** A memo that nothing observes keeps no subscriptions, so it's garbage once you drop it.
+- **Writes inside an effect** to a signal the effect itself reads re-run it after the current run.
+- **Errors stay put.** A memo that throws rethrows on read, and recovers when its sources change.
+
+<Callout type="joke">
+A glitch-free signal never shows you a half-updated value. It's the opposite of a viewport while Cycles is still sampling.
+</Callout>
+
+## Keeping up with React
+
+Every hook is built from React's public hooks (`useState`, `useReducer`, `useRef`, `useMemo`, the effect hooks and `startTransition`), so StrictMode, concurrent rendering and React's timing come from React itself.
+
+A conformance suite, `bindings/react/test/hooks.test.js`, runs each hook beside React's original, in development and production builds and under StrictMode. It fails when a React release adds a hook that has neither a signal version nor an entry in its list of hooks used as they are (`NO_TWIN`). That's how it caught React 19.2's `useEffectEvent`.
+
+## When to use which
+
+- **Values that change often** (a counter, an animated colour, one cell in a big grid): pass the signal into JSX. Nothing re-renders.
+- **Values that change the structure** (show or hide a panel, switch a list): read `.value` while rendering. React re-renders, as usual.
+- **Big lists that change every frame:** keep the changing parts on signals. The [standalone page](../standalone-executables/#performance) shows what that saves: at 3,000 animated cells, about a quarter less CPU and memory than re-rendering.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Standalone executables" href="docs/javascript/standalone-executables/" icon="terminal" kicker="JavaScript">
+    Ship it, and see the performance numbers.
+  </Card>
+  <Card title="React" href="docs/javascript/react/" icon="layers" kicker="JavaScript">
+    render, createRoot, host components and Blender's widgets.
+  </Card>
+  <Card title="The DOM-like API" href="docs/javascript/native-api/" icon="book" kicker="JavaScript">
+    Bind signals to elements without React.
+  </Card>
+</CardGrid>

@@ -1,0 +1,11 @@
+---
+/** One panel inside <Tabs> or <LangTabs>. `label` is the tab's text. */
+interface Props {
+  label: string;
+}
+const { label } = Astro.props;
+---
+
+<div data-tab-panel data-tab-label={label} role="tabpanel" class="tab-panel">
+  <slot />
+</div>

@@ -1,0 +1,134 @@
+---
+// Blender's menu search, running on the same port the docs search uses
+// (src/lib/string-search.ts): "ad cu" finds "Add Cube", "shsm" finds "Shade Smooth",
+// and "subdivde" still finds "Subdivide".
+const items = [
+  "Add Cube",
+  "Add Cylinder",
+  "Add Camera",
+  "Add Light",
+  "Apply Scale",
+  "Apply Rotation",
+  "Shade Smooth",
+  "Shade Flat",
+  "Duplicate Objects",
+  "Delete",
+  "Join",
+  "Set Origin to Geometry",
+  "Snap Cursor to Selected",
+  "Mark Seam",
+  "Subdivide",
+];
+---
+
+<div class="msearch" data-msearch>
+  <label class="msearch-field">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"
+      ><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg
+    >
+    <span class="sr-only">Search the menu</span>
+    <input type="text" value="ad cu" autocomplete="off" spellcheck="false" data-msearch-input aria-controls="msearch-list" />
+  </label>
+  <ul id="msearch-list" class="msearch-list" data-msearch-list aria-live="polite">
+    {items.map((it) => <li data-item={it}>{it}</li>)}
+  </ul>
+</div>
+
+<style>
+  .msearch {
+    width: 100%;
+    max-width: 280px;
+    background: var(--bl-menu);
+    border: 1px solid var(--bl-menu-outline);
+    border-radius: 4px;
+    box-shadow: 0 18px 40px -18px var(--bl-shadow);
+    padding: 6px;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    color: var(--bl-menu-text);
+  }
+  .msearch-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 8px;
+    background: var(--bl-field);
+    border-radius: 4px;
+    color: #999;
+    outline: 1px solid var(--bl-sel);
+  }
+  .msearch-field input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: var(--bl-field-text);
+    font: inherit;
+  }
+  .msearch-list {
+    margin-top: 4px;
+    min-height: 120px;
+  }
+  .msearch-list :global(li) {
+    padding: 3px 8px;
+    border-radius: 3px;
+  }
+  .msearch-list :global(li[hidden]) {
+    display: none;
+  }
+  .msearch-list :global(li.first) {
+    background: var(--bl-sel);
+    color: #fff;
+  }
+  .msearch-list :global(b) {
+    font-weight: 600;
+    color: var(--bl-menu-match);
+  }
+  .msearch-list :global(li.first b) {
+    color: #fff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .msearch-list :global(.none) {
+    color: var(--bl-muted);
+  }
+</style>
+
+<script>
+  import { StringSearch } from "../../lib/string-search";
+
+  document.querySelectorAll<HTMLElement>("[data-msearch]").forEach((root) => {
+    const input = root.querySelector<HTMLInputElement>("[data-msearch-input]")!;
+    const list = root.querySelector<HTMLUListElement>("[data-msearch-list]")!;
+    const all = [...list.querySelectorAll<HTMLLIElement>("li")].map((li) => li.dataset.item!);
+    const engine = new StringSearch<string>("all");
+    all.forEach((item) => engine.add(item, item));
+    const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
+
+    // Bold the start of each word that a query word begins (or its initial).
+    function markup(item: string, words: string[]) {
+      return item
+        .split(" ")
+        .map((part) => {
+          const lower = part.toLowerCase();
+          const w = words.filter((q) => lower.startsWith(q)).sort((a, b) => b.length - a.length)[0];
+          const n = w ? w.length : words.some((q) => q[0] === lower[0]) ? 1 : 0;
+          return n ? `<b>${esc(part.slice(0, n))}</b>${esc(part.slice(n))}` : esc(part);
+        })
+        .join(" ");
+    }
+
+    const render = () => {
+      const q = input.value.trim();
+      const words = q.toLowerCase().split(/s+/).filter(Boolean);
+      const rows = (q ? engine.query(q) : all).slice(0, 6);
+      list.innerHTML = rows.length
+        ? rows.map((item, i) => `<li class="${i === 0 ? "first" : ""}">${q ? markup(item, words) : esc(item)}</li>`).join("")
+        : `<li class="none">No match. Try “sh sm”, “shsm” or “subdivde”.</li>`;
+    };
+    input.addEventListener("input", render);
+    render();
+  });
+</script>

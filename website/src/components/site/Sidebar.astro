@@ -1,0 +1,109 @@
+---
+// The docs' page list, grouped by section. The section you're in is lit; the page you're
+// on is filled with Blender's selection blue. On load the list keeps its scroll position
+// from the previous page and makes sure the current page is visible (centered, no jump).
+import Icon from "./Icon.astro";
+import { docHref, getGroups } from "../../lib/docs";
+
+interface Props {
+  currentId: string;
+}
+
+const { currentId } = Astro.props;
+const groups = await getGroups();
+---
+
+<nav aria-label="Documentation" class="sidebar flex flex-col px-3 pt-3 pb-14" data-sidebar>
+  {
+    groups.map((group) => {
+      const here = group.docs.some((d) => d.id === currentId);
+      return (
+        <div class:list={["sidebar-group flex flex-col", here && "is-here"]}>
+          <h2 class="sidebar-label flex items-center gap-2 px-3 pt-5 pb-1.5">
+            <Icon name={group.icon} weight={here ? "fill" : "regular"} size={14} />
+            <span class="kicker">{group.label}</span>
+          </h2>
+          <ul class="flex flex-col gap-px">
+            {group.docs.map((doc) => {
+              const active = doc.id === currentId;
+              const status = doc.data.status;
+              return (
+                <li>
+                  <a href={docHref(doc)} aria-current={active ? "page" : undefined} class="sidebar-link group" data-active={active ? "" : undefined}>
+                    <span class="min-w-0 flex-1">{doc.data.sidebarLabel ?? doc.data.title}</span>
+                    {status === "coming-soon" && (
+                      <span class="sidebar-tag" title="Coming soon">
+                        <Icon name="hourglass-medium" weight="bold" size={10} />
+                        Soon
+                      </span>
+                    )}
+                    {status === "preview" && (
+                      <span class="sidebar-tag" title="Preview: works, may change">
+                        Preview
+                      </span>
+                    )}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      );
+    })
+  }
+</nav>
+
+<style>
+  .sidebar-label {
+    color: var(--muted);
+  }
+  .sidebar-group.is-here .sidebar-label {
+    color: var(--link);
+  }
+  .sidebar-link {
+    position: relative;
+    display: flex;
+    min-height: 2.125rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 13.5px;
+    line-height: 1.35;
+    color: var(--muted);
+    transition:
+      background-color 140ms ease-out,
+      color 140ms ease-out;
+  }
+  .sidebar-link:hover {
+    color: var(--foreground);
+    background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  }
+  .sidebar-group.is-here .sidebar-link:not([data-active]) {
+    color: color-mix(in oklab, var(--foreground) 82%, var(--muted));
+  }
+  .sidebar-link[data-active] {
+    color: var(--primary-ink);
+    font-weight: 500;
+    background: var(--primary);
+  }
+  .sidebar-link[data-active]:hover {
+    background: var(--primary-hover);
+  }
+  .sidebar-link:focus-visible {
+    outline-offset: -2px;
+  }
+  .sidebar-tag {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0 0.3rem;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid currentColor;
+    opacity: 0.75;
+  }
+</style>

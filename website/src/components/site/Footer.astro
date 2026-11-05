@@ -1,0 +1,73 @@
+---
+import Logo from "./Logo.astro";
+import { site } from "../../config/site";
+import { href } from "../../lib/docs";
+
+const groups = [
+  {
+    title: "Learn",
+    links: [
+      ["Introduction", href("docs/start/introduction/")],
+      ["Installation", href("docs/start/installation/")],
+      ["Your first app", href("docs/tutorials/first-app-python/")],
+      ["Roadmap", href("docs/project/roadmap/")],
+    ],
+  },
+  {
+    title: "Packages",
+    links: [
+      ["blenderui on PyPI", site.pypi],
+      ["@blender-ui/react", site.npm],
+      ["@blender-ui/native", "https://www.npmjs.com/package/@blender-ui/native"],
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      ["Source on GitHub", site.repo],
+      ["Changelog", `${site.blobBase}CHANGELOG.md`],
+      ["Contributing", `${site.blobBase}CONTRIBUTING.md`],
+      ["Report an issue", `${site.repo}/issues`],
+    ],
+  },
+] as const;
+---
+
+<footer class="border-t border-border">
+  <div class="hatch h-10 border-b border-border" aria-hidden="true"></div>
+  <div class="grid grid-cols-2 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+    <section class="col-span-2 flex flex-col gap-4 border-b border-border p-6 md:col-span-1 md:border-r md:border-b-0 md:p-8">
+      <Logo size={30} />
+      <p class="max-w-xs text-balance text-sm leading-6 text-muted">
+        Blender's interface, as a library. Built on Blender's source, so it shares Blender's license:
+        {site.license}.
+      </p>
+    </section>
+    {
+      groups.map((group, i) => (
+        <section
+          class:list={[
+            "border-border p-6 md:p-8",
+            i < groups.length - 1 && "border-r",
+            i === groups.length - 1 && "col-span-2 border-t md:col-span-1 md:border-t-0",
+          ]}
+        >
+          <h2 class="kicker mb-4 text-muted">{group.title}</h2>
+          <ul class="flex flex-col gap-2.5 text-sm">
+            {group.links.map(([label, url]) => (
+              <li>
+                <a href={url} class="underline-offset-4 hover:text-link hover:underline">
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+  <div class="flex flex-col gap-1 border-t border-border px-6 py-4 text-xs text-muted sm:flex-row sm:justify-between md:px-8">
+    <p>BUI is an independent project. Blender is a trademark of the Blender Foundation.</p>
+    <p>No default cubes were harmed in the making of this site.</p>
+  </div>
+</footer>

@@ -1,0 +1,20 @@
+---
+/**
+ * A bordered grid of <Card>s. Cards share borders, like cells of one table.
+ *
+ * <CardGrid>
+ *   <Card title="Install" href="docs/start/installation/" icon="terminal">Get BUI for your language.</Card>
+ *   <Card title="Your first app" href="docs/tutorials/first-app-python/">Ten lines, one window.</Card>
+ * </CardGrid>
+ *
+ * cols: 2 (default) or 3 on wide screens.
+ */
+interface Props {
+  cols?: 2 | 3;
+}
+const { cols = 2 } = Astro.props;
+---
+
+<div class:list={["card-grid not-prose grid gap-px border border-border bg-border", cols === 3 ? "sm:grid-cols-2 lg:grid-cols-3" : "sm:grid-cols-2"]}>
+  <slot />
+</div>

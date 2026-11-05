@@ -1,0 +1,94 @@
+---
+title: Roadmap and status
+sidebarLabel: Roadmap
+description: What works today, what's partial, and what's coming next, straight from the repository's status tables.
+section: Project
+order: 10
+sources: ["README.md", "docs/qt.md", "docs/rust.md", "docs/imgui.md", "docs/javascript.md", "docs/publishing.md"]
+---
+
+Here's the honest picture. Most of BUI works today, a few parts are partial, and some are still plans. This page tells you which is which, so you never have to guess.
+
+Each row has a status: **Works** when it works and is tested, **Partial** when common cases work but pieces are missing, **Experimental** when it's written but not yet proven on real hardware, and **Planned** when it's planned but not built.
+
+## Done
+
+<StatusTable
+  rows={[
+    ["C runtime (the kit)", "done", "Nodes, Tk-style geometry managers, input, Blender widget drawing, damage rendering, undo, animation, text areas, canvases, scroll views, Blender's string search, expression evaluator, text-edit undo and float precision"],
+    ["Native windows", "done", "Windows (Win32) and Linux (X11; Wayland through XWayland): DPI-aware, frame-paced animation, clipboard, cursors"],
+    ["Themes", "done", "Blender's Dark (default) and Light presets, switchable at run time from every language, or with <code>BUI_THEME</code>"],
+    ["tkinter syntax", "done", "Every public tkinter and ttk name: 7,846 of 7,846"],
+    ["Blender components", "done", "45 components, including the color ramp, curve and node editors"],
+    ["Rust", "done", "All 113 HTML elements, flexbox, grid, CSS 2.1, modern CSS, animations, Tailwind v4, <code>rsx!</code> and gpui-style builders, <code>#[component]</code>, hooks, Blender components, headless testing"],
+    ["Dear ImGui", "done", "The real Dear ImGui 1.93 on BUI (CPU, Direct3D 11, OpenGL); C++, C (399 of 399 functions), Python and Rust; the Blender-widgets build"],
+    ["Rendering", "done", "Parallel, damage-tracked software raster; GPU renderer on Direct3D 11 (Windows) and OpenGL 3.3 (Linux)"],
+    ["JavaScript and React", "done", "<code>@blender-ui/native</code> and <code>@blender-ui/react</code> on Node.js and Bun; <code>bui build</code> standalone executables"],
+    ["Packaging", "done", "<code>blenderui</code> on PyPI with wheels for every platform; <code>blenderui</code> on crates.io; <code>@blender-ui/react</code> and <code>@blender-ui/native</code> on npm"],
+  ]}
+/>
+
+## Partial or in progress
+
+<StatusTable
+  rows={[
+    ["Qt syntax", "partial", "About 25% of Qt's methods on the main widget classes. Missing: model/view classes, docks, toolbars, splitters, Qt stylesheets"],
+    ["CSS (Rust, JavaScript)", "partial", "261 of 745 W3C properties render and 129 more parse. Missing: 3D transforms, OpenType font features, multi-column layout"],
+    ["Text", "partial", "No text wrapping around floats; right-to-left text is reordered but not shaped; no per-glyph font fallback yet; no IME"],
+    ["Rust components", "partial", "No async resources (<code>use_resource</code>) and no generic components yet"],
+    ["Dear ImGui", "partial", "Python and safe Rust skip the <code>va_list</code>, <code>void*</code> and C-callback functions; in the Blender-widgets build, title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing"],
+    ["npm packages", "partial", "Prebuilt for Windows x64 only; on Linux, build the addon from source"],
+    ["macOS", "experimental", "The Cocoa window host is written but not yet run on a Mac (<a href='https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md'>testing guide</a>); JavaScript is headless there; no GPU renderer yet"],
+    ["<code>blenderui-imgui</code> on crates.io", "partial", "The main <code>blenderui</code> crate is published; the Dear ImGui crate isn't yet, so use it as a git dependency"],
+  ]}
+/>
+
+## Planned
+
+<StatusTable
+  rows={[
+    ["WebAssembly", "planned", "The kit in the browser: the raster blits to a <code>&lt;canvas&gt;</code>, DOM events feed the kit, and the React and DOM-like APIs run on top, unchanged"],
+    ["egui", "planned", "BUI panels inside egui, plus a Blender-styled theme"],
+    ["More from Blender's source", "planned", "Per-glyph font fallback (BLF), IME, search-as-you-type popups, units in number fields, widget drag and drop"],
+    ["macOS GPU and JavaScript windows", "planned", "The GPU renderer on Metal (or the OpenGL backend), and Node windows on the main thread"],
+    ["More GPU backends", "planned", "Vulkan and WebGPU, drawing the same instance stream as Direct3D 11 and OpenGL"],
+    ["More languages", "planned", "MyGo, C#, Go, Zig, Swift, Kotlin and Lua over the same C header; Godot, Unity and Bevy; Flutter"],
+  ]}
+/>
+
+<ComingSoon feature="WebAssembly">
+
+This is the one people ask about most. The plan: BUI's software raster draws into a browser `<canvas>`, the browser's events feed the kit, and `@blender-ui/react` works unchanged. Nothing to try yet.
+
+</ComingSoon>
+
+## Docs pages on the way
+
+The documentation grows alongside BUI. These lists come straight from the pages themselves, so they're always current.
+
+### Coming soon
+
+<PageStatusList status="coming-soon" empty="Every planned page is written. Nice." />
+
+### In preview
+
+<PageStatusList status="preview" empty="No pages are in preview right now." />
+
+## Help make it happen
+
+The quickest wins are the experimental rows: if you have a Mac, running the Cocoa host and reporting what happens is enormously useful. The [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md) walks you through it. Bug reports, missing tkinter or Qt behaviour, CSS features and docs are all welcome too. Start with [CONTRIBUTING.md](https://github.com/ppmpreetham/BUI/blob/main/CONTRIBUTING.md).
+
+<Callout type="joke">
+Our roadmap has no dates on it. Like a good render, it's done when the noise goes away.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Install BUI" href="docs/start/installation/" icon="terminal" kicker="Start here">
+    Try what works today.
+  </Card>
+  <Card title="Open an issue" href="https://github.com/ppmpreetham/BUI/issues" icon="github" kicker="Contribute">
+    Ask for a feature, report a bug, or claim a roadmap item.
+  </Card>
+</CardGrid>

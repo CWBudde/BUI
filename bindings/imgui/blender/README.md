@@ -104,7 +104,8 @@ aligns vectors (no gap, inner corners square), instead of ImGui's `ItemInnerSpac
   tooltips, `BeginPopup` / context-menu backgrounds (only combos and `BeginMenu` menus get
   Blender's menu backdrop), table headers and window titles keep ImGui's rendering in the
   Blender style and ImGui's glyphs.
-- `ColorPicker3/4` (Blender's HSV circle is not ported to the kit), `VSlider*`, `PlotLines` /
+- `ColorPicker3/4` (the kit has Blender's HSV color picker, but this build doesn't route
+  ImGui's picker to it yet), `VSlider*`, `PlotLines` /
   `PlotHistogram`, `ImageButton`, `Bullet` and `TextLink` keep ImGui's drawing.
 - Text being typed uses ImGui's glyphs (its cursor and selection are measured with them).
 - Indeterminate `ProgressBar` (negative fraction) shows the moving end of ImGui's segment.

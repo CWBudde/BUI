@@ -1,0 +1,192 @@
+---
+title: Run a tkinter app on BUI
+sidebarLabel: tkinter app
+description: Take a plain tkinter program, run it on BUI without changing a line, then give it Blender's panels, sliders and number fields on purpose.
+section: Tutorials
+order: 20
+languages: ["python"]
+badges: ["10 minutes", "Beginner"]
+sources: ["docs/tkinter.md", "examples/tk_unchanged_app.py", "README.md", "pyproject.toml", "bindings/python/bui/tksyntax/__init__.py", "bindings/python/bui/tksyntax/__main__.py", "SYNTAX_COVERAGE.md"]
+---
+
+You already have a tkinter app, or you know how to write one. In the next ten minutes you'll run it on BUI **without changing a line**, and it will come out looking and behaving like Blender.
+
+Then you'll learn which tkinter widgets turn into which Blender widgets, so you can design for that look on purpose.
+
+<Callout type="note" title="What you need">
+Python 3.11 or newer and `pip install blenderui` ([installation](../../start/installation/)). To compare against the original look, you also need Python's own `tkinter`, which most Python installs include.
+</Callout>
+
+## The app
+
+Here's a small, ordinary tkinter program: a render-settings form with a text entry, a spin box, a slider, a dropdown, a checkbox and a button. There's no BUI in it anywhere.
+
+```py title="render_settings.py"
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+root = tk.Tk()
+root.title("Render settings")
+
+panel = ttk.LabelFrame(root, text="Output")
+panel.pack(fill="x", padx=6, pady=6)
+
+name = tk.StringVar(value="shot_010")
+samples = tk.IntVar(value=128)
+denoise = tk.BooleanVar(value=True)
+
+ttk.Label(panel, text="Name").grid(row=0, column=0, sticky="e", padx=4, pady=2)
+ttk.Entry(panel, textvariable=name).grid(row=0, column=1, sticky="we", pady=2)
+
+ttk.Label(panel, text="Samples").grid(row=1, column=0, sticky="e", padx=4, pady=2)
+tk.Spinbox(panel, from_=1, to=4096, textvariable=samples).grid(
+    row=1, column=1, sticky="we", pady=2)
+
+ttk.Label(panel, text="Quality").grid(row=2, column=0, sticky="e", padx=4, pady=2)
+quality = tk.Scale(panel, from_=0, to=100, orient="horizontal")
+quality.set(90)
+quality.grid(row=2, column=1, sticky="we", pady=2)
+
+ttk.Label(panel, text="Format").grid(row=3, column=0, sticky="e", padx=4, pady=2)
+fmt = ttk.Combobox(panel, values=("PNG", "JPEG", "OpenEXR"), state="readonly")
+fmt.current(0)
+fmt.grid(row=3, column=1, sticky="we", pady=2)
+
+ttk.Checkbutton(panel, text="Denoise", variable=denoise).grid(
+    row=4, column=1, sticky="w", pady=2)
+panel.columnconfigure(1, weight=1)
+
+def render():
+    messagebox.showinfo("Render", "%s: %d samples, %d%% %s" % (
+        name.get(), samples.get(), quality.get(), fmt.get()))
+
+ttk.Button(root, text="Render", command=render).pack(fill="x", padx=6, pady=(0, 6))
+root.mainloop()
+```
+
+## Run it three ways
+
+<Steps>
+
+1. **Run it the usual way, for comparison.**
+
+   ```sh
+   python render_settings.py
+   ```
+
+   You get the classic Tk window. Close it.
+
+2. **Run it on BUI, unchanged.**
+
+   ```sh
+   blenderui-tk render_settings.py
+   ```
+
+   Same file, same code, but now drawn by BUI. `blenderui-tk` comes with `pip install blenderui`. It makes `import tkinter` (and `tkinter.ttk`, `tkinter.messagebox` and the other submodules) point to BUI, then runs your script. Anything after the script's name is passed to it in `sys.argv`, as usual.
+
+   If the `blenderui-tk` command isn't on your `PATH`, this does the same thing:
+
+   ```sh
+   python -m bui.tksyntax render_settings.py
+   ```
+
+3. **Or switch inside the program.**
+
+   When you'd rather start the app with plain `python`, call `install()` before the first `import tkinter`:
+
+   ```py title="render_settings.py" ins={1-2}
+   import blenderui.tksyntax
+   blenderui.tksyntax.install()   # before the first `import tkinter`
+
+   import tkinter as tk
+   from tkinter import ttk, messagebox
+   ```
+
+   From then on, every `import tkinter` in the process, including inside libraries you use, gets BUI.
+
+4. **Or import it by name.**
+
+   For new code that's meant for BUI, import BUI's tkinter directly and skip the switch:
+
+   ```py
+   import blenderui.tksyntax as tk
+   from blenderui.tksyntax import ttk, messagebox
+   ```
+
+   The names and behaviour are tkinter's, so the rest of the file stays the same.
+
+</Steps>
+
+<Figure
+  src="images/tkinter-render-settings.png"
+  alt="The render settings form on BUI: an Output panel with a Name text field, a Samples number field showing 128, a blue Quality slider at 90, a Format dropdown set to PNG, a checked Denoise checkbox, and a Render button"
+  caption="<code>render_settings.py</code> on BUI, unchanged. The <code>LabelFrame</code> became a panel, the <code>Spinbox</code> a number field and the <code>Scale</code> a slider."
+  width={276}
+  height={195}
+/>
+
+## Play with it
+
+None of this needed extra code. It's Blender's behaviour, built into the widgets BUI draws:
+
+- **Drag the Samples field** sideways. The cursor hides and the number scrubs. Hold <Kbd>Shift</Kbd> for fine steps, <Kbd>Ctrl</Kbd> to snap.
+- **Click the Quality slider** and type `75`, or `100/3`, then press <Kbd>Enter</Kbd>. Sliders and number fields are Blender's, so they accept math. A plain `Entry` stays a text field and takes text as typed.
+- **Press <Kbd keys="Ctrl+Z" />** to undo the last edit, and <Kbd keys="Ctrl+Shift+Z" /> to redo.
+- **Press <Kbd>Tab</Kbd>** while editing a field to jump to the next one.
+- **Click Render.** The message box is a Blender-styled dialog, and `showinfo` returns `"ok"` just like tkinter's.
+
+## Which widget becomes what
+
+You don't choose the look: it always comes from Blender's theme. But some tkinter widgets have a natural Blender twin, and BUI uses it:
+
+| You write | You get |
+| --- | --- |
+| `ttk.LabelFrame` | A Blender panel |
+| `tk.Spinbox` | A Blender number field |
+| `tk.Scale`, `ttk.Scale` | A Blender slider |
+| `ttk.Combobox`, `tk.OptionMenu` | A Blender dropdown (enum menu) |
+| `tk.Checkbutton(indicatoron=0)` | A Blender toggle button |
+| `tk.Menu` on the root | A Blender menu bar |
+| `ttk.Scrollbar` | A Blender scroller that speaks Tk's scrollbar protocol |
+
+So if you want a Blender-style tool, reach for `LabelFrame` to group settings and `Spinbox` for numbers. A plain `Entry` holding a number is still just a text field.
+
+Options that only change Tk's own look, like `relief`, `borderwidth`, `highlightthickness`, `activebackground` and `ttk.Style` settings, are accepted and returned by `cget`, but they don't change what's drawn. These do apply: `bg` on frames, canvases and windows, `fg` on text, `font` (size and bold), `cursor`, `width` and `height`, `image` and `state`.
+
+<Callout type="tip" title="GPU rendering">
+With the import-by-name style you can ask for the GPU in code: `tk.Tk(gpu=True)`. For apps you run unchanged, set `BUI_GPU=1` instead. The pixels are the same; the CPU does much less work. If there's no usable GPU, the window stays on the CPU renderer.
+</Callout>
+
+## A bigger example
+
+The repository has a fuller unchanged app with a menu bar, a notebook with three tabs, a `Treeview` table, a `Text` widget with tags and a `Canvas`:
+
+```sh
+blenderui-tk examples/tk_unchanged_app.py
+```
+
+<Figure
+  src="images/tkinter_items.png"
+  alt="An Inventory window on BUI: a File and Edit menu bar, Items, Notes and Canvas tabs, a New item panel with fields, and a table of objects"
+  caption="<code>examples/tk_unchanged_app.py</code>: plain tkinter, no BUI imports."
+  width={386}
+  height={408}
+/>
+
+## If something looks different
+
+BUI follows Tk's rules and checks them against the real tkinter in its tests, so differences are bugs. A few Tk rules surprise people anyway, on any toolkit: `Text.get("1.0", "end")` ends with a newline (use `"end-1c"`), and menus keep a tear-off entry at index 0 unless you pass `tearoff=0`. The [tkinter guide](../../python/tkinter/) lists these, plus the few things BUI can't do (there's no Tcl interpreter, so `root.tk.call` only knows a handful of commands).
+
+## Next steps
+
+<CardGrid>
+  <Card title="tkinter on BUI" href="docs/python/tkinter/" icon="book" kicker="Python">
+    The full guide: module map, behaviour notes, limitations and testing against stdlib tkinter.
+  </Card>
+  <Card title="Blender components" href="docs/tutorials/first-app-python/" icon="sparkles" kicker="Tutorial">
+    Starting fresh? Build with Blender's own widgets instead.
+  </Card>
+  <Card title="Qt syntax" href="docs/tutorials/first-app-qt/" icon="layers" kicker="Tutorial">
+    Prefer <code>QWidget</code> and <code>clicked.connect</code>? Build the same kind of form in Qt style.
+  </Card>
+</CardGrid>

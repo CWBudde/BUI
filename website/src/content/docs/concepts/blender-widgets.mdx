@@ -1,0 +1,167 @@
+---
+title: Blender's widgets and interactions
+sidebarLabel: Blender's widgets
+description: Every drag rule, shortcut and menu trick BUI copies from Blender, so you know exactly what your users' hands will feel.
+section: Concepts
+order: 20
+sources: ["docs/components.md", "CHANGELOG.md", "README.md", "docs/tkinter.md", "kit/intern/kit_core.c", "bindings/imgui/blender/README.md"]
+---
+
+Blender's interface is famous for how it *feels*: number fields you scrub without lifting the mouse, math you can type into any number field, menus you can search by typing two letters. BUI gives your app all of it, with no extra code.
+
+This page lists each behaviour precisely, so you can tell your users what to expect, and so you know what to test.
+
+<Figure
+  shot="c-kit-app"
+  alt="A Blender modifier stack drawn by BUI: collapsible panels, enum rows, number fields, dropdowns, a slider, checkboxes and buttons"
+  caption="Every widget in this window follows the rules below (<code>examples/site/kit_modifiers.c</code>)."
+/>
+
+## Where these rules apply
+
+The rules live in the C kit, so they work the same in every API that draws Blender widgets:
+
+- **Python:** the Blender components, tkinter syntax (`Scale`, `Spinbox`, `Checkbutton` …) and Qt syntax.
+- **Rust and JavaScript:** the Blender components (`<NumberSlider>`, `<Checkbox>` …) and form controls inside `styled`. Plain HTML elements behave like a browser's.
+- **Dear ImGui:** the Blender-widgets build (`BUI_IMGUI_BLENDER_WIDGETS=ON`). `DragFloat` becomes Blender's number field, `SliderFloat` its slider, checkboxes drag-toggle, and menus and combos become Blender's menus.
+- **C:** every kit widget.
+
+## Number fields
+
+A **number field** shows a value you can drag, click or type into. Over one, the pointer turns into left-right arrows.
+
+**Drag to scrub.** Press and drag sideways. The cursor hides and wraps, so you never hit the edge of the screen. When you let go, the cursor comes back where the drag started.
+
+- A **float** moves one click step per pixel.
+- An **integer** moves 1, ½ or 1/16 per pixel, depending on its range.
+- Hold <Kbd>Shift</Kbd> to move at a tenth of the speed.
+- Movement inside the small drag threshold is ignored, so the value doesn't jump when the drag starts.
+- Past a limit (`min` or `max`), the drag's starting point moves with the pointer, so dragging back responds at once.
+- <Kbd>Esc</Kbd> cancels the drag and restores the value.
+
+**Snap with Ctrl.** Hold <Kbd>Ctrl</Kbd> while dragging, and BUI snaps by Blender's rules. <Kbd keys="Ctrl+Shift" /> snaps finer.
+
+| Kind of value | <Kbd>Ctrl</Kbd> snaps to |
+| --- | --- |
+| Unbounded float | Whole units |
+| Angle | 10° |
+| Slider | 0.1, 1 or 10, depending on its range |
+| Integer | Multiples of 10 |
+
+**Click to type.** Click the field, or <Kbd>Ctrl</Kbd>-click it, and type a new value. A drag that changed nothing counts as a click.
+
+## Math in number fields
+
+When you type into a Blender number field or slider, you can type an expression instead of a number. Text fields (plain HTML inputs, tkinter's `Entry`, `QLineEdit`, ImGui's `InputText`) keep what you type as text. BUI evaluates it with Blender's own expression evaluator (`expr_pylike_eval.cc`):
+
+```text
+2*pi          → 6.283185…
+90/4          → 22.5
+1e3           → 1000
+min(4, 3)     → 3
+round(1.7)    → 2
+x if c else y → Python-style conditionals
+```
+
+From Python, `buipy.kit_eval_number("2*pi")` runs the same evaluator.
+
+<ComingSoon feature="Units in number fields">
+Blender shows units like "2 m" or "90°" and lets you type them. BUI already drops trailing zeros the way Blender does ("0 m", "90°"); typing values with units is on the roadmap.
+</ComingSoon>
+
+## Sliders
+
+A **slider** is a number field with a fill bar.
+
+- The value follows the pointer across the slider's width, from where the drag began.
+- <Kbd>Shift</Kbd> moves at 1/20 of the speed.
+- When the drag ends, the pointer is put back at the value's position.
+- <Kbd>Ctrl</Kbd> snaps to 0.1, 1 or 10, depending on the range.
+
+## Shortcuts on any value
+
+Hover a value (number, slider, checkbox, color …) and use these:
+
+| Keys | What happens |
+| --- | --- |
+| <Kbd keys="Ctrl+Wheel" /> | Steps the value up or down |
+| <Kbd keys="Ctrl+C" /> / <Kbd keys="Ctrl+V" /> | Copies or pastes the value |
+| <Kbd keys="Ctrl+Alt+C" /> / <Kbd keys="Ctrl+Alt+V" /> | Copies or pastes a whole vector (X, Y and Z together) |
+| <Kbd>Backspace</Kbd> | Resets to the default |
+| <Kbd>-</Kbd> | Negates a number |
+| Right-click | Opens the context menu: Copy, Paste, Reset |
+
+## Several fields at once
+
+**Drag down to collect.** Press a number field and drag *down* over the fields below it. Each one joins the drag. Then drag sideways to change them all together. It's how Blender users set X, Y and Z scale in one motion.
+
+**Alt for linked fields.** Hold <Kbd>Alt</Kbd> while editing one field of a linked group (like X/Y/Z), and all of them change.
+
+**Drag across toggles.** Press a checkbox and drag across its neighbours to set them all to the same state, in one stroke. Panel headers work the same way: drag across them to open or close them all.
+
+## Panels
+
+- Click a header to collapse or open the panel, with Blender's animation.
+- <Kbd>Ctrl</Kbd>-click a header to open that panel and close the others.
+- Drag a header's grip to reorder panels.
+- Sub-panels are indented and laid out as in Blender's properties editor.
+
+## Menus and search
+
+<Figure
+  shot="feature-menu-search"
+  alt="Blender's File menu with exp typed into it: the search lists matching items from the menu and its submenus, such as the export entries"
+  caption="Type while a menu is open and Blender's fuzzy search looks through the menu and its submenus (<code>examples/site/render_props.py</code>)."
+/>
+
+- **Press, drag, release.** Press a menu button, drag to an item and let go to pick it. A plain click works too.
+- **Hover to switch.** While one menu-bar menu is open, hovering another opens it. Hovering an item with a submenu opens the submenu.
+- **Type to search.** In an open menu, start typing to search every item. The search is Blender's fuzzy string search: "ad cu" finds "Add Cube", typos are forgiven, and your recent picks rank first.
+- **Pie menus.** A pie menu opens around the pointer. Flick toward an item to pick it.
+
+<ComingSoon feature="Search-as-you-type popups">
+Blender's search popups (the ones that open as a text field with a live list under it) aren't ported yet. Menu search, above, works today.
+</ComingSoon>
+
+## Undo
+
+<Kbd keys="Ctrl+Z" /> undoes the last UI edit and <Kbd keys="Ctrl+Shift+Z" /> (or <Kbd keys="Ctrl+Y" />) redoes it, in every widget.
+
+- A burst of typing is one step.
+- A multi-field drag is one step.
+- Inside a text field, undo works while you type, too.
+
+From Python, `app.ctx.undo()` and `app.ctx.redo()` do the same from code.
+
+## Keyboard and tooltips
+
+- While editing a field, <Kbd>Tab</Kbd> and <Kbd keys="Shift+Tab" /> move to the next or previous field. <Kbd>Esc</Kbd> cancels the edit.
+- Hover a widget for half a second (Blender's tooltip delay) to see its tooltip.
+
+<Callout type="tip" title="Testing these in your app">
+Every interaction runs in C, so you can drive it headlessly from a test: press, move and release at a widget's position, then check the value. [Headless testing](../../python/headless-testing/) shows how.
+</Callout>
+
+<ComingSoon feature="Widget drag and drop">
+Dragging a value from one widget and dropping it on another, as Blender allows, is planned.
+</ComingSoon>
+
+<Figure
+  shot="feature-tooltip"
+  alt="A tooltip under the Denoise dropdown, explaining the setting"
+  caption="A tooltip, shown after Blender's hover delay (<code>examples/site/render_props.py</code>)."
+/>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Your first app" href="docs/tutorials/first-app-python/" icon="sparkles" kicker="Tutorial">
+    Build a panel in Python and try each of these by hand.
+  </Card>
+  <Card title="How BUI works" href="docs/concepts/how-it-works/" icon="layers" kicker="Concepts">
+    Where these rules live, and why every language gets them.
+  </Card>
+  <Card title="Theming" href="docs/concepts/theming/" icon="bulb" kicker="Concepts">
+    Blender's colors and icons, and what you can change.
+  </Card>
+</CardGrid>

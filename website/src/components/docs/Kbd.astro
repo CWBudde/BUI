@@ -1,0 +1,52 @@
+---
+/**
+ * Keyboard keys. <Kbd>Ctrl</Kbd>+<Kbd>Z</Kbd>, or the shorthand <Kbd keys="Ctrl+Shift+Z" />.
+ */
+interface Props {
+  keys?: string;
+}
+const { keys } = Astro.props;
+const parts = keys ? keys.split("+") : null;
+---
+
+{
+  parts ? (
+    <span class="kbd-combo">
+      {parts.map((k, i) => (
+        <>
+          {i > 0 && <span class="text-muted">+</span>}
+          <kbd class="kbd">{k}</kbd>
+        </>
+      ))}
+    </span>
+  ) : (
+    <kbd class="kbd">
+      <slot />
+    </kbd>
+  )
+}
+
+<style>
+  .kbd {
+    display: inline-block;
+    min-width: 1.5em;
+    padding: 0 0.4em;
+    font-family: var(--font-sans);
+    font-size: 0.78em;
+    font-weight: 500;
+    line-height: 1.6;
+    text-align: center;
+    color: var(--foreground);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    vertical-align: 0.08em;
+    white-space: nowrap;
+  }
+  .kbd-combo {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.2em;
+    white-space: nowrap;
+  }
+</style>

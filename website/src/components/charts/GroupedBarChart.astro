@@ -1,0 +1,87 @@
+---
+/**
+ * Grouped horizontal bars: one group per category, one bar per series.
+ *
+ *   <GroupedBarChart
+ *     title="Start time, every way in" unit="ms" better="lower"
+ *     series={[{ name: "CPU renderer", ours: true }, { name: "GPU renderer" }]}
+ *     groups={[
+ *       { label: "Rust", values: [38, 42] },
+ *       { label: "Qt syntax", sub: "Python", values: [156, 161] },
+ *     ]}
+ *     table="startup"
+ *   />
+ *
+ * `null` in `values` means "not measured" and is drawn as a dash.
+ */
+import ChartFrame from "./ChartFrame.astro";
+import type { Group, Series, Table, TableId } from "../../data/bench";
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  unit: string;
+  better?: "lower" | "higher";
+  headline?: { value: string; text: string };
+  series: Series[];
+  groups: Group[];
+  table?: TableId | Table;
+  source?: string;
+  bare?: boolean;
+  class?: string;
+}
+
+const { series, groups, unit, better = "lower", ...frame } = Astro.props;
+
+const all = groups.flatMap((g) => g.values.filter((v): v is number => v !== null));
+const max = Math.max(...all, 0) || 1;
+
+// BUI's series in blues, others in greys (hatched), each a step lighter.
+let ours = 0;
+let other = 0;
+const colors = series.map((s) => {
+  if (s.ours) {
+    const c = ["var(--primary)", "var(--chart-ours-2)", "var(--chart-ours-3)"][Math.min(ours++, 2)];
+    return { color: c, hatch: false };
+  }
+  const c = ["var(--chart-other)", "var(--chart-other-2)", "var(--chart-other-3)"][Math.min(other++, 2)];
+  return { color: c, hatch: true };
+});
+const legend = series.map((s, i) => ({ name: s.name, ...colors[i] }));
+let n = 0;
+---
+
+<ChartFrame {...frame} better={better} legend={legend}>
+  <ul class="flex flex-col gap-4">
+    {
+      groups.map((g) => (
+        <li class="grid grid-cols-[minmax(6.5rem,9.5rem)_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[minmax(8rem,11rem)_minmax(0,1fr)]">
+          <span class="flex min-w-0 flex-col pt-0.5 leading-tight">
+            <span class="truncate text-[13px] font-medium">{g.label}</span>
+            {g.sub && <span class="truncate text-[11.5px] text-muted">{g.sub}</span>}
+          </span>
+          <ul class="flex flex-col gap-1">
+            {g.values.map((v, i) => {
+              const pct = v === null ? 0 : (v / max) * 100;
+              const text = g.display?.[i] ?? (v === null ? "–" : `${v.toLocaleString("en-US")} ${unit}`);
+              return (
+                <li class="chart-track is-thin" style={`--i:${n++}`}>
+                  <span class="sr-only">{series[i].name}: </span>
+                  {v !== null && (
+                    <span
+                      class:list={["chart-bar", colors[i].hatch ? "is-other" : "is-ours"]}
+                      style={`--p:${Math.max(pct, 0.4).toFixed(2)}%;--c:${colors[i].color}`}
+                    />
+                  )}
+                  <span class="chart-value" style={`--p:${pct.toFixed(2)}%`}>
+                    <span class:list={["tabular", series[i].ours ? "font-medium text-foreground" : "text-muted"]}>{text}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </li>
+      ))
+    }
+  </ul>
+</ChartFrame>

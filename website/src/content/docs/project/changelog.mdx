@@ -1,0 +1,89 @@
+---
+title: What's new
+sidebarLabel: Changelog
+description: A readable tour of what changed in BUI, from the first release to what's coming in the next one. The full list lives in CHANGELOG.md.
+section: Project
+order: 50
+sources: ["CHANGELOG.md", "bindings/python/bui/_version.py", "bindings/node/package.json", "bindings/react/package.json"]
+---
+
+Here's the story of BUI so far, in plain words: what the first release gave you, and what's waiting in the next one. For every detail, read the full [CHANGELOG.md](https://github.com/ppmpreetham/BUI/blob/main/CHANGELOG.md); it follows [Keep a Changelog](https://keepachangelog.com), and versions follow [Semantic Versioning](https://semver.org).
+
+## Coming in the next release
+
+These changes are on `main` and listed under **Unreleased** in the changelog.
+
+### Closer to Blender 5.x
+
+The biggest theme: BUI now looks and feels even more like the real thing.
+
+- **Text rendered like Blender's.** BUI vendors FreeType 2.13.3 and renders text as Blender's BLF does: light hinting, Blender's gamma, Inter's optical size, true bold and Blender's text shadows. [Text and fonts](../../concepts/text-and-fonts/) explains it.
+- **Blender's own icons.** All 781 of Blender's SVG icons, rasterized with Blender's nanosvg, in their theme colors.
+- **The Blender 5.x theme**, ported from `userdef_default_theme.c`.
+- **Panels, the properties navigation bar and many small widget details** ported from Blender, down to the checkmark's shape.
+- **Number fields and sliders drag exactly as in Blender:** per-pixel steps, Blender's Ctrl-snapping rules, limits, the drag threshold, and <Kbd>Esc</Kbd> to cancel. See [Blender's widgets](../../concepts/blender-widgets/).
+
+### New components and tools
+
+- **The node editor** (`NodeEditor` and `Node`), ported from Blender's `space_node`: nodes, sockets, bezier links, box select, cutting links and Blender's dot grid.
+- **Editor areas, sidebars and middle- and right-button input** for building editor-style tools.
+- **Blender's File Browser**, ported from `space_file`, with bookmarks, recent folders, sorting and Blender's keymap. `tkinter.filedialog` and `QFileDialog` now show it; `BUI_FILEDIALOG=native` brings back the system dialogs.
+
+### Native windows on Linux
+
+A native X11 window host, with the same API as on Windows. Wayland sessions run it through XWayland. The C libraries and the Python module now build and pass their tests on Linux.
+
+### JavaScript and React
+
+- **`@blender-ui/native` 0.2.0:** BUI from Node.js and Bun in native windows, with a DOM-like API and signals. BUI runs on its own UI thread, and only changes cross over.
+- **`@blender-ui/react` 0.1.0:** a React 19.3 renderer whose hooks (`useState`, `useMemo`, `useEffect` …) are backed by signals. A conformance suite checks each hook against React's own.
+- **`bui build`:** standalone executables of about 5 MB with an embedded QuickJS engine, or a Bun executable with `--bun`.
+
+### Rust
+
+- **Components and hooks** in zopra, React or Leptos style: `#[component]`, `use_state`, signals, `Memo`, `Effect` and context.
+- **`rsx!` and `view!` markup**, with Tailwind classes as bare attributes and "did you mean" compile errors for typos.
+- **Modern CSS:** `calc()` everywhere, every CSS math function, custom properties, CSS Color 4 and 5, Selectors Level 4, `@layer`, `@container`, `@font-face` and more. Layout moved to taffy 0.15.
+- **Tailwind CSS v4**, compiled on first use.
+
+### Rendering
+
+- **The GPU renderer** on Direct3D 11, opt-in, drawing the same pixels as the CPU raster.
+- **Slug GPU text**, from glyph outlines, switchable with `BUI_SLUG`.
+- **Inter embedded** as the default face everywhere, with the portable text engine now the default on Windows too.
+- **Parallel canvas rasterisation** on Windows, and many speed-ups across the kit and the Rust crate. For example, a tkinter canvas with 2,000 items and one moving went from 9.4 to 0.08 ms of render time per frame.
+
+### Not in the changelog yet
+
+Some work on `main` is described in the README but doesn't have a changelog entry yet: [Dear ImGui on BUI](../../imgui/cpp/), the OpenGL 3.3 GPU renderer on Linux, the macOS Cocoa window host, and Blender's string search and expression evaluator.
+
+### Fixed
+
+- GPU text read an environment variable on every text run, which pushed the GPU raster from 1.6 to 9.4 ms per frame at 3,000 cells. It now reads it once.
+- In Rust, `cx.notify()` inside `WindowHandle::update` didn't re-render that window.
+
+## 0.1.0: the first release
+
+The first release of `blenderui` on PyPI brought the foundations:
+
+- **The C kit:** Blender's UI as a C runtime, with the node tree, Tk's packer and gridder, Blender's interaction (hover, drag grabs, the continuous cursor, menus, tooltips), widget drawing ported from `interface_widgets.cc`, damage-driven rendering, undo and redo, animation, text areas, canvases and scroll views.
+- **A native Windows host**, DPI-aware, with vsync'd animation. Other platforms used a Tk window.
+- **tkinter syntax:** all 7,846 public names of tkinter and ttk, plus the dialogs and helper modules. Existing apps run unchanged with `blenderui-tk app.py`.
+- **Qt syntax:** a subset of Qt's widgets, layouts, signals, `QPainter`, menus and timers.
+- **45 Blender components**, from panels and sliders to pie menus, the color picker and editors.
+- **Packaging** as `blenderui`, with `import blenderui` as an alias of `bui`.
+
+<Callout type="tip" title="Follow along">
+Watch the [repository](https://github.com/ppmpreetham/BUI) on GitHub to hear about releases, or check the [Roadmap](../roadmap/) for what's planned next.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Full changelog" href="https://github.com/ppmpreetham/BUI/blob/main/CHANGELOG.md" icon="book" kicker="GitHub">
+    Every change, in detail.
+  </Card>
+  <Card title="Roadmap" href="docs/project/roadmap/" icon="flag" kicker="Project">
+    What's next.
+  </Card>
+</CardGrid>

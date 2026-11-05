@@ -1,0 +1,160 @@
+---
+title: Dear ImGui from Rust
+sidebarLabel: Rust
+description: The blenderui-imgui crate gives you the real Dear ImGui in Rust, with a safe layer, the full FFI underneath, a one-call runner and headless tests.
+section: Dear ImGui
+order: 40
+languages: ["rust", "imgui"]
+sources: ["docs/imgui.md", "bindings/rust/blenderui-imgui/Cargo.toml", "bindings/rust/blenderui-imgui/src/lib.rs", "bindings/rust/blenderui-imgui/src/safe.rs", "bindings/rust/blenderui-imgui/examples/demo.rs", "bindings/rust/Cargo.toml", "bindings/imgui/gen/coverage.json"]
+---
+
+Want Dear ImGui in Rust without fighting `unsafe` or a pile of build scripts? **The `blenderui-imgui` crate gives you a safe, generated API over the real Dear ImGui**, drawn by BUI in Blender's look. A window is one function call, and the C++ is compiled for you by Cargo.
+
+You get two layers in one crate: a **safe layer** (`&str`, `&mut T`, slices) for everyday code, and the **raw FFI** (`imgui::sys`) for anything the safe layer doesn't cover.
+
+## Add the crate
+
+`blenderui-imgui` isn't on crates.io yet <ComingSoon inline /> (the main `blenderui` crate is). Until it is, use a git dependency:
+
+```toml title="Cargo.toml"
+[dependencies]
+blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI" }
+```
+
+The first build compiles Dear ImGui, the BUI backend and BUI's C kit through CMake, so you need what the main crate needs: Rust 1.88 or newer, CMake and a C/C++ compiler. Nothing else is downloaded. The [installation page](../../start/installation/) has the details.
+
+## Hello from Rust
+
+```rust title="src/main.rs"
+use blenderui_imgui as imgui;
+
+fn main() {
+    let mut value = 0.5f32;
+    let mut text = String::from("Edit me");
+    imgui::run("Hello", [1280, 800], move || {
+        imgui::show_demo_window();
+        imgui::begin("Hello");
+        imgui::slider_float("Value", &mut value, 0.0, 1.0);
+        imgui::input_text("Text", &mut text);
+        if imgui::button("Reset") {
+            value = 0.5;
+        }
+        imgui::text(&format!("value {value:.2}"));
+        if let Some(dl) = imgui::get_window_draw_list() {
+            let p = imgui::get_cursor_screen_pos();
+            dl.add_circle_filled([p.x + 10.0, p.y + 10.0], 8.0, imgui::im_col32(71, 114, 179, 255));
+        }
+        imgui::end();
+    });
+}
+```
+
+`cargo run` opens a window with ImGui's demo and yours.
+
+Your closure owns its state (`move`), so there's no `static mut` and no `Rc<RefCell<…>>`.
+
+- **`imgui::run(title, size, frame)`** opens a BUI window and calls `frame` inside each ImGui frame until the window closes. It creates an ImGui context if none is current. Without a window system it returns at once.
+- **A panic in `frame`** closes the window and resumes from `run()`, so you get the usual panic message.
+
+BUI's own example is `cargo run -p blenderui-imgui --example demo` from `bindings/rust`; add `-- --screenshot demo.png` to render it headless.
+
+## The safe layer
+
+It's generated from `imgui.h`. Dear ImGui's own documentation and demo are written in C++, so here's how its names and types turn into Rust:
+
+| Dear ImGui (C++) | Rust |
+| --- | --- |
+| `ImGui::Button("OK")` / `ImGui::Button("OK", size)` | `button("OK")` / `button_ex("OK", size)`: optional arguments move to an `_ex` variant |
+| `const char*` | `&str` |
+| `float* v` (an in/out value) | `&mut f32`; `Option<&mut T>` where C++ accepts `NULL` |
+| `float col[3]` | `&mut [f32; 3]` |
+| A pointer and a count | A slice |
+| `char* buf, size_t size` in `InputText*` | `&mut String` (it grows as needed) |
+| `ImVec2` | `impl Into<ImVec2>`: `[x, y]` or `(x, y)` |
+| `draw_list->AddLine(...)` | `draw_list.add_line(...)`: methods on the structs |
+| `ImGuiTextFilter filter("x")` | `ImGuiTextFilter::new_ex("x")`, an `Owned<T>` that's deleted when dropped |
+
+**About lifetimes:** references ImGui returns (`get_io()`, `get_style()`, draw lists) are `'static` in the signatures, but they're only valid while their ImGui context lives. Don't keep them past it.
+
+## The FFI: `imgui::sys`
+
+Everything in `cimgui.h` is in `imgui::sys`, generated from the same description, with no bindgen or libclang:
+
+- **Every struct** with its C++ layout (`ImVector<T>`, unions, bit fields as storage words).
+- **Every enum value** as a constant.
+- **Every C function:** 879 of the 894 C functions. The 15 missing ones take a C `va_list`.
+
+`sys` is re-exported at the crate root, so `imgui::ImGuiWindowFlags_NoTitleBar` and `imgui::ImVec2` work directly. The names are those of `cimgui.h`, Dear ImGui's generated C API.
+
+## Configure and test: `imgui::App`
+
+`run` is a shortcut for `App`. Use `App` directly for options or for tests:
+
+```rust
+let frame = || imgui::show_demo_window();
+let mut config = imgui::Config::default();
+config.font_size = 15.0; // pixels at scale 1; 0 is Blender's UI text size
+let mut app = imgui::App::with_config(Some("Tool"), [1280, 800], config, frame);
+app.run();
+```
+
+`Config` has `blender_style`, `blender_font`, `font_size`, `follow_scale` and `settle_frames`.
+
+For tests, `App::headless(size, frame)` renders into an off-screen raster:
+
+```rust title="tests/ui.rs"
+use blenderui_imgui as imgui;
+
+#[test]
+fn renders_and_types() {
+    let mut name = String::new();
+    let mut app = imgui::App::headless([800, 600], move || {
+        imgui::begin("Test");
+        imgui::input_text("Name", &mut name);
+        imgui::end();
+    });
+    app.render(3);                // request and run 3 frames
+    app.click(100.0, 60.0);       // pixel coordinates in the app
+    app.type_text("hello");
+    assert!(app.save_png("shot.png"));
+}
+```
+
+The app also has `mouse_move`, `mouse_down`, `mouse_up`, `scroll`, `key`, `key_down`, `key_up`, `pixels()` and `frame_count()`. The crate's own tests (`tests/headless.rs`) are a fuller example: they check struct sizes against C++, widgets and input, owned objects and a panic in the frame.
+
+## Blender widgets
+
+Turn on the `blender-widgets` feature and ImGui's widgets become Blender's own:
+
+```toml title="Cargo.toml"
+[dependencies]
+blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI", features = ["blender-widgets"] }
+```
+
+<Figure
+  shot="imgui-cpp-blender"
+  alt="A Dear ImGui scene inspector drawn with Blender's widgets: joined drag fields, sliders with a fill bar, Blender's checkboxes and dropdowns"
+  caption="Blender widgets in a Dear ImGui app (<code>examples/site/imgui_inspector.cpp</code>). The <code>blender-widgets</code> feature switches on the same widgets for your Rust code."
+/>
+
+At runtime, `imgui::has_blender_widgets()`, `imgui::blender_widgets()` and `imgui::set_blender_widgets(on)` check and switch them. [What changes](../blender-widgets/) has its own page.
+
+## Good to know
+
+- **One thread.** Dear ImGui has one current context: create apps and call `imgui` functions from one thread.
+- **The safe layer covers 366 of ImGui's 399 functions.** The rest (`va_list`, untyped `void*`, C callbacks) are in `sys`. See [coverage](../coverage/).
+- **UI scale:** `imgui::ui_scale()` and `imgui::set_ui_scale(scale)` read and set BUI's scale.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Blender widgets" href="docs/imgui/blender-widgets/" icon="sparkles" kicker="Dear ImGui">
+    The mapping, the behaviour changes and the gaps.
+  </Card>
+  <Card title="Coverage" href="docs/imgui/coverage/" icon="check" kicker="Dear ImGui">
+    What the safe layer and the FFI bind.
+  </Card>
+  <Card title="Your first Rust app" href="docs/tutorials/first-app-rust/" icon="sparkles" kicker="Tutorial">
+    Prefer retained UI? BUI's Rust framework speaks HTML, CSS and hooks.
+  </Card>
+</CardGrid>

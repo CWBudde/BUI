@@ -98,12 +98,15 @@ Value components (`NumberField`, `NumberSlider`, `Checkbox`, `Toggle`,
 | `Checkbox` | `Checkbox(label, value=False)` |
 | `Toggle` | `Toggle(label, value=False, *, icon=None, icon_on=None, emboss=True)` |
 | `Decorator` | `Decorator(label, value)`: the keyframe dot next to a property |
-| `Dropdown` | `Dropdown(label, items, value=None, *, icon_only=False)` |
-| `EnumRow` | `EnumRow(label, items, value=None, *, vertical=False, icon_only=False)` |
+| `Dropdown` | `Dropdown(label, items, value=None, *, icons=None, icon_only=False)` |
+| `EnumRow` | `EnumRow(label, items, value=None, *, icons=None, vertical=False, icon_only=False)` |
 | `ColorSwatch` | `ColorSwatch(label, (r, g, b, a), *, picker="circle" or "square", alpha=True)` |
 
-Items can be strings or `(text, "ICON")` pairs. Icon names come from
-Blender (`buipy.kit_icon_names()` lists all 120).
+Items are strings. Give them icons with `icons=[...]`, one icon name per
+item (`""` for none), or a dict from item to icon name:
+`EnumRow("Mode", ["Object", "Edit"], icons=["OBJECT_DATAMODE", "EDITMODE_HLT"])`.
+`ListView` takes `icons=[...]` the same way. Icon names are Blender's: all 781
+of Blender's SVG icons (`buipy.kit_icon_names()` lists them).
 
 ## Buttons, labels, feedback
 

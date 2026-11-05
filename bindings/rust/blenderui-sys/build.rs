@@ -5,6 +5,11 @@
 use std::path::PathBuf;
 
 fn main() {
+    // docs.rs: rustdoc links nothing, so skip the C build (its sandbox may lack
+    // the toolchain, and the build takes long)
+    if std::env::var_os("DOCS_RS").is_some() {
+        return;
+    }
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     // BUI_SOURCE_DIR, else the repository around this crate, else the sources
     // vendored into the published crate (`csrc/`, see scripts/vendor_c.py)
@@ -66,8 +71,11 @@ fn main() {
             println!("cargo:rustc-link-lib={lib}");
         }
     } else {
-        if target == "linux" || target.ends_with("bsd") {
-            println!("cargo:rustc-link-lib=X11"); // the native window host
+        // No libX11 / libGL link: the X11 window host (kit_window_x11.c) and the
+        // OpenGL renderer (gpu_gl.c) dlopen() them at run time, so programs start
+        // (headless) without X11 installed. dlopen itself is in libdl before glibc 2.34.
+        if target == "linux" {
+            println!("cargo:rustc-link-lib=dl");
         }
         if target == "macos" {
             // the Cocoa window host (kit/intern/kit_window_cocoa.m): static

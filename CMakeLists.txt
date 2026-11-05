@@ -76,6 +76,10 @@ if(BUI_BUILD_TESTS)
   target_link_libraries(bui_window_smoke PRIVATE bui::kit)
   add_test(NAME bui_window_smoke COMMAND bui_window_smoke)
   set_tests_properties(bui_window_smoke PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+  # themes: Blender's Dark / Light presets (BK_set_theme), dark stays pixel-identical
+  add_executable(bui_theme_test tests/theme_test.c)
+  target_link_libraries(bui_theme_test PRIVATE bui::kit)
+  add_test(NAME bui_theme_test COMMAND bui_theme_test)
 endif()
 
 # before the Python bindings: they add the blenderui.imgui extension when bui_cimgui exists

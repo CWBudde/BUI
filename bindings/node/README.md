@@ -4,8 +4,9 @@
 [![license](https://img.shields.io/npm/l/@blender-ui/native)](https://github.com/ppmpreetham/BUI/blob/main/LICENSE)
 
 [BUI](https://github.com/ppmpreetham/BUI), Blender's UI toolkit, from
-JavaScript. It gives you native windows drawn on the CPU or with Direct3D 11,
-HTML elements, CSS and Tailwind classes, and signals. It runs on Node.js and
+JavaScript. It gives you native windows drawn on the CPU or the GPU
+(Direct3D 11 on Windows, OpenGL 3.3 on Linux), HTML elements, CSS and Tailwind
+classes, Blender components (`NumberSlider`, `Button` ...), and signals. It runs on Node.js and
 Bun through a napi-rs addon, and `bui build` turns an app into a single
 executable of about 5 MB. There's no browser and no webview.
 
@@ -59,6 +60,11 @@ win.body.appendChild(button)
   - Without the addon: `require('@blender-ui/native/signals')`.
 - **Tests:** `new App({ headless: true })` renders off-screen, and
   `win.click(x, y)` simulates input.
+- **Looks and theme:** plain HTML looks like a browser's; the `styled`
+  attribute gives an element and its subtree Blender's look; the Blender
+  components (`win.createElement('NumberSlider')`, `'Button'`, `'Checkbox'`
+  ...) are Blender's widgets anywhere. `new App({ theme: 'light' })` or
+  `app.setTheme('light')` (or `BUI_THEME=light`) switches Blender's theme.
 
 ## Standalone apps
 
@@ -96,7 +102,8 @@ nothing.
 
 ## Benchmarks
 
-Ryzen 7 5800U laptop, Windows 11, GPU renderer. Method:
+Ryzen 7 5800U laptop, Windows 11, GPU renderer, measured before the latest
+features landed. Method:
 [guide](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md#performance).
 
 | Startup (small app, quits at first frame) | First frame | Launch to exit | RAM | Size |
@@ -117,10 +124,14 @@ Ryzen 7 5800U laptop, Windows 11, GPU renderer. Method:
 
 - **Prebuilt for Windows x64.** Elsewhere, build from a clone of the
   [repository](https://github.com/ppmpreetham/BUI) with `npm run build` in
-  `bindings/node`. You need Rust, CMake and a C compiler, and native windows
-  aren't supported there yet, so use `headless: true`.
+  `bindings/node` (you need Rust, CMake and a C compiler).
+  - **Linux:** built from source, windows are native X11 windows (Wayland
+    through XWayland), on the CPU or OpenGL. Building needs the X11 headers.
+  - **macOS:** headless only for now (`headless: true`): BUI runs on its own
+    UI thread under Node, and macOS only allows windows on the main thread.
 - **Runtimes:** Node.js 18 or newer, or Bun.
 
 Guide: [docs/javascript.md](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md) ·
+Website: [bui.preetham.top](https://bui.preetham.top) ·
 Source: [github.com/ppmpreetham/BUI](https://github.com/ppmpreetham/BUI) ·
 License: GPL-2.0-or-later

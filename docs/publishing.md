@@ -70,8 +70,9 @@ Remove the source tree from `sys.path` and keep `examples/` on it for
 2. Do the same on TestPyPI with environment `testpypi`.
 3. In the GitHub repository settings, create the environments `pypi` and
    `testpypi` (optionally with required reviewers).
-4. Replace `OWNER` in `pyproject.toml` `[project.urls]` with the GitHub
-   owner.
+
+`pyproject.toml` `[project.urls]` already points at
+`github.com/ppmpreetham/BUI`.
 
 No API tokens are stored anywhere.
 
@@ -85,32 +86,36 @@ No API tokens are stored anywhere.
 
 ## Known gaps before 1.0
 
-- Linux wheels: the native X11 window host is compiled only when CMake finds
-  the X11 headers, and the cibuildwheel build doesn't install them, so wheels
-  from PyPI use the stdlib Tk window on Linux (built from source with
-  `libx11-dev` / `libX11-devel`, BUI uses its native X11 window). Installing
-  `libX11-devel` in `[tool.cibuildwheel.linux] before-all` would give the
-  wheels the native host.
+- Linux wheels get the native X11 window host: `[tool.cibuildwheel.linux]
+  before-all` installs the X11 headers (`libX11-devel` / `libx11-dev`), and
+  libX11 itself is loaded at run time, so the wheels still import on servers
+  without it. (This used to be a gap; it's fixed.)
 - macOS: the native Cocoa window host is new and hasn't been run on a Mac
   yet. With `BUI_HOST=tk` the wheels use the stdlib Tk window instead, which
   needs `tkinter` (for example from python.org or `brew install python-tk`).
 - MSVC builds work (the Rust crate and the CMake build use Visual Studio's
   toolchain), but the published Windows wheels are built with MinGW.
 - No `musllinux` or 32-bit wheels yet (skipped in `[tool.cibuildwheel]`).
-- The README's images use relative paths. PyPI shows them once
-  `[project.urls]` points to the public repository and the paths are made
-  absolute (or the images are hosted).
+- The README's images use absolute `raw.githubusercontent.com` URLs, so
+  PyPI shows them.
 
 # Publishing the Rust crates (crates.io)
 
-The four crates are published in dependency order:
+`blenderui` is on [crates.io](https://crates.io/crates/blenderui)
+(`cargo add blenderui`). The workspace in `bindings/rust/` has eight crates;
+four are published to crates.io, in dependency order, and the rest stay in
+the repository:
 
-| Crate | What it is | Depends on |
-|---|---|---|
-| `blenderui-tailwind` | Tailwind v4 class compiler (std only) | none |
-| `blenderui-macros` | `rsx!` / `view!`, `#[component]`, `css!`, `tw!` | `blenderui-tailwind` |
-| `blenderui-sys` | FFI over the C kit; builds it with CMake | none (`cmake` at build time) |
-| `blenderui` | the framework | all three |
+| Crate | What it is | Depends on | crates.io |
+|---|---|---|---|
+| `blenderui-tailwind` | Tailwind v4 class compiler (std only) | none | Published |
+| `blenderui-macros` | `rsx!` / `view!`, `#[component]`, `css!`, `tw!` | `blenderui-tailwind` | Published |
+| `blenderui-sys` | FFI over the C kit; builds it with CMake | none (`cmake` at build time) | Published |
+| `blenderui` | the framework | all three | Published |
+| `blenderui-imgui` | Dear ImGui on BUI (`blender-widgets` feature for Blender's widgets) | `blenderui-sys` (`imgui` feature) | Not yet: use it as a git dependency |
+| `blenderui-jsview` | The JavaScript view of a window, shared by the Node.js addon and the QuickJS runtime | `blenderui` | `publish = false` |
+| `blenderui-node` | The napi-rs addon behind `@blender-ui/native` | `blenderui`, `blenderui-jsview` | `publish = false` (ships on npm) |
+| `blenderui-qjs` | `bui-runtime`: BUI with embedded QuickJS, for `bui build` | `blenderui`, `blenderui-jsview` | `publish = false` (ships on npm) |
 
 `blenderui-sys` must carry the C sources, because a published crate can't
 reach `../../..`. Vendor them first. They're git-ignored and listed in the
@@ -131,7 +136,8 @@ cargo package --workspace --allow-dirty           # builds each packaged crate i
 
 1. Bump `version` in `bindings/rust/Cargo.toml` (`[workspace.package]`). The
    crates share one version. Then update the `version = "..."` of the path
-   dependencies in `blenderui/Cargo.toml` and `blenderui-macros/Cargo.toml`.
+   dependencies in `blenderui/Cargo.toml`, `blenderui-macros/Cargo.toml` and
+   `blenderui-imgui/Cargo.toml`.
 2. `cargo login` once with a crates.io API token.
 3. Vendor, then publish in order. `cargo publish --workspace` does the
    ordering itself on Cargo 1.90+:
@@ -145,6 +151,10 @@ cargo publish --workspace --allow-dirty   # or, one by one:
 # cargo publish -p blenderui-sys --allow-dirty
 # cargo publish -p blenderui
 ```
+
+`cargo publish --workspace` skips the `publish = false` crates. To publish
+`blenderui-imgui` too (once it's ready), run `cargo publish -p blenderui-imgui`
+after `blenderui-sys`.
 
 `--allow-dirty` is needed because `csrc/` is untracked. Users need CMake and
 a C compiler (MSVC, MinGW, gcc or clang) to build `blenderui-sys`.

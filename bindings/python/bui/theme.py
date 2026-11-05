@@ -177,3 +177,39 @@ def with_alpha(c, a):
 
 
 _update_metrics()
+
+
+# --- theme switching ------------------------------------------------------------
+_WCOL_KIT = {"text": "textfield"}  # this module's set names -> BK_theme_color's
+
+
+def _sync() -> None:
+    """Refresh this module's colors from the engine's active theme
+    (``bui.set_theme`` / ``BUI_THEME``)."""
+    global REGION_BG, TOPBAR_BG, PANEL_HEADER, PANEL_BACK, PANEL_OUTLINE, TEXT
+    global WIDGET_EMBOSS, TEXT_CURSOR, TEXT_SELECTION
+    try:
+        import buipy
+        col = buipy.kit_theme_color
+    except (ImportError, AttributeError):  # pragma: no cover - engine not built
+        return
+    for name, w in WCOL.items():
+        k = _WCOL_KIT.get(name, name)
+        w.outline, w.inner, w.inner_sel = col(k + ".outline"), col(k + ".inner"), col(k + ".inner_sel")
+        w.item, w.text, w.text_sel = col(k + ".item"), col(k + ".text"), col(k + ".text_sel")
+    REGION_BG, TOPBAR_BG = col("region_bg"), col("header_bg")
+    PANEL_HEADER, PANEL_BACK, PANEL_OUTLINE = col("panel_header"), col("panel_back"), col("panel_outline")
+    TEXT, WIDGET_EMBOSS = col("text"), col("emboss")
+    TEXT_CURSOR, TEXT_SELECTION = col("cursor"), col("selection")
+
+
+def set_theme(name: str = "dark") -> None:
+    """Blender's ``"dark"`` (default) or ``"light"`` theme for every window."""
+    import buipy
+    buipy.kit_set_theme(str(name))
+    _sync()
+
+
+def theme_name() -> str:
+    import buipy
+    return buipy.kit_theme_name()

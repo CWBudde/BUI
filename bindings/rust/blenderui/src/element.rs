@@ -152,8 +152,11 @@ impl Div {
 
     /// Give this element and everything inside it Blender's look (dark
     /// theme, UI font size, themed links, code, tables ...). Without it,
-    /// elements get the browsers' defaults: black text on white. Form
-    /// widgets look like Blender either way. `<div styled>` in `rsx!`.
+    /// elements get the browsers' defaults: black text on white, with
+    /// browser-look (Chrome-style) form controls; inside `styled`, form
+    /// controls are Blender's widgets. The Blender components
+    /// (`NumberSlider()`, `Button()` ...) are Blender's widgets anywhere.
+    /// `<div styled>` in `rsx!`.
     pub fn styled(self) -> Self {
         self.attr("styled", "")
     }

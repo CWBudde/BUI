@@ -1,0 +1,14 @@
+---
+/**
+ * The diagonal hatch divider. <Hatch /> or <Hatch size="lg" />.
+ * Use it to separate big movements of a page, not every section.
+ */
+interface Props {
+  size?: "sm" | "md" | "lg";
+  class?: string;
+}
+const { size = "md", class: className } = Astro.props;
+const h = { sm: "h-4", md: "h-8", lg: "h-14" }[size];
+---
+
+<div aria-hidden="true" class:list={["hatch not-prose border-y border-border", h, className]}></div>

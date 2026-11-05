@@ -129,7 +129,8 @@ class Window:
         top = tk.Toplevel(_tk())
         top.title(self._title)
         top.geometry("%dx%d" % self._size)
-        top.configure(bg="#303030")
+        top.configure(bg="#%02x%02x%02x" % tuple(
+            int(round(v * 255)) for v in buipy.kit_theme_color("region_bg")[:3]))
         top.protocol("WM_DELETE_WINDOW", self._tk_close)
         top.withdraw()
         surface = TkSurface(top, _Scene(self.ctx), width=self._size[0], height=self._size[1])

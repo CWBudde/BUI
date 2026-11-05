@@ -371,8 +371,7 @@ static void areaheader_arrange(BKNode *n)
 static void areaheader_draw(BKNode *n)
 {
   /* TH_HEADER of the editors (space_view3d.header and friends) */
-  const uchar c[4] = {0x30, 0x30, 0x30, 0xff};
-  bk_fill(n->x, n->y, n->w, n->h, c);
+  bk_fill(n->x, n->y, n->w, n->h, bk_theme.area_header);
 }
 
 const BKClass bk_cls_areaheader = {.name = "areaheader",

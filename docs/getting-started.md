@@ -5,8 +5,9 @@
 Requirements:
 
 - CMake ≥ 3.20
-- A C11 / C++17 compiler: GCC (MinGW-w64 on Windows), Clang or MSVC
-- Python 3 with development headers, for the Python APIs (`buipy`)
+- A C11 / C++20 compiler: GCC (MinGW-w64 on Windows), Clang or MSVC
+- Python 3.11+ with development headers, for the Python APIs (`buipy`)
+- On Linux, the X11 headers (`libx11-dev` / `libX11-devel`) for native windows. No GL headers are needed.
 
 ```sh
 cmake -S . -B build
@@ -27,11 +28,14 @@ cmake --build build
 |---|---|---|
 | `BUI_BUILD_PYTHON_BINDINGS` | `ON` | Build the `buipy` CPython extension. It is skipped with a message if the Python dev files are missing. |
 | `BUI_BUILD_TESTS` | `ON` | C test executables and the ctest suites |
-| `BUI_BUILD_EXAMPLES` | `OFF` | C examples (`bui_svg_demo`) |
+| `BUI_BUILD_EXAMPLES` | `OFF` | C examples (`bui_kit_hello`, `bui_svg_demo`, the site screenshot programs) |
 | `BUI_BUILD_UI` | `OFF` | Compile Blender's original `ui/` sources as well (not needed for the kit) |
 | `BUI_BUILD_QT_BACKEND` | `OFF` | The C++ Qt/QPainter render-sink backend (needs Qt 5/6 Widgets) |
-| `BUI_WARNINGS_AS_ERRORS` | `OFF` | `-Werror` / `/WX` |
+| `BUI_BUILD_IMGUI` | `ON` when a C++ compiler is present | Dear ImGui on BUI (`bui::imgui`), its C API (`bui_cimgui`), demo and test |
+| `BUI_IMGUI_BLENDER_WIDGETS` | `OFF` | Dear ImGui's widgets become Blender's (an edited `imgui_widgets.cpp`) |
+| `BUI_WARNINGS_AS_ERRORS` | `OFF` | Only affects GCC and Clang today: when `OFF` the build adds `-Wno-error`; when `ON` it doesn't. It never adds `-Werror` or `/WX` by itself. |
 | `BUI_SLUG` | `ON` | GPU text from glyph outlines (Slug) by default; `OFF` makes the glyph atlas the default (switchable at run time either way) |
+| `BUI_TEXT_FREETYPE` | `ON` | Rasterize glyphs with the vendored FreeType 2.13.3, the way Blender's BLF does (light hinting, gamma 1.43, Inter's optical size). `OFF` uses stb_truetype. Ignored when `BUI_TEXT_GDI` is on. |
 | `BUI_TEXT_GDI` | `OFF` | Use Windows' GDI text engine and system fonts instead of the portable engine (embedded Inter, Slug on the GPU) |
 
 ## 2. Use it from Python
@@ -81,25 +85,27 @@ shared (`bui.host`).
 | `BUIPY_BUILD_DIR` | Directory containing the built `buipy` extension |
 | `BUI_HOST=tk` | Force the stdlib-Tk window host even where the native host exists |
 | `BUI_UI_SCALE` | Fix the UI scale (for example `1.5`) instead of following the monitor's DPI |
-| `BUI_GPU=1` | Draw native windows on the GPU (Direct3D 11 on Windows, OpenGL 3.3 on Linux). `BUI_GPU=0` forces the software raster. Overrides `bui.set_gpu()` / `.gpu(true)` |
+| `BUI_GPU=1` | Draw native windows on the GPU (Direct3D 11 on Windows, OpenGL 3.3 on Linux). Overrides the app-wide defaults `bui.set_gpu()`, `Application::gpu()` and `BUI_gpu_set_default()`. `BUI_GPU=0` turns those defaults off, but a window that asks for the GPU itself (`Tk(gpu=True)`, `WindowOptions { gpu: Some(true) }`, `BK_window_set_gpu`) still gets it. |
 | `BUI_GPU_DEBUG=1` | Print why the GPU renderer could not start |
 | `BUI_FONT`, `BUI_FONT_DIR` | A font file to replace the embedded Inter UI font, and an extra font folder |
 | `BUI_SLUG` | `0` draws GPU text from a per-glyph bitmap atlas instead of glyph outlines (Slug); `1` forces Slug. Overrides `bui.set_slug()` / `.slug()` / `BUI_gpu_set_slug()` |
-| `BUI_PROFILE=1` | Print per-phase frame times (raster and present) |
-| `BUI_FILEDIALOG=native` | File dialogs (`tkinter.filedialog`, `QFileDialog`) use the operating system's dialogs instead of Blender's File Browser |
+| `BUI_PROFILE` | Print frame times every 60 frames (per phase in Rust and JavaScript; raster and present in the Windows host). **Any** value turns it on, even `0`. |
+| `BUI_THEME` | `dark` (default) or `light`: Blender's Dark or Light theme preset, when the app doesn't call `bui.set_theme()` / `blenderui::set_theme()` / `BK_set_theme()` |
+| `BUI_FILEDIALOG=native` (or `system`, `tk`) | File dialogs (`tkinter.filedialog`, `QFileDialog`) use the operating system's dialogs instead of Blender's File Browser |
 | `BUI_BOOKMARKS` | The file browser's bookmarks file (default `$XDG_CONFIG_HOME/bui/bookmarks.txt`, or `%APPDATA%\bui\bookmarks.txt` on Windows) |
 
 ## Window hosts
 
 `bui.host.Window` puts a kit context in a top-level window.
 
-- **Native (Windows and Linux).** A window written in C: Win32 on Windows,
+- **Native (Windows and Linux).** A window written in C: BUI's own Win32 host on Windows,
   X11 on Linux (Wayland sessions run it through XWayland). Input goes
   straight into the kit, and frames are presented by blitting only the
   changed tiles. It follows the display's DPI (per-monitor on Windows,
   `Xft.dpi` on X11) and paces animations to the display's refresh rate.
-- **Native (macOS).** A Cocoa window (a port of Blender's GHOST code; new,
-  not yet tested on a Mac) with Retina scaling. It needs the main thread.
+- **Native (macOS, experimental).** A Cocoa window (a port of Blender's GHOST
+  code; new, checked by CI but not yet tried by hand on a Mac) with Retina scaling. It needs the main
+  thread. See [macos-testing.md](macos-testing.md).
 - **Tk (with `BUI_HOST=tk`, or where no native host works).** A stdlib `tkinter` window that
   shows the kit's frame buffer and forwards input to it. The UI and the API
   are identical, but presenting is a little slower.
@@ -148,4 +154,4 @@ pending events once, and `bui.host.quit()` stops the loop.
 | Blurry or tiny UI | Set `BUI_UI_SCALE`. On Windows the native host is DPI-aware by default. |
 | `gpu=True` has no effect | Run with `BUI_GPU_DEBUG=1` to see why the device failed. Machines without Direct3D 11 (Windows) or OpenGL 3.3 (Linux) stay on the software raster. |
 | Monospace/serif text uses the UI font | Install a TrueType font family (DejaVu, Liberation or Noto). The UI font itself (Inter) is embedded. |
-| A tkinter feature behaves differently | See the behaviour notes in [tkinter.md](tkinter.md#behaviour). If stdlib tkinter does something else, that is a bug; `tests/test_tk_compat.py` shows how to write a side-by-side check. |
+| A tkinter feature behaves differently | See the behaviour notes in [tkinter.md](tkinter.md#behaviour). If stdlib tkinter does something else, that is a bug; `bindings/python/tests/test_tk_compat.py` shows how to write a side-by-side check. |

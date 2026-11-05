@@ -1,0 +1,59 @@
+---
+// From README.md "Platforms". Works (check) · experimental (flask): written but not yet
+// tested on real hardware · partial (half circle).
+import StatusMark from "../docs/StatusMark.astro";
+import { repoFile } from "../../lib/docs";
+
+type Cell = { text?: string; status?: "done" | "experimental" | "partial" };
+const cols = ["Windows", "Linux", "macOS"];
+const rows: [string, Cell, Cell, Cell][] = [
+  ["Window", { text: "Native (Win32)" }, { text: "Native (X11; Wayland via XWayland)" }, { text: "Native (Cocoa)", status: "experimental" }],
+  ["Python (pip install)", { text: "Wheels", status: "done" }, { text: "Wheels", status: "done" }, { text: "Wheels", status: "done" }],
+  ["Rust", { status: "done" }, { text: "Build from source", status: "done" }, { status: "experimental" }],
+  ["JavaScript / React", { text: "Prebuilt on npm", status: "done" }, { text: "Build the addon from source", status: "done" }, { text: "Headless for now", status: "partial" }],
+  ["C, C++, Dear ImGui", { status: "done" }, { status: "done" }, { status: "experimental" }],
+  ["Renderer", { text: "CPU raster, or GPU (Direct3D 11)" }, { text: "CPU raster, or GPU (OpenGL 3.3)" }, { text: "CPU raster" }],
+  ["HiDPI", { text: "Per-monitor DPI" }, { text: "Xft.dpi" }, { text: "Retina" }],
+];
+---
+
+<div class="relative overflow-x-auto">
+  <table class="w-full min-w-[640px] border-collapse text-sm leading-6">
+    <caption class="sr-only">What runs where</caption>
+    <thead>
+      <tr>
+        <th scope="col" class="w-[22%] border-b border-border px-5 py-3 text-left font-medium text-muted sm:px-8"><span class="sr-only">Feature</span></th>
+        {cols.map((c) => <th scope="col" class="border-b border-l border-border px-4 py-3 text-left text-base font-semibold">{c}</th>)}
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((r) => (
+          <tr class="border-b border-border-soft transition-colors duration-150 last:border-b-0 hover:bg-surface/60">
+            <th scope="row" class="px-5 py-3 text-left font-medium sm:px-8">{r[0]}</th>
+            {r.slice(1).map((c) => {
+              const cell = c as Cell;
+              return (
+                <td class="border-l border-border px-4 py-3 text-muted">
+                  <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    {cell.status && <StatusMark status={cell.status} compact={Boolean(cell.text)} />}
+                    {cell.text}
+                  </span>
+                </td>
+              );
+            })}
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+<p class="flex gap-2 border-t border-border px-5 py-3 text-[13px] leading-6 text-muted sm:px-8">
+  <span class="mt-1"><StatusMark status="experimental" compact /></span>
+  <span>
+    The macOS window host is a port of Blender's Cocoa code (GHOST): written, but not yet run on a Mac. Python can use the
+    standard Tk window there meanwhile (<code class="font-mono">BUI_HOST=tk</code>). If you have a Mac and a free afternoon,
+    you could be the first: the <a class="text-link underline underline-offset-4" href={repoFile("docs/macos-testing.md")}>macOS testing guide</a>
+    walks you through it.
+  </span>
+</p>

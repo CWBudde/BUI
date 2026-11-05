@@ -379,14 +379,6 @@ const BKClass bk_cls_graphnode = {.name = "graphnode",
 /** \name Drawing (node_draw.cc)
  * \{ */
 
-static void color_u(uint32_t rgba, float c[4])
-{
-  c[0] = ((rgba >> 24) & 255) / 255.0f;
-  c[1] = ((rgba >> 16) & 255) / 255.0f;
-  c[2] = ((rgba >> 8) & 255) / 255.0f;
-  c[3] = (rgba & 255) / 255.0f;
-}
-
 /* view2d_dot_grid_draw (view2d.cc), called by node_draw_space with min_step =
  * NODE_GRID_STEP_SIZE (20 * UI_SCALE_FAC view units) and the theme's grid_levels (3). View units
  * are graph units * UI_SCALE_FAC, so zoom_x (px per view unit) is the editor zoom. Each level is
@@ -396,7 +388,7 @@ static void draw_grid(BKNode *e)
 {
   const int grid_subdivisions = 3; /* space_node.grid_levels */
   float c[4];
-  color_u(0x303030ff, c); /* space_node.grid */
+  bk_rgba(bk_theme.node_grid, c); /* space_node.grid */
   const float zoom = BK_MAX(1e-4f, ed(e)->zoom), px = bk_px();
   const float min_point_size = 2.0f * px, max_point_size = 1.5f * min_point_size;
   const float view_level = logf(NODE_DY * bk_scale_fac / zoom) / logf(5.0f);
@@ -464,7 +456,7 @@ static void draw_noodle(float x0, float y0, float x3, float y3, const float colo
   const float link_w = 2.5f * BK_MAX(bk_scale_fac * zoom, 1.0f);
   const float th = 2.0f * link_w * 0.65f, outline_w = 2.0f * link_w;
   float wire[4];
-  color_u(0x1a1a1aff, wire); /* space_node.wire */
+  bk_rgba(bk_theme.node_wire, wire); /* space_node.wire */
   float inner[4];
   memcpy(inner, color, sizeof(inner));
   if (hi) { /* edge_select: links of selected nodes brighten */
@@ -484,7 +476,8 @@ static void draw_socket(float x, float y, const char *type, float s)
 {
   /* node_socket_outline_color_get: the theme wire color, opaque */
   float c[4], o[4];
-  color_u(0x1a1a1aff, o);
+  bk_rgba(bk_theme.node_wire, o);
+  o[3] = 1.0f;
   socket_color(type, c);
   const float r = NODE_SOCKSIZE * s;
   bk_circle(x, y, r + BK_MAX(1.0f, bk_scale_fac), o);
@@ -520,14 +513,16 @@ static void draw_node(BKNode *e, BKNode *node, int index)
   bk_roundbox(x - 1.0f * s, y + 1.0f * s, w + 2.0f * s, h + 2.0f * s, rad + s, CNR_ALL, shadow);
   /* body (TH_NODE) and header (the node class color) */
   float body[4], head[4];
-  color_u(0x303030ff, body); /* space_node.syntaxl */
+  bk_rgba(bk_theme.node_body, body); /* space_node.syntaxl (node_backdrop) */
   memcpy(head, node->color, sizeof(head));
   head[3] = 1.0f;
   bk_roundbox(x, y, w, h, rad, CNR_ALL, body);
   bk_roundbox(x, y, w, hh, rad, g->collapsed ? CNR_ALL : (CNR_TL | CNR_TR), head);
   /* the outline: node_outline, or select / active */
   float line[4];
-  color_u(g->active && selected ? 0xffffffff : (selected ? 0xed5700ff : 0xffffff26), line);
+  bk_rgba(g->active && selected ? bk_theme.node_active
+                                 : (selected ? bk_theme.node_selected : bk_theme.node_outline),
+          line);
   BuiWidgetBase wb = {{x, y, w, h}, rad, rad - 1.0f, CNR_ALL};
   memcpy(wb.outline, line, sizeof(line));
   wb.pixelsize = selected ? 1.5f * bk_scale_fac : 1.0f;
@@ -583,7 +578,7 @@ static void link_ends(const BKNode *e, const Link *l, float *x0, float *y0, floa
 static void editor_draw(BKNode *e)
 {
   float back[4];
-  color_u(0x1a1a1aff, back); /* space_node.back */
+  bk_rgba(bk_theme.node_back, back); /* space_node.back */
   bk_fill_f((float)e->x, (float)e->y, (float)e->w, (float)e->h, back);
   bk_clip_push(e->x, e->y, e->w, e->h);
   draw_grid(e);

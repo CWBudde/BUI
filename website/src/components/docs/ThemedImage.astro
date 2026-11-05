@@ -1,0 +1,56 @@
+---
+/**
+ * An image with a light and a dark version; the reader sees the one that matches the site.
+ *
+ *   <ThemedImage light="images/shots/tkinter-light.png" dark="images/shots/tkinter-dark.png" alt="…" />
+ *   <ThemedImage shot="tkinter" fallback="images/tkinter_items.png" alt="…" />
+ *
+ * `shot` looks for images/shots/<shot>-light.png and -dark.png (falling back to `fallback`
+ * until they exist). Width and height are read from the files when not given.
+ */
+import { href } from "../../lib/docs";
+import { displaySize, shot as findShot } from "../../lib/shots";
+
+interface Props {
+  alt: string;
+  light?: string;
+  dark?: string;
+  shot?: string;
+  fallback?: string;
+  width?: number;
+  height?: number;
+  class?: string;
+  loading?: "eager" | "lazy";
+  fetchpriority?: "high" | "low" | "auto";
+}
+
+const { alt, light, dark, shot, fallback, width, height, class: className, loading = "lazy", fetchpriority } = Astro.props;
+
+let lightSrc: string, darkSrc: string;
+if (shot) {
+  const s = findShot(shot, fallback ?? light ?? dark ?? "");
+  lightSrc = s.light.src;
+  darkSrc = s.dark.src;
+} else {
+  lightSrc = light ?? dark ?? "";
+  darkSrc = dark ?? light ?? "";
+}
+if (!lightSrc) throw new Error("<ThemedImage>: give `light`/`dark` or `shot`.");
+
+const url = (s: string) => (/^https?:/.test(s) ? s : href(s));
+const sizeOf = (s: string) => (width && height ? { width, height } : /^https?:/.test(s) ? { width, height } : (displaySize(s) ?? { width, height }));
+const same = lightSrc === darkSrc;
+const ls = sizeOf(lightSrc);
+const ds = sizeOf(darkSrc);
+---
+
+{
+  same ? (
+    <img src={url(lightSrc)} alt={alt} width={ls.width} height={ls.height} loading={loading} decoding="async" fetchpriority={fetchpriority} class={className} />
+  ) : (
+    <>
+      <img src={url(lightSrc)} alt={alt} width={ls.width} height={ls.height} loading={loading} decoding="async" fetchpriority={fetchpriority} class:list={["themed-light", className]} />
+      <img src={url(darkSrc)} alt={alt} width={ds.width} height={ds.height} loading={loading} decoding="async" fetchpriority={fetchpriority} class:list={["themed-dark", className]} />
+    </>
+  )
+}

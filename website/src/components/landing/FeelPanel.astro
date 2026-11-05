@@ -1,0 +1,571 @@
+---
+import Icon from "../site/Icon.astro";
+// A web sketch of how BUI's Blender widgets behave: drag to scrub (Shift for precision,
+// Ctrl to snap), click to type math, drag across checkboxes, Ctrl+Z / Ctrl+Shift+Z.
+// It imitates the feel in the browser; the real widgets are native and drawn by BUI.
+const fields = [
+  { axis: "X", value: 0 },
+  { axis: "Y", value: 1.25 },
+  { axis: "Z", value: 0 },
+];
+const toggles = [
+  { label: "Shadows", on: true },
+  { label: "Bloom", on: false },
+  { label: "Motion Blur", on: true },
+  { label: "Mist", on: false },
+];
+---
+
+<div class="feel-panel" data-feel>
+  <div class="fp-header">
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.2 5 6.7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.4"></path></svg>
+    <span>Transform</span>
+    <span class="fp-grip" aria-hidden="true">::::</span>
+  </div>
+  <div class="fp-body">
+    <p class="fp-label" id="fp-loc">Location</p>
+    <div class="fp-col" role="group" aria-labelledby="fp-loc">
+      {
+        fields.map((f) => (
+          <div
+            class="fp-num"
+            role="spinbutton"
+            tabindex="0"
+            aria-label={`Location ${f.axis}`}
+            aria-valuenow={f.value}
+            data-num
+            data-value={f.value}
+            data-step="0.1"
+            data-unit=" m"
+          >
+            <span class="fp-axis">{f.axis}</span>
+            <span class="fp-val" data-val />
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="fp-row">
+      <span class="fp-label fp-right" id="fp-scale">Scale</span>
+      <div
+        class="fp-slider"
+        role="slider"
+        tabindex="0"
+        aria-labelledby="fp-scale"
+        aria-valuemin="0"
+        aria-valuemax="2"
+        aria-valuenow="1"
+        data-slider
+        data-value="1"
+        data-min="0"
+        data-max="2"
+      >
+        <span class="fp-fill" data-fill></span>
+        <span class="fp-val fp-center" data-val></span>
+      </div>
+    </div>
+
+    <p class="fp-label" id="fp-render">Render</p>
+    <div class="fp-checks" role="group" aria-labelledby="fp-render" data-checks>
+      {
+        toggles.map((t) => (
+          <button type="button" class="fp-check" role="checkbox" aria-checked={t.on ? "true" : "false"} data-check>
+            <span class="fp-box" aria-hidden="true">
+              <svg viewBox="0 0 12 12" width="10" height="10">
+                <path d="M2.2 6.3 4.8 8.8 9.8 3.4" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            {t.label}
+          </button>
+        ))
+      }
+    </div>
+  </div>
+  <div class="fp-status" aria-live="polite">
+    <span data-status>Drag a number sideways.</span>
+    <span class="fp-undo">
+      <button type="button" data-undo aria-label="Undo (Ctrl+Z)" title="Undo · Ctrl+Z"><Icon name="arrow-counter-clockwise" weight="bold" size={12} /></button>
+      <button type="button" data-redo aria-label="Redo (Ctrl+Shift+Z)" title="Redo · Ctrl+Shift+Z"><Icon name="arrow-clockwise" weight="bold" size={12} /></button>
+    </span>
+  </div>
+</div>
+
+<style>
+  .feel-panel {
+    --w: var(--bl-widget);
+    --w-hi: var(--bl-widget-hover);
+    --txt: var(--bl-text);
+    --mut: var(--bl-muted);
+    width: 100%;
+    max-width: 400px;
+    background: var(--bl-region);
+    color: var(--txt);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    border: 1px solid var(--bl-outline);
+    box-shadow: 0 30px 70px -30px var(--bl-shadow);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .fp-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 10px;
+    background: var(--bl-panel);
+    border-bottom: 1px solid var(--bl-panel-line);
+    font-weight: 500;
+  }
+  .fp-grip {
+    margin-left: auto;
+    color: var(--bl-muted);
+    letter-spacing: -1px;
+    font-size: 10px;
+  }
+  .fp-body {
+    padding: 8px 10px 12px;
+    background: var(--bl-panel);
+  }
+  .fp-label {
+    margin: 6px 2px 4px;
+    color: var(--txt);
+  }
+  .fp-right {
+    text-align: right;
+    margin: 0;
+  }
+  .fp-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .fp-num,
+  .fp-slider {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 9px;
+    background: var(--w);
+    cursor: ew-resize;
+    touch-action: none;
+    outline: none;
+    transition: background-color 80ms ease-out;
+  }
+  .fp-num:hover,
+  .fp-slider:hover {
+    background: var(--w-hi);
+  }
+  .fp-num:first-child {
+    border-radius: 4px 4px 0 0;
+  }
+  .fp-num:last-child {
+    border-radius: 0 0 4px 4px;
+  }
+  .fp-num:focus-visible,
+  .fp-slider:focus-visible,
+  .fp-check:focus-visible {
+    box-shadow: 0 0 0 1.5px #8cb0ea;
+  }
+  .fp-num[data-dragging] {
+    background: var(--bl-sel);
+  }
+  .fp-axis {
+    color: var(--mut);
+  }
+  .fp-val {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  .fp-center {
+    position: relative;
+    margin: 0 auto;
+  }
+  .fp-row {
+    display: grid;
+    grid-template-columns: 30% 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .fp-slider {
+    border-radius: 4px;
+    overflow: hidden;
+    padding: 0;
+  }
+  .fp-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--bl-sel);
+  }
+  .fp-checks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 10px;
+    touch-action: none;
+  }
+  .fp-check {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 22px;
+    padding: 0 2px;
+    color: var(--txt);
+    font: inherit;
+    background: none;
+    border: 0;
+    cursor: default;
+    outline: none;
+    text-align: left;
+  }
+  .fp-box {
+    display: grid;
+    place-items: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: var(--w);
+  }
+  .fp-box svg {
+    opacity: 0;
+  }
+  .fp-check:hover .fp-box {
+    background: var(--w-hi);
+  }
+  .fp-check[aria-checked="true"] .fp-box {
+    background: var(--bl-sel);
+  }
+  .fp-check[aria-checked="true"] .fp-box svg {
+    opacity: 1;
+  }
+  .fp-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 4px 6px 4px 10px;
+    background: var(--bl-footer);
+    color: var(--mut);
+    font-size: 11.5px;
+    border-top: 1px solid var(--bl-outline);
+  }
+  .fp-undo {
+    margin-left: auto;
+    display: flex;
+    gap: 2px;
+  }
+  .fp-undo button {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 20px;
+    color: var(--txt);
+    background: var(--w);
+    border: 0;
+    border-radius: 3px;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .fp-undo button:hover {
+    background: var(--w-hi);
+  }
+  .fp-undo button:disabled {
+    opacity: 0.4;
+  }
+  :global(.fp-edit) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 0 9px;
+    color: var(--bl-field-text);
+    font: inherit;
+    background: var(--bl-field);
+    border: 0;
+    border-radius: inherit;
+    outline: 1.5px solid var(--bl-sel);
+    user-select: text;
+  }
+</style>
+
+<script>
+  // ---------- a tiny expression evaluator: 2*pi, (1+2)/4, sqrt(2), min(4, 3) ----------
+  function evaluate(src: string): number | null {
+    const toks = src.match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z_]+|[-+*/^(),]/gi);
+    if (!toks || toks.join("") !== src.replace(/\s+/g, "")) return null;
+    let i = 0;
+    const fns: Record<string, (...a: number[]) => number> = {
+      sqrt: Math.sqrt, sin: Math.sin, cos: Math.cos, tan: Math.tan, abs: Math.abs,
+      round: Math.round, floor: Math.floor, ceil: Math.ceil, min: Math.min, max: Math.max,
+    };
+    const consts: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
+    const peek = () => toks[i];
+    const expr = (): number => {
+      let v = term();
+      while (peek() === "+" || peek() === "-") v = toks[i++] === "+" ? v + term() : v - term();
+      return v;
+    };
+    const term = (): number => {
+      let v = power();
+      while (peek() === "*" || peek() === "/") v = toks[i++] === "*" ? v * power() : v / power();
+      return v;
+    };
+    const power = (): number => {
+      const b = unary();
+      if (peek() === "^") {
+        i++;
+        return b ** power();
+      }
+      return b;
+    };
+    const unary = (): number => {
+      if (peek() === "-") return i++, -unary();
+      if (peek() === "+") return i++, unary();
+      return atom();
+    };
+    const atom = (): number => {
+      const t = toks[i++];
+      if (t === undefined) throw 0;
+      if (t === "(") {
+        const v = expr();
+        if (toks[i++] !== ")") throw 0;
+        return v;
+      }
+      if (/^[\d.]/.test(t)) return parseFloat(t);
+      const name = t.toLowerCase();
+      if (name in consts) return consts[name];
+      if (name in fns && toks[i] === "(") {
+        i++;
+        const args = [expr()];
+        while (peek() === ",") i++, args.push(expr());
+        if (toks[i++] !== ")") throw 0;
+        return fns[name](...args);
+      }
+      throw 0;
+    };
+    try {
+      const v = expr();
+      return i === toks.length && Number.isFinite(v) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const fmt = (v: number, digits: number) => {
+    const s = v.toFixed(digits);
+    return digits === 3 ? s : s.replace(/\.?0+$/, "") || "0";
+  };
+
+  document.querySelectorAll<HTMLElement>("[data-feel]").forEach((root) => {
+    const status = root.querySelector<HTMLElement>("[data-status]")!;
+    const undoBtn = root.querySelector<HTMLButtonElement>("[data-undo]")!;
+    const redoBtn = root.querySelector<HTMLButtonElement>("[data-redo]")!;
+    type Change = { apply: () => void; revert: () => void };
+    const undo: Change[][] = [];
+    const redo: Change[][] = [];
+    const say = (s: string) => (status.textContent = s);
+    const refreshHistory = () => {
+      undoBtn.disabled = !undo.length;
+      redoBtn.disabled = !redo.length;
+    };
+    let hinted = false;
+    const push = (changes: Change[], msg: string) => {
+      if (!changes.length) return;
+      undo.push(changes);
+      redo.length = 0;
+      refreshHistory();
+      say(hinted ? msg : `${msg}. Ctrl+Z undoes it.`);
+      hinted = true;
+    };
+    const doUndo = () => {
+      const c = undo.pop();
+      if (!c) return say("Nothing to undo.");
+      [...c].reverse().forEach((x) => x.revert());
+      redo.push(c);
+      refreshHistory();
+      say(undo.length ? "Undone." : "Undone. Back where you started.");
+    };
+    const doRedo = () => {
+      const c = redo.pop();
+      if (!c) return say("Nothing to redo.");
+      c.forEach((x) => x.apply());
+      undo.push(c);
+      refreshHistory();
+      say("Redone.");
+    };
+    undoBtn.addEventListener("click", doUndo);
+    redoBtn.addEventListener("click", doRedo);
+    root.addEventListener("keydown", (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z" && e.key.toLowerCase() !== "y") return;
+      if ((e.target as HTMLElement).closest("input")) return;
+      e.preventDefault();
+      if (e.shiftKey || e.key.toLowerCase() === "y") doRedo();
+      else doUndo();
+    });
+    refreshHistory();
+
+    // ---------- number fields and the slider ----------
+    type Valued = HTMLElement & { _v?: number };
+    const setValue = (el: Valued, v: number) => {
+      el._v = v;
+      const isSlider = el.hasAttribute("data-slider");
+      const val = el.querySelector<HTMLElement>("[data-val]")!;
+      if (isSlider) {
+        const min = +el.dataset.min!, max = +el.dataset.max!;
+        el.querySelector<HTMLElement>("[data-fill]")!.style.width = `${((v - min) / (max - min)) * 100}%`;
+        val.textContent = fmt(v, 3);
+      } else {
+        val.textContent = fmt(v, 4) + (el.dataset.unit ?? "");
+      }
+      el.setAttribute("aria-valuenow", String(+v.toFixed(4)));
+      el.setAttribute("aria-valuetext", val.textContent ?? "");
+    };
+    const clamp = (el: HTMLElement, v: number) =>
+      el.hasAttribute("data-slider") ? Math.min(+el.dataset.max!, Math.max(+el.dataset.min!, v)) : v;
+    const change = (el: Valued, from: number, to: number): Change => ({ apply: () => setValue(el, to), revert: () => setValue(el, from) });
+
+    const editors = root.querySelectorAll<Valued>("[data-num], [data-slider]");
+    editors.forEach((el) => {
+      setValue(el, +el.dataset.value!);
+      const isSlider = el.hasAttribute("data-slider");
+      let start = 0, startX = 0, moved = false, dragging = false;
+
+      const beginEdit = () => {
+        const input = document.createElement("input");
+        input.className = "fp-edit";
+        input.value = fmt(el._v!, isSlider ? 3 : 4);
+        input.setAttribute("aria-label", "Type a value or an expression like 2*pi");
+        el.append(input);
+        input.select();
+        say("Type a number or math, like 2*pi. Enter applies.");
+        const before = el._v!;
+        let done = false;
+        const finish = (commit: boolean) => {
+          if (done) return;
+          done = true;
+          const v = commit ? evaluate(input.value) : null;
+          input.remove();
+          el.focus();
+          if (v === null) {
+            if (commit) say(`“${input.value}” isn't a number I can read. Nothing changed.`);
+            return;
+          }
+          const after = clamp(el, v);
+          setValue(el, after);
+          if (after !== before) push([change(el, before, after)], `“${input.value}” = ${fmt(after, 4)}`);
+        };
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") finish(true);
+          else if (e.key === "Escape") finish(false);
+          e.stopPropagation();
+        });
+        input.addEventListener("blur", () => finish(true));
+        input.addEventListener("pointerdown", (e) => e.stopPropagation());
+      };
+
+      el.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        el.focus();
+        el.setPointerCapture(e.pointerId);
+        start = el._v!;
+        startX = e.clientX;
+        moved = false;
+        dragging = true;
+      });
+      el.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - startX;
+        if (!moved && Math.abs(dx) < 3) return; // Blender's drag threshold
+        if (!moved) el.toggleAttribute("data-dragging", !isSlider);
+        moved = true;
+        let v: number;
+        if (isSlider) {
+          const min = +el.dataset.min!, max = +el.dataset.max!;
+          v = start + (dx / el.clientWidth) * (max - min) * (e.shiftKey ? 0.05 : 1);
+          if (e.ctrlKey || e.metaKey) v = Math.round(v * 10) / 10;
+        } else {
+          v = start + dx * +el.dataset.step! * (e.shiftKey ? 0.1 : 1) * 0.1;
+          if (e.ctrlKey || e.metaKey) v = Math.round(v);
+        }
+        setValue(el, clamp(el, v));
+      });
+      const end = () => {
+        if (!dragging) return;
+        dragging = false;
+        el.removeAttribute("data-dragging");
+        if (!moved) return beginEdit();
+        if (el._v !== start) push([change(el, start, el._v!)], `${el.getAttribute("aria-label") ?? "Scale"}: ${fmt(el._v!, isSlider ? 3 : 4)}`);
+      };
+      el.addEventListener("pointerup", end);
+      el.addEventListener("pointercancel", end);
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          beginEdit();
+          return;
+        }
+        if (e.key === "Backspace") {
+          const before = el._v!, after = +el.dataset.value!;
+          setValue(el, after);
+          if (before !== after) push([change(el, before, after)], "Reset to default");
+          return;
+        }
+        const dir = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
+        if (!dir) return;
+        e.preventDefault();
+        const step = isSlider ? 0.1 : +el.dataset.step!;
+        const before = el._v!;
+        const after = clamp(el, +(before + dir * step * (e.shiftKey ? 0.1 : 1)).toFixed(4));
+        setValue(el, after);
+        push([change(el, before, after)], `Stepped to ${fmt(after, 4)}`);
+      });
+    });
+
+    // ---------- checkboxes: press one, drag across the rest ----------
+    const group = root.querySelector<HTMLElement>("[data-checks]")!;
+    const boxes = [...group.querySelectorAll<HTMLButtonElement>("[data-check]")];
+    let paint: boolean | null = null;
+    let stroke: Change[] = [];
+    const setChecked = (b: HTMLButtonElement, on: boolean) => b.setAttribute("aria-checked", String(on));
+    const paintBox = (b: HTMLButtonElement) => {
+      const now = b.getAttribute("aria-checked") === "true";
+      if (paint === null || now === paint) return;
+      setChecked(b, paint);
+      const to = paint;
+      stroke.push({ apply: () => setChecked(b, to), revert: () => setChecked(b, !to) });
+    };
+    group.addEventListener("pointerdown", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-check]");
+      if (!b || e.button !== 0) return;
+      e.preventDefault();
+      b.focus();
+      paint = b.getAttribute("aria-checked") !== "true";
+      stroke = [];
+      paintBox(b);
+      group.setPointerCapture(e.pointerId);
+    });
+    group.addEventListener("pointermove", (e) => {
+      if (paint === null) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLButtonElement>("[data-check]");
+      if (el && boxes.includes(el)) paintBox(el);
+    });
+    const endStroke = () => {
+      if (paint === null) return;
+      const n = stroke.length;
+      push(stroke, `${n} checkbox${n === 1 ? "" : "es"} ${paint ? "on" : "off"} in one drag, one undo step`);
+      paint = null;
+    };
+    group.addEventListener("pointerup", endStroke);
+    group.addEventListener("pointercancel", endStroke);
+    group.addEventListener("click", (e) => {
+      // keyboard activation (Space / Enter); pointer clicks were handled on pointerdown
+      if ((e as PointerEvent).detail !== 0) return;
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-check]");
+      if (!b) return;
+      const to = b.getAttribute("aria-checked") !== "true";
+      setChecked(b, to);
+      push([{ apply: () => setChecked(b, to), revert: () => setChecked(b, !to) }], "Toggled");
+    });
+  });
+</script>

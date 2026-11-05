@@ -90,6 +90,24 @@ void BK_set_scale(float scale); /* Blender's resolution scale (1 = 20 px widgets
 float BK_scale(void);
 int BK_unit(void);              /* U.widget_unit in pixels */
 void BK_set_font(const char *family);
+/* Themes: Blender's two presets, "dark" (Blender_Dark.xml = the built-in
+ * default) and "light" (Blender_Light.xml), any case ("Blender Light" works
+ * too). Every context relayouts and redraws (its host gets a request).
+ * Returns 0 for an unknown name (the theme stays). Without a call the
+ * BUI_THEME environment variable (dark|light) picks the first theme. */
+int BK_set_theme(const char *name);
+const char *BK_theme_name(void); /* "dark" or "light" */
+/* A color of the active theme as RGBA 0..1: "region_bg", "header_bg",
+ * "tabs_bg", "panel_header", "panel_back", "panel_sub_back", "panel_outline",
+ * "text", "text_hi", "emboss", "cursor", "selection", "file_back",
+ * "file_text", "file_header", "file_row_alternate", "node_back", "node_grid",
+ * "node_wire", "node_body", "node_outline", "node_selected", "node_active",
+ * "area_header", or
+ * "<set>.<color>" for a widget color set (regular tool toggle radio option
+ * textfield num numslider menu pulldown menu_back menu_item list_item box
+ * scroll progress tooltip tab pie_menu curve; outline outline_sel inner
+ * inner_sel item text text_sel), e.g. "regular.inner". 0 when unknown. */
+int BK_theme_color(const char *key, float r_rgba[4]);
 int BK_icon_id(const char *name); /* 0 when unknown */
 int BK_icon_count(void);
 const char *BK_icon_name(int id);

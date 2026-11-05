@@ -2405,7 +2405,15 @@ bool ImGui::BeginCombo(const char* label, const char* preview_value, ImGuiComboF
         BuiEmit(BuiWidget(BK_WIDGET_MENU, bb, (hovered ? BK_WS_HOVER : 0) | (popup_open ? BK_WS_SELECTED : 0)), text ? preview_value : NULL);
         g.ComboPreviewData.PreviewRect = (flags & ImGuiComboFlags_NoPreview) ? ImRect() : ImRect(bb.Min.x, bb.Min.y, value_x2, bb.Max.y);
         if (preview_value != NULL && !(flags & ImGuiComboFlags_NoPreview) && !text)
+        {
+            float mt[4]; // the menu button's own text color (wcol_menu.text: light on the dark button in Blender Light)
+            const bool themed = BK_theme_color("menu.text", mt) != 0;
+            if (themed)
+                PushStyleColor(ImGuiCol_Text, ImVec4(mt[0], mt[1], mt[2], mt[3] * style.Colors[ImGuiCol_Text].w));
             RenderTextClipped(bb.Min + style.FramePadding, ImVec2(value_x2, bb.Max.y), preview_value, NULL, NULL);
+            if (themed)
+                PopStyleColor();
+        }
         else if (preview_value != NULL && g.LogEnabled)
             LogRenderedText(&bb.Min, preview_value);
         if (label_size.x > 0)

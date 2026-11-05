@@ -1,7 +1,9 @@
-"""tkinter.filedialog: the operating system's file dialogs.
+"""tkinter.filedialog: Blender's File Browser, with tkinter's API.
 
-Like Tk on Windows and macOS, these are native dialogs (shown through the
-stdlib Tk); the option names and return values are tkinter's.
+The ask* functions and dialog classes open Blender's File Browser
+(bui.filebrowser) in its own window. With BUI_FILEDIALOG=native they use the
+operating system's dialogs instead (shown through the stdlib Tk). Either way,
+the option names and return values are tkinter's.
 
 SPDX-License-Identifier: GPL-2.0-or-later
 """

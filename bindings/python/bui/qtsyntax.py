@@ -2,7 +2,8 @@
 
 Every QWidget is a kit node; QBoxLayout / QGridLayout / QFormLayout run on
 the kit's C geometry managers, ``paintEvent`` + QPainter record into a kit
-canvas, and top-level windows are native (Windows) or Tk (:mod:`bui.host`).
+canvas, and top-level windows are native (Win32, X11, Cocoa) or Tk
+(:mod:`bui.host`).
 Signals, timers and animations are plain Python (as in PySide's Python
 layer)::
 

@@ -1,0 +1,79 @@
+---
+/**
+ * Horizontal bars, drawn on the server. BUI's bars are Blender blue; the others are hatched grey.
+ *
+ *   <BarChart
+ *     title="First frame" unit="ms" better="lower"
+ *     headline={{ value: "40×", text: "sooner than gpui-fast" }}
+ *     bars={[
+ *       { label: "blenderui", sub: "GPU", value: 5, display: "~5 ms", ours: true },
+ *       { label: "gpui", value: 220, display: "~220 ms" },
+ *     ]}
+ *     table="cells3000"            // optional: an "Open bench" table (id from src/data/bench.ts, or a table object)
+ *   />
+ *
+ * For the published benchmarks use <BenchChart id="…" />, which reads src/data/bench.ts.
+ */
+import ChartFrame from "./ChartFrame.astro";
+import type { Bar, Table, TableId } from "../../data/bench";
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  unit: string;
+  better?: "lower" | "higher";
+  headline?: { value: string; text: string };
+  bars: Bar[];
+  table?: TableId | Table;
+  source?: string;
+  /** Show "N× slower" next to the other bars. Default true. */
+  ratios?: boolean;
+  bare?: boolean;
+  class?: string;
+}
+
+const { bars, unit, better = "lower", ratios = true, ...frame } = Astro.props;
+
+const max = Math.max(...bars.map((b) => b.value), 0) || 1;
+const fmt = (v: number) => `${v.toLocaleString("en-US")} ${unit}`;
+const oursValues = bars.filter((b) => b.ours && b.value > 0).map((b) => b.value);
+const best = oursValues.length ? (better === "lower" ? Math.min(...oursValues) : Math.max(...oursValues)) : 0;
+
+function ratioText(b: Bar): string | null {
+  if (!ratios || b.ours || !best || b.value <= 0) return null;
+  const r = better === "lower" ? b.value / best : best / b.value;
+  if (r < 1.15) return null;
+  const n = r >= 10 ? Math.round(r) : Math.round(r * 10) / 10;
+  return `${n}× ${better === "lower" ? "more" : "fewer"}`;
+}
+const legend = [
+  { name: "BUI", color: "var(--primary)" },
+  ...(bars.some((b) => !b.ours) ? [{ name: "Others", color: "var(--chart-other)", hatch: true }] : []),
+];
+---
+
+<ChartFrame {...frame} better={better} legend={bars.some((b) => !b.ours) ? legend : undefined}>
+  <ul class="chart-rows flex flex-col gap-2.5">
+    {
+      bars.map((b, i) => {
+        const pct = (b.value / max) * 100;
+        const r = ratioText(b);
+        return (
+          <li class="grid grid-cols-[minmax(6.5rem,9.5rem)_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[minmax(8rem,11rem)_minmax(0,1fr)]" style={`--i:${i}`}>
+            <span class="flex min-w-0 flex-col leading-tight">
+              <span class:list={["truncate text-[13px]", b.ours ? "font-semibold" : "text-muted"]}>{b.label}</span>
+              {b.sub && <span class="truncate text-[11.5px] text-muted">{b.sub}</span>}
+            </span>
+            <span class="chart-track">
+              <span class:list={["chart-bar", b.ours ? "is-ours" : "is-other"]} style={`--p:${Math.max(pct, 0.4).toFixed(2)}%`} />
+              <span class="chart-value" style={`--p:${pct.toFixed(2)}%`}>
+                <span class:list={["tabular", b.ours ? "font-semibold text-foreground" : "text-muted"]}>{b.display ?? fmt(b.value)}</span>
+                {r && <span class="chart-ratio">{r}</span>}
+              </span>
+            </span>
+          </li>
+        );
+      })
+    }
+  </ul>
+</ChartFrame>

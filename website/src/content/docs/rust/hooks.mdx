@@ -1,0 +1,255 @@
+---
+title: Hooks and signals
+description: Give components state, derived values, effects and shared context, in Leptos, zopra or dependency-list style, with no cx to thread around.
+section: Rust
+order: 20
+languages: ["rust"]
+sources: ["docs/rust.md", "bindings/rust/blenderui/src/hooks.rs", "bindings/rust/blenderui/src/lib.rs", "bindings/rust/blenderui/tests/hooks.rs", "CHANGELOG.md"]
+---
+
+State is what makes a UI feel alive: a counter that counts, a panel that remembers it's open. **Hooks give a component its own state**, and BUI re-renders the window whenever that state changes. You don't pass `cx` around, you don't wrap anything in `Rc<RefCell<…>>`, and you can write them in the style you know from Leptos or zopra, or with explicit dependency lists.
+
+## Your first hook
+
+A component's body can end in `rsx!` markup or in a gpui builder chain; hooks work the same in both.
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust title="src/main.rs"
+use blenderui::prelude::*;
+
+#[component]
+fn clicker(label: &str) {
+    let (count, set_count) = use_state(0);
+    rsx! {
+        <button onClick={move || set_count(count() + 1)}>
+            {format!("{label}: {}", count())}
+        </button>
+    }
+}
+
+struct App1;
+
+impl Render for App1 {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        rsx! { <body styled><clicker label="Apples" /> <clicker label="Pears" /></body> }
+    }
+}
+
+fn main() {
+    Application::new().run(|cx| {
+        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| App1)).unwrap();
+    });
+}
+```
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust title="src/main.rs"
+use blenderui::prelude::*;
+
+#[component]
+fn clicker(label: &str) {
+    let (count, set_count) = use_state(0);
+    button()
+        .child(format!("{label}: {}", count()))
+        .on_click(move |_, _, _| set_count(count() + 1))
+}
+
+struct App1;
+
+impl Render for App1 {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        // components are used as tags, so place them with a small rsx! block
+        body().styled()
+            .child(rsx! { <clicker label="Apples" /> })
+            .child(rsx! { <clicker label="Pears" /> })
+    }
+}
+
+fn main() {
+    Application::new().run(|cx| {
+        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| App1)).unwrap();
+    });
+}
+```
+
+Without components, builder code usually keeps state in the view's own fields and changes it with `cx.listener(...)` and `cx.notify()`. The [gpui syntax](../gpui-syntax/) page shows that style.
+
+</Tab>
+</Tabs>
+
+- `use_state(0)` returns two closures: a **getter** (`count()`) and a **setter** (`set_count(v)`).
+- Both are `Copy`, so `move ||` closures can capture them freely.
+- Calling the setter re-renders the window. Each `clicker` has its own count: clicking Apples doesn't touch Pears.
+
+## The hooks
+
+| Hook | What it gives you | Also known as |
+| --- | --- | --- |
+| `use_state(v)` | A getter and a setter closure | zopra `use_state` |
+| `use_signal(v)` | A `Signal<T>` owned by the component | zopra `use_signal` |
+| `Signal::new(v)` | A `Signal<T>` that lives until you `dispose()` it | Leptos `RwSignal` |
+| `signal(v)`, `create_signal(v)` | Read and write halves: `(ReadSignal<T>, WriteSignal<T>)` | Leptos |
+| `Memo::new(f)` | A derived value, recomputed when a signal it read changes | Leptos |
+| `Effect::new(f)` | Code that runs after render, and again when a signal it read changes | Leptos |
+| `use_effect(f, deps)`, `use_effect!(f, [a, b])` | Code that runs after render, and again when `deps` change | zopra `use_effect!` |
+| `use_memo(f, deps)` | A cached value, recomputed when `deps` change | |
+| `provide_context(v)`, `use_context()`, `try_use_context()` | A value shared with everything rendered inside | Leptos / zopra context |
+
+All of them are in `blenderui::prelude`, along with `RwSignal`, `ReadSignal`, `WriteSignal` and `Children`.
+
+## Signals
+
+A **signal** is a small `Copy` handle to a value. Reading it is cheap, and writing it re-renders the window that owns it.
+
+```rust
+let name = use_signal(String::from("Cube"));
+
+name.get();                          // a clone of the value (T: Clone)
+name.with(|n| n.len());              // look without cloning
+name.set("Sphere".into());           // replace, then re-render
+name.update(|n| n.push_str(".001")); // change in place, then re-render
+let (read, write) = name.split();    // Leptos-style halves
+```
+
+`ReadSignal` has `get` and `with`; `WriteSignal` has `set` and `update`.
+
+- **Inside a component, use `use_signal` (or `signal`).** Its state belongs to the component and is freed when the component stops rendering.
+- **`Signal::new` lives until you call `dispose()`.** Create it outside any render, for example when building your view, and it works as app-wide state: writing it re-renders every window.
+- Using a signal after its component is gone panics with "signal used after its component was dropped".
+
+## Three styles, side by side
+
+Here's the same idea written three ways. They share one store, so you can mix them in one app.
+
+<Tabs>
+<Tab label="zopra">
+
+```rust
+#[component]                                   // lowercase name, &str props
+fn profile(username: &str) {
+    let (likes, set_likes) = use_state(0);     // likes(), set_likes(..): no cx
+    use_effect!(move || println!("{} likes", likes()), [likes()]);
+    let theme: Theme = use_context();
+    rsx! {
+        <div class="p-2" data-theme={theme.0} onClick={move || set_likes(likes() + 1)}>
+            {username.to_string()} " " {likes().to_string()}
+        </div>
+    }
+}
+```
+
+</Tab>
+<Tab label="Dependency lists">
+
+```rust
+#[component]
+fn Profile(username: &str) {
+    let (likes, set_likes) = use_state(0);
+    use_effect(move || println!("mounted"), ());                 // once, after the first render
+    let label = use_memo(|| format!("{} likes", likes()), likes()); // recomputed when likes changes
+    rsx! { <div onClick={move || set_likes(likes() + 1)}>{username.to_string()} " " {label}</div> }
+}
+```
+
+</Tab>
+<Tab label="Leptos">
+
+```rust
+#[component]
+fn Counter(start: i32) {
+    let (count, set_count) = signal(start);
+    let doubled = Memo::new(move || count.get() * 2);          // recomputed when count changes
+    Effect::new(move || println!("count is {}", count.get())); // re-runs when count changes
+    view! {
+        <button onClick={move || set_count.update(|c| *c += 1)}>{doubled.get().to_string()}</button>
+    }
+}
+```
+
+</Tab>
+</Tabs>
+
+The zopra example needs a `Theme` in context; see [Context](#context) below.
+
+## Effects
+
+An **effect** is code that runs *after* a render, for work that isn't drawing: logging, saving a file, starting a timer.
+
+- **`use_effect(f, deps)`** runs `f` after the first render, then again after any render where `deps` differs from last time. Pass `()` to run it once.
+- **`use_effect!(f, [a, b])`** is the zopra spelling. It clones each dependency into a tuple for you.
+- **`Effect::new(f)`** tracks dependencies by itself: it re-runs after any render in which a signal it read has changed. A re-render that changed nothing doesn't re-run it.
+
+Effects run after the render finishes, so they're free to write signals. That schedules another render.
+
+## Derived values
+
+- **`Memo::new(f)`** remembers `f()`'s result and recomputes it only when a signal `f` read has changed. A `Memo` is `Copy`; read it with `.get()`.
+- **`use_memo(f, deps)`** is the dependency-list version: it returns the cached value while `deps` stays equal, and calls `f` again when it changes.
+
+## Context
+
+**Context** shares a value with every component rendered inside the one that provides it, without passing it down as a prop. Values are looked up by type, and the innermost one wins.
+
+```rust
+#[derive(Clone)]
+struct Theme(&'static str);
+
+impl Render for Page {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        provide_context(Theme("dark"));
+        rsx! { <body styled><profile username="Ada" /></body> }
+    }
+}
+```
+
+- `use_context::<T>()` returns a clone. If no parent provided one, it panics with a message naming the type.
+- `try_use_context::<T>()` returns an `Option<T>` instead.
+- Context provided inside a component is visible to its children only, not to its siblings.
+
+## Keys: keep state with the right item
+
+A hook's state is tied to **where it's called** and **in which order components render**. That's fine until a list changes. Remove the first item, and every item after it slides up one position, taking the state of the one before.
+
+Give each component in a list a `key` and its state follows the key instead:
+
+```rust
+rsx! {
+    <body styled>
+        {for name in self.items.clone() { <Row key={name} name={name} /> }}
+    </body>
+}
+```
+
+The repository's test (`tests/hooks.rs`) checks both cases: with keys, removing `"a"` leaves `"b"`'s clicks with `"b"`; without keys, `"c"` inherits them. Nested keys combine, so a keyed row inside a keyed list works as you'd expect.
+
+## Lifetimes and cost
+
+- **State is freed when its component stops rendering.** Hide a component and show it again, and it starts fresh.
+- **No `Rc`, no `RefCell`.** Signals are handles into a per-thread store, which is moved out of its cell while in use, and your code never runs inside it.
+- **Writing a signal re-renders only the window that owns it.** Other windows stay idle.
+
+## Limits
+
+<ComingSoon feature="Async resources (use_resource)">
+There's no `use_resource` yet for loading data asynchronously. For now, do the work on another thread and send the result back with `cx.ui_sender()` (see [gpui syntax](../gpui-syntax/#talking-to-the-ui-thread)), then write a signal or update your view.
+</ComingSoon>
+
+Generic components (`#[component] fn list<T>(...)`) are <ComingSoon inline /> as well.
+
+## Next steps
+
+<CardGrid>
+  <Card title="rsx! and components" href="docs/rust/rsx-and-components/" icon="layers" kicker="Rust">
+    Props, children, optional props and keys.
+  </Card>
+  <Card title="Events" href="docs/rust/events/" icon="zap" kicker="Rust">
+    Clicks, keys, changes and the Window API.
+  </Card>
+  <Card title="Headless testing" href="docs/rust/headless-testing/" icon="check" kicker="Rust">
+    Click your components in a test and assert on the result.
+  </Card>
+</CardGrid>

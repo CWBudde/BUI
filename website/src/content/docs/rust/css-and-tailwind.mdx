@@ -1,0 +1,269 @@
+---
+title: CSS and Tailwind
+description: Style Rust UIs with typed methods, compile-checked CSS, stylesheets or Tailwind v4 classes, all flowing through one browser-style cascade.
+section: Rust
+order: 40
+languages: ["rust"]
+sources: ["docs/rust.md", "bindings/rust/blenderui/src/style.rs", "bindings/rust/blenderui/src/styled.rs", "bindings/rust/blenderui/src/color.rs", "bindings/rust/blenderui/src/lib.rs", "bindings/rust/blenderui-macros/src/lib.rs", "bindings/rust/blenderui-macros/src/rsx.rs", "bindings/rust/blenderui-tailwind/src/lib.rs", "bindings/rust/blenderui/tests/modern_css.rs", "bindings/rust/blenderui/tests/rsx.rs", "bindings/rust/blenderui/tests/parity.rs", "CHANGELOG.md"]
+---
+
+Whatever way you like to style, it works here. Chain typed methods, write a CSS block, drop in a `<style>` sheet, or reach for Tailwind classes. **They all feed one cascade, the same way a browser's does**, so you can mix them without surprises. And when you make a typo, the compiler usually catches it before you run anything.
+
+## Four ways to style, one cascade
+
+```rust
+// 1. gpui / Tailwind-style methods
+div().flex().items_center().gap_2().px_3().py_1().rounded_md().bg(rgb(0x3a3a3a))
+    .text_color(white()).shadow_md().hover(|s| s.bg(rgb(0x4772b3)))
+
+// 2. a CSS block, checked at compile time (a misspelled property doesn't compile)
+div().style(css!("border-left: 3px solid #4772b3; padding: 4px 8px"))
+
+// 3. CSS built at run time
+div().css("grid-template-columns", format!("repeat({n}, 1fr)"))
+     .style(format!("width: {w}px"))
+
+// 4. stylesheets, anywhere in the tree
+style().child(".card:hover > h4 { color: #e6a23c } @media (max-width: 600px) { nav { display: none } }")
+```
+
+And the fifth, Tailwind classes: `div().class("p-4 md:flex hover:bg-sky-500/50")`. Each one is covered below.
+
+## Style methods
+
+The `Styled` trait has about 1,300 methods, generated from Tailwind's scales. If you know Tailwind, you know their names: replace `-` with `_`.
+
+- **Spacing and sizing** on the spacing scale: `p_4`, `mx_auto`, `w_64`, `h_full`, `w_1_3`, `gap_x_2`, or any length: `size(px(20.0))`, `w(px(40.0))`.
+- **Display and position:** `flex`, `grid`, `block`, `hidden`, `absolute`, `inset_0`, `z_index`.
+- **Flexbox:** `flex_col`, `flex_1`, `items_center`, `justify_between`, `flex_wrap`.
+- **Grid:** `grid_cols(3)`, `col_span(2)`.
+- **Color:** `bg`, `text_color`, `border_color`, `opacity`.
+- **Borders and corners:** `border_1`, `border_t_2`, `rounded_lg`, `rounded_full`.
+- **Shadows:** `shadow_sm` … `shadow_2xl`.
+- **Text:** `text_sm` … `text_6xl`, `font_bold`, `italic`, `underline`, `uppercase`, `truncate`, `leading_tight`, `whitespace_nowrap`.
+- **Overflow and cursors:** `overflow_y_scroll`, `cursor_pointer`.
+
+Lengths come from `px(10.0)`, `rems(1.5)` or `relative(0.5)` (a fraction of the parent).
+
+**Colors** come from `rgb(0xRRGGBB)`, `rgba(0xRRGGBBAA)`, `hsla(h, s, l, a)`, the named helpers (`black()`, `white()`, `red()`, `green()`, `blue()`, `yellow()`, `transparent_black()`, `transparent_white()`), or any CSS color string.
+
+**State styles:** `.hover(|s| ...)`, `.active(|s| ...)` and `.focus(|s| ...)` take a refinement with the same methods. They're CSS `:hover`, `:active` and `:focus` rules for that one element.
+
+```rust
+div().px_3().py_1().bg(rgb(0x545454))
+    .hover(|s| s.bg(rgb(0x4772b3)))
+    .active(|s| s.opacity(0.8))
+```
+
+## CSS blocks
+
+- **`css!("...")`** splits the block into declarations when your program compiles. Every property name is resolved then, so `css!("colr: red")` is a compile error, and each value is tokenized once for the whole program. Custom properties (`--brand: …`) and `!important` work.
+- **`.style("a: b; c: d")`** takes CSS text at run time: a `&str`, a `String`, or `css!` output.
+- **`.css("property", value)`** sets one property, with the value built at run time.
+
+## Stylesheets
+
+`style().child("...")` puts a stylesheet anywhere in the tree, just like a `<style>` tag. Its rules apply to the whole window.
+
+```rust title="A stylesheet from the showcase example"
+const CSS: &str = r#"
+nav a { display: block; padding: 4px 14px; color: #c8c8c8; text-decoration: none; }
+nav a:hover { background: #4772b3; color: white; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.card.accent { background: linear-gradient(135deg, #4772b3, #7a4fb3); color: white; }
+tbody tr:nth-child(odd) { background: #353535; }
+"#;
+
+html().child(head().child(style().child(CSS))).child(body() /* … */)
+```
+
+### Selectors
+
+Selectors Level 4, the same ones you'd use on the web:
+
+- **Basics:** type, `*`, `#id`, `.class`, and attributes: `[a]`, `=`, `~=`, `|=`, `^=`, `$=`, `*=`, with the case-insensitive `i` flag.
+- **Combinators:** descendant, `>`, `+`, `~`.
+- **State:** `:hover`, `:active`, `:focus`, `:focus-within`, `:focus-visible`, `:checked`, `:disabled`, `:enabled`, `:link`, `:any-link`, `:required`, `:optional`, `:read-only`, `:read-write`, `:open`, `:placeholder-shown`.
+- **Structure:** `:first-child`, `:last-child`, `:only-child`, `:first-of-type`, `:last-of-type`, `:nth-child()`, `:nth-last-child()`, `:nth-of-type()`, `:nth-last-of-type()`, `:nth-child(2 of .on)`, `:empty`, `:root`.
+- **Logic:** `:not()`, `:is()`, `:where()` (no specificity) and `:has()`, including `:has(> img)`.
+- **Nesting:** `.card { & > h4 { … } .dark & { … } }`.
+- **Generated content:** `::before` and `::after` with `content`, including `attr()`, `counter()` and `counters()`.
+
+### At-rules
+
+- **`@media`** with Media Queries 4 ranges, evaluated against the window: `@media (400px <= width <= 600px)`.
+- **`@supports`**, **`@layer`** (later layers win; unlayered rules beat layered ones) and **`@scope (.panel) to (.stop)`**.
+- **`@container`** size queries, with `container-type` and `container-name`.
+- **`@font-face`** with local font files, and **`@property`** initial values.
+- **`@keyframes`**: see [Effects and animations](../effects-and-animations/).
+
+## The cascade
+
+Declarations are applied in this order, later winning:
+
+1. the built-in **user-agent sheet** (the browser defaults, or Blender's inside `styled`),
+2. your **stylesheets**,
+3. **inline** declarations: methods, `.css(...)`, `.style(...)`,
+4. **state refinements**: `.hover(...)`, `.active(...)`, `.focus(...)`.
+
+`!important` beats all of them. Within a level, specificity and then source order decide, as in a browser. `inherit`, `initial`, `unset` and `revert` are understood.
+
+<Callout type="note" title="Boxes are border-box">
+The default `box-sizing` is `border-box`, like Tailwind's preflight, not CSS's `content-box`. A `width: 100px` box with padding stays 100 pixels wide. Set `box-sizing: content-box` where you need the CSS default.
+</Callout>
+
+## Values, units and colors
+
+- **Units:** `px`, `em`, `rem`, `%`, `vw`, `vh`, `vmin`, `vmax`, `ch`, `ex`, `pt`, `pc`, `in`, `cm`, `mm`, `Q`, and the rest of CSS's length units.
+- **Math:** every CSS math function with mixed units: `calc`, `min`, `max`, `clamp`, `round`, `mod`, `rem`, `abs`, trigonometry, `pow`, `hypot` …
+- **Variables:** custom properties (`--gap: 10px`) with `var()`, fallbacks (`var(--missing, 20px)`) and inheritance, plus `env()`.
+- **Sizing keywords:** `fit-content` and `stretch`.
+- **Colors:** CSS Color 4 and 5: `oklch()`, `lab()`, `color()`, `color-mix()`, relative colors and `light-dark()`.
+
+```rust
+div().style("width: calc(100% - 2 * var(--gap)); background: color-mix(in oklch, var(--brand) 60%, white)")
+```
+
+## Tailwind CSS v4
+
+Class names work as Tailwind v4 utilities out of the box. There's no build step and no config file: each class compiles to CSS the first time it's used, like Tailwind's JIT engine, with the v4 default theme, and utilities sort the way Tailwind sorts them.
+
+```rust
+div().class("grid grid-cols-3 gap-4 md:grid-cols-6 hover:bg-sky-500/50")
+```
+
+What the engine understands:
+
+- **Utilities** with the v4 theme, including `animate-spin`, `animate-ping`, `animate-pulse`, `animate-bounce` and the `transition-*` and `ease-*` utilities.
+- **Arbitrary values:** `w-[calc(100%-2rem)]`, `h-[37px]`, `bg-[#4772b3]`.
+- **CSS variable shorthand:** `bg-(--brand)`.
+- **Negatives, opacity modifiers and important:** `-mt-2`, `bg-sky-500/50`, `text-sm/6`, `p-4!`.
+- **Variants:** states (`hover:`, `focus-visible:` …), pseudo-elements, `group-*` and `peer-*`, `has-*`, `data-*` (`data-[state=open]:`), `aria-*`, `nth-*`, breakpoints (`md:`, `2xl:`, `max-sm:`), container queries (`@md:`), `dark:`, `motion-*`, `supports-*`, `*:` and arbitrary variants like `[&>*]:`.
+
+If your own class names collide with Tailwind's, turn it off: `blenderui::set_tailwind(false)`.
+
+### Checked at compile time with tw!
+
+`.class("...")` accepts anything, so a typo silently does nothing. Wrap the string in `tw!` and the compiler checks every class:
+
+```rust
+div().class(tw!("grid grid-cols-3 gap-4 md:grid-cols-6 hover:bg-sky-500/50"))
+```
+
+### Tailwind attributes in rsx!
+
+In `rsx!`, utilities can be bare attributes (UnoCSS calls this "attributify"). They become classes at compile time, and they're checked like `tw!`:
+
+```rust
+rsx! { <div p-4 w-1/2 bg-[#4772b3] hover:bg-sky-500/50 md:flex -mt-2 text-sm/6 /> }
+```
+
+HTML boolean attributes (`disabled`, `checked`, `hidden`, `open` …) stay attributes.
+
+Every Tailwind variant also works as an **attribute prefix**, chained as deep as you like:
+
+```rust
+rsx! {
+    <button class="px-3 py-1 bg-zinc-800"
+            hover:class="bg-sky-600 text-white"        // classes, prefixed
+            active:style="transform: scale(0.97)"      // any CSS, as arbitrary properties
+            focus-visible:outline="2px solid white"    // one CSS property
+            md:dark:hover:class="bg-sky-400"           // chained variants
+            hover:bg={rgb(0x4772b3)}>                  // typed value via .hover(|s| ..)
+        "Save"
+    </button>
+}
+```
+
+`group-hover:`, `peer-checked:`, `data-[state=open]:`, `aria-expanded:`, `@md:`, `2xl:`, `max-sm:`, `*:` and every other variant work the same way, because they all go through the Tailwind engine. **Typed `{expr}` values work only under `hover`, `active` and `focus`**; with any other variant, use `variant:class` or `variant:style`.
+
+### "Did you mean?" errors
+
+Anything that looks like a utility but isn't one is a compile error with suggestions, in `rsx!` and in `tw!` alike:
+
+```text
+error: rsx!: `bg-sky-50O` is not a Tailwind utility; did you mean `bg-sky-500` or `bg-sky-50` or `bg-sky-100`?
+error: rsx!: `hovr:bg-red-500` is not a Tailwind utility; did you mean `hover:bg-red-500` or `odd:bg-red-500`?
+error: tw!: `roundd-lg` is not a Tailwind utility; did you mean `rounded-lg` or `rounded-s-lg` or `rounded-e-lg`?
+```
+
+The suggestions come from `blenderui_tailwind::suggest`, so misspelled variants, roots and values are all caught.
+
+## Coverage
+
+These numbers come from the repository's coverage test (`cargo test --test parity -- --nocapture`):
+
+| Area | Coverage |
+| --- | --- |
+| CSS properties | **271** change layout or rendering; **137** more parse but have no effect |
+| W3C property index (745 properties) | **261** rendered (35%), **129** parsed without effect (17%), **355** not recognized (48%) |
+| CSS 2.1, screen properties | **90 / 90** rendered, 90 / 90 parsed |
+| Flexbox | **12 / 12** |
+| Grid | **23 / 23**, including `grid-template-areas` and named lines |
+| Tailwind CSS v4 | Classes compile on first use (v4 theme, variants, arbitrary values); `tw!` checks them at compile time |
+
+The first row counts every name the engine knows, including aliases such as `-webkit-mask`; the second measures against the W3C's [list of all CSS properties](https://www.w3.org/Style/CSS/all-properties.en.html). Most of the 355 unrecognized properties are drafts, speech, paged media and SVG:
+
+| Group | Properties |
+| --- | ---: |
+| Draft border and corner shapes (`corner-shape`, `border-*-clip` …) | ~78 |
+| SVG fill, stroke and markers | ~40 |
+| Gap decorations (`row-rule-*` …) | 38 |
+| Speech and aural | 31 |
+| Animation triggers and scroll-driven animation | 26 |
+| Paged media, regions, rhythm and others | ~25 |
+| Everything else | ~100 |
+
+The everyday screen CSS is much further along: Flexbox 12/12, Grid 23/23 and CSS 2.1 90/90.
+
+### What renders
+
+Every property in this list changes layout or drawing (`style.rs`'s handler table):
+
+- **Box model:** `display`, `box-sizing`, `width`, `height`, `min-*` / `max-*`, the logical sizes (`inline-size`, `block-size` …), `aspect-ratio`, `margin` and `padding` with every side and logical longhand, `float`, `clear`, `contain`.
+- **Positioning:** `position`, `inset` and `top` / `right` / `bottom` / `left`, the logical `inset-*`, `z-index`.
+- **Flexbox, grid and alignment:** every property of both modules, `gap` / `row-gap` / `column-gap` (and the old `grid-gap` names), `place-*`, `justify-*`, `align-*`, `order`.
+- **Overflow and scrolling:** `overflow`, `overflow-x` / `-y` / `-inline` / `-block`, `scrollbar-width`, `text-overflow`, `scroll-snap-type`, `scroll-snap-align`.
+- **Backgrounds:** `background` and its longhands, including `background-image` (gradients and PNG `url()`), `-size`, `-position`, `-repeat`, `-clip`, `-origin` and `-attachment`; `object-fit`, `object-position`.
+- **Borders and outlines:** every `border-*` longhand (physical and logical), `border-radius` and its corners, `border-image` and its longhands, `outline` and `outline-offset`.
+- **Effects:** `opacity`, `visibility`, `box-shadow`, `transform`, `translate`, `rotate`, `scale`, `transform-origin`, `filter`, `backdrop-filter`, `mix-blend-mode`, `isolation`, `clip-path`, `clip`, `mask` and `mask-image` / `-mode` / `-size` / `-position` / `-repeat`.
+- **Text:** `color`, `font` and its longhands, `font-variant-caps`, `line-height`, `text-align`, `text-decoration` and its longhands, `text-underline-offset`, `text-shadow`, `text-transform`, `text-indent`, `letter-spacing`, `word-spacing`, `vertical-align`, `white-space`, `text-wrap`, `text-wrap-mode`, `white-space-collapse`, `word-break`, `overflow-wrap`, `tab-size`, `direction`, `unicode-bidi`.
+- **Lists, tables and generated content:** `list-style` and its longhands, `table-layout`, `border-collapse`, `border-spacing`, `caption-side`, `empty-cells`, `content`, `quotes`, `counter-reset`, `counter-set`, `counter-increment`.
+- **Containers:** `container`, `container-type`, `container-name`.
+- **Interaction:** `cursor`, `pointer-events`, `accent-color`.
+- **Motion:** `animation` and every `animation-*` longhand, `transition` and every `transition-*` longhand.
+
+### What parses, but has no effect yet
+
+These 137 are accepted and ignored for now, so stylesheets written for browsers still load:
+
+- **Fonts:** OpenType features and synthesis: `font-feature-settings`, `font-variant-numeric`, `font-variant-ligatures` and the other `font-variant-*`, `font-kerning`, `font-stretch`, `font-variation-settings`, `font-synthesis*` …
+- **Multi-column:** `columns`, `column-count`, `column-width`, `column-rule*`, `column-span`, `column-fill`.
+- **Writing modes:** `writing-mode`, `text-orientation`, `text-combine-upright`.
+- **3D:** `perspective`, `perspective-origin`, `backface-visibility`, `transform-style`, `transform-box`.
+- **Scrolling details:** every `scroll-margin-*` and `scroll-padding-*`, `scroll-snap-stop`, `scroll-behavior`, `overscroll-behavior*`, `scrollbar-color`, `scrollbar-gutter`.
+- **Paged media:** `orphans`, `widows`, `break-*`, `page-break-*`.
+- **Text details:** `hyphens`, `text-justify`, `line-break`, `line-clamp`, `text-emphasis*`, `text-align-last` …
+- **Hints and the rest:** `will-change`, `user-select`, `resize`, `appearance`, `caret-color`, `touch-action`, `image-rendering`, `shape-outside`, `zoom`, `background-blend-mode`, `mask-clip`, `mask-composite`, `mask-border*` …
+
+### Not done yet
+
+<ComingSoon feature="3D transforms, OpenType features and multi-column layout">
+These are the largest gaps among common properties. `perspective`, `rotateX` / `rotateY` and `matrix3d` have no effect. OpenType features need text shaping, which BUI's text engine doesn't have (and neither does Blender's). `columns`, `writing-mode`, `scroll-padding` and `scroll-margin` parse but aren't applied yet.
+</ComingSoon>
+
+Also on the list: `filter: url(#svg)`, `clip-path: path()`, and the rest of the W3C index. The [effects page](../effects-and-animations/#not-done-yet) has the animation-specific gaps.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Layout" href="docs/rust/layout/" icon="layers" kicker="Rust">
+    Block, inline, flexbox, grid, tables and scrolling.
+  </Card>
+  <Card title="Effects and animations" href="docs/rust/effects-and-animations/" icon="sparkles" kicker="Rust">
+    Filters, masks, blend modes, keyframes and transitions.
+  </Card>
+  <Card title="The three looks" href="docs/rust/styled-and-blender-components/" icon="monitor" kicker="Rust">
+    How the built-in stylesheets change inside styled subtrees.
+  </Card>
+</CardGrid>

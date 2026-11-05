@@ -1,0 +1,90 @@
+---
+/**
+ * The frame every chart sits in: title, takeaway, the plot (slot), and an "Open bench"
+ * disclosure with the exact table. Used by BarChart, GroupedBarChart and LineChart.
+ */
+import Icon from "../site/Icon.astro";
+import BenchTable from "./BenchTable.astro";
+import { machine, tables, type Table, type TableId } from "../../data/bench";
+import { repoFile } from "../../lib/docs";
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  better: "lower" | "higher";
+  headline?: { value: string; text: string };
+  table?: TableId | Table;
+  source?: string;
+  /** Landing-page variant: no outer border (the section draws it). */
+  bare?: boolean;
+  legend?: { name: string; color: string; hatch?: boolean }[];
+  class?: string;
+}
+
+const { title, subtitle, better, headline, table, source, bare = false, legend, class: className } = Astro.props;
+const tableData: Table | undefined = typeof table === "string" ? tables[table] : table;
+---
+
+<figure class:list={["chart not-prose", !bare && "border border-border", className]} data-chart>
+  <figcaption class="flex flex-col gap-3 px-4 pt-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 sm:px-5 sm:pt-5">
+    <div class="flex min-w-0 flex-col gap-1">
+      <p class="text-[15px] font-semibold leading-6 tracking-[-0.005em]">{title}</p>
+      {subtitle && <p class="text-[13px] leading-5 text-muted">{subtitle}</p>}
+      <p class="mt-1 inline-flex items-center gap-1.5 text-[11.5px] text-muted">
+        <Icon name={better === "lower" ? "arrow-down" : "arrow-up"} size={12} weight="bold" />
+        {better === "lower" ? "Lower is better" : "Higher is better"}
+      </p>
+    </div>
+    {
+      headline && (
+        <p class="chart-headline flex shrink-0 items-baseline gap-2 sm:max-w-[16rem] sm:flex-col sm:items-end sm:gap-0.5 sm:text-right">
+          <span class="tabular text-[1.75rem] font-light leading-none tracking-[-0.03em] text-link sm:text-[2.1rem]">{headline.value}</span>
+          <span class="text-[12.5px] leading-5 text-muted">{headline.text}</span>
+        </p>
+      )
+    }
+  </figcaption>
+
+  {
+    legend && legend.length > 0 && (
+      <ul class="flex flex-wrap gap-x-4 gap-y-1.5 px-4 pt-3 text-[12px] text-muted sm:px-5" aria-label="Legend">
+        {legend.map((l) => (
+          <li class="inline-flex items-center gap-1.5">
+            <span class:list={["inline-block size-2.5", l.hatch && "chart-hatch"]} style={`background-color:${l.color}`} aria-hidden="true" />
+            {l.name}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  <div class="px-4 pt-4 pb-4 sm:px-5">
+    <slot />
+  </div>
+
+  {
+    tableData && (
+      <details class="chart-details group border-t border-border">
+        <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-muted transition-colors duration-150 hover:bg-surface hover:text-foreground sm:px-5 [&::-webkit-details-marker]:hidden">
+          <Icon name="table" size={15} />
+          <span class="group-open:hidden">Open bench</span>
+          <span class="hidden group-open:inline">Close bench</span>
+          <span class="ml-auto hidden text-[12px] font-normal sm:inline">{machine}</span>
+          <Icon name="caret-down" size={13} class="transition-transform duration-200 group-open:rotate-180" />
+        </summary>
+        <div class="flex flex-col gap-3 px-4 pt-1 pb-4 sm:px-5">
+          <BenchTable table={tableData} />
+          {source && (
+            <p class="text-[12.5px] text-muted">
+              Source:{" "}
+              <a class="font-mono text-link underline-offset-4 hover:underline" href={repoFile(source)}>
+                {source}
+              </a>
+              <span class="sm:hidden"> · {machine}</span>
+            </p>
+          )}
+        </div>
+      </details>
+    )
+  }
+</figure>

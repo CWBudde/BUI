@@ -5,15 +5,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 rust-version.workspace = true
+documentation = "https://docs.rs/blenderui"
 keywords = ["gui", "ui", "blender", "gpui", "html"]
 categories = ["gui"]
 readme = "README.md"
+# the crate, its README, tests and examples (examples/site: the website's demos)
+include = ["src/**", "tests/**", "examples/**", "README.md", "Cargo.toml"]
 
 [dependencies]
-blenderui-sys = { path = "../blenderui-sys", version = "0.1.0", default-features = false }
-blenderui-macros = { path = "../blenderui-macros", version = "0.1.0" }
-blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.1.0" }
+blenderui-sys = { path = "../blenderui-sys", version = "0.2.0", default-features = false }
+blenderui-macros = { path = "../blenderui-macros", version = "0.2.0" }
+blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.2.0" }
 taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "flexbox_balance", "grid", "block_layout", "float_layout", "calc", "content_size"] }
 paste = "1"
 smallvec = { version = "1", features = ["union", "const_generics"] }

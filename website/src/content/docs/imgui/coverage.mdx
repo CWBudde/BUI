@@ -1,0 +1,128 @@
+---
+title: Dear ImGui coverage
+sidebarLabel: Coverage
+description: Exactly how much of Dear ImGui each language binds, what's skipped and why, how the bindings are regenerated, and where the Blender style's colours come from.
+section: Dear ImGui
+order: 60
+languages: ["cpp", "c", "python", "rust", "imgui"]
+sources: ["docs/imgui.md", "bindings/imgui/README.md", "bindings/imgui/gen/coverage.json", "bindings/imgui/imgui_impl_bui.h", "bindings/imgui/blender/README.md"]
+---
+
+Before you pick a language, you'll want to know: **does it have the function I need?** This page answers that with exact numbers, counted by the generator itself, and tells you where to go for anything a binding skips.
+
+Short version: C++ and C have everything. Python and safe Rust have everything except functions that take a C `va_list`, an untyped `void*` or a C callback, and each of those has a typed alternative.
+
+## What's vendored
+
+BUI ships **Dear ImGui 1.93.1 WIP** (`IMGUI_VERSION_NUM 19302`) in `bindings/imgui/extern/imgui`, under its MIT license. Only the core files, `imconfig.h`, the `imstb_*.h` headers and `misc/cpp/imgui_stdlib.*` are vendored, not ImGui's own `backends/`: BUI brings its own.
+
+That version has **399 functions in `namespace ImGui`** (overloads counted separately, obsolete ones left out; 14 of them are `...V` functions taking a `va_list`) and **264 methods and constructors** on its structs (223 methods, 41 constructors). The bindings add a default constructor to the 9 structs that declare none, which makes 273.
+
+## Per language
+
+| | `namespace ImGui` | Methods and constructors | Notes |
+| --- | ---: | ---: | --- |
+| C++ | 399 / 399 | 273 / 273 | It's Dear ImGui itself |
+| C (`cimgui.h`) | 399 / 399 | 273 / 273 | 894 C functions with the `Ex` variants; all 41 structs with their layout, 5 opaque; 737 enum values |
+| Python | 366 / 399 | 264 / 273 | 366 of the 385 without `va_list`; 1,474 constants (both spellings); fields of all structs |
+| Rust FFI (`imgui::sys`) | 385 / 399 | 272 / 273 | Everything but `va_list`: 879 of the 894 C functions |
+| Rust safe layer | 366 / 399 | 264 / 273 | The rest is in `sys` |
+
+<StatusTable
+  columns={["Language", "Status", "Notes"]}
+  rows={[
+    ["C++", "done", "Every function: it's the real Dear ImGui"],
+    ["C", "done", "399 of 399 functions, every struct layout"],
+    ["Python", "partial", "366 of 399: skips <code>va_list</code>, <code>void*</code> and C-callback functions"],
+    ["Rust", "partial", "Safe layer 366 of 399; the FFI has all but the <code>va_list</code> functions"],
+  ]}
+/>
+
+## What Python and safe Rust skip, and what to use instead
+
+All of these are in C and in Rust's `sys`.
+
+| Skipped | Why | Use instead |
+| --- | --- | --- |
+| The 14 `...V` functions (`TextV`, `SetTooltipV` …) | They take a C `va_list` | The `...` versions, or format the string first |
+| `PushID(const void*)`, `GetID(const void*)`, `TreeNode` / `TreeNodeEx` / `TreePush(const void*, …)` | An untyped pointer as an ID | The string or integer overloads |
+| The 8 `*Scalar` / `*ScalarN` widgets (`DragScalar`, `SliderScalar`, `InputScalar` …) | An untyped `void*` value | The typed widgets: `drag_float`, `slider_int`, `input_int` … |
+| `MemFree`, `ImGuiStorage::SetVoidPtr`, `ImGuiStoragePair(key, void*)` | Untyped pointers | |
+| `ImFontAtlas::AddFontFromMemoryTTF`, `AddFontFromMemoryCompressedTTF` | Untyped pointers | `add_font_from_file_ttf` |
+| The getter overloads of `Combo`, `ListBox`, `PlotLines`, `PlotHistogram` | C callbacks | The list overloads, which are bound |
+| `SetAllocatorFunctions`, `GetAllocatorFunctions`, `ImDrawList::AddCallback` | C callbacks | |
+| `InputText`'s user callback | A C callback | The buffer callback is used internally to grow strings |
+| `ImFontGlyphRangesBuilder::AddRanges` / `BuildRanges`, `ImGuiSelectionBasicStorage::GetNextSelectedItem` | Pointer-to-pointer | |
+
+`bindings/imgui/gen/coverage.json` lists every skipped function per language, with its reason.
+
+## Regenerating the bindings
+
+The C, Python and Rust bindings are **generated** from `imgui.h`, so they never drift from ImGui. The generator is standard-library Python, with no other dependencies:
+
+```sh
+py -3 -I bindings/imgui/gen/gen.py
+```
+
+It parses `imgui.h` (declarations, enums and flags, typedefs, structs with their fields, methods and constructors, default arguments, overloads, `fmt, ...`, arrays and callbacks) into `bindings/imgui/gen/imgui_api.json`, then writes:
+
+| File | What it is |
+| --- | --- |
+| `bindings/imgui/c/cimgui.h`, `cimgui.cpp` | The C API |
+| `bindings/python/src/buiimgui_gen.inc` | The Python functions, types, field tables and constants |
+| `bindings/rust/blenderui-imgui/src/sys.rs`, `safe.rs` | The Rust FFI and safe layer |
+| `bindings/imgui/gen/coverage.json` | What each language binds, and why not |
+
+Hand-written, by contrast: the C backend API (`cimgui_impl_bui.h/.cpp`), the Python runtime and module, `blenderui.imgui`'s `run` and `HeadlessApp`, the Rust `lib.rs` (helpers, `Owned`, the runner), the examples and the tests.
+
+**Updating ImGui:** copy the same files from a newer checkout, run the generator, and rebuild. The C++ compiler checks every C struct layout (`static_assert`s in `cimgui.cpp`), and `imgui::sys::layout_mismatches()` checks the Rust ones. If you use the [Blender-widgets](../blender-widgets/) build, `bindings/imgui/blender/rebase.py` merges ImGui's changes into the widget copy.
+
+## The Blender style
+
+`ImGui_ImplBUI_StyleBlender` takes its colours from Blender's default theme (`userdef_default_theme.c`) and its metrics from Blender's widget unit (20 px at scale 1). A few of the mappings:
+
+| ImGui colour | From Blender's theme |
+| --- | --- |
+| `Text` | `wcol_regular.text`, #e6e6e6 |
+| `WindowBg` | Region background, #303030 |
+| `PopupBg` | `wcol_menu_back.inner`, #181818 |
+| `FrameBg` | `wcol_num.inner`, #545454 |
+| `Button` / `ButtonActive` | `wcol_regular.inner` #545454 / `inner_sel` #4772b3 |
+| `SliderGrab` | `wcol_numslider.item`, #4772b3 |
+| `CheckMark` | `wcol_option.item`, #ffffff |
+| `InputTextCursor` | `widget_text_cursor`, #71a8ff |
+| `TextLink` | Theme `link`, #6fa9e6 |
+
+"Hovered" colours use Blender's own rule: HSL saturation ×1.15, lightness ×1.2. The full table is in `bindings/imgui/README.md`.
+
+**Metrics,** scaled with the UI: frames are one widget unit tall, corners are rounded 4 px, scrollbars are 11 px with round ends, item spacing is (8, 2), and outlines are 1 px.
+
+**The font** is Inter, embedded in BUI, at Blender's UI text size: an 11 px em at scale 1. ImGui sizes fonts by ascent minus descent, so that's 13.3 px in ImGui's terms (`ImGui_ImplBUI_BlenderFontSize`).
+
+## Known gaps
+
+The backend's own gaps, in every language:
+
+- **IME** candidate window placement isn't forwarded. **Gamepads** and **multi-viewports** aren't supported. <ComingSoon inline />
+- **Punctuation keys on Windows** arrive only as text, so `ImGuiKey_Comma` and friends are pressed and released at once there. X11 sends real key names and releases.
+- **Losing window focus** isn't forwarded by the kit (clicking another BUI widget is). Held modifiers are corrected by the next input event.
+- **macOS** still feeds wheel steps, not precise deltas.
+
+And the binding-level limits:
+
+- **One thread.** Dear ImGui has one current context: create apps and call ImGui from one thread. Python and Rust references to ImGui objects (draw lists, IO, fonts) are borrowed, so don't keep them past their context.
+- **Assertions.** In release builds `IM_ASSERT` is off and ImGui recovers from most API misuse (`io.ConfigErrorRecovery`). With assertions on, misuse aborts the process, from every language.
+
+## Next steps
+
+<CardGrid>
+  <Card title="From Python" href="docs/imgui/python/" icon="book" kicker="Dear ImGui">
+    pyimgui-style calls on the 366 bound functions.
+  </Card>
+  <Card title="From Rust" href="docs/imgui/rust/" icon="book" kicker="Dear ImGui">
+    The safe layer, and sys for the rest.
+  </Card>
+  <Card title="Blender widgets" href="docs/imgui/blender-widgets/" icon="sparkles" kicker="Dear ImGui">
+    The build where ImGui's widgets are Blender's.
+  </Card>
+</CardGrid>

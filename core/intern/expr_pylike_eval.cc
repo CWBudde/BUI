@@ -580,7 +580,9 @@ static bool parse_add_func(ExprParseState *state,
   feclearexcept(FE_ALL_EXCEPT);
 
   if (std::holds_alternative<UnaryOpFunc>(funcptr)) {
-    UnaryOpFunc func = std::get<UnaryOpFunc>(funcptr);
+    /* BUI: get_if, not std::get: libc++ gates std::get on variants (it can throw
+     * bad_variant_access) to macOS 10.14+, and Rust's x86_64 macOS default is 10.12 */
+    UnaryOpFunc func = *std::get_if<UnaryOpFunc>(&funcptr);
 
     if (jmp_gap >= 1 && prev_ops[-1].opcode == OPCODE_CONST) {
       /* volatile because some compilers overly aggressive optimize this call out.
@@ -596,7 +598,7 @@ static bool parse_add_func(ExprParseState *state,
     parse_add_op(state, OPCODE_FUNC1, 0)->arg.func1 = func;
   }
   else if (std::holds_alternative<BinaryOpFunc>(funcptr)) {
-    BinaryOpFunc func = std::get<BinaryOpFunc>(funcptr);
+    BinaryOpFunc func = *std::get_if<BinaryOpFunc>(&funcptr);
 
     if (jmp_gap >= 2 && prev_ops[-2].opcode == OPCODE_CONST && prev_ops[-1].opcode == OPCODE_CONST)
     {
@@ -615,7 +617,7 @@ static bool parse_add_func(ExprParseState *state,
     parse_add_op(state, OPCODE_FUNC2, -1)->arg.func2 = func;
   }
   else if (std::holds_alternative<TernaryOpFunc>(funcptr)) {
-    TernaryOpFunc func = std::get<TernaryOpFunc>(funcptr);
+    TernaryOpFunc func = *std::get_if<TernaryOpFunc>(&funcptr);
 
     if (jmp_gap >= 3 && prev_ops[-3].opcode == OPCODE_CONST &&
         prev_ops[-2].opcode == OPCODE_CONST && prev_ops[-1].opcode == OPCODE_CONST)

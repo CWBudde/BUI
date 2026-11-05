@@ -1,16 +1,28 @@
 # Host integration guide
 
-> **High-level syntax layers (recommended):** you may not need any of the
-> plumbing below. `bindings/python` ships two application-facing APIs that
-> render through BUI — **Qt syntax** (`bui.qtsyntax`) and **tkinter syntax**
-> (`bui.tksyntax`). See "High-level syntax layers" at the bottom, and
-> "Testing the Python bindings" for the one setup step they need.
+> **Most apps don't need this page.** The kit (`kit/`, `BUI_kit.h`) and every
+> language binding (tkinter and Qt syntax, the components, Rust, JavaScript,
+> Dear ImGui) open native windows themselves and draw into BUI's own raster or
+> GPU renderer. This page is about the **lower-level render-sink layer**: for
+> hosts that want BUI's primitives in their own renderer. See "High-level
+> syntax layers" at the bottom, and "Testing the Python bindings" for the one
+> setup step they need.
 
-BUI draws; you present. The toolkit never opens a window, creates a GL
-context, or picks a UI framework. Instead, every draw call funnels through the
-**GPU seam** into a render **sink** you install. This document covers the
-three supported paths: plain C/C++, Qt (C++), and Python (PySide6/PyQt6 or
-headless).
+## Two drawing paths
+
+| Path | Who uses it | What it draws into |
+|---|---|---|
+| **The kit's raster path** | Everything in `kit/` and every binding | A `BuiRaster`: the software raster (`gpu/intern/gpu_raster.c`) or, on a GPU window, Direct3D 11 / OpenGL instances. A native window presents it; headless code reads its pixels. |
+| **Render sinks** (this page) | `api/bui_c_api.h`, the Qt backend, `bui.svg`, `buipy.demo_scene` | Triangles, lines, points and text runs from the immediate-mode GPU seam (`gpu/intern/gpu_null.c`), handed to a `BuiGpuSink` you install |
+
+The sink layer never opens a window, creates a GL context or picks a UI
+framework: every immediate-mode draw call funnels through the **GPU seam**
+into the **sink** you install. The kit's widgets don't go through it. To show
+kit widgets inside your own window, render the kit into a `BuiRaster`
+(`BK_render`) and blit the pixels, as `bui.qt.BuiCanvas` does below.
+
+This document covers the three sink paths: plain C/C++, Qt (C++), and Python
+(PySide6/PyQt6 or headless).
 
 ```
                     ┌────────────────────────┐
@@ -49,9 +61,11 @@ The coordinate contract: 2D positions transformed by the current model matrix
 (identity matrices → pixel coordinates), colors as RGBA floats 0..1.
 
 A complete minimal example is `examples/svg_demo.c` — it installs an SVG
-recorder and draws through the immediate-mode seam:
+recorder and draws through the immediate-mode seam. It's an example, so
+configure with `-DBUI_BUILD_EXAMPLES=ON` first:
 
 ```sh
+cmake -S . -B build -DBUI_BUILD_EXAMPLES=ON
 cmake --build build --target bui_svg_demo
 ./build/examples/bui_svg_demo out.svg
 ```
@@ -112,17 +126,20 @@ canvas.show()
 sys.exit(app.exec())
 ```
 
-`BuiCanvas` installs a `QtPainterBackend` for each paint pass, so the toolkit
-renders through the same QPainter path as the C++ backend — pure Python, no
-shiboken build.
+`BuiCanvas` renders each paint pass into one `buipy.Raster` in C (the same
+software raster the kit uses) and shows it with a single
+`QPainter.drawImage`: pure Python, no shiboken build. The per-primitive
+`QtPainterBackend` (which maps each triangle, line and text run onto
+`QPainter`, like the C++ backend) is still in `bui.qt` for custom use.
 
 ## High-level syntax layers
 
 Two facades speak the syntax of established toolkits on top of the C kit
 (`kit/`, exposed to Python as `buipy.KitNode` / `buipy.KitContext`): widgets
 are kit nodes, layouts are the kit's C geometry managers, and windows come
-from `bui.host` (native Win32 / X11 / Cocoa windows, or Tk with
-`BUI_HOST=tk`):
+from `bui.host` (native Win32 / X11 / Cocoa windows, the Cocoa one still
+experimental, or Tk with `BUI_HOST=tk`). They use the kit's raster path, not
+render sinks:
 
 ### Qt syntax — `bui.qtsyntax`
 
@@ -143,12 +160,11 @@ window.show()
 app.exec()
 ```
 
-Supported surface: see [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md) for the
-exact, honest list (the daily-driver core: windows, labels, buttons,
-checkboxes, box layouts, signals, a `setStyleSheet` subset). Anything not
-yet implemented raises a clear error naming that file. The window host is
-chosen at runtime: **PySide6/PyQt6** if installed, otherwise a stdlib
-tkinter window — the same code runs either way, always rendered by BUI.
+Supported surface: see [docs/qt.md](docs/qt.md) and
+[SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md) for the exact, honest list
+(widgets, layouts, signals, `QPainter`, menus, timers, a `setStyleSheet`
+subset). Anything not yet implemented raises `AttributeError`. Neither PySide
+nor PyQt is needed: windows come from `bui.host`, as above.
 
 ### tkinter syntax — `bui.tksyntax`
 
@@ -160,15 +176,16 @@ root.title("BUI — tkinter syntax")
 root.geometry("420x260")
 status = Label(root, text="")
 status.pack()
-Button(root, text="Click me", command=lambda: status.setText("Clicked!")).pack(pady=4)
+Button(root, text="Click me", command=lambda: status.config(text="Clicked!")).pack(pady=4)
 Checkbutton(root, text="Enable feature").pack()
 root.mainloop()
 ```
 
-Runs on the Python standard library alone. `pack(side=, padx=, pady=)`,
-`place(x=, y=)`, `config(**kw)`, `invoke()` are supported; widgets render onto
-a tk.Canvas **via the BUI sink**, so swapping the host renderer (Qt, SVG,
-custom) changes nothing in app code.
+Every public tkinter and ttk name is implemented (7,846 of 7,846); see
+[docs/tkinter.md](docs/tkinter.md). Widgets are kit nodes drawn by the kit's
+raster path in a `bui.host` window. Existing programs run unchanged with
+`python -m bui.tksyntax app.py` (or `blenderui-tk app.py` after
+`pip install blenderui`).
 
 ## Testing the Python bindings
 
@@ -187,12 +204,12 @@ python examples/python_demo.py            # needs the interpreter CMake used
 ```
 
 **2. Match the interpreter.** The extension only loads in the interpreter it
-was built for (CMake found Python 3.14 on this machine →
+was built for (if CMake found Python 3.14, it built
 `buipy.cp314-win_amd64.pyd`). Check which one CMake picked and run that one:
 
 ```sh
 grep Python3_EXECUTABLE build/CMakeCache.txt
-C:/Users/ppmpr/AppData/Local/Programs/Python/Python314/python.exe examples/python_demo.py
+C:/Path/Python314/python.exe examples/python_demo.py
 ```
 
 To target a different interpreter, point CMake at it explicitly:

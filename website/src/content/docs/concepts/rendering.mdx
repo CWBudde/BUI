@@ -1,0 +1,157 @@
+---
+title: CPU and GPU rendering
+sidebarLabel: Rendering
+description: BUI draws on the CPU by default and on the GPU when you ask. Both draw the same pixels; here's how each works, how to switch, and which to pick.
+section: Concepts
+order: 30
+languages: ["python", "rust", "javascript", "c"]
+sources: ["docs/getting-started.md", "ARCHITECTURE.md", "README.md", "CHANGELOG.md", "gpu/include/GPU_raster.h", "gpu/intern/gpu_raster.c", "gpu/intern/gpu_d3d11.c", "gpu/intern/gpu_d3d11.h", "gpu/intern/gpu_gl.c", "gpu/CMakeLists.txt", "kit/intern/kit_frame.c", "bindings/python/bui/__init__.py", "bindings/rust/bench/README.md"]
+---
+
+BUI has two renderers, and they draw **the same pixels**. The CPU one is the default, needs nothing from your graphics card and uses the least memory. The GPU one takes the drawing off the CPU, which pays off on big, busy windows. Switching is one line, or one environment variable.
+
+## Pick one in ten seconds
+
+| Your app | Use |
+| --- | --- |
+| A tool window, a form, a settings panel | **CPU** (the default). It's the lightest on memory and idles at zero. |
+| A large or HiDPI window, lots of animation, thousands of items | **GPU**. It uses about half the CPU per frame, or less. |
+| A server, a container, a test | **CPU**. No GPU or OpenGL needed. |
+| macOS | **CPU**: the GPU renderer isn't available there yet. |
+
+Not sure? Start on the CPU, then try `BUI_GPU=1` and compare with [`BUI_PROFILE=1`](../../performance/profiling/).
+
+## Turn on the GPU
+
+<LangTabs>
+<Tab label="Python">
+
+```py
+import blenderui as bui
+bui.set_gpu(True)          # before you create any window
+```
+
+With tkinter syntax, you can also ask per window: `tk.Tk(gpu=True)`.
+
+</Tab>
+<Tab label="Rust">
+
+```rust
+Application::new().gpu(true).run(|cx| { /* every window on the GPU */ });
+// or one window:
+cx.open_window(WindowOptions { gpu: Some(true), ..Default::default() }, build);
+```
+
+`window.is_gpu()` turns true a few frames in, once the device is ready.
+
+</Tab>
+<Tab label="JavaScript">
+
+```js
+render(<App />, { title: "My app", width: 360, height: 200, gpu: true })  // React
+const app = new App({ gpu: true })                                         // @blender-ui/native
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+BUI_gpu_set_default(1);        /* new windows draw on the GPU */
+BK_window_set_gpu(win, 1);     /* or one window */
+```
+
+</Tab>
+</LangTabs>
+
+**Any app, no code change:** set `BUI_GPU=1`. `BUI_GPU=0` forces the CPU. The variable wins over the app-wide setting in code, which makes A/B tests easy:
+
+```sh
+BUI_GPU=1 python my_app.py      # PowerShell: $env:BUI_GPU="1"; python my_app.py
+```
+
+Where no GPU device can start (no Direct3D 11, no OpenGL 3.3), BUI quietly stays on the CPU. Run with `BUI_GPU_DEBUG=1` to see why.
+
+## The CPU renderer: the software raster
+
+The **software raster** (`gpu/intern/gpu_raster.c`) draws the whole UI into one frame buffer in memory, then the window shows it with a single copy. It plays the part that Blender's GPU module and font library play in Blender.
+
+- **Shapes are math, not textures.** Rectangles, Blender's rounded widget boxes, circles and lines are drawn with signed-distance coverage, like Blender's widget shaders. Edges come out anti-aliased at any scale.
+- **Pixels are plain.** Each pixel is a 32-bit `0x00RRGGBB` value, rows top-down. That's the same layout as a Windows DIB and Qt's `QImage::Format_RGB32`, so hosts can show it without converting.
+- **It tracks damage.** After each frame it compares the new picture with the last one in 64×32-pixel tiles, and reports only the tiles that changed. See [Damage rendering](../damage-rendering/).
+- **Big canvases draw in parallel.** On Windows, a canvas with at least 64 items draws in horizontal bands on the system thread pool: up to 8 threads, three bands per thread, and only as many threads as it needs to meet the frame deadline. The pixels are identical to drawing on one thread. `BUI_RASTER_THREADS` sets the maximum; `BUI_RASTER_THREADS=1` forces one thread.
+
+The cost of the software raster grows with the number of pixels, which is why very large or high-DPI windows are where the GPU shines.
+
+## The GPU renderer
+
+The **GPU renderer** uses Direct3D 11 on Windows (`gpu_d3d11.c`) and OpenGL 3.3 on Linux (`gpu_gl.c`). It's modeled on how Blender batches its widgets (`GPU_SHADER_2D_WIDGET_BASE_INST` in `interface_widgets.cc`):
+
+- **One shader, many instances.** The kit makes the same drawing calls as on the CPU. In GPU mode, each call records one 128-byte **instance** instead of touching pixels. A single "uber-shader" draws them all, so a frame of thousands of widgets is a handful of instanced draw calls.
+- **Same formulas, same pixels.** The pixel shader evaluates the software raster's coverage formulas. The `gpu_parity` test draws every primitive both ways and finds 10 of 172,800 pixels that differ by more than 3/255, on both backends.
+- **Atlases.** Text and other coverage masks share one 8-bit atlas, and images share one color atlas, so they're uploaded once and reused. Polygons are covered on the CPU and uploaded as masks.
+- **Damage still counts.** Frames render into a persistent target, so only damaged regions are redrawn. On Windows, presentation uses a flip-model swap chain with dirty rectangles, so the system compositor only recomposes what changed.
+- **No waiting at startup.** On Windows, the device is created on a worker thread. The first frames are drawn on the CPU and the switch happens a few frames in. A lost device falls back to the CPU.
+- **No GL needed to build.** On Linux, `libGL`, `libEGL` and `libX11` are loaded when first used, never linked. Windows get a GLX context on the same X11 connection as the window; offscreen rendering (tests, screenshots) uses EGL, then a GLX pbuffer.
+- **No shader compiler needed.** The Direct3D shaders (`gpu/shaders/bui_ui.hlsl`) ship as precompiled bytecode, and the OpenGL side carries its GLSL translation in the source.
+
+**Textured meshes** are the one primitive that isn't a shape: indexed triangles with texture coordinates and colors. Dear ImGui draws everything this way. Both renderers support them, so ImGui runs on either.
+
+## Text on the GPU: Slug or atlas
+
+With the GPU renderer, text is drawn one quad per glyph, in one of two ways:
+
+- **Slug** (the default) uses Eric Lengyel's [Slug](https://github.com/EricLengyel/Slug) algorithm. Glyph outlines are uploaded once as curves, and the pixel shader computes exact coverage. Text is sharp at any size, and there are no glyph bitmaps.
+- **The glyph atlas** draws cached per-glyph bitmaps, as Blender does. It's about half the GPU work, but needs bitmaps per size.
+
+| Where | Slug (default) | Atlas |
+| --- | --- | --- |
+| Python | `bui.set_slug(True)` | `bui.set_slug(False)` |
+| Rust | `Application::new().slug(true)` or `blenderui::set_slug(true)` | `.slug(false)`, or build without the default `slug` feature |
+| C | `BUI_gpu_set_slug(1)` | `BUI_gpu_set_slug(0)`, or CMake `-DBUI_SLUG=OFF` |
+| Any app (wins over code) | `BUI_SLUG=1` | `BUI_SLUG=0` |
+
+The switch takes effect on the next frame. On the CPU, text is always drawn from cached glyph bitmaps; [Text and fonts](../text-and-fonts/) has the details.
+
+## What each one costs
+
+From the benchmark in `bindings/rust/bench`, on a Ryzen 7 5800U laptop (Windows 11, Direct3D 11), animating a grid of cells:
+
+| | GPU | CPU raster |
+| --- | ---: | ---: |
+| CPU per frame, 100 / 1,000 / 3,000 cells | **1.19 / 4.70 / 11.58 ms** | 4.62 / 10.20 / 21.98 ms |
+| RAM (working set), 100 / 1,000 / 3,000 cells | 28 / 35 / 40 MB | **21 / 24 / 30 MB** |
+| GPU memory | 19–22 MB | **none** |
+| First frame | 5–10 ms | 4–5 ms |
+
+In short: the GPU halves (or better) the CPU cost per frame. In exchange, the process needs about 10 MB more RAM, plus GPU memory, and starts a little slower. [Benchmarks](../../performance/benchmarks/) has the full picture.
+
+## Troubleshooting
+
+| Symptom | Try |
+| --- | --- |
+| `gpu=True` seems to do nothing | Run with `BUI_GPU_DEBUG=1`. It prints which step failed to stderr. |
+| No GPU in a Windows VM or CI | `BUI_GPU_WARP=1` creates the device on WARP, Windows' software Direct3D 11 driver. Handy for testing the GPU path. |
+| Headless OpenGL on Linux picks the wrong display | `BUI_GPU_EGL=surfaceless` or `BUI_GPU_EGL=default` picks the EGL platform. |
+| GPU text looks heavier than you'd like, or costs too much | Try the atlas: `BUI_SLUG=0`. |
+
+<ComingSoon feature="GPU rendering on macOS">
+On macOS, windows draw with the software raster for now. The plan is the GPU renderer on Metal (or the OpenGL backend).
+</ComingSoon>
+
+<ComingSoon feature="Vulkan and WebGPU">
+More GPU backends are planned, drawing the same instance stream as Direct3D 11 and OpenGL.
+</ComingSoon>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Damage rendering" href="docs/concepts/damage-rendering/" icon="zap" kicker="Concepts">
+    How both renderers redraw only what changed.
+  </Card>
+  <Card title="Profiling" href="docs/performance/profiling/" icon="clock" kicker="Performance">
+    Measure your own app and choose with numbers.
+  </Card>
+  <Card title="Environment variables" href="docs/reference/environment-variables/" icon="terminal" kicker="Reference">
+    Every <code>BUI_*</code> switch in one table.
+  </Card>
+</CardGrid>

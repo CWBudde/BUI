@@ -158,8 +158,36 @@ pub fn set_slug(on: bool) {
     unsafe { sys::BUI_gpu_set_slug(on as std::os::raw::c_int) }
 }
 
-/// Whether this platform has native windows (Windows today); elsewhere
-/// apps run headless or through a host such as the Tk fallback.
+/// Switch every window to Blender's `"dark"` (the default) or `"light"`
+/// theme (its Blender_Light.xml preset): widgets, panels, the region
+/// background and the `styled` HTML sheet follow it, and open windows
+/// redraw. Returns `false` for an unknown name. Without a call the
+/// `BUI_THEME` environment variable (dark|light) picks the theme.
+pub fn set_theme(name: &str) -> bool {
+    let Ok(c) = std::ffi::CString::new(name) else { return false };
+    // SAFETY: a NUL-terminated string; the kit copies the preset.
+    unsafe { sys::BK_set_theme(c.as_ptr()) != 0 }
+}
+
+/// The active theme: `"dark"` or `"light"`.
+pub fn theme_name() -> &'static str {
+    // SAFETY: the kit returns a static string.
+    let s = unsafe { std::ffi::CStr::from_ptr(sys::BK_theme_name()) };
+    if s.to_bytes() == b"light" { "light" } else { "dark" }
+}
+
+/// A color of the active theme as RGBA 0..1 (`"region_bg"`, `"text"`,
+/// `"regular.inner"` ...; see `BK_theme_color` in BUI_kit.h).
+pub fn theme_color(key: &str) -> Option<[f32; 4]> {
+    let c = std::ffi::CString::new(key).ok()?;
+    let mut out = [0.0f32; 4];
+    // SAFETY: `out` holds the four floats the kit writes.
+    (unsafe { sys::BK_theme_color(c.as_ptr(), out.as_mut_ptr()) } != 0).then_some(out)
+}
+
+/// Whether this platform has native windows: Win32 on Windows, X11 on Linux
+/// (when a display is available) and Cocoa on macOS (experimental).
+/// Without them, apps run headless.
 pub fn native_windows() -> bool {
     // SAFETY: a constant query.
     unsafe { sys::BK_window_supported() != 0 }

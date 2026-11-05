@@ -1,0 +1,225 @@
+---
+title: gpui syntax and the app model
+sidebarLabel: gpui syntax
+description: blenderui follows gpui's app model, Application, Render, entities, cx.listener and div().flex(), so gpui-style code compiles against it. Here's the map, the differences and the numbers.
+section: Rust
+order: 90
+languages: ["rust"]
+sources: ["docs/rust.md", "README.md", "bindings/rust/blenderui/src/window.rs", "bindings/rust/blenderui/src/element.rs", "bindings/rust/bench/common/settings.rs", "bindings/rust/bench/bui-bench/src/bin/bui-settings.rs", "bindings/rust/bench/README.md"]
+---
+
+**gpui builders are one of BUI's two first-class ways to write a Rust UI**, next to `rsx!` markup. Views implement `Render`, elements are built with method chains like `div().flex().gap_2().child(...)`, state lives in the view's fields, and listeners come from `cx.listener(...)`. Every BUI feature is reachable this way; `rsx!` itself compiles down to these same calls.
+
+The syntax and app model follow [gpui](https://www.gpui.rs), the Rust UI crate behind the Zed editor, closely enough that the same source file compiles against blenderui, gpui and gpui-fast. You don't need to know gpui to use it: this page explains the whole model. On top of it you get every HTML element, real CSS and Blender's form widgets.
+
+## A gpui-style app
+
+```rust title="src/main.rs"
+use blenderui::prelude::*;
+
+struct Todo { items: Vec<String>, draft: String }
+
+impl Render for Todo {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().styled().p_4().flex().flex_col().gap_2()
+            .child(h2().child(format!("{} items", self.items.len())))
+            .child(ul().children(self.items.iter().map(|s| li().child(s.clone()))))
+            .child(div().flex().gap_2()
+                .child(input().id("draft").placeholder("New item").value(self.draft.clone())
+                    .on_change(cx.listener(|this, e: &ChangeEvent, _, cx| {
+                        this.draft = e.value.clone();
+                        cx.notify();
+                    })))
+                .child(button().child("Add").on_click(cx.listener(|this, _, _, cx| {
+                    this.items.push(std::mem::take(&mut this.draft));
+                    cx.notify();
+                }))))
+    }
+}
+
+fn main() {
+    Application::new().run(|cx: &mut App| {
+        cx.open_window(WindowOptions::default(), |_, cx| {
+            cx.new(|_| Todo { items: Vec::new(), draft: String::new() })
+        }).unwrap();
+    });
+}
+```
+
+<Figure
+  shot="rust-builder-dashboard"
+  alt="A render-farm dashboard built with gpui-style builders: stat cards in a grid, job rows with progress bars, a node list, a dropdown, a button and a checkbox"
+  caption="A bigger app in the same builder syntax: <code>examples/site_dashboard_builder.rs</code>."
+/>
+
+`cx.notify()` re-renders. Rendering builds a fresh element tree each time; elements with an `.id(...)` keep their state across renders, which is why the `draft` field keeps its text while you type.
+
+## gpui to blenderui
+
+| gpui | blenderui |
+| --- | --- |
+| `Application::new().run(...)` | The same; `Application::headless()` renders off-screen |
+| `cx.open_window(options, build)` returning a window handle | The same; returns `WindowHandle<View>` |
+| `impl Render for View` | The same: `fn render(&mut self, window, cx) -> impl IntoElement` |
+| `Entity<T>`, `WeakEntity<T>`, `cx.new` | `Copy` handles into the app's entity slots: `read` (returns `&T`), `update`, `downgrade`; `cx.release(e)` drops a value |
+| `Context<T>`: `notify`, `listener`, `entity` | The same; it derefs to `App` |
+| `WindowOptions { window_bounds, titlebar, .. }`, `WindowBounds::Windowed(..)` | The same, plus `is_resizable`, `window_min_size` and `gpu` |
+| `cx.set_global`, `cx.global` | The same, plus `try_global` and `global_mut` |
+| `cx.stop_propagation()` | The same |
+| `div().flex().gap_2()`, `.when(..)`, `.when_some(..)`, `.map(..)` | The same, from the `Styled` and `FluentBuilder` traits |
+| `canvas(..)` | `canvas(paint)`, with a `Painter` ([Events](../events/#painting-your-own-content)) |
+| `window.request_animation_frame()` | The same, paced to the display |
+
+## Entities
+
+An **entity** is a value owned by the app, which you reach through a handle. Views are entities.
+
+- **`cx.new(|cx| value)`** creates one and returns an `Entity<T>`.
+- **`entity.read(cx)`** returns `&T`; **`entity.update(cx, |value, cx| ...)`** changes it, with a `Context<T>`.
+- **`entity.downgrade()`** gives a `WeakEntity<T>`. Its `update` returns `None` once the value is gone, and `upgrade_in(cx)` turns it back into an `Entity` if it's still alive.
+- **`cx.release(entity)`** drops the value. Weak handles then skip it; strong handles panic if used.
+- Handles are `Copy`. They're indices into an app-owned slot map, so there's no `Rc` or reference counting.
+
+Inside a view, `cx.entity()` and `cx.weak_entity()` give you your own handle, and `cx.listener(...)` wraps a closure so it updates your view when it runs.
+
+## Windows
+
+```rust
+let opts = WindowOptions {
+    window_bounds: Some(WindowBounds::Windowed(Bounds {
+        origin: point(px(100.0), px(100.0)),
+        size: size(px(360.0), px(260.0)),
+    })),
+    titlebar: Some(TitlebarOptions { title: Some("Settings".into()) }),
+    is_resizable: Some(true),
+    window_min_size: Some(size(px(200.0), px(150.0))),
+    gpu: Some(true),
+};
+let win = cx.open_window(opts, |_, cx| cx.new(|_| MyView)).unwrap();
+```
+
+- **`WindowBounds`** is `Windowed`, `Maximized` or `Fullscreen`. Without bounds, a window opens at 1024 × 700; without a title, it's called "BUI".
+- **`gpu: Some(true)`** draws this window on the GPU; `None` follows `Application::gpu` and `BUI_GPU`.
+- **`WindowHandle<V>`** has `root()` (the view's entity) and `update(cx, |view, window, cx| ...)`.
+- **On `App`:** `close_window(id)`, `on_window_closed(|id, cx| ...)`, `notify_all()`, `quit()`. `activate(..)` exists for compatibility and does nothing, because windows come to the front when shown.
+
+The event loop runs until every window is closed.
+
+## Globals
+
+`cx.set_global(value)` stores one value per type; read it with `cx.global::<T>()` (panics if unset), `cx.try_global::<T>()` or `cx.global_mut::<T>()`.
+
+## Talking to the UI thread
+
+BUI runs your UI on one thread. To hand it work from another thread, such as a file loader or a network call, take a `UiSender`:
+
+```rust title="src/main.rs"
+use blenderui::prelude::*;
+
+struct Status { text: String }
+
+impl Render for Status {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().styled().p_4().child(self.text.clone())
+    }
+}
+
+fn main() {
+    Application::new().run(|cx| {
+        let win = cx.open_window(WindowOptions::default(), |_, cx| {
+            cx.new(|_| Status { text: "Loading…".into() })
+        }).unwrap();
+        let view = win.root();                 // an Entity: a Copy handle you can send
+        let ui = cx.ui_sender();
+        std::thread::spawn(move || {
+            let text = std::fs::read_to_string("notes.txt").unwrap_or_default();
+            ui.send(move |cx| view.update(cx, |s, cx| {   // runs on the UI thread
+                s.text = text;
+                cx.notify();
+            }));
+        });
+    });
+}
+```
+
+- **`cx.ui_sender()`** returns a `UiSender` you can clone and move to any thread.
+- **`ui.send(|cx| ...)`** queues a closure; the UI loop wakes, runs it with `&mut App`, then re-renders what it changed. It returns `false` once the app has ended.
+- **`.keep_alive(true)`** keeps the event loop running with no windows open, until `cx.quit()`.
+- **`cx.run_pending()`** runs queued work by hand, for a loop that isn't the native one (headless apps driven from another thread).
+
+## Compiling gpui code unchanged
+
+The repository's benchmarks prove the point. [`settings.rs`](https://github.com/ppmpreetham/BUI/blob/main/bindings/rust/bench/common/settings.rs) is a small settings window, a label, a text field, a checkbox, a slider and a button, written once in gpui syntax. It's compiled unchanged against blenderui, Zed's gpui and gpui-fast; each benchmark crate only supplies the imports and `main`:
+
+```rust title="bench/bui-bench/src/bin/bui-settings.rs"
+use blenderui::prelude::*;
+
+include!("../../../common/settings.rs");
+
+fn main() {
+    Application::new().run(|cx: &mut App| {
+        let bounds = Bounds { origin: point(px(100.0), px(100.0)), size: size(px(360.0), px(260.0)) };
+        cx.open_window(WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() },
+                       |_, cx| cx.new(|_| Settings { renders: 0 }))
+            .unwrap();
+    });
+}
+```
+
+gpui has no form widgets, so in that file the controls are styled `div`s. On blenderui you can swap them for real ones (`input()`, `<NumberSlider>` …) whenever you're ready.
+
+## How it compares
+
+All numbers here come from the repository's benchmarks, with their setup. Rerun them yourself with the tools in `bindings/rust/bench` (see [the benchmarks page](../../performance/benchmarks/)).
+
+### Start time
+
+The `settings.rs` window above, compiled against each framework. Measured on a Ryzen 7 5800U laptop (Windows 11, on AC power) before the latest features (ImGui, the Linux GPU renderer, Blender's search and expression code) landed. Median of 10 launches, from process start until the first frame is on screen:
+
+<BenchChart id="start-time" />
+
+<BenchChart id="start-cpu" />
+
+<BenchTable id="startupGpui" />
+
+On the same code, blenderui shows its first frame about 5× sooner than gpui and gpui-fast, spends about 8× less CPU getting there, and on the CPU renderer uses half the memory.
+
+### Animated frames
+
+A window of N rounded, labelled cells that all change every frame, on blenderui (GPU renderer and default software raster), [gpui-fast](https://github.com/longbridge/gpui-fast) 0.1.13 and gpui 0.2.2. Ryzen 7 5800U laptop at 60 Hz, all apps back to back in one session:
+
+<BenchChart id="fps" />
+
+<BenchChart id="cpu-per-frame-cells" />
+
+<BenchTable id="cells3000" />
+
+<BenchTable id="cellsFull" />
+
+The full table, how it was measured and how to rerun it are in [`bindings/rust/bench/README.md`](https://github.com/ppmpreetham/BUI/blob/main/bindings/rust/bench/README.md).
+
+## Where it differs from gpui
+
+- **One element type.** Every element is a `Div`, with a constructor per HTML tag, and CSS applies to all of them.
+- **Entities are `Copy` handles**, and `read` returns `&T` directly. A weak handle upgrades with `upgrade_in(cx)`.
+- **Listeners and closures:** in `rsx!`, listeners may leave out the `(event, window, cx)` parameters.
+- **Extra `WindowOptions`:** `gpu` picks the renderer per window.
+- **HTML and CSS on top:** stylesheets, selectors, Tailwind classes and Blender's widgets are all available from the same builder chain.
+
+<Callout type="joke">
+Same code, two frameworks, one of them draws Blender sliders. No prizes for guessing which.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="BUI for Rust" href="docs/rust/overview/" icon="book" kicker="Rust">
+    The crate at a glance: rendering, text and limits.
+  </Card>
+  <Card title="Events" href="docs/rust/events/" icon="zap" kicker="Rust">
+    Every listener and the Window API.
+  </Card>
+  <Card title="Benchmarks" href="docs/performance/benchmarks/" icon="cpu" kicker="Performance">
+    All the published numbers, with their context.
+  </Card>
+</CardGrid>

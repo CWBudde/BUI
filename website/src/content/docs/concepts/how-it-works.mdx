@@ -1,0 +1,136 @@
+---
+title: How BUI works
+sidebarLabel: How it works
+description: The five layers between your code and the pixels on screen, what each one does, and which parts come straight from Blender.
+section: Concepts
+order: 10
+sources: ["README.md", "ARCHITECTURE.md", "SYNTAX_COVERAGE.md", "docs/rust.md", "docs/javascript.md", "kit/CMakeLists.txt", "kit/intern/kit_core.c", "kit/intern/kit_draw.c", "gpu/include/GPU_raster.h"]
+---
+
+Every BUI app, in every language, takes the same short trip from your code to the screen. Once you can picture that trip, a lot of things make sense: why an idle window costs nothing, why tkinter and Rust get the same slider, and where to look when something misbehaves.
+
+This page walks the trip one layer at a time. You don't need any of it to build an app, but it's a good read before you tune performance or dig into the source.
+
+## The five layers
+
+```text
+ your code      tkinter · Qt syntax · components · Rust (rsx!, HTML, CSS) · JavaScript / React · Dear ImGui · C
+                    │
+ binding        a thin layer per language: turns your calls into kit nodes and properties
+                    │
+ kit (C)        one node tree · layout · input and interaction · Blender widget drawing · undo · animation
+                    │
+ renderer       software raster on the CPU (default)   or   GPU: Direct3D 11 / OpenGL 3.3
+                    │
+ window         native Win32 / X11 / Cocoa window  ·  stdlib Tk window  ·  headless (tests, screenshots)
+```
+
+| Layer | What it does | Where it lives |
+| --- | --- | --- |
+| **Your code** | Says what the window contains and what happens when values change | Your files |
+| **Binding** | Speaks your language's syntax and forwards everything else to the kit | `bindings/` |
+| **Kit** | Holds every widget, lays them out, handles the mouse and keyboard, draws Blender's widgets | `kit/` |
+| **Renderer** | Turns drawing calls into pixels, and works out which pixels changed | `gpu/` |
+| **Window** | Shows the pixels and feeds input back to the kit | `kit/intern/kit_window_*` |
+
+The important idea: **the bottom three layers are shared by every language.** That's why a number field drags the same way in tkinter, Rust and React. There's one implementation, written in C.
+
+## Your code and the bindings
+
+A **binding** is the thin layer that lets a language talk to the kit. Each one keeps only what its syntax needs:
+
+- **Python** has one compiled extension, `buipy`, plus pure-Python packages on top. The tkinter and Qt syntaxes are thin facades: each widget is one kit node, and `pack`, `grid` and `place` run in the kit's C port of Tk's packer and gridder. Signals, variables and traces stay in Python.
+- **Rust** (`blenderui`) does more work of its own, because HTML and CSS need it. It runs the CSS cascade and lays boxes out with [taffy](https://github.com/DioxusLabs/taffy), then paints one display list onto a kit canvas. Form controls and Blender components become real kit widget nodes, placed at their boxes.
+- **JavaScript and React** reuse the Rust crate through a napi-rs addon. BUI runs its own message loop on a separate UI thread, and only the changes cross over: one `Int32Array` of operations per tick.
+- **Dear ImGui** is the real Dear ImGui. Its BUI backend lives in a kit `custom` node and draws ImGui's triangles through the same renderer.
+- **C** uses the kit directly, through `kit/include/BUI_kit.h`.
+
+You can mix Python APIs in one process: windows, timers and the event loop are shared.
+
+## The kit
+
+The **kit** is BUI's runtime, written in C. It's the part that makes BUI feel like Blender. It owns:
+
+- **One node tree.** Every widget is one **node**: a button, a number field, a panel, a canvas. Nodes have properties (`value`, `text`, `min` …) that the bindings set.
+- **Layout.** Blender-style column and row layout, plus Tk's pack, grid and place geometry managers for the tkinter and Qt syntaxes.
+- **Input and interaction.** Hit testing, hover, focus, drags, menus, tooltips and keyboard shortcuts, following the rules in Blender's `interface_handlers.cc`. That's where dragging, Ctrl snapping and math in fields come from (see [Blender's widgets](../blender-widgets/)).
+- **Drawing.** A C port of Blender's `interface_widgets.cc`: the same rounded-box shapes, the same shading, the same theme colors.
+- **Everything around it.** Undo and redo, animation, the text area, canvases, scroll views, the color picker, the node editor, the file browser, Blender's fuzzy string search and its expression evaluator.
+
+When something changes, the kit marks just that widget's rectangle as needing a redraw. That's the start of [damage rendering](../damage-rendering/).
+
+## The renderer
+
+The kit draws through one small drawing API (`GPU_raster.h`). Behind it sit two renderers that produce the same pixels:
+
+- **The software raster** (the default) draws anti-aliased shapes into a frame buffer in memory, on the CPU.
+- **The GPU renderer** (opt-in) draws the same shapes with Direct3D 11 on Windows or OpenGL 3.3 on Linux.
+
+After each frame, the renderer works out which parts of the picture actually changed, so the window only has to update those. [Rendering](../rendering/) explains both renderers and how to switch.
+
+## The window
+
+The **window host** is the piece that talks to the operating system: it opens a window, shows the frame and turns OS input events into kit input. BUI has native hosts written in C for Windows (Win32), Linux (X11) and macOS (Cocoa, still experimental). Python can also use a standard Tk window, and every API can run **headless**, with no window at all, for tests and screenshots. See [Window hosts](../window-hosts/).
+
+## One frame, start to finish
+
+Here's what happens when you drag a slider in a native window:
+
+1. The window host receives a mouse-move event and passes it straight to the kit. Nothing on this path leaves C.
+2. The kit finds the slider under the pointer, applies Blender's drag rules and updates the value.
+3. The slider marks its own rectangle as dirty, and the kit calls your `on_change` callback with the new value.
+4. On the next turn of the event loop, the kit redraws only the dirty rectangle.
+5. The renderer compares the new frame with the last one, tile by tile, and the host puts only the changed tiles on screen.
+6. Nothing else is dirty, so the loop goes back to sleep.
+
+On the full components demo, a frame like this takes about 0.05 ms. From input event to screen is about 0.06 ms. (Measured on a Ryzen 7 5800U laptop; see [Benchmarks](../../performance/benchmarks/).)
+
+## What comes from Blender
+
+BUI isn't a look-alike. Most of what you see and feel is Blender's own code, ported to C or copied in:
+
+| In Blender | In BUI |
+| --- | --- |
+| Widget drawing: `interface_widgets.cc` (`round_box_edges`, `widgetbase_draw`, the shape tables) | The kit's drawing code, same names and same math |
+| Interaction rules: `interface_handlers.cc` | The kit's input handling: drags, snapping, menus, undo |
+| Panels: `interface_panel.cc` | Panel headers, sub-panels and the collapse animation |
+| The default theme: `userdef_default_theme.c` | The kit's built-in colors (see [Theming](../theming/)) |
+| Icons: `release/datafiles/icons_svg` | All 781 SVG icons, rasterized with Blender's nanosvg |
+| Text: `blenfont` (BLF) with FreeType | FreeType rendering with BLF's settings (see [Text and fonts](../text-and-fonts/)) |
+| `blenlib`: color math, rects, string search, `expr_pylike_eval.cc` | Copied into `core/` and `kit/intern/blender/` |
+| Window code: GHOST | The X11 and Cocoa hosts follow GHOST's code |
+| `space_file`, `space_node` | The file browser and the node editor |
+
+What BUI leaves out is everything that makes Blender an application: scenes, meshes, the depsgraph, operators, file loading and Python-in-Blender. BUI keeps only the interface.
+
+<Callout type="joke">
+No default cubes were harmed in the extraction. They just weren't invited.
+</Callout>
+
+## Where things live
+
+| Path | What's inside |
+| --- | --- |
+| `kit/` | The C runtime and the native window hosts. API: `kit/include/BUI_kit.h` |
+| `gpu/` | The software raster, the GPU renderer, Slug text, the text engine (FreeType and stb_truetype, with Inter embedded) |
+| `core/`, `types/` | Blender's `blenlib` subset and data types |
+| `ui/`, `compat/` | Blender's original interface sources, kept for reference (not compiled by default) |
+| `api/` | A small, stable C ABI for hosts that bring their own renderer |
+| `bindings/` | Python, Rust, JavaScript, React and Dear ImGui |
+| `backends/qt/` | A C++ Qt/QPainter backend for drawing BUI inside Qt |
+
+For the full module map, read [ARCHITECTURE.md](https://github.com/ppmpreetham/BUI/blob/main/ARCHITECTURE.md).
+
+## Next steps
+
+<CardGrid>
+  <Card title="Blender's widgets" href="docs/concepts/blender-widgets/" icon="sparkles" kicker="Concepts">
+    Every drag rule, shortcut and menu trick you get for free.
+  </Card>
+  <Card title="Rendering" href="docs/concepts/rendering/" icon="cpu" kicker="Concepts">
+    The CPU raster, the GPU renderer, and when to switch.
+  </Card>
+  <Card title="Damage rendering" href="docs/concepts/damage-rendering/" icon="zap" kicker="Concepts">
+    Why an idle BUI window uses no CPU at all.
+  </Card>
+</CardGrid>

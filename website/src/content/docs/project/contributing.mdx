@@ -1,0 +1,118 @@
+---
+title: Contributing
+description: "How to help BUI: report a bug, send a pull request, add a test, improve these docs, or report a security problem privately."
+section: Project
+order: 30
+sources: ["CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "SYNTAX_COVERAGE.md", "docs/getting-started.md", "website/WRITING.md"]
+---
+
+BUI gets better every time someone tries it and says what happened. You don't need to write C to help: a clear bug report, a missing tkinter behaviour, a docs fix or a test run on a Mac all move the project forward. Thank you for being here.
+
+## Ways to help
+
+| You have | You can |
+| --- | --- |
+| Five minutes | Report a bug, or something that behaves differently from stdlib tkinter or Qt |
+| A Mac | Run the Cocoa window host and report what happens: it's written but has never run on a Mac |
+| An afternoon | Add a missing tkinter or Qt method, a CSS property, or a test |
+| A way with words | Improve these docs (see [below](#write-docs)) |
+| A security finding | Report it privately (see [below](#report-a-security-problem)) |
+
+Bugs and features start with an [issue](https://github.com/ppmpreetham/BUI/issues), so we can agree on the approach before you spend time on code.
+
+## Set up
+
+<Steps>
+
+1. **Clone and build.**
+
+   ```sh
+   git clone https://github.com/ppmpreetham/BUI && cd BUI
+   cmake -S . -B build && cmake --build build
+   ```
+
+   You need CMake 3.20 or newer, a C compiler and Python 3.11+. On Windows, MSYS2 MinGW is the tested toolchain for the Python build. On Linux, install the X11 headers (`libx11-dev` or `libX11-devel`). Build with `-j 2` or less if your machine struggles.
+
+2. **Run the tests.**
+
+   ```sh
+   ctest --test-dir build --output-on-failure      # C and Python suites
+   cd bindings/rust && cargo test                  # Rust crates
+   ```
+
+3. **Try the examples.**
+
+   ```sh
+   export PYTHONPATH=$PWD/bindings/python          # Windows: set PYTHONPATH=%CD%\bindings\python
+   python examples/components_demo.py
+   ```
+
+</Steps>
+
+## Where things live
+
+| You want to change | Look in |
+| --- | --- |
+| Widget drawing, input, layout, rendering | `kit/` (C), `gpu/` (raster, GPU, text) |
+| tkinter or Qt behaviour | `bindings/python/bui/tksyntax/`, `bindings/python/bui/qtsyntax.py` |
+| Blender components | `bindings/python/bui/components/` |
+| Rust: CSS, layout, hooks | `bindings/rust/blenderui/src/` |
+| Rust: `rsx!`, `#[component]`, `tw!` | `bindings/rust/blenderui-macros/src/` |
+| Tailwind utilities and variants | `bindings/rust/blenderui-tailwind/src/lib.rs` |
+| These docs | `website/src/content/docs/` |
+
+[How BUI works](../../concepts/how-it-works/) and [ARCHITECTURE.md](https://github.com/ppmpreetham/BUI/blob/main/ARCHITECTURE.md) explain how the modules fit together.
+
+**Adding a tkinter or Qt member:** add it to the facade class in `bindings/python/bui/tksyntax/` or `bindings/python/bui/qtsyntax.py`, mapping it onto kit node properties, geometry, or the canvas and text-area calls. New drawing or interaction belongs in the C kit (`kit/intern/`).
+
+## Send a pull request
+
+- **One change per pull request**, with a test for it:
+  - C: a `ctest` suite.
+  - Python: `bindings/python/tests/`. For tkinter behaviour, add a program to the side-by-side suite (`tests/test_tk_compat.py`) that must behave exactly like the standard library.
+  - Rust: `bindings/rust/blenderui/tests/`.
+- **Don't let performance regress.** The test suite enforces frame budgets. For rendering or layout changes, run the benchmark in `bindings/rust/bench/` and include before and after numbers. [Run the benchmarks](../../performance/run-benchmarks/) has the commands.
+- **Keep the license header.** New files carry the SPDX header `GPL-2.0-or-later`, and contributions are accepted under that license.
+- **Update the docs.** Add your change to the Unreleased section of `CHANGELOG.md`, and to the relevant guide.
+- **Match the style around you.** C is formatted like Blender's sources. Rust uses `rustfmt` defaults with a maximum width of 120.
+
+## Write docs
+
+These docs live in `website/` and are written in MDX. Every page follows one guide, [WRITING.md](https://github.com/ppmpreetham/BUI/blob/main/website/WRITING.md): who we write for, the voice, the page template, the components and the list of pages still to write. A few rules from it matter most:
+
+- **Check every fact against the repository**, and list the files you checked in the page's `sources`.
+- **Never invent numbers.** Benchmarks come with their machine and method.
+- **Be honest about status.** Mark unbuilt features with `<ComingSoon>`.
+
+To claim a planned page, open an issue or a draft pull request titled `docs: <path>`.
+
+## Report a security problem
+
+**Please don't open a public issue for security problems.** Report them privately through [GitHub's private vulnerability reporting](https://github.com/ppmpreetham/BUI/security/advisories/new). Include steps to reproduce, the affected version and platform, and the impact.
+
+You'll get an acknowledgment within a week. Once a fix is released, you'll be credited in the changelog, unless you'd rather stay anonymous. Security fixes go into the latest `blenderui` release on PyPI and the `main` branch.
+
+## Code of conduct
+
+BUI follows the [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). In short:
+
+- Be respectful, welcoming and patient.
+- Give and accept constructive feedback gracefully.
+- Focus on what is best for the project and its users.
+- No harassment, insults, or personal or political attacks.
+
+To report unacceptable behaviour, open a [private security advisory](https://github.com/ppmpreetham/BUI/security/advisories/new) with "Code of Conduct" in the title, or contact a maintainer directly. Reports are reviewed and kept confidential.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Open an issue" href="https://github.com/ppmpreetham/BUI/issues" icon="github" kicker="GitHub">
+    Report a bug or propose a change.
+  </Card>
+  <Card title="Roadmap" href="docs/project/roadmap/" icon="flag" kicker="Project">
+    Pick something that's partial or planned.
+  </Card>
+  <Card title="How BUI works" href="docs/concepts/how-it-works/" icon="layers" kicker="Concepts">
+    Find your way around the code.
+  </Card>
+</CardGrid>

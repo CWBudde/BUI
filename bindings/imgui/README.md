@@ -83,7 +83,11 @@ redraw the node.
 
 ## Blender style (`ImGui_ImplBUI_StyleBlender`)
 
-Colors from Blender's default theme (`userdef_default_theme.c`), metrics from the widget
+Colors from the kit's active theme (`BK_theme_color`): Blender's default Dark theme
+(`userdef_default_theme.c`, the values below), or its Light preset after
+`BK_set_theme("light")` / `BUI_THEME=light` (Python: `bui.set_theme("light")`). Pick the
+theme before the backend starts, or call `ImGui_ImplBUI_StyleBlender` again after
+switching. Metrics come from the widget
 unit (U = 20 px at scale 1) and `uiStyle`:
 
 | ImGuiCol | Blender theme value |

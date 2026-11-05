@@ -27,10 +27,15 @@ capitalized Blender components.
 
 ## Install
 
-```toml
-[dependencies]
-blenderui = { git = "https://github.com/ppmpreetham/BUI" }
+`blenderui` is on [crates.io](https://crates.io/crates/blenderui):
+
+```sh
+cargo add blenderui
 ```
+
+or, by hand, `blenderui = "0.1"` under `[dependencies]`. (The Dear ImGui crate,
+`blenderui-imgui`, isn't on crates.io yet: use
+`blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI" }`.)
 
 Building needs **CMake** and a **C compiler**: `blenderui-sys` compiles the C
 kit with the `cmake` crate. On Windows the default Rust target
@@ -47,7 +52,9 @@ cargo run --example counter                         # the README example
 cargo test                                          # unit, coverage and headless tests
 ```
 
-The workspace uses edition 2024 (Rust 1.85 or newer).
+The workspace uses edition 2024 (Rust 1.88 or newer, the `rust-version` in
+`bindings/rust/Cargo.toml`). On Linux, building also needs the X11 headers
+(`libx11-dev` / `libX11-devel`).
 
 ## The app model
 
@@ -171,7 +178,7 @@ fn profile(username: &str) {
     let (likes, set_likes) = use_state(0);     // `likes()`, `set_likes(..)`: no cx
     use_effect!(move || println!("{} likes", likes()), [likes()]);
     let theme: Theme = use_context();
-    rsx! { <div class="p-2" onClick={move || set_likes(likes() + 1)}>{username} {likes()}</div> }
+    rsx! { <div class="p-2" onClick={move || set_likes(likes() + 1)}>{username.to_string()} " " {likes().to_string()}</div> }
 }
 
 #[component]                                   // Leptos style
@@ -179,7 +186,7 @@ fn Counter(start: i32) {
     let (count, set_count) = signal(start);
     let doubled = Memo::new(move || count.get() * 2);          // recomputed when `count` changes
     Effect::new(move || println!("count is {}", count.get())); // re-runs when `count` changes
-    rsx! { <button onClick={move || set_count.update(|c| *c += 1)}>{doubled.get()}</button> }
+    rsx! { <button onClick={move || set_count.update(|c| *c += 1)}>{doubled.get().to_string()}</button> }
 }
 
 // in a view: provide_context(Theme(..)); rsx! { <profile username="Ada" /> <Counter start={1} /> }
@@ -200,7 +207,8 @@ These are the hooks and their counterparts in other frameworks:
 How it behaves:
 - **Signals:** signals are `Copy` handles. They don't need `cx`, and writing one re-renders its window.
 - **Hook identity:** like React, a hook's state is tied to its call site and to the order in which components render. In lists, give components a `key` (`<Row key={item.id} ../>`) so their state follows the item: without keys, removing an item from the middle shifts the state of the ones after it.
-- **Components:** `#[component]` turns `fn name(props)` into a props struct with that name. Uppercase and lowercase names both work in `rsx!`, as does a body that ends in markup.
+- **Components:** `#[component]` turns `fn name(props)` into a props struct with that name. Uppercase and lowercase names both work in `rsx!`. The body is a normal block that ends in markup, usually an `rsx!`.
+- **Text children:** `{expr}` in markup takes anything that turns into an element: text (`&'static str`, `String`, `SharedString`), an element or a component. Numbers and borrowed `&str` props aren't text on their own, so write `{count().to_string()}` and `{label.to_string()}`.
 - **Optional props:** `Option<T>` props (and `children`) may be left out in `rsx!`; they are `None`. Leaving out any other prop is a compile error naming it (`a required prop is missing: ... Row_missing_name`). Struct components get the same with `#[derive(Props)]`.
 - **Lifetime:** a component's state is freed when it stops rendering.
 - **Implementation:** there is no `Rc` or `RefCell` anywhere in it.
@@ -255,6 +263,14 @@ div().styled().child(div().attr("styled", "false"))   // opt a subtree back out
 
 Your own CSS still wins over either set of defaults. From JavaScript use
 `el.setAttribute('styled', '')`, or `<div styled>` in JSX.
+
+**Dark or light.** `styled` follows Blender's theme, which is Dark by default.
+Switch every window to Blender's Light preset with
+`Application::new().theme("light")`, `blenderui::set_theme("light")` at run
+time (open windows redraw), or `BUI_THEME=light` without code changes. The
+widgets, panels and the `styled` sheet all follow; plain HTML keeps the
+browser's look in both. `blenderui::theme_name()` and
+`blenderui::theme_color("region_bg")` read the active theme.
 
 ### Blender components
 
@@ -331,8 +347,9 @@ window.
 (methods, `.css`, `.style`), then state refinements; `!important` wins over
 all of them, and specificity and order decide within a level. `inherit`,
 `initial`, `unset` and `revert` are understood (they copy or reset the text,
-color, size and display properties). Custom properties (`--name`) are
-accepted but `var()` is not substituted. Units: `px`, `em`, `rem`, `%`, `vw`,
+color, size and display properties). Custom properties (`--name`) inherit,
+and `var()` (with fallbacks, `var(--missing, 20px)`) and `env()` are
+substituted, also inside other functions (`calc(var(--gap) * 2)`). Units: `px`, `em`, `rem`, `%`, `vw`,
 `vh`, `vmin`, `vmax`, `ch`, `ex`, `pt`, `pc`, `in`, `cm`, `mm`, `Q`, and
 `calc()`, `min()`, `max()`, `clamp()`.
 
@@ -348,15 +365,16 @@ Layout is computed with [taffy](https://github.com/DioxusLabs/taffy):
   `nowrap`, `pre`, `pre-wrap`, `pre-line`), `text-align`, `text-indent`,
   `letter-spacing`, `word-spacing`, `vertical-align: sub | super`,
   `text-transform` and `text-overflow: ellipsis` apply.
-- **Flexbox** and **grid**: every property of both modules (except
-  `grid-template-areas`), including `repeat()`, `minmax()`, `fr`,
+- **Flexbox** and **grid**: every property of both modules, including
+  `grid-template-areas`, named lines, `repeat()`, `minmax()`, `fr`,
   `auto-fill` / `auto-fit`, spans and line placement.
 - **Tables**: columns are as wide as their widest content and line up across
   rows; a table with an auto width shrinks to its columns (up to its
   container), like a browser's auto layout. `table-layout: fixed` takes the
   first row's widths. `colspan`, `border-spacing`, `border-collapse`,
   `caption-side` and `empty-cells` apply.
-- **Positioning**: `relative`, `absolute` (and `fixed` as absolute), `inset`
+- **Positioning**: `relative`, `absolute`, `fixed` (laid out like `absolute`,
+  placed against the window), `inset`
   properties, `z-index` for painting and hit testing, and every 2D transform
   (`translate`, `scale`, `rotate`, `skew`, `matrix`, `transform-origin`, the
   individual `rotate` / `scale` / `translate` properties).
@@ -498,7 +516,7 @@ the result is cached, so a page that doesn't change costs nothing.
 
 Also rendered: every `border-style` and `outline-style` (`dashed`, `dotted`, `double`, `groove`, `ridge`, `inset`, `outset`, following rounded corners with Blender's corner tessellation), `text-decoration-style` (including `wavy`), `-thickness` and `text-underline-offset`, `background-clip` / `background-origin` (`border-box`, `padding-box`, `content-box`), `background-attachment: fixed`, `clip: rect()` on absolutely positioned boxes, counters (`counter-reset` / `-increment` / `-set` with `counter()` and `counters()` in `content`), `empty-cells`, `list-style-image`, `word-break: break-all`, `overflow-wrap: anywhere | break-word` and `tab-size`.
 
-Also supported: `background-image: url()` (PNG) with `background-size` / `-position` (`-x` / `-y`) / `-repeat`, `object-fit` / `object-position`, logical border longhands (`border-inline-width` ...), `text-wrap-mode`, `white-space-collapse`, `scale`, `all`, `@container` size queries (`container-type`, `container-name`), `@font-face` (local font files) and `@property` initial values.
+Also supported: `background-image: url()` (PNG) with `background-size` / `-position` (`-x` / `-y`) / `-repeat`, `object-fit` / `object-position`, logical border longhands (`border-inline-width` ...), `text-wrap-mode`, `white-space-collapse`, `scale`, `@container` size queries (`container-type`, `container-name`), `@font-face` (local font files) and `@property` initial values.
 
 How much is left, against all 745 properties in the
 [W3C index](https://www.w3.org/Style/CSS/all-properties.en.html):
@@ -547,7 +565,8 @@ Not done yet:
 - **Animations:** no `animationend` / `transitionend` events, no animations on `::before` / `::after`, and an element starts transitions only when it already had a `transition` in the previous frame (e.g. not when `transition` appears only under `:hover` on the first hover). Lengths mixing units that resolve differently (`50%` to `100px`, `auto`) flip at 50% instead of going through `calc()`.
 - **`@container` timing:** queries use the container's size from the previous layout; when it changes, the window renders once more.
 - **Effects:** `filter: url(#svg)`, `clip-path: path()`, and `mix-blend-mode` across stacking contexts (it blends with what was painted before it).
-- **The rest of the W3C property index:** about 360 entries this engine doesn't know, mostly drafts, speech, paged media and SVG.
+- **The rest of the W3C property index:** 355 entries this engine doesn't know, mostly drafts, speech, paged media and SVG.
+- **`all`:** counted as parsed-only. Its CSS-wide keywords (`all: initial`, `inherit`, `unset`, `revert`) reset an element's computed style; there's nothing else it can take.
 - **Box sizing:** the default is `border-box` (like Tailwind's preflight), not CSS's `content-box`.
 
 ## Performance vs gpui
@@ -630,7 +649,7 @@ The `gdi-text` feature uses Windows' GDI engine and system fonts.
 - **Images**: PNG only, nearest-neighbour scaling. `video`, `audio`,
   `iframe` show a placeholder.
 - **Windows** are native on Windows (Win32), Linux (X11) and macOS (Cocoa,
-  new and not yet tested on a Mac; it needs the main thread). The GPU
+  new and not yet tried by hand on a Mac; it needs the main thread). The GPU
   renderer runs on Windows and Linux.
 - `text-align: justify` aligns left. Table columns are sized from their
   widest single-line content, a simpler version of browsers' auto layout.

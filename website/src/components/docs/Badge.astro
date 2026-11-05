@@ -1,0 +1,41 @@
+---
+/**
+ * A small inline label. <Badge>New</Badge>, <Badge tone="primary">GPU</Badge>
+ * tone: neutral (default) | primary | accent | stable | preview | experimental | soon
+ * Status tones get a Phosphor icon automatically; pass icon="…" (any Phosphor name) to
+ * choose one, or icon="" for none.
+ */
+import Icon from "../site/Icon.astro";
+
+type Tone = "neutral" | "primary" | "accent" | "stable" | "preview" | "experimental" | "soon";
+
+interface Props {
+  tone?: Tone;
+  icon?: string;
+}
+const { tone = "neutral", icon } = Astro.props;
+const tones: Record<Tone, string> = {
+  neutral: "border-border text-muted",
+  primary: "border-primary bg-primary text-white",
+  accent: "border-accent text-accent",
+  stable: "border-(--status-stable)/50 text-(--status-stable)",
+  preview: "border-(--status-preview)/50 text-(--status-preview)",
+  experimental: "border-(--status-experimental)/50 text-(--status-experimental)",
+  soon: "border-(--status-soon)/50 text-(--status-soon)",
+};
+const auto: Partial<Record<Tone, string>> = {
+  stable: "check-circle",
+  preview: "circle-half",
+  experimental: "flask",
+  soon: "hourglass-medium",
+};
+const iconName = icon === undefined ? auto[tone] : icon || undefined;
+---
+
+<span
+  class:list={[
+    "inline-flex translate-y-[-1px] items-center gap-1 border px-1.5 align-middle text-[11px] font-medium uppercase leading-[18px] tracking-[0.08em]",
+    tones[tone],
+  ]}
+  >{iconName && <Icon name={iconName} weight="bold" size={11} />}<slot /></span
+>

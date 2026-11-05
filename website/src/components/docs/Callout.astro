@@ -1,0 +1,103 @@
+---
+/**
+ * <Callout type="tip" title="Optional title">Body in Markdown.</Callout>
+ *
+ * type: note (default) | tip | warning | joke | coming-soon
+ * Use sparingly: one or two per page. A "joke" callout is the place for the page's one joke.
+ */
+import Icon from "../site/Icon.astro";
+
+type Kind = "note" | "tip" | "warning" | "joke" | "coming-soon";
+
+interface Props {
+  type?: Kind;
+  title?: string;
+}
+
+const { type = "note", title } = Astro.props;
+
+const kinds: Record<Kind, { icon: string; label: string; tone: string }> = {
+  note: { icon: "info", label: "Note", tone: "var(--primary)" },
+  tip: { icon: "lightbulb", label: "Tip", tone: "var(--status-stable)" },
+  warning: { icon: "warning", label: "Careful", tone: "var(--status-warn)" },
+  joke: { icon: "smiley", label: "Aside", tone: "var(--muted)" },
+  "coming-soon": { icon: "hourglass-medium", label: "Coming soon", tone: "var(--status-soon)" },
+};
+
+const k = kinds[type];
+---
+
+<aside class:list={["callout not-prose", `callout-${type}`]} style={`--tone:${k.tone}`} aria-label={title ?? k.label}>
+  <p class="callout-label">
+    <Icon name={k.icon} weight="duotone" size={16} />
+    <span>{title ?? k.label}</span>
+  </p>
+  <div class="callout-body">
+    <slot />
+  </div>
+</aside>
+
+<style>
+  .callout {
+    position: relative;
+    padding: 0.85rem 1.1rem 1rem;
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--tone) 5%, var(--background));
+  }
+  /* The hatched corner: a quiet marker that says "aside" without a colored bar. */
+  .callout::after {
+    content: "";
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 2.75rem;
+    height: 2.75rem;
+    background-image: repeating-linear-gradient(135deg, color-mix(in oklab, var(--tone) 55%, transparent) 0 1px, transparent 1px 5px);
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
+    pointer-events: none;
+  }
+  .callout-joke {
+    background: var(--surface);
+  }
+  .callout-coming-soon {
+    background: var(--background);
+  }
+  .callout-label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding-right: 2.5rem;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--tone) 82%, var(--foreground));
+  }
+  .callout-body {
+    margin-top: 0.4rem;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .callout-body :global(> * + *) {
+    margin-top: 0.6rem;
+  }
+  .callout-body :global(a) {
+    color: var(--link);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .callout-body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    padding: 0.1em 0.3em;
+    background: var(--surface-2);
+  }
+  .callout-body :global(ul) {
+    list-style: square;
+    padding-left: 1.2rem;
+  }
+  .callout-body :global(ol) {
+    list-style: decimal;
+    padding-left: 1.3rem;
+  }
+</style>

@@ -213,6 +213,7 @@ static bool read_volumes(FBData *f)
     fb_path_join(p, sizeof(p), "/Volumes", de->d_name);
     if (de->d_name[0] != '.') {
       fb_place_add(f, FB_CAT_VOLUMES, p, de->d_name, "DISK_DRIVE", true);
+      found = true; /* the boot volume is listed here too: no extra "/" entry */
     }
   }
   if (d) {

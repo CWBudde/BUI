@@ -4,6 +4,7 @@ build-ui/
 *.o
 reference/
 **/target/
+**/node_modules/
 
 # packaging
 dist/

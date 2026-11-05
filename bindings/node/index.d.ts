@@ -1,11 +1,13 @@
 // Types for @blender-ui/native.
 export interface AppOptions {
-  /** Draw on the GPU (Direct3D 11). */
+  /** Draw on the GPU: Direct3D 11 on Windows, OpenGL 3.3 on Linux. */
   gpu?: boolean
   /** GPU text from glyph outlines (Slug, default) or a per-glyph atlas. */
   slug?: boolean
   /** No native windows: tests, screenshots, CI. */
   headless?: boolean
+  /** Blender's 'dark' (default) or 'light' theme (BUI_THEME otherwise). */
+  theme?: 'dark' | 'light'
   /** Quit when the last window closes (default true). */
   quitOnLastWindowClosed?: boolean
 }
@@ -110,6 +112,8 @@ export class App {
   quitOnLastWindowClosed: boolean
   window (options?: WindowOptions): Window
   setSlug (on: boolean): void
+  /** Blender's 'dark' (default) or 'light' theme; open windows redraw. */
+  setTheme (name: 'dark' | 'light'): void
   quit (): void
 }
 

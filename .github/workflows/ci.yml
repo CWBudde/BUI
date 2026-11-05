@@ -1,0 +1,99 @@
+# Build and test on every platform: the C/C++ project with ctest (C kit, GPU parity,
+# window smoke, Dear ImGui, the Python bindings' suites), the Rust crates, and a
+# packaging check of the published Rust crates. macOS runs on Apple Silicon
+# (macos-14) and Intel (macos-15-intel; GitHub retired the macos-13 images).
+#
+# Wheels are built by wheels.yml.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cmake:
+    name: cmake + ctest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: X11 headers and a virtual display (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DBUI_BUILD_EXAMPLES=ON -DBUI_WARNINGS_AS_ERRORS=OFF
+          -DPython3_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')"
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+      - name: Test (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a ctest --test-dir build -C Release --output-on-failure
+      - name: Test
+        if: runner.os != 'Linux'
+        run: ctest --test-dir build -C Release --output-on-failure
+      # macOS: the native window host is Cocoa (kit/intern/kit_window_cocoa.m); the
+      # smoke test opens a real window in the runner's GUI session (or skips, exit 77)
+      - name: Window smoke test, verbose (macOS)
+        if: runner.os == 'macOS'
+        run: ctest --test-dir build -C Release -R bui_window_smoke -V
+
+  rust:
+    name: cargo test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel, ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: bindings/rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: X11 headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+      - name: cargo test (blenderui, blenderui-imgui)
+        run: cargo test -p blenderui -p blenderui-imgui
+      - name: cargo build (Node.js addon, QuickJS runtime)
+        run: cargo build -p blenderui-node -p blenderui-qjs
+
+  # The crates.io package of blenderui-sys builds from its vendored sources alone.
+  package:
+    name: cargo package (blenderui-sys, vendored C sources)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libx11-dev
+      - name: Vendor the C sources and package
+        run: |
+          python bindings/rust/scripts/vendor_c.py
+          cd bindings/rust
+          cargo package -p blenderui-sys --allow-dirty
+          ls -l target/package/*.crate

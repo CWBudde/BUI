@@ -1,0 +1,159 @@
+---
+// The top bar: product-level areas (Docs, Tutorials, Benchmarks, Roadmap), search, theme
+// and GitHub. The pages themselves live in the docs sidebar, not here.
+import Logo from "./Logo.astro";
+import Icon from "./Icon.astro";
+import ThemeToggle from "./ThemeToggle.astro";
+import { topLinks } from "../../config/nav";
+import { site } from "../../config/site";
+import { href } from "../../lib/docs";
+
+interface Props {
+  /** On docs pages the menu button opens the sidebar; elsewhere it opens the top links. */
+  menuTarget?: string;
+  /** Label of the current top link, if any. */
+  current?: string;
+}
+
+const { menuTarget = "site-menu", current = "" } = Astro.props;
+---
+
+<header
+  class="site-header sticky top-0 z-40 flex h-(--header-h) items-center gap-1 border-b border-border bg-background/85 px-3 backdrop-blur-md sm:gap-2 sm:px-4"
+>
+  <button
+    type="button"
+    class="inline-flex size-10 items-center justify-center text-muted transition-[background-color,color] duration-150 ease-out hover:bg-foreground/6 hover:text-foreground md:hidden"
+    aria-label="Open menu"
+    aria-expanded="false"
+    aria-controls={menuTarget}
+    data-menu-toggle
+  >
+    <Icon name="list" size={20} class="menu-open" />
+    <Icon name="x" size={20} class="menu-close hidden" />
+  </button>
+
+  <a href={href("")} class="mr-3 inline-flex h-10 items-center px-1">
+    <Logo size={26} />
+  </a>
+
+  <nav aria-label="Main" class="hidden h-full items-stretch md:flex">
+    {
+      topLinks.map((link) => (
+        <a href={href(link.href)} aria-current={current === link.label ? "page" : undefined} class="top-link">
+          {link.label}
+        </a>
+      ))
+    }
+  </nav>
+
+  <button
+    type="button"
+    data-search-open
+    class="ml-auto inline-flex h-9 min-w-10 items-center justify-center gap-2 border border-border bg-background px-3 text-sm text-muted transition-[background-color,color,border-color] duration-150 ease-out hover:border-border-strong hover:text-foreground sm:min-w-60 sm:justify-start"
+    aria-label="Search the docs"
+    aria-keyshortcuts="Control+K Meta+K"
+  >
+    <Icon name="magnifying-glass" size={16} />
+    <span class="hidden sm:inline">Search docs</span>
+    <kbd class="ml-auto hidden border border-border bg-surface px-1.5 font-sans text-[11px] leading-5 sm:inline" data-mod-key>Ctrl K</kbd>
+  </button>
+
+  <ThemeToggle />
+
+  <a
+    href={site.repo}
+    class="inline-flex size-10 items-center justify-center text-muted transition-[background-color,color] duration-150 ease-out hover:bg-foreground/6 hover:text-foreground"
+    aria-label="BUI on GitHub"
+  >
+    <Icon name="github-logo" size={19} />
+  </a>
+</header>
+
+{
+  menuTarget === "site-menu" && (
+    <nav id="site-menu" aria-label="Main" class="fixed inset-x-0 top-(--header-h) bottom-0 z-30 bg-background md:hidden" data-menu>
+      <ul class="flex flex-col border-b border-border p-3">
+        {topLinks.map((link) => (
+          <li>
+            <a href={href(link.href)} class="flex min-h-12 items-center px-3 text-base hover:bg-foreground/6">
+              {link.label}
+            </a>
+          </li>
+        ))}
+        <li>
+          <a href={site.repo} class="flex min-h-12 items-center gap-2 px-3 text-base hover:bg-foreground/6">
+            <Icon name="github-logo" size={18} /> GitHub
+          </a>
+        </li>
+      </ul>
+      <div class="hatch h-10 border-b border-border" aria-hidden="true" />
+    </nav>
+  )
+}
+
+<style>
+  .top-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.8rem;
+    font-size: 14px;
+    color: var(--muted);
+    transition: color 150ms ease-out;
+  }
+  .top-link::after {
+    content: "";
+    position: absolute;
+    left: 0.8rem;
+    right: 0.8rem;
+    bottom: -1px;
+    height: 2px;
+    background: var(--primary);
+    transform: scaleX(0);
+    transition: transform 220ms var(--ease-out);
+  }
+  .top-link:hover {
+    color: var(--foreground);
+  }
+  .top-link:hover::after {
+    transform: scaleX(0.35);
+    opacity: 0.6;
+  }
+  .top-link[aria-current="page"] {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .top-link[aria-current="page"]::after {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+</style>
+
+<script>
+  // Show the right shortcut on Macs.
+  if (/Mac|iPhone|iPad/.test(navigator.platform)) document.querySelectorAll("[data-mod-key]").forEach((k) => (k.textContent = "⌘ K"));
+
+  const toggle = document.querySelector<HTMLButtonElement>("[data-menu-toggle]");
+  if (toggle) {
+    const target = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+    const set = (open: boolean) => {
+      if (!target) return;
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+      toggle.querySelector(".menu-open")?.classList.toggle("hidden", open);
+      toggle.querySelector(".menu-close")?.classList.toggle("hidden", !open);
+      target.toggleAttribute("data-open", open);
+      document.documentElement.classList.toggle("overflow-hidden", open);
+      if (open) target.querySelector("[aria-current=page]")?.scrollIntoView({ block: "center" });
+    };
+    toggle.addEventListener("click", () => set(toggle.getAttribute("aria-expanded") !== "true"));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+        set(false);
+        toggle.focus();
+      }
+    });
+    matchMedia("(min-width: 768px)").addEventListener("change", (e) => e.matches && set(false));
+  }
+</script>

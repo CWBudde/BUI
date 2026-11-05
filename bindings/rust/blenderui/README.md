@@ -32,15 +32,42 @@ fn main() {
 }
 ```
 
+Install it from [crates.io](https://crates.io/crates/blenderui):
+
+```sh
+cargo add blenderui
+```
+
+**Two syntaxes.** The example above uses gpui-style builders. The same UI can
+be written as HTML-like markup with `rsx!` (with `#[component]` functions and
+hooks such as `use_state`), and Tailwind classes work in both.
+
+**Three looks.** Plain HTML looks like a browser's; add `styled` to any
+element for Blender's look; use the Blender components (`NumberSlider`,
+`Button`, `Checkbox`, `ColorSwatch` ...) for Blender's real widgets anywhere.
+`blenderui::set_theme("light")` or `Application::new().theme("light")` (or
+`BUI_THEME=light`) switches Blender's theme from Dark to Light.
+
 **GPU rendering:** windows draw on the CPU by default. Use
 `Application::new().gpu(true)` (or `WindowOptions { gpu: Some(true), .. }`, or
-run with `BUI_GPU=1`) to draw them with Direct3D 11. This produces the same
-pixels at a fraction of the CPU cost: 11.6 ms vs 22.0 ms per frame for
-3000 animated cells, where gpui-fast needs 31.9 ms.
+run with `BUI_GPU=1`) to draw them on the GPU: Direct3D 11 on Windows, OpenGL
+3.3 on Linux. This produces the same pixels at a fraction of the CPU cost:
+11.6 ms vs 22.0 ms per frame for 3000 animated cells, where gpui-fast needs
+31.9 ms (Windows, Direct3D 11; measured before the latest features landed).
 
-**Text** works on every platform: GDI on Windows and a bundled stb_truetype
-engine elsewhere (the `portable-text` feature selects it on Windows).
-Register fonts with `blenderui::add_font` where there are none (wasm).
+**Text** works the same on every platform: the default portable engine embeds
+Inter (Blender's UI font), renders it with FreeType like Blender does, and
+draws it with Slug on the GPU. The opt-in `gdi-text` feature uses Windows' GDI
+engine and system fonts instead. (`portable-text` is a deprecated no-op.)
+Register extra fonts with `blenderui::add_font`.
+
+**Platforms:** Windows (Win32) and Linux (X11) native windows; macOS (Cocoa)
+is experimental. You need Rust 1.88+, CMake and a C compiler (the first build
+compiles BUI's C kit), and the X11 headers on Linux.
+
+Dear ImGui on BUI is a separate crate, `blenderui-imgui`, not on crates.io
+yet: use it as a git dependency.
 
 Guide, CSS coverage and limitations:
-[docs/rust.md](https://github.com/ppmpreetham/BUI/blob/main/docs/rust.md).
+[docs/rust.md](https://github.com/ppmpreetham/BUI/blob/main/docs/rust.md),
+and the website: <https://bui.preetham.top>.

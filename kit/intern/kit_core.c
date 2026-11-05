@@ -23,6 +23,10 @@
 #include "BUI_blender_c.h"
 #include "blender/bk_blender.h"
 #include "kit_intern.h"
+#include <stddef.h>
+
+int bk_theme_gen = 0;
+static BKContext *g_contexts = NULL; /* every live context (themes redraw them) */
 
 /* Blender's UTF-8 cursor stepping (blenlib, linked from bui_core). */
 typedef enum { STRCUR_JUMP_NONE, STRCUR_JUMP_DELIM, STRCUR_JUMP_ALL } eStrCursorJumpType;
@@ -1378,6 +1382,9 @@ BKContext *BK_context_new(BKNode *root)
   if (root) {
     root->ctx_root = ctx;
   }
+  bk_theme_env_init();
+  ctx->next_ctx = g_contexts;
+  g_contexts = ctx;
   return ctx;
 }
 
@@ -1396,7 +1403,154 @@ void BK_context_free(BKContext *ctx)
   if (ctx->header) {
     ctx->header->ctx_root = NULL;
   }
+  for (BKContext **p = &g_contexts; *p; p = &(*p)->next_ctx) {
+    if (*p == ctx) {
+      *p = ctx->next_ctx;
+      break;
+    }
+  }
   free(ctx);
+}
+
+/* -------------------------------------------------------------------- */
+/* Themes: Blender's Dark (default) and Light presets (kit_theme_presets.c) */
+
+static int g_theme_light = 0, g_theme_set = 0;
+
+static int theme_from_name(const char *name)
+{
+  /* "dark" / "light", any case; Blender's preset names work too */
+  char buf[32];
+  int n = 0;
+  for (; name && name[n] && n < (int)sizeof(buf) - 1; n++) {
+    buf[n] = (char)tolower((unsigned char)name[n]);
+  }
+  buf[n] = 0;
+  const char *s = buf;
+  if (strncmp(s, "blender", 7) == 0) {
+    s += 7;
+    while (*s == ' ' || *s == '_' || *s == '-') {
+      s++;
+    }
+  }
+  if (strcmp(s, "dark") == 0 || strcmp(s, "default") == 0) {
+    return 0;
+  }
+  if (strcmp(s, "light") == 0) {
+    return 1;
+  }
+  return -1;
+}
+
+static void theme_apply(int light)
+{
+  g_theme_light = light;
+  bk_theme = light ? bk_theme_light : bk_theme_dark;
+  bk_theme_gen++;
+  for (BKContext *c = g_contexts; c; c = c->next_ctx) {
+    c->layout_dirty = true; /* shadow widths size popups */
+    c->full_dirty = true;
+    if (c->host.request) {
+      c->host.request(c->host.data);
+    }
+  }
+}
+
+void bk_theme_env_init(void)
+{
+  if (g_theme_set) {
+    return;
+  }
+  g_theme_set = 1;
+  const char *env = getenv("BUI_THEME");
+  const int t = env && *env ? theme_from_name(env) : -1;
+  if (t > 0) {
+    theme_apply(t);
+  }
+}
+
+int BK_set_theme(const char *name)
+{
+  const int t = theme_from_name(name ? name : "dark");
+  if (t < 0) {
+    return 0;
+  }
+  g_theme_set = 1;
+  if (t != g_theme_light) {
+    theme_apply(t);
+  }
+  return 1;
+}
+
+const char *BK_theme_name(void)
+{
+  bk_theme_env_init();
+  return g_theme_light ? "light" : "dark";
+}
+
+#define TH_FIELD(f) {#f, offsetof(BKTheme, f)}
+static const struct {
+  const char *name;
+  size_t off;
+} k_theme_colors[] = {
+    TH_FIELD(region_bg),     TH_FIELD(header_bg),     TH_FIELD(tabs_bg),
+    TH_FIELD(panel_header),  TH_FIELD(panel_back),    TH_FIELD(panel_sub_back),
+    TH_FIELD(panel_outline), TH_FIELD(text),          TH_FIELD(text_hi),
+    TH_FIELD(emboss),        TH_FIELD(cursor),        TH_FIELD(selection),
+    TH_FIELD(file_back),     TH_FIELD(file_text),     TH_FIELD(file_header),
+    TH_FIELD(file_row_alternate), TH_FIELD(node_back), TH_FIELD(node_grid),
+    TH_FIELD(node_wire),     TH_FIELD(node_body),     TH_FIELD(node_outline),
+    TH_FIELD(node_selected), TH_FIELD(node_active), TH_FIELD(area_header),
+},
+  k_theme_wcols[] = {
+      TH_FIELD(regular),   TH_FIELD(tool),     TH_FIELD(toggle),    TH_FIELD(radio),
+      TH_FIELD(option),    TH_FIELD(textfield), TH_FIELD(num),      TH_FIELD(numslider),
+      TH_FIELD(menu),      TH_FIELD(pulldown), TH_FIELD(menu_back), TH_FIELD(menu_item),
+      TH_FIELD(list_item), TH_FIELD(box),      TH_FIELD(scroll),    TH_FIELD(progress),
+      TH_FIELD(tooltip),   TH_FIELD(tab),      TH_FIELD(pie_menu),  TH_FIELD(curve),
+},
+  k_wcol_fields[] = {
+      {"outline", offsetof(BKWCol, outline)}, {"outline_sel", offsetof(BKWCol, outline_sel)},
+      {"inner", offsetof(BKWCol, inner)},     {"inner_sel", offsetof(BKWCol, inner_sel)},
+      {"item", offsetof(BKWCol, item)},       {"text", offsetof(BKWCol, text)},
+      {"text_sel", offsetof(BKWCol, text_sel)},
+};
+#undef TH_FIELD
+
+int BK_theme_color(const char *key, float r_rgba[4])
+{
+  bk_theme_env_init();
+  if (!key) {
+    return 0;
+  }
+  const uchar *c = NULL;
+  const char *dot = strchr(key, '.');
+  if (!dot) {
+    for (size_t i = 0; i < sizeof(k_theme_colors) / sizeof(k_theme_colors[0]); i++) {
+      if (strcmp(key, k_theme_colors[i].name) == 0) {
+        c = (const uchar *)&bk_theme + k_theme_colors[i].off;
+      }
+    }
+  }
+  else {
+    const size_t n = (size_t)(dot - key);
+    for (size_t i = 0; i < sizeof(k_theme_wcols) / sizeof(k_theme_wcols[0]); i++) {
+      if (strlen(k_theme_wcols[i].name) == n && strncmp(key, k_theme_wcols[i].name, n) == 0) {
+        for (size_t j = 0; j < sizeof(k_wcol_fields) / sizeof(k_wcol_fields[0]); j++) {
+          if (strcmp(dot + 1, k_wcol_fields[j].name) == 0) {
+            c = (const uchar *)&bk_theme + k_theme_wcols[i].off + k_wcol_fields[j].off;
+          }
+        }
+      }
+    }
+  }
+  if (!c) {
+    return 0;
+  }
+  if (r_rgba) {
+    bk_rgba(c, r_rgba);
+  }
+  return 1;
 }
 
 void BK_context_set_host(BKContext *ctx, const BKHost *host)

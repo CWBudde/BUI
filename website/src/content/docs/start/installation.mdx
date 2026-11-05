@@ -1,0 +1,176 @@
+---
+title: Install BUI
+sidebarLabel: Installation
+description: Get BUI for Python, Rust, JavaScript, C or Dear ImGui. Most people are one command away from a Blender-style window.
+section: Start here
+order: 20
+languages: ["python", "rust", "javascript", "c", "imgui"]
+sources: ["README.md", "docs/getting-started.md", "docs/rust.md", "docs/javascript.md", "docs/imgui.md", "docs/c-api.md", "pyproject.toml"]
+---
+
+Good news first: for Python and JavaScript, installing BUI is one command. Rust is one line in `Cargo.toml`, and C is a normal CMake build.
+
+Pick your language below. The page remembers your choice, so every other page shows the same tab.
+
+## Install
+
+<LangTabs>
+<Tab label="Python">
+
+You need **CPython 3.11 or newer**. Wheels are published for Windows, Linux and macOS, so there's nothing to compile.
+
+```sh
+pip install blenderui
+```
+
+That one package gives you all four Python APIs: tkinter syntax, Qt syntax, the Blender components and Dear ImGui.
+
+Check that it worked:
+
+```sh
+python -c "import blenderui; print(blenderui.__version__)"
+```
+
+<Callout type="note" title="blenderui or bui?">
+The package on PyPI is `blenderui`, and that's the name to import. You'll also see `import bui` in older examples: it's the same code under its original name. An unrelated project owns `bui` on PyPI, so prefer `blenderui` in anything you publish.
+</Callout>
+
+</Tab>
+<Tab label="Rust">
+
+The crate is on [crates.io](https://crates.io/crates/blenderui) as `blenderui`:
+
+```sh
+cargo add blenderui
+```
+
+Or add it to `Cargo.toml` by hand:
+
+```toml title="Cargo.toml"
+[dependencies]
+blenderui = "0.1"
+```
+
+The first build compiles BUI's C kit for you, so you need:
+
+- **Rust 1.88 or newer** (the workspace uses edition 2024).
+- **CMake** and a **C compiler**. On Windows, the default Rust target uses MSVC, so install the Visual Studio Build Tools.
+- On **Linux**, the X11 headers: `libx11-dev` (Debian, Ubuntu) or `libX11-devel` (Fedora). No GL headers are needed.
+
+Try the bundled examples from a clone of the repository:
+
+```sh
+cd bindings/rust
+cargo run --release --example hello
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+You need **Node.js 18 or newer**, or **Bun**. For React:
+
+```sh
+npm install @blender-ui/react react
+# or
+bun add @blender-ui/react react
+```
+
+For the DOM-like API without React:
+
+```sh
+npm install @blender-ui/native
+```
+
+<Callout type="warning" title="Prebuilt for Windows x64">
+The npm packages include a prebuilt native addon for **Windows x64**. On **Linux**, build the addon from source (below); windows are native there too. On **macOS**, JavaScript runs headless for now, because macOS only allows windows on the main thread and BUI runs its own UI thread under Node.
+</Callout>
+
+To build the addon from a clone (Linux, or to hack on BUI), you need what the Rust crate needs: Rust, CMake and a C compiler.
+
+```sh
+cd bindings
+npm install        # links the two packages (npm workspaces)
+npm run build      # builds the native addon in release mode
+```
+
+</Tab>
+<Tab label="C">
+
+Build from source with CMake. You need **CMake 3.20 or newer** and a **C11 / C++20 compiler** (MSVC, GCC or MinGW-w64, or Clang). On Linux, also the X11 headers.
+
+```sh
+git clone https://github.com/ppmpreetham/BUI && cd BUI
+cmake -S . -B build
+cmake --build build -j 2
+ctest --test-dir build            # optional: run the test suites
+```
+
+To use the kit in your own CMake project, add BUI as a subdirectory and link `bui::kit`:
+
+```cmake title="CMakeLists.txt"
+add_subdirectory(BUI)
+target_link_libraries(myapp PRIVATE bui::kit)
+```
+
+Then `#include "BUI_kit.h"`. The hello-world is `examples/kit_hello.c`; build it with `-DBUI_BUILD_EXAMPLES=ON`.
+
+<Callout type="tip">
+The Python bindings build by default too, if CMake finds Python's development headers. Turn them off with `-DBUI_BUILD_PYTHON_BINDINGS=OFF` if you only want C.
+</Callout>
+
+</Tab>
+<Tab label="Dear ImGui">
+
+BUI runs the **real Dear ImGui** (1.93), so existing ImGui code compiles unchanged. Pick your language:
+
+- **Python** comes with `pip install blenderui`. Import it as `blenderui.imgui`. The very first wheels (0.1.0) were published before it; if the import fails, upgrade with `pip install -U blenderui`.
+- **C++**: build BUI with CMake (see the C tab) and link `bui::imgui`. You include `imgui.h` and `imgui_impl_bui.h`. The CMake option `BUI_BUILD_IMGUI` is on whenever a C++ compiler is present.
+- **C**: the same build gives you `cimgui.h` and `cimgui_impl_bui.h` (CMake target `bui_cimgui`).
+- **Rust**: add the `blenderui-imgui` crate. It isn't on crates.io yet (only `blenderui` is), so take it from the repository as a git dependency:
+
+```toml title="Cargo.toml"
+[dependencies]
+blenderui-imgui = { git = "https://github.com/ppmpreetham/BUI" }
+```
+
+Want ImGui's widgets to *be* Blender's widgets? Build with `-DBUI_IMGUI_BLENDER_WIDGETS=ON` in CMake, or enable the `blender-widgets` feature of `blenderui-imgui` in Rust. The rest of the ImGui API is unchanged.
+
+</Tab>
+</LangTabs>
+
+## Platform notes
+
+| | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| Window | Native (Win32) | Native (X11; Wayland through XWayland) | Native (Cocoa), experimental |
+| Python wheels | Yes | Yes | Yes |
+| Rust | Yes | Yes | Yes, experimental |
+| JavaScript and React | Yes, prebuilt | Yes, build the addon | Headless for now |
+| C, C++, Dear ImGui | Yes | Yes | Yes, experimental |
+| GPU renderer | Direct3D 11 | OpenGL 3.3 | Not yet: CPU raster |
+
+"Experimental" means written but not yet run on a real Mac.
+
+- **macOS** <Badge tone="preview">Experimental</Badge>: the Cocoa window host is a port of Blender's own Cocoa code. It's written but hasn't run on a real Mac yet. Python can use the standard Tk window instead: set `BUI_HOST=tk` (this needs Python's `tkinter`, for example from python.org or `brew install python-tk`).
+- **Linux**: libX11 and libGL load when the first window opens, so BUI imports and renders headless on servers and in containers without them. Where OpenGL is missing, it falls back to the CPU renderer.
+- **HiDPI**: BUI follows the display's scale (per-monitor DPI on Windows, `Xft.dpi` on Linux, Retina on macOS). To force a scale, set `BUI_UI_SCALE=1.5`.
+
+## If something goes wrong
+
+| Symptom | Fix |
+| --- | --- |
+| `ImportError: buipy` | You're probably running from a source checkout without a build. Build first (`cmake --build build`), or set `BUIPY_BUILD_DIR`. The extension must match your Python version. |
+| The window never appears | Start the event loop: `mainloop()`, `app.exec()` or `App.run()`. |
+| Blurry or tiny UI | Set `BUI_UI_SCALE`, for example `BUI_UI_SCALE=1.25`. |
+| `gpu=True` does nothing | Run with `BUI_GPU_DEBUG=1` to see why the GPU device didn't start. Without Direct3D 11 or OpenGL 3.3, BUI stays on the CPU renderer, which draws the same pixels. |
+
+## Next steps
+
+<CardGrid>
+  <Card title="Build your first app" href="docs/tutorials/first-app-python/" icon="sparkles" kicker="Tutorial">
+    A Blender-style panel in Python, explained line by line.
+  </Card>
+  <Card title="See what's coming" href="docs/project/roadmap/" icon="flag" kicker="Project">
+    macOS testing, WebAssembly and more.
+  </Card>
+</CardGrid>

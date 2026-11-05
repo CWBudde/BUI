@@ -125,8 +125,30 @@ def set_backend(backend) -> None:
     buipy.set_backend(backend)
 
 
+def set_theme(name: str = "dark") -> None:
+    """Switch every BUI window to Blender's ``"dark"`` (default) or
+    ``"light"`` theme (its Blender_Light.xml preset); open windows redraw.
+    Without a call the ``BUI_THEME`` environment variable picks the theme."""
+    from bui import theme as _theme
+    buipy.kit_set_theme(str(name))
+    _theme._sync()
+    if "_buiimgui" in sys.modules:  # the Dear ImGui extension has its own kit
+        sys.modules["_buiimgui"].set_theme(str(name))
+
+
+def theme_name() -> str:
+    """The active theme: ``"dark"`` or ``"light"``."""
+    return buipy.kit_theme_name()
+
+
+def theme_color(key: str):
+    """A color of the active theme as ``(r, g, b, a)`` floats, e.g.
+    ``"region_bg"``, ``"text"``, ``"regular.inner"`` (see BK_theme_color)."""
+    return buipy.kit_theme_color(key)
+
+
 def set_gpu(on: bool = True) -> None:
-    """Draw new native windows on the GPU (Direct3D 11): the same pixels as
+    """Draw new native windows on the GPU (Direct3D 11 / OpenGL 3.3): the same pixels as
     the software raster, with rasterization off the CPU. Falls back to the
     software raster where no device exists. ``BUI_GPU=1``/``0`` overrides.
     Per window: ``Tk(gpu=True)``."""

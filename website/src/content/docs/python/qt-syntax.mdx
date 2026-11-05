@@ -1,0 +1,192 @@
+---
+title: Qt syntax
+description: Write Qt-style Python (QApplication, QWidget, layouts, signals and QPainter) and BUI draws it in Blender's look, with no Qt installed. The common subset works today.
+section: Python
+order: 20
+status: preview
+languages: ["python"]
+badges: ["Partial"]
+sources: ["docs/qt.md", "SYNTAX_COVERAGE.md", "examples/qt_syntax_demo.py", "bindings/python/bui/qtsyntax.py", "bindings/python/bui/host.py", "docs/getting-started.md"]
+---
+
+If your hands already know Qt, `blenderui.qtsyntax` lets them keep typing: `QApplication`, `QWidget`, `QVBoxLayout`, `clicked.connect(...)`. BUI runs that code on its own C runtime and draws it with Blender's widgets. **Neither Qt nor PySide is needed.**
+
+<Callout type="warning" title="Status: partial">
+The everyday subset on this page works and is tested. But counted against Qt's own widget headers, about **220 of 920** public method names on 25 core widget classes exist (roughly a quarter). Anything that isn't there raises `AttributeError`, so nothing fails silently. See [what's missing](#whats-missing).
+</Callout>
+
+<Figure
+  shot="python-qt"
+  alt="A Qt-syntax material editor on BUI: a QListWidget, a QLineEdit, a QGroupBox with a QFormLayout, a QComboBox, a QSlider with a QDoubleSpinBox, a QCheckBox and a QProgressBar"
+  caption="<code>examples/site/qt_material.py</code>, drawn by BUI."
+/>
+
+## A first example
+
+```py title="hello_qt.py"
+import sys
+from blenderui.qtsyntax import (QApplication, QWidget, QVBoxLayout, QSlider,
+                                QProgressBar, QPushButton, Qt)
+
+app = QApplication(sys.argv)
+window = QWidget()
+window.setWindowTitle("Hello, Qt syntax")
+
+layout = QVBoxLayout(window)
+slider = QSlider(Qt.Horizontal)
+slider.setRange(0, 100)
+bar = QProgressBar()
+slider.valueChanged.connect(bar.setValue)     # signals connect to any callable
+quit_button = QPushButton("Quit")
+quit_button.clicked.connect(app.quit)
+layout.addWidget(slider)
+layout.addWidget(bar)
+layout.addWidget(quit_button)
+
+window.resize(320, 140)
+window.show()
+sys.exit(app.exec())
+```
+
+The only line that differs from PySide is the import. For a step-by-step build of a fuller form, follow the [Qt tutorial](../../tutorials/first-app-qt/).
+
+## How it maps
+
+There's no Qt underneath. Each piece of Qt maps onto something in BUI:
+
+| Qt | On BUI |
+| --- | --- |
+| `QWidget` | A node in BUI's C runtime (the **kit**). A subclass that overrides `paintEvent` becomes a kit canvas, and `QPainter` records into its display list. |
+| `QVBoxLayout`, `QHBoxLayout` | Tk's packer, ported to C, with Qt's rules: stretch factors, expanding size policies, spacing between items only, margins on top-level layouts only |
+| `QGridLayout`, `QFormLayout` | Tk's gridder, ported to C (`setColumnStretch` maps to column weights) |
+| Signals | Plain Python objects (`Signal`, also spelled `pyqtSignal`) |
+| `QApplication.exec()` | BUI's event loop: a native window (Win32, X11, Cocoa), or a Tk-hosted one with `BUI_HOST=tk` |
+| `QTimer`, `QPropertyAnimation` | Window timers; animations step at 120 Hz with easing curves |
+
+## Supported classes
+
+| Area | Classes |
+| --- | --- |
+| Application | `QApplication` (`exec`, `quit`, `processEvents`), `QTimer` (`singleShot`, `start`, `stop`, `timeout`), `QPropertyAnimation`, `QEasingCurve` |
+| Windows | `QWidget`, `QMainWindow` (`setCentralWidget`, `menuBar`, `statusBar`), `QDialog` (`exec`, `accept`, `reject`), `QFrame` |
+| Layouts | `QVBoxLayout`, `QHBoxLayout` (`addWidget(stretch)`, `addLayout`, `addStretch`, `addSpacing`, `insertWidget`, `setSpacing`, `setContentsMargins`), `QGridLayout` (spans, alignment, stretch), `QFormLayout.addRow`, `QStackedLayout` |
+| Widgets | `QLabel` (text, alignment, pixmap), `QPushButton`, `QToolButton`, `QCheckBox`, `QRadioButton` with `QButtonGroup` (auto-exclusive), `QLineEdit` (`textChanged`, `returnPressed`, `editingFinished`), `QTextEdit`, `QPlainTextEdit`, `QSlider`, `QDial`, `QSpinBox`, `QDoubleSpinBox`, `QProgressBar` (format), `QComboBox` (items, data, `currentIndexChanged`) |
+| Views | `QListWidget` and `QListWidgetItem`, `QTreeWidget` and `QTreeWidgetItem` (columns, expand), `QTableWidget` and `QTableWidgetItem` |
+| Containers | `QTabWidget`, `QGroupBox` (a Blender panel), `QScrollArea`, `QStatusBar` |
+| Menus | `QMenuBar`, `QMenu` (`addAction(text, slot, shortcut)`, submenus, separators, `popup`), `QAction` (checkable, shortcuts) |
+| Painting | `QPainter`, `QPen`, `QBrush`, `QColor`, `QFont`, `QPixmap`, `QImage` |
+| Events | Override `mousePressEvent`, `mouseReleaseEvent`, `mouseMoveEvent`, `mouseDoubleClickEvent`, `keyPressEvent`, `wheelEvent`, `enterEvent`, `leaveEvent`, `closeEvent` and `paintEvent` |
+| Values | `Qt` constants (alignment, keys, orientation, check states), `QPoint`, `QSize`, `QRect`, `QMargins`, `QSizePolicy`, `QIcon` |
+| Dialogs | `QFileDialog` (`getOpenFileName`, `getOpenFileNames`, `getSaveFileName`, `getExistingDirectory`) shows Blender's File Browser; `BUI_FILEDIALOG=native` uses the operating system's dialogs. `QMessageBox` is a stub, see below |
+
+The member-by-member list is in [`SYNTAX_COVERAGE.md`](https://github.com/ppmpreetham/BUI/blob/main/SYNTAX_COVERAGE.md#qt-syntax-buiqtsyntax).
+
+## Signals
+
+Signals work as in Qt: declare them on a class, `connect` any callable, `emit` to call them.
+
+```py
+from blenderui.qtsyntax import QWidget, Signal
+
+class Thermostat(QWidget):
+    changed = Signal(float)           # pyqtSignal and Signal_ are the same thing
+
+t = Thermostat()
+t.changed.connect(lambda v: print("now", v))
+t.changed.connect(print)
+t.changed.emit(21.5)
+```
+
+- **Slots can take fewer arguments** than the signal sends: `QPushButton.clicked` sends a `bool`, but a slot with no parameters is called with none.
+- `disconnect(slot)` removes one slot; `disconnect()` removes them all.
+- Programmatic changes go through the kit, so in our testing a `setValue` made **before the window opens** doesn't emit `valueChanged`. Set dependent widgets yourself at startup, or make the change after `show()`.
+
+## Layouts
+
+Layouts behave like Qt's, including the parts people rely on without thinking:
+
+- `addWidget(widget, stretch)` and `addStretch()` share spare space by stretch factor.
+- Spacing goes **between** items only, and margins apply to top-level layouts only.
+- Line edits, sliders, combo boxes and progress bars expand **horizontally**; text edits, lists, trees, tabs and custom-painted widgets expand **vertically**.
+- `QGridLayout.addWidget(w, row, column, rowspan, colspan, alignment)` and `setRowStretch` / `setColumnStretch` work.
+
+## Custom painting
+
+Override `paintEvent` and draw with `QPainter`. On BUI, your drawing is recorded into a display list that BUI redraws for you; call `update()` when your data changes.
+
+```py title="gauge.py"
+import sys
+from blenderui.qtsyntax import (QApplication, QWidget, QVBoxLayout, QLabel,
+                                QPainter, QColor, QPen)
+
+class Gauge(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.value = 0.6
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setBrush(QColor("#282828"))
+        p.drawRoundedRect(0, 0, self.width(), 24, 6, 6)
+        p.setBrush(QColor("#4772b3"))
+        p.drawRoundedRect(0, 0, int(self.width() * self.value), 24, 6, 6)
+        p.setPen(QPen(QColor("white")))
+        p.drawText(8, 17, "%d%%" % (self.value * 100))
+        p.end()
+
+    def mousePressEvent(self, e):
+        self.value = e.x() / max(1, self.width())
+        self.update()                  # repaint
+
+app = QApplication(sys.argv)
+window = QWidget()
+window.setWindowTitle("Gauge")
+layout = QVBoxLayout(window)
+layout.addWidget(QLabel("Click the gauge:"))
+layout.addWidget(Gauge())
+window.resize(300, 120)
+window.show()
+sys.exit(app.exec())
+```
+
+<Figure
+  src="images/qt-gauge.png"
+  alt="A window with the label Click the gauge and a rounded blue bar filled to 60 percent"
+  caption="<code>gauge.py</code>: a custom widget painted with <code>QPainter</code>. Click anywhere on it to set the value."
+  width={300}
+  height={120}
+/>
+
+`QPainter` supports `fillRect`, `drawRect`, `drawRoundedRect`, `drawEllipse`, `drawLine`, `drawPolyline`, `drawPolygon`, `drawPoint`, `drawArc`, `drawPie`, `drawText` and `drawPixmap`, plus `setPen`, `setBrush`, `setFont`, `setOpacity`, `translate`, `save` and `restore`.
+
+## Style sheets
+
+`setStyleSheet` understands three things: `color`, `background` (or `background-color`) on containers, and `font-weight: bold`. Everything else is Blender's theme. Qt style sheet selectors, pseudo-states and `QPalette` aren't supported.
+
+## What's missing
+
+Being upfront, so you don't find out the hard way:
+
+- **Model/view:** `QAbstractItemModel`, `QListView`, `QTreeView`, `QTableView` and delegates. Use the `*Widget` classes instead.
+- **Classes:** `QSplitter`, `QDockWidget`, `QToolBar`, `QStackedWidget` (as a real class), `QToolBox`, `QDateEdit` and friends, `QCalendarWidget`, `QGraphicsScene`, OpenGL widgets.
+- **Most of `QWidget`'s surface:** focus-policy details, `setWindowFlags`, geometry helpers, `grab`.
+- **Infrastructure:** `QSettings`, `QThread`, `QClipboard`, drag and drop, `QShortcut`, rich text.
+- **Drawn dialogs:** `QMessageBox` and `QInputDialog` aren't drawn yet. `QMessageBox.information`, `warning`, `critical` and `about` return `Ok` at once, and `question` returns `Yes` at once, without showing anything.
+
+<ComingSoon feature="Running PySide6 programs unchanged">
+The plan is to reach parity with the tkinter layer: measure against PySide6 itself, run the same programs on real Qt and on BUI to compare them, fill in the classes above, and then add an `install()` so `import PySide6` programs run unchanged, as tkinter programs already do.
+</ComingSoon>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Qt tutorial" href="docs/tutorials/first-app-qt/" icon="sparkles" kicker="Tutorial">
+    Build an export dialog, one step at a time.
+  </Card>
+  <Card title="tkinter on BUI" href="docs/python/tkinter/" icon="book" kicker="Python">
+    The complete layer, if you can choose: every tkinter name is there.
+  </Card>
+  <Card title="Roadmap" href="docs/project/roadmap/" icon="flag" kicker="Project">
+    Where Qt syntax is heading, and how to help.
+  </Card>
+</CardGrid>

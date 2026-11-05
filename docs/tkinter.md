@@ -112,7 +112,7 @@ the software raster.
 | `tkinter.ttk` | `bui.tksyntax.ttk` | Themed widgets including `Treeview`, `Notebook`, `Progressbar`, `Combobox`, `Separator`, `Sizegrip`, `LabeledScale`, `Panedwindow`, `Style`. `state()` / `instate()` work. |
 | `tkinter.messagebox` | `.messagebox` | Blender-styled modal dialogs with the same return values (`"ok"`, `True`, `None` ...) |
 | `tkinter.simpledialog` | `.simpledialog` | `Dialog` (override `body` / `validate` / `apply`), `SimpleDialog`, `askstring`, `askinteger`, `askfloat` |
-| `tkinter.filedialog` | `.filedialog` | The operating system's file dialogs, as with Tk on Windows and macOS |
+| `tkinter.filedialog` | `.filedialog` | Blender's File Browser in its own window, with the same functions and return values; `BUI_FILEDIALOG=native` uses the operating system's dialogs instead |
 | `tkinter.colorchooser` | `.colorchooser` | `askcolor` with Blender's color picker; returns `((r, g, b), "#rrggbb")` |
 | `tkinter.font` | `.font` | `Font`, named fonts (`TkDefaultFont` ...), `measure` / `metrics` through the native text engine |
 | `tkinter.scrolledtext` | `.scrolledtext` | `ScrolledText`, as in tkinter |
@@ -203,7 +203,7 @@ Ctrl+Z / Ctrl+Shift+Z undo edits, and Tab moves to the next field.
 ## Behaviour
 
 BUI follows Tk's semantics, checked against the stdlib by
-`tests/test_tk_compat.py`. Some of them are easy to miss:
+`bindings/python/tests/test_tk_compat.py`. Some of them are easy to miss:
 
 - `textvariable` overrides `text`, and `cget("text")` returns the
   variable's value.
@@ -234,7 +234,7 @@ BUI follows Tk's semantics, checked against the stdlib by
 
 ## Testing your app against tkinter
 
-`tests/test_tk_compat.py` runs programs on both the stdlib and BUI and
+`bindings/python/tests/test_tk_compat.py` runs programs on both the stdlib and BUI and
 compares what they observe:
 
 ```python

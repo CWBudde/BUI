@@ -1,0 +1,280 @@
+---
+title: Your first app, in Rust
+sidebarLabel: First app (Rust)
+description: Build a counter with a heading, state and a real Blender slider, in rsx! markup or gpui-style builders. Native window, no browser.
+section: Tutorials
+order: 40
+languages: ["rust"]
+badges: ["15 minutes", "Beginner"]
+sources: ["docs/rust.md", "bindings/rust/blenderui/examples/hello.rs", "bindings/rust/blenderui/examples/counter.rs", "bindings/rust/Cargo.toml", "bindings/rust/blenderui/Cargo.toml"]
+---
+
+In this tutorial you'll build a small Rust app with BUI: a heading, a counter with a hover effect, and one of Blender's own number sliders. BUI draws it natively, in a real window, with **no browser and no webview** anywhere. About 40 lines.
+
+BUI gives you **two ways to write the same UI**, and both are first-class. Every step below shows both; pick a tab and the whole page follows.
+
+- **`rsx!`** is HTML-like markup inside a macro: `<div flex gap-3>"Add one"</div>`. Components are functions with hooks for state.
+- **gpui builders** are plain method chains: `div().flex().gap_3().child("Add one")`. State lives in your view struct, and `cx.listener` updates it. It's the style of the [gpui](https://www.gpui.rs) crate, so gpui code compiles against BUI too.
+
+<Callout type="note" title="What you need">
+Rust 1.88 or newer, CMake and a C compiler (on Windows, the Visual Studio Build Tools), and on Linux the X11 headers. The [installation page](../../start/installation/) has the details. The first build compiles BUI's C core, so it takes a minute; later builds are quick.
+</Callout>
+
+## See it run first
+
+If you have a clone of the repository, run the finished `rsx!` version before writing anything:
+
+```sh
+cd bindings/rust
+cargo run --release --example hello
+```
+
+<Figure
+  src="images/rust-hello.png"
+  alt="A dark window titled Hello, BUI: a rounded card reading Clicks: 0 with a blue Add one button, and a Blender number slider at 5 below"
+  caption="<code>hello.rs</code>, rendered headless with <code>--screenshot</code>."
+  width={420}
+  height={260}
+/>
+
+Click **Add one** a few times, then drag the slider. That slider is Blender's: the cursor hides while you drag, <Kbd>Shift</Kbd> slows it down, and you can click it to type a value.
+
+## Build it yourself
+
+<Steps>
+
+1. **Make a project and add BUI.**
+
+   ```sh
+   cargo new hello-bui
+   cd hello-bui
+   cargo add blenderui
+   ```
+
+   The crate is [`blenderui` on crates.io](https://crates.io/crates/blenderui).
+
+2. **Open a window with a view.**
+
+   Replace `src/main.rs` with this:
+
+   <Tabs sync="rust-syntax" label="Rust syntax">
+   <Tab label="rsx!">
+
+   ```rust title="src/main.rs"
+   use blenderui::prelude::*;
+
+   struct Hello;
+
+   impl Render for Hello {
+       fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+           rsx! {
+               <body m-0 p-6 min-h-screen flex flex-col gap-4 bg-zinc-900 text-white>
+                   <h1 text-2xl font-bold>"Hello, BUI"</h1>
+               </body>
+           }
+       }
+   }
+
+   fn main() {
+       Application::new().run(|cx| {
+           let opts = WindowOptions {
+               window_bounds: Some(WindowBounds::Windowed(Bounds {
+                   origin: point(px(0.0), px(0.0)),
+                   size: size(px(420.0), px(260.0)),
+               })),
+               ..Default::default()
+           };
+           cx.open_window(opts, |_, cx| cx.new(|_| Hello)).unwrap();
+       });
+   }
+   ```
+
+   - `rsx!` is HTML-like markup. The macro turns it into ordinary Rust calls at compile time, so there's no parsing at run time.
+   - The bare words on each tag, like `p-6`, `flex` and `bg-zinc-900`, are **Tailwind classes written as attributes**: short names for one style each (`p-6` is padding, `bg-zinc-900` a dark gray background). A typo such as `bg-zinc-90O` is a compile error that suggests the right name.
+   - Text goes in quotes: `"Hello, BUI"`.
+
+   </Tab>
+   <Tab label="gpui builders">
+
+   ```rust title="src/main.rs"
+   use blenderui::prelude::*;
+
+   struct Hello;
+
+   impl Render for Hello {
+       fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+           body().m_0().p_6().css("min-height", "100vh").flex().flex_col().gap_4()
+               .bg(rgb(0x18181b)).text_color(white())
+               .child(h1().text_2xl().font_bold().child("Hello, BUI"))
+       }
+   }
+
+   fn main() {
+       Application::new().run(|cx| {
+           let opts = WindowOptions {
+               window_bounds: Some(WindowBounds::Windowed(Bounds {
+                   origin: point(px(0.0), px(0.0)),
+                   size: size(px(420.0), px(260.0)),
+               })),
+               ..Default::default()
+           };
+           cx.open_window(opts, |_, cx| cx.new(|_| Hello)).unwrap();
+       });
+   }
+   ```
+
+   - Every HTML element has a constructor: `body()`, `h1()`, `div()`, `span()` and so on. They all return the same `Div` type.
+   - Each style is a method: `.p_6()` is padding, `.flex().flex_col()` stacks children in a column, `.bg(rgb(0x18181b))` sets the background. For anything without a method, `.css("property", "value")` sets any CSS property.
+   - `.child(...)` adds a child: another element, or text.
+
+   </Tab>
+   </Tabs>
+
+   Run it with `cargo run --release`. A dark window says hello.
+
+   - A **view** is a struct that implements `Render`. Its `render` method returns the UI.
+   - `Application::new().run(...)` starts the app, and `cx.open_window(...)` opens a 420 × 260 window showing your view. This part is the same in both styles.
+
+3. **Add a counter with state.**
+
+   <Tabs sync="rust-syntax" label="Rust syntax">
+   <Tab label="rsx!">
+
+   Add a **component** above `struct Hello`:
+
+   ```rust
+   #[component]
+   fn counter(label: &str) {
+       let (count, set_count) = use_state(0);
+       rsx! {
+           <div flex items-center gap-3 p-4 rounded-xl bg-zinc-800>
+               <span text-zinc-300>{label.to_string()} ": " {count().to_string()}</span>
+               <div px-3 py-1 rounded-md bg-sky-700 hover:bg-sky-500 cursor-pointer
+                    onClick={move || set_count(count() + 1)}>
+                   "Add one"
+               </div>
+           </div>
+       }
+   }
+   ```
+
+   - `#[component]` turns the function into a component you can use as a tag. Its parameters become **props**: `label` here.
+   - `use_state(0)` is a **hook**: it keeps a value between renders. It gives you a getter, `count()`, and a setter, `set_count(...)`. Calling the setter re-renders the window.
+   - `{...}` in markup inserts a Rust value. Text children are `String` or `&'static str`, which is why `label` and the count go through `.to_string()`.
+   - `hover:bg-sky-500` changes the color while the pointer is over the element. `onClick` takes a closure, and you can leave out its parameters when you don't need them.
+
+   </Tab>
+   <Tab label="gpui builders">
+
+   Keep the count in the view itself. Give `Hello` a field, and start it at zero in `main`:
+
+   ```rust
+   struct Hello { count: i32 }
+
+   // in main():
+   cx.open_window(opts, |_, cx| cx.new(|_| Hello { count: 0 })).unwrap();
+   ```
+
+   Then build the counter in `render`. It needs the `cx` parameter now, so give it a name:
+
+   ```rust
+   fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+       let counter = div().flex().items_center().gap_3().p_4().rounded_xl().bg(rgb(0x27272a))
+           .child(span().text_color(rgb(0xd4d4d8)).child(format!("Clicks: {}", self.count)))
+           .child(div().px_3().py_1().rounded_md().bg(rgb(0x0369a1))
+               .hover(|s| s.bg(rgb(0x0ea5e9))).cursor_pointer()
+               .child("Add one")
+               .on_click(cx.listener(|this, _, _, cx| {
+                   this.count += 1;
+                   cx.notify();
+               })));
+       // ... the body from step 2, with `.child(counter)` after the heading
+   }
+   ```
+
+   - The view's fields are its state. `self.count` is read while rendering.
+   - `cx.listener(...)` wraps a closure so that, when it runs, it gets `&mut` access to your view (`this`). The other parameters are the event, the window and the context.
+   - `cx.notify()` tells BUI the view changed, so it renders again.
+   - `.hover(|s| ...)` takes the styles to apply while the pointer is over the element.
+
+   </Tab>
+   </Tabs>
+
+4. **Show the counter, and add a Blender slider.**
+
+   <Tabs sync="rust-syntax" label="Rust syntax">
+   <Tab label="rsx!">
+
+   Put two lines under the heading in `Hello`'s markup:
+
+   ```rust ins={3-4}
+   <body m-0 p-6 min-h-screen flex flex-col gap-4 bg-zinc-900 text-white>
+       <h1 text-2xl font-bold>"Hello, BUI"</h1>
+       <counter label="Clicks" />
+       <NumberSlider min={0.0} max={10.0} value="5" />   // a real Blender slider
+   </body>
+   ```
+
+   - `<counter label="Clicks" />` uses your component. Lowercase and uppercase component names both work.
+   - `min={0.0}` passes a Rust value; `value="5"` sets an HTML attribute.
+
+   </Tab>
+   <Tab label="gpui builders">
+
+   Add two children after the heading:
+
+   ```rust ins={4-5}
+   body().m_0().p_6().css("min-height", "100vh").flex().flex_col().gap_4()
+       .bg(rgb(0x18181b)).text_color(white())
+       .child(h1().text_2xl().font_bold().child("Hello, BUI"))
+       .child(counter)
+       .child(NumberSlider().min(0.0).max(10.0).value("5"))   // a real Blender slider
+   ```
+
+   - Blender components are functions with capitalized names, like `NumberSlider()`, and take the same methods as any element.
+
+   </Tab>
+   </Tabs>
+
+   `NumberSlider` is one of BUI's **Blender components**: capitalized names that are always Blender's real widgets, never a look-alike.
+
+5. **Run it.**
+
+   ```sh
+   cargo run --release
+   ```
+
+   The `rsx!` version is the whole `hello.rs` example, minus its screenshot option. The builder version draws the same window.
+
+</Steps>
+
+<Callout type="tip" title="Tailwind in builder style">
+Builder code can use Tailwind class names too: `div().class(tw!("flex items-center gap-3 hover:bg-sky-500"))`. `tw!` checks the names at compile time, as `rsx!` does. `rsx!` lowers to the same builder calls, so you can mix the two: `.child(rsx! { ... })` in a chain, or `{some_div}` inside markup.
+</Callout>
+
+## What just happened
+
+You described a tree of elements, and BUI did the rest:
+
+- `rsx!` or the builder chain built a tree of elements in plain Rust.
+- BUI turned the styles into CSS, laid the tree out with flexbox, and drew it natively.
+- When you clicked, the new count was stored (by the hook, or in your view's field) and the window rendered again, so the text changed.
+- The slider isn't drawn to look like Blender's; it **is** Blender's number slider, with Blender's interaction rules.
+
+<Callout type="tip" title="Want Blender's look for everything?">
+Plain HTML elements get a browser's default look: black text on white, gray buttons. Add the `styled` attribute (`<div styled>`, or `.styled()` in builder style) to any element and it, and everything inside it, takes Blender's look: the dark background, Blender's text colors, and Blender's widgets for buttons and inputs.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="rsx! and components" href="docs/rust/rsx-and-components/" icon="layers" kicker="Rust">
+    Loops and conditions in markup, optional props, keys and three component styles.
+  </Card>
+  <Card title="Hooks" href="docs/rust/hooks/" icon="zap" kicker="Rust">
+    `use_state`, signals, memos, effects and context.
+  </Card>
+  <Card title="CSS and Tailwind" href="docs/rust/css-and-tailwind/" icon="book" kicker="Rust">
+    Style sheets, selectors and the full Tailwind v4 engine.
+  </Card>
+</CardGrid>

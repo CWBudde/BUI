@@ -40,6 +40,7 @@ qt = ["PySide6>=6.5"]            # only for bui.qt.BuiCanvas (embedding in a rea
 test = []
 
 [project.urls]
+Homepage = "https://bui.preetham.top"
 Documentation = "https://github.com/ppmpreetham/BUI/tree/main/docs"
 Source = "https://github.com/ppmpreetham/BUI"
 Issues = "https://github.com/ppmpreetham/BUI/issues"
@@ -51,7 +52,9 @@ blenderui-tk = "bui.tksyntax.__main__:main"   # blenderui-tk app.py == python -m
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 cmake.version = ">=3.20"
-build.targets = ["buipy"]
+# the core extension and Dear ImGui's (_buiimgui, behind blenderui.imgui): both are
+# installed by bindings/python/CMakeLists.txt, so both must be built
+build.targets = ["buipy", "_buiimgui"]
 wheel.packages = []          # CMake installs bui/, blenderui/ and buipy
 wheel.exclude = ["**/__pycache__/**"]
 sdist.exclude = ["reference/", "build*/", ".github/", "**/__pycache__/", "*.pyd", "*.so"]
@@ -62,6 +65,7 @@ BUI_BUILD_EXAMPLES = "OFF"
 BUI_BUILD_UI = "OFF"
 BUI_BUILD_QT_BACKEND = "OFF"
 BUI_BUILD_PYTHON_BINDINGS = "ON"
+BUI_BUILD_IMGUI = "ON"
 
 [tool.scikit-build.metadata.version]
 provider = "scikit_build_core.metadata.regex"
@@ -70,7 +74,13 @@ input = "bindings/python/bui/_version.py"
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
 skip = "*-musllinux_* *-win32 *_i686"
-test-command = "python -c \"import blenderui, buipy, blenderui.tksyntax, blenderui.components; print(blenderui.__version__)\""
+test-command = "python -c \"import blenderui, buipy, blenderui.tksyntax, blenderui.components, blenderui.imgui; print(blenderui.__version__)\""
+
+[tool.cibuildwheel.macos]
+# macOS 11+ on Intel too (Apple Silicon's minimum; cibuildwheel's Intel default is
+# 10.13): newer libc++ C++20 than 10.13 has stays usable, and the Cocoa host
+# (kit_window_cocoa.m) needs 10.12+.
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.cibuildwheel.linux]
 # The X11 headers, so Linux wheels get the native window host. libX11 itself

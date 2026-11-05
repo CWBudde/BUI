@@ -65,12 +65,14 @@ impl From<view::Event> for BuiEvent {
 
 #[napi(object)]
 pub struct AppOptions {
-    /// Draw on the GPU (Direct3D 11).
+    /// Draw on the GPU (Direct3D 11 on Windows, OpenGL 3.3 on Linux).
     pub gpu: Option<bool>,
     /// GPU text from glyph outlines (Slug) or a glyph atlas.
     pub slug: Option<bool>,
     /// No native windows (tests, screenshots, CI).
     pub headless: Option<bool>,
+    /// Blender's "dark" (default) or "light" theme.
+    pub theme: Option<String>,
 }
 
 #[napi(object)]
@@ -154,6 +156,7 @@ impl NativeApp {
             Some(o) => (o.gpu, o.slug, o.headless.unwrap_or(false)),
             None => (None, None, false),
         };
+        let theme = options.as_ref().and_then(|o| o.theme.clone());
         // macOS: AppKit only runs on the main thread, which here is the
         // JavaScript thread (libuv's loop), while BUI runs on its own
         // "bui-ui" thread; the Cocoa host refuses windows there, so stay
@@ -167,6 +170,9 @@ impl NativeApp {
             }
             if let Some(s) = slug {
                 a = a.slug(s);
+            }
+            if let Some(t) = &theme {
+                a = a.theme(t);
             }
             let events = tsfn.clone();
             a.run(move |cx| {
@@ -239,6 +245,19 @@ impl NativeApp {
             blenderui::set_slug(on);
             cx.notify_all();
         });
+    }
+
+    /// Blender's "dark" or "light" theme for every window (they redraw).
+    #[napi]
+    pub fn set_theme(&self, name: String) -> bool {
+        let ok = matches!(name.to_ascii_lowercase().as_str(), "dark" | "light" | "blender dark" | "blender light");
+        if ok {
+            self.link.send(move |cx| {
+                blenderui::set_theme(&name);
+                cx.notify_all();
+            });
+        }
+        ok
     }
 
     /// End the UI thread (closes every window).

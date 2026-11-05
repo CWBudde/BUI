@@ -1,0 +1,169 @@
+---
+title: Events
+description: Respond to clicks, keys, the wheel and form changes, update your view with cx.listener, and paint your own content on a canvas.
+section: Rust
+order: 70
+languages: ["rust"]
+sources: ["docs/rust.md", "bindings/rust/blenderui/src/events.rs", "bindings/rust/blenderui/src/element.rs", "bindings/rust/blenderui/src/window.rs", "bindings/rust/blenderui/src/paint.rs", "bindings/rust/blenderui-macros/src/rsx.rs", "bindings/rust/blenderui/tests/headless.rs", "bindings/rust/blenderui/examples/showcase.rs"]
+---
+
+A UI that doesn't answer back is just a picture. **Events are how your code hears the user**: a click, a key, a dragged slider. Attach a listener to any element, change your state, and BUI redraws what changed.
+
+## Your first listener
+
+```rust title="src/main.rs"
+use blenderui::prelude::*;
+
+struct Counter { count: i32 }
+
+impl Render for Counter {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().styled().p_4().flex().gap_2()
+            .child(p().child(format!("Count: {}", self.count)))
+            .child(button().child("Add one").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.count += 1;
+                cx.notify();
+            })))
+    }
+}
+
+fn main() {
+    Application::new().run(|cx| {
+        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Counter { count: 0 })).unwrap();
+    });
+}
+```
+
+- **`cx.listener(...)`** turns a method-like closure into a listener. You get `this` (your view, mutable), the event, the `Window` and the `Context`.
+- **`cx.notify()`** asks for a re-render. Without it, your state changes but the window doesn't know.
+
+If you use [hooks](../hooks/) instead, you don't need either: writing a signal re-renders for you.
+
+## Every listener
+
+| Listener | Event | Bubbles |
+| --- | --- | --- |
+| `on_click` | `ClickEvent { down, up }`: a press and release on the element | Yes |
+| `on_mouse_down(button, f)`, `on_any_mouse_down(f)` | `MouseDownEvent { button, position, modifiers, click_count }` | Yes |
+| `on_mouse_up(button, f)` | `MouseUpEvent { button, position, modifiers }` | Yes |
+| `on_mouse_move` | `MouseMoveEvent { position, pressed_button, modifiers }` | Yes |
+| `on_hover` | `bool`: `true` when the pointer enters, `false` when it leaves | No |
+| `on_scroll_wheel` | `ScrollWheelEvent { position, delta, modifiers }` | Yes |
+| `on_key_down`, `on_key_up` | `KeyDownEvent` / `KeyUpEvent { keystroke }` | Yes, from the focused element |
+| `on_change`, `on_input` | `ChangeEvent { value, checked, number }` | Yes |
+
+The details:
+
+- **Positions** are in logical pixels (they don't change with display scaling).
+- **`MouseButton`** is `Left`, `Right` or `Middle`.
+- **`Modifiers`** has `shift`, `control` and `alt`.
+- **`ClickEvent::click_count()`** tells a double-click from a single one.
+- **`ScrollWheelEvent::delta`** is in lines; positive scrolls the content up (the wheel turned away from you).
+- **`Keystroke`** has `key` (the key's name: `"a"`, `"Return"`, `"Left"` …), `key_char` (the typed text, if any) and `modifiers`.
+- **`ChangeEvent`** carries `value` (the text), `checked` (checkboxes and radios) and `number` (numbers, ranges, and a select's index). `on_input` and `on_change` both fire when the value changes. [The three looks](../styled-and-blender-components/#form-controls) lists what each control sends.
+
+## Listeners in rsx!
+
+In `rsx!`, `onClick={...}` becomes `.on_click(...)`, and the same for every `on*` name: `onMouseMove`, `onKeyDown`, `onChange` … You can leave out the parameters you don't use; the macro adds `_` for the rest.
+
+```rust
+rsx! {
+    <button onClick={|| println!("saved")}>"Save"</button>
+    <input onInput={|e: &ChangeEvent| println!("typing: {}", e.value)} />
+    <div onClick={cx.listener(|this, _: &ClickEvent, _, cx| { this.open = !this.open; cx.notify(); })} />
+}
+```
+
+## Focus and bubbling
+
+- **Clicking an element focuses it.** Key events go to the focused element, then bubble up through its ancestors.
+- **Most events bubble**: a click on a `<span>` inside a `<button>` reaches the button's `on_click` too. `on_hover` doesn't bubble.
+- **`cx.stop_propagation()`** stops an event from reaching ancestors.
+- **Focus from code:** `window.focus_id("name")` focuses the element with that `.id(...)`, and `window.focused_id()` tells you which one has focus.
+
+```rust
+div().id("canvas-area")
+    .on_key_down(|e: &KeyDownEvent, _, _| {
+        if e.keystroke.key == "Delete" { println!("delete selection"); }
+    })
+```
+
+## The Window API
+
+Every listener (and `render`) gets the `Window`. What it can do:
+
+| Method | What it does |
+| --- | --- |
+| `viewport_size()`, `bounds()` | The content size, in logical pixels |
+| `scale_factor()` | Device pixels per logical pixel |
+| `mouse_position()` | The pointer, in logical pixels |
+| `set_window_title(title)` | Change the title (a `<title>` element does it too) |
+| `focus_id(id)`, `focused_id()` | Move or read keyboard focus |
+| `is_hovered(id)` | Is the element with that `.id` under the pointer? |
+| `scroll_offset(id)`, `set_scroll_offset(id, x, y)` | Read or set a scroll container's position |
+| `refresh()` | Render again |
+| `request_animation_frame()` | Render again on the next display refresh |
+| `set_vsync(false)` | Let animation frames run as fast as the CPU allows (for benchmarks) |
+| `is_gpu()` | Whether this window is drawing on the GPU right now |
+| `is_animating()`, `needs_render()` | Whether CSS animations are running, or a render is pending |
+
+### Animating from code
+
+Call `window.request_animation_frame()` from `render` and the window renders again on the next display refresh. Frames are paced to the display; `set_vsync(false)` lifts the cap.
+
+```rust
+struct Spinner { angle: f32 }
+
+impl Render for Spinner {
+    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        self.angle = (self.angle + 3.0) % 360.0;
+        window.request_animation_frame();
+        div().size(px(40.0)).bg(rgb(0x4772b3)).style(format!("rotate: {}deg", self.angle))
+    }
+}
+```
+
+For most motion, a CSS animation or transition is simpler and stops costing CPU when it's done: see [Effects and animations](../effects-and-animations/).
+
+## Painting your own content
+
+`canvas(|bounds, painter| ...)` is an element that paints itself with a `Painter`, in logical pixels, clipped to its box.
+
+```rust
+canvas(|b, p| {
+    p.fill(b, rgb(0x232323));
+    p.quad(b, 6.0, rgba(0x4772b380), rgb(0x4772b3), 1.0);       // rounded rect + border
+    p.line(&[(b.origin.x, b.origin.y), (b.origin.x + 80.0, b.origin.y + 40.0)], white(), 2.0);
+    p.oval(Bounds { origin: point(10.0, 10.0), size: size(20.0, 20.0) }, red(), black(), 1.0);
+    p.text(b.origin.x + 4.0, b.origin.y + 4.0, "hello", 13.0, white());
+})
+.w(px(200.0)).h(px(100.0))
+```
+
+| `Painter` method | Draws |
+| --- | --- |
+| `fill(bounds, color)` | A filled rectangle |
+| `quad(bounds, radius, fill, outline, width)` | A rounded rectangle with a border |
+| `oval(bounds, fill, outline, width)` | An ellipse |
+| `line(points, color, width)` | A polyline |
+| `polygon(points, color)` | A filled polygon |
+| `arc(bounds, start, extent, color)` | A pie slice |
+| `text(x, y, text, size, color)` | A line of text |
+| `image(bounds, image)` | An `Arc<Image>`, scaled to fit |
+| `with_clip(bounds, f)` | Run `f` with drawing clipped to `bounds` |
+
+A canvas is a normal element: size it, style it, give it listeners. For pictures from files, `img().src("file.png")` is simpler; see [Images](../html-elements/#images).
+
+## Next steps
+
+<CardGrid>
+  <Card title="Headless testing" href="docs/rust/headless-testing/" icon="check" kicker="Rust">
+    Simulate clicks, keys and scrolling in a test.
+  </Card>
+  <Card title="Hooks and signals" href="docs/rust/hooks/" icon="zap" kicker="Rust">
+    State without cx.listener or cx.notify.
+  </Card>
+  <Card title="gpui syntax" href="docs/rust/gpui-syntax/" icon="layers" kicker="Rust">
+    Entities, contexts and the app model.
+  </Card>
+</CardGrid>

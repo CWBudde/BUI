@@ -1,0 +1,100 @@
+---
+const commands = [
+  { id: "pip", label: "pip", cmd: "pip install blenderui", note: "Python 3.11+: tkinter, Qt syntax, components, Dear ImGui" },
+  { id: "npm", label: "npm", cmd: "npm install @blender-ui/react react", note: "Node.js 18+ or Bun · prebuilt for Windows x64" },
+  { id: "bun", label: "bun", cmd: "bun add @blender-ui/react react", note: "Bun reads JSX directly: bun app.jsx" },
+  {
+    id: "cargo",
+    label: "cargo",
+    cmd: "cargo add blenderui",
+    note: "From crates.io · Rust 1.88+, CMake and a C compiler",
+  },
+  { id: "cmake", label: "cmake", cmd: "cmake -S . -B build && cmake --build build", note: "C, C++ and Dear ImGui, from a clone of the repo" },
+];
+---
+
+<div class="install overflow-hidden border border-border bg-code" data-install>
+  <div role="tablist" aria-label="Install with" class="flex overflow-x-auto border-b border-border px-2 [scrollbar-width:none]">
+    {
+      commands.map((c, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`install-tab-${c.id}`}
+          aria-controls="install-panel"
+          aria-selected={i === 0 ? "true" : "false"}
+          tabindex={i === 0 ? 0 : -1}
+          data-cmd={c.cmd}
+          data-note={c.note}
+          class="relative h-10 shrink-0 px-3 font-mono text-[13px] text-muted transition-colors duration-150 hover:text-foreground aria-selected:text-foreground aria-selected:after:absolute aria-selected:after:inset-x-2 aria-selected:after:bottom-0 aria-selected:after:h-0.5 aria-selected:after:bg-primary"
+        >
+          {c.label}
+        </button>
+      ))
+    }
+  </div>
+  <div id="install-panel" role="tabpanel" aria-labelledby="install-tab-pip" class="flex items-start gap-3 px-4 py-4">
+    <span class="select-none font-mono text-[13.5px] leading-6 text-accent" aria-hidden="true">$</span>
+    <code class="min-w-0 flex-1 break-all font-mono text-[13.5px] leading-6 text-foreground" data-cmd-text>{commands[0].cmd}</code>
+    <button
+      type="button"
+      data-copy
+      class="inline-flex size-8 shrink-0 items-center justify-center text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
+      aria-label="Copy command"
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" data-icon-copy
+        ><rect x="8" y="8" width="13" height="13"></rect><path d="M16 8V3H3v13h5"></path></svg
+      >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="hidden" data-icon-done
+        ><path d="m5 12 5 5L20 7"></path></svg
+      >
+    </button>
+  </div>
+  <p class="border-t border-border-soft px-4 py-2 text-xs text-muted" data-note-text aria-live="polite">{commands[0].note}</p>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-install]").forEach((root) => {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+    const text = root.querySelector<HTMLElement>("[data-cmd-text]")!;
+    const note = root.querySelector<HTMLElement>("[data-note-text]")!;
+    const panel = root.querySelector<HTMLElement>("[role=tabpanel]")!;
+    const pick = (tab: HTMLButtonElement, focus = false) => {
+      tabs.forEach((t) => {
+        t.setAttribute("aria-selected", String(t === tab));
+        t.tabIndex = t === tab ? 0 : -1;
+      });
+      text.textContent = tab.dataset.cmd!;
+      note.textContent = tab.dataset.note!;
+      panel.setAttribute("aria-labelledby", tab.id);
+      if (focus) tab.focus();
+    };
+    tabs.forEach((t) => t.addEventListener("click", () => pick(t)));
+    root.querySelector("[role=tablist]")!.addEventListener("keydown", (e) => {
+      const ev = e as KeyboardEvent;
+      const i = tabs.indexOf(document.activeElement as HTMLButtonElement);
+      if (i < 0) return;
+      const n = ev.key === "ArrowRight" ? (i + 1) % tabs.length : ev.key === "ArrowLeft" ? (i - 1 + tabs.length) % tabs.length : -1;
+      if (n >= 0) {
+        ev.preventDefault();
+        pick(tabs[n], true);
+      }
+    });
+    const copy = root.querySelector<HTMLButtonElement>("[data-copy]")!;
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(text.textContent ?? "");
+        copy.querySelector("[data-icon-copy]")!.classList.add("hidden");
+        copy.querySelector("[data-icon-done]")!.classList.remove("hidden");
+        copy.setAttribute("aria-label", "Copied");
+        setTimeout(() => {
+          copy.querySelector("[data-icon-copy]")!.classList.remove("hidden");
+          copy.querySelector("[data-icon-done]")!.classList.add("hidden");
+          copy.setAttribute("aria-label", "Copy command");
+        }, 1600);
+      } catch {
+        /* clipboard blocked: the command is still selectable */
+      }
+    });
+  });
+</script>

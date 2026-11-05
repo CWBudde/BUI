@@ -1,0 +1,136 @@
+---
+title: Text and fonts
+description: How BUI draws text like Blender does, on every platform. Inter is built in, FreeType renders it with Blender's settings, and the GPU can draw glyphs from their outlines.
+section: Concepts
+order: 60
+languages: ["python", "rust", "c"]
+sources: ["CHANGELOG.md", "README.md", "ARCHITECTURE.md", "docs/getting-started.md", "docs/rust.md", "docs/tkinter.md", "gpu/CMakeLists.txt", "gpu/include/GPU_raster.h", "gpu/intern/gpu_raster.c", "gpu/extern/gen_font_header.py", "gpu/extern/Inter-LICENSE.txt", "kit/intern/kit_draw.c", "bindings/rust/blenderui/Cargo.toml"]
+---
+
+Text is most of what people read in a UI, so BUI takes it seriously. Your app's text looks the same on Windows, Linux and macOS, and it looks like Blender's: the same font, rendered with the same settings.
+
+You don't have to do anything for this. This page explains how it works, how to use other fonts, and the limits worth knowing.
+
+## Inter, built in
+
+BUI embeds **Inter**, the font Blender uses for its interface, right in the library. There's nothing to install, and no system font can change how your UI looks.
+
+- It's the variable version of Inter, with an optical-size axis (14 to 32) and a weight axis (100 to 900).
+- It's the default face everywhere: for widgets, for `sans-serif` and `system-ui` in CSS, and for any family BUI can't find.
+- UI text is 11 pt at scale 1, Blender's default, and grows with the [UI scale](../window-hosts/#hidpi-and-scaling).
+
+Inter is © The Inter Project Authors, under the SIL Open Font License 1.1 (`gpu/extern/Inter-LICENSE.txt`).
+
+## Rendered like Blender's BLF
+
+Blender draws text with its font library, **BLF**, on top of FreeType. BUI vendors **FreeType 2.13.3** (the version Blender uses) and renders glyphs the way `blf_glyph.cc` does:
+
+- **Light hinting**, so stems stay crisp without distorting the shapes.
+- **Blender's gamma-1.43 coverage table**, so strokes have Blender's weight.
+- **Optical size:** the variable Inter is set to the text's size, clamped to the axis as Blender does. UI text gets Inter's 14 pt design.
+- **Bold** is the font's weight-700 instance, not a smeared regular.
+- **No kerning**, matching Blender, whose FreeType is built without `GPOS` kerning.
+- **Shadows:** widget text gets Blender's 1 px drop shadow, and panel titles its soft 3×3 one.
+
+FreeType is on by default (CMake `BUI_TEXT_FREETYPE`). With it off, stb_truetype rasterizes glyphs instead; stb_truetype also reads character maps, metrics and kerning tables in both cases.
+
+Glyph bitmaps are cached per glyph, so text that changes every frame (a ticking number, say) stays cheap.
+
+## On the GPU: Slug
+
+With the [GPU renderer](../rendering/), text is drawn one quad per glyph. By default it uses **Slug**: glyph outlines are uploaded once as curves, and the pixel shader computes exact coverage. Text is sharp at any size, with no glyph bitmaps at all.
+
+The alternative is a per-glyph bitmap atlas, Blender's own approach: about half the GPU work, but bitmaps per size. Switch with `BUI_SLUG=0` (or the API calls on the [Rendering](../rendering/#text-on-the-gpu-slug-or-atlas) page).
+
+## Using other fonts
+
+Inter covers the UI. When you ask for another family (a monospace editor, a brand font), BUI finds it in this order:
+
+1. **Fonts you registered** from code, exact style first.
+2. **A file path**: a family name ending in `.ttf`, `.otf` or `.ttc` loads that file.
+3. **`BUI_FONT`**, if set, replaces the default face (Inter).
+4. **A known generic family** (`monospace`, `serif` …), then a file called `<family>.ttf`, in the font folders below. Anything else falls back to Inter.
+
+**Font folders** are searched in order: `BUI_FONT_DIR` first, if set, then the system's:
+
+| Platform | Folders |
+| --- | --- |
+| Windows | `%WINDIR%\Fonts`, then `%LOCALAPPDATA%\Microsoft\Windows\Fonts` |
+| macOS | `/System/Library/Fonts`, `/System/Library/Fonts/Supplemental`, `/Library/Fonts`, `~/Library/Fonts` |
+| Linux | The usual `/usr/share/fonts` folders (DejaVu, Liberation, Noto …), `/usr/local/share/fonts`, `~/.local/share/fonts`, `~/.fonts` |
+
+If a family has no bold or italic face, BUI synthesizes one.
+
+### Register a font from code
+
+<LangTabs>
+<Tab label="Rust">
+
+```rust
+blenderui::add_font("Brand", false, false, include_bytes!("Brand-Regular.ttf"));
+```
+
+In CSS, `@font-face` loads local font files, and `font-family` picks a face per element.
+
+</Tab>
+<Tab label="C">
+
+```c
+/* family, style flags (BUI_FONT_BOLD | BUI_FONT_ITALIC), data, length */
+BUI_text_add_font("Brand", 0, data, len);   /* returns 0 on bad data */
+```
+
+The data is copied, so you can free your buffer afterwards.
+
+</Tab>
+<Tab label="Python">
+
+Python has no font-registration call. Point BUI at a file or a folder instead:
+
+```sh
+BUI_FONT=/path/to/Brand.ttf python my_app.py     # replaces Inter as the UI font
+BUI_FONT_DIR=/path/to/fonts python my_app.py     # an extra folder to search first
+```
+
+In tkinter syntax, `font=("Arial", 18, "bold")` sets a widget's family, size and weight.
+
+</Tab>
+</LangTabs>
+
+## Windows' GDI text (optional)
+
+On Windows, you can build BUI with Windows' own GDI text engine and system fonts instead: CMake `-DBUI_TEXT_GDI=ON`, or the `gdi-text` feature in Rust. Text then uses ClearType-style hinting and Windows' fonts, and the GPU renderer can't use Slug. Most apps should keep the default, which looks like Blender everywhere.
+
+## Limits worth knowing
+
+- **No per-glyph font fallback.** Characters that Inter (or the chosen face) doesn't have show as boxes. A family list in CSS picks one face per element; it doesn't mix faces within a line.
+- **No IME.** Input methods for Chinese, Japanese and Korean aren't supported yet.
+- **Right-to-left text** is reordered (bidi) but not shaped, so Arabic letters don't join.
+- **No OpenType features** (`font-feature-settings` and friends): the text engine doesn't shape, and Blender's doesn't either.
+- **Rust only:** text doesn't wrap around floats, and `text-align: justify` aligns left.
+
+<ComingSoon feature="Per-glyph font fallback and IME">
+Both are next on the list of things to port from Blender's source: BLF's fallback fonts, so missing characters find a face that has them, and input-method support.
+</ComingSoon>
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Monospace or serif text uses the UI font | Install a TrueType family such as DejaVu, Liberation or Noto, or set `BUI_FONT_DIR` to a folder that has one. Inter itself is always there. |
+| Boxes instead of characters | The face has no glyph for them, and there's no fallback yet. Use a face that covers your script with `BUI_FONT`, or register one. |
+| GPU text looks different from CPU text | Try `BUI_SLUG=0` to draw GPU text from the same glyph bitmaps the CPU uses. |
+
+## Next steps
+
+<CardGrid>
+  <Card title="Rendering" href="docs/concepts/rendering/" icon="cpu" kicker="Concepts">
+    The CPU raster, the GPU renderer and Slug.
+  </Card>
+  <Card title="Theming" href="docs/concepts/theming/" icon="bulb" kicker="Concepts">
+    Blender's colors, icons and metrics.
+  </Card>
+  <Card title="Environment variables" href="docs/reference/environment-variables/" icon="terminal" kicker="Reference">
+    <code>BUI_FONT</code>, <code>BUI_FONT_DIR</code>, <code>BUI_SLUG</code> and more.
+  </Card>
+</CardGrid>

@@ -1,0 +1,157 @@
+---
+title: Your first app, with Dear ImGui
+sidebarLabel: First app (Dear ImGui)
+description: Run the real Dear ImGui on BUI from Python and C++, in Blender's theme, then switch on Blender's widgets with one build flag.
+section: Tutorials
+order: 60
+languages: ["imgui", "python", "cpp"]
+badges: ["10 minutes"]
+sources: ["docs/imgui.md", "examples/imgui_demo.cpp", "bindings/python/bui/imgui.py", "bindings/imgui/CMakeLists.txt", "bindings/imgui/blender/README.md", "CMakeLists.txt", "pyproject.toml"]
+---
+
+Dear ImGui is a popular immediate-mode UI library for tools, editors and debug panels. BUI runs **the real Dear ImGui**, not a look-alike, so your existing ImGui code works unchanged. What changes is everything around it: BUI gives it a native window, draws it with its own renderers, and dresses it in Blender's theme and font.
+
+In this tutorial you'll write a small ImGui window in Python, run ImGui's famous demo from C++, and then see the build where ImGui's widgets **become** Blender's widgets.
+
+<Callout type="note" title="Immediate mode in one paragraph">
+In an **immediate-mode** UI you don't build a tree of widget objects. Instead, a function runs every frame and *calls* the widgets: `if imgui.button("Save"): save()`. The call draws the button and tells you, right there, whether it was clicked. Your own variables are the state.
+</Callout>
+
+## Python: a window in 20 lines
+
+You need `pip install blenderui` ([installation](../../start/installation/)); Dear ImGui comes with it.
+
+<Steps>
+
+1. **Write a frame function.**
+
+   ```py title="imgui_hello.py"
+   import blenderui.imgui as imgui
+
+   state = {"value": 0.5, "name": "Suzanne", "color": (0.28, 0.45, 0.70),
+            "clicks": 0, "demo": False}
+
+   def frame():
+       if state["demo"]:
+           imgui.show_demo_window()
+       imgui.begin("Hello")
+       _, state["value"] = imgui.slider_float("Value", state["value"], 0.0, 1.0)
+       _, state["name"] = imgui.input_text("Name", state["name"])
+       _, state["color"] = imgui.color_edit3("Color", state["color"])
+       if imgui.button("Click me"):
+           state["clicks"] += 1
+       imgui.same_line()
+       imgui.text("clicked %d times" % state["clicks"])
+       _, state["demo"] = imgui.checkbox("Show the demo window", state["demo"])
+       imgui.end()
+
+   if __name__ == "__main__":
+       imgui.run(frame, title="Hello, ImGui", size=(800, 600))
+   ```
+
+2. **Run it.**
+
+   ```sh
+   python imgui_hello.py
+   ```
+
+   Drag the slider, type a name, click the color to open ImGui's picker, and tick the checkbox to open ImGui's whole demo window.
+
+</Steps>
+
+<Figure
+  src="images/imgui-python-hello.png"
+  alt="An ImGui window titled Hello in Blender's dark theme: a Value slider at 0.500, a Name field with Suzanne, a Color row with red, green and blue fields and a swatch, a Click me button, and a Show the demo window checkbox"
+  caption="<code>imgui_hello.py</code>, rendered headless: Dear ImGui's own widgets in Blender's theme and font."
+  width={420}
+  height={210}
+/>
+
+How the Python API reads:
+
+- **Functions are snake_case**: `ImGui::SliderFloat` is `imgui.slider_float`.
+- **In/out values come back**: you pass the current value and get `(changed, new_value)`. That's the pyimgui convention, so pyimgui code ports easily.
+- **`imgui.run(frame, ...)`** opens a BUI window, creates the ImGui context, and calls `frame()` inside each ImGui frame until you close it. If `frame` raises, the window closes and the exception comes out of `run`.
+- **Printf-style functions take one string**: `imgui.text("%d items" % n)`.
+
+## C++: the classic demo
+
+ImGui users know `ShowDemoWindow()`. Here it is on BUI:
+
+```cpp title="main.cpp"
+#include "imgui.h"
+#include "imgui_impl_bui.h"
+
+static void frame(void*) { ImGui::ShowDemoWindow(); }
+
+int main() {
+  ImGui::CreateContext();
+  ImGui_ImplBUI_App* app = ImGui_ImplBUI_CreateApp("Dear ImGui on BUI", 1280, 800, frame, nullptr);
+  ImGui_ImplBUI_RunApp(app);       // BUI's message loop until the window closes
+  ImGui_ImplBUI_DestroyApp(app);
+  ImGui::DestroyContext();
+}
+```
+
+- `imgui.h` is Dear ImGui's own header. `imgui_impl_bui.h` is BUI's **backend**: the piece that connects ImGui to a window and a renderer.
+- `ImGui_ImplBUI_CreateApp` opens a window and calls your `frame` function for each ImGui frame. The last argument is a pointer that's handed back to `frame`, for your state.
+- In CMake, link `bui::imgui`.
+
+The repository's fuller version is `examples/imgui_demo.cpp`. Build it from a clone with CMake:
+
+```sh
+cmake -S . -B build
+cmake --build build --target bui_imgui_demo
+```
+
+Then run `bui_imgui_demo` from the build folder. With `--screenshot out.png` it renders a few frames headless and writes a PNG instead of opening a window, and `BUI_GPU=1` draws the window on the GPU.
+
+<Callout type="tip">
+An idle ImGui window on BUI runs no ImGui frames at all: when nothing changes, nothing is redrawn and your `frame` function isn't called.
+</Callout>
+
+## Blender's widgets, with one flag
+
+So far, the widgets are ImGui's, wearing Blender's colors. BUI can go further: build it with `BUI_IMGUI_BLENDER_WIDGETS=ON` and ImGui's widgets are **drawn by BUI's own Blender widget code**: buttons, checkboxes, sliders, number fields, text fields, combos and color edits. Number fields, sliders and checkboxes also follow Blender's interaction rules. Your ImGui code doesn't change.
+
+```sh
+cmake -S . -B build -DBUI_IMGUI_BLENDER_WIDGETS=ON
+cmake --build build --target bui_imgui_demo
+```
+
+In Rust, it's the `blender-widgets` feature of the `blenderui-imgui` crate.
+
+<Compare left="Default build" right="BUI_IMGUI_BLENDER_WIDGETS=ON">
+  <div slot="left">
+
+  <Figure src="images/imgui-python-hello.png" alt="The Hello window with ImGui's own widgets" width={420} height={210} />
+
+  </div>
+  <div slot="right">
+
+  <Figure src="images/imgui-python-hello-blender.png" alt="The same Hello window with Blender's widgets: the slider fills with blue, rounder fields and checkbox" width={420} height={210} />
+
+  </div>
+</Compare>
+
+What you'll notice when you use them:
+
+- **Sliders don't jump** to where you click. Dragging is relative to where you pressed, as in Blender, and <Kbd>Shift</Kbd> moves at a twentieth of the speed.
+- **Drag fields scrub** like Blender's number fields: <Kbd>Shift</Kbd> for precision, <Kbd>Ctrl</Kbd> to snap, and a click (or <Kbd>Ctrl</Kbd>+click) to type a value.
+- **Checkboxes toggle on press**, and you can drag across several to set them all.
+
+The switch also works at run time when the build includes the widgets: `imgui.set_blender_widgets(False)` in Python, `ImGui_ImplBUI_SetBlenderWidgets(false)` in C++. `imgui.has_blender_widgets()` tells you whether your build has them. The wheels on PyPI are built without this option, so in Python you get Blender's widgets from a source build with the flag on.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Dear ImGui in Python" href="docs/imgui/python/" icon="book" kicker="Dear ImGui">
+    The full pyimgui-style API, structs, enums and headless testing.
+  </Card>
+  <Card title="Dear ImGui in C++" href="docs/imgui/cpp/" icon="cpu" kicker="Dear ImGui">
+    The backend, CMake targets and running inside an existing BUI UI.
+  </Card>
+  <Card title="Blender widgets" href="docs/imgui/blender-widgets/" icon="layers" kicker="Dear ImGui">
+    The full mapping table, behaviour differences and the gaps.
+  </Card>
+</CardGrid>

@@ -83,16 +83,71 @@ pub(crate) fn family(flags: i32) -> (*const std::os::raw::c_char, i32) {
     (f.get(id).map_or(c"".as_ptr(), |c| c.as_ptr()), low)
 }
 
+// Vertical font metrics, in em, of the UI font (the embedded Inter,
+// gpu/extern/font_inter.h: 2048 units per em). Browsers lay lines out with
+// the OS/2 typo metrics (USE_TYPO_METRICS is set): ascender 1984,
+// descender -494, line gap 0. Decorations: `post` underlinePosition -348
+// (the line's top), OS/2 yStrikeoutPosition 671 / yStrikeoutSize 140.
+
+/// Ascent of the font's content area above the baseline.
+const ASCENT: f32 = 1984.0 / 2048.0;
+/// Descent of the font's content area below the baseline.
+const DESCENT: f32 = 494.0 / 2048.0;
+/// Top of the underline below the baseline.
+pub(crate) const UNDERLINE: f32 = 348.0 / 2048.0;
+/// Middle of the strikeout stroke above the baseline.
+pub(crate) const STRIKEOUT: f32 = (671.0 - 140.0 / 2.0) / 2048.0;
+/// Where the kit puts the baseline below the top of a north-anchored text
+/// item (kit_frame.c, BK_ITEM_TEXT: the cap height, 0.72 em).
+const KIT_ITEM_BASELINE: f32 = 0.72;
+
+/// The baseline of `size` px text in a line box of height `lh` at `y`: like
+/// a browser, the font's content area (ascent + descent) is centred in the
+/// line box (CSS 2 §10.8.1, half-leading; negative when `lh` is smaller).
+pub(crate) const fn baseline(y: f32, lh: f32, size: f32) -> f32 {
+    y + (lh - (ASCENT + DESCENT) * size) / 2.0 + ASCENT * size
+}
+
+/// The top of the content area of `size` px text on `baseline` (`overline`).
+pub(crate) const fn ascent_top(baseline: f32, size: f32) -> f32 {
+    baseline - ASCENT * size
+}
+
+/// The y of a north-anchored kit text item of `size` px whose baseline is
+/// `baseline` (what [`crate::paint::Painter`] text items take).
+pub(crate) const fn item_top(baseline: f32, size: f32) -> f32 {
+    baseline - KIT_ITEM_BASELINE * size
+}
+
 type Widths = crate::style::FnvMap<Box<str>, f32>;
 
 /// Text widths by (size, flags) then text: looked up by `&str`, no
 /// allocation on a hit. Owned by the window, kept across frames.
-#[derive(Default)]
+///
+/// Text is measured at the size it is drawn at, `size * scale` device
+/// pixels (as Blender measures with BLF at the UI-scaled size), and returned
+/// in logical pixels: the variable UI font's optical size and the engine's
+/// whole-pixel sizes follow the device size, so a width measured at the
+/// logical size would not match the drawn text.
 pub(crate) struct TextCache {
     fonts: crate::style::FnvMap<(u32, i32), Widths>,
+    /// Device pixels per logical pixel (the window's resolution scale).
+    scale: f32,
+}
+
+impl Default for TextCache {
+    fn default() -> Self {
+        TextCache { fonts: crate::style::FnvMap::default(), scale: 1.0 }
+    }
 }
 
 impl TextCache {
+    /// Measure for a window drawn at `scale` device pixels per logical pixel.
+    pub(crate) fn set_scale(&mut self, scale: f32) {
+        self.fonts.clear();
+        self.scale = scale;
+    }
+
     /// Advance width of `s` at `size` px.
     pub(crate) fn width(&mut self, s: &str, size: f32, flags: i32) -> f32 {
         if s.is_empty() {
@@ -106,10 +161,12 @@ impl TextCache {
         let (fam, low) = family(flags);
         // SAFETY: pointers are valid for the call (families are 'static).
         let ok = unsafe {
-            sys::BUI_text_measure(fam, low, size, s.as_ptr().cast(), s.len() as i32, &mut w)
+            sys::BUI_text_measure(fam, low, size * self.scale, s.as_ptr().cast(), s.len() as i32, &mut w)
         };
         if ok == 0 {
             w = s.chars().count() as f32 * size * 0.55; // no native text engine
+        } else {
+            w /= self.scale;
         }
         if m.len() > 20_000 {
             m.clear();

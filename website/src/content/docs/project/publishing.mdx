@@ -1,0 +1,167 @@
+---
+title: Publishing releases
+sidebarLabel: Publishing
+description: For maintainers. How BUI is packaged and released to PyPI, npm and crates.io, with the one-time setup and a checklist for each.
+section: Project
+order: 40
+badges: ["Maintainers"]
+sources: ["docs/publishing.md", "docs/javascript.md", "pyproject.toml", ".github/workflows/wheels.yml", "bindings/python/bui/_version.py", "bindings/rust/Cargo.toml", "bindings/rust/blenderui-sys/build.rs", "bindings/node/package.json", "bindings/react/package.json", "CHANGELOG.md"]
+---
+
+This page is for maintainers cutting a release. If you just want to use BUI, [Install BUI](../../start/installation/) is what you're after.
+
+BUI ships to three registries: **PyPI** (`blenderui`), **npm** (`@blender-ui/native` and `@blender-ui/react`) and **crates.io** (the `blenderui` crates). Each has its own version and its own steps.
+
+## At a glance
+
+| Registry | Package | Version lives in | How it's released |
+| --- | --- | --- | --- |
+| PyPI | `blenderui` | `bindings/python/bui/_version.py` | Push a `v*` tag; CI builds, tests and publishes |
+| npm | `@blender-ui/native`, `@blender-ui/react` | Each package's `package.json` | `npm publish`, by hand, native first |
+| crates.io | `blenderui-tailwind`, `blenderui-macros`, `blenderui-sys`, `blenderui` | `bindings/rust/Cargo.toml` (`[workspace.package]`) | `cargo publish`, by hand, after vendoring the C sources |
+
+## PyPI
+
+### What a wheel contains
+
+```text
+site-packages/
+  buipy.<abi>.pyd|.so     the C kit + raster engine (one extension module)
+  _buiimgui.<abi>.pyd|.so  Dear ImGui for blenderui.imgui (when CMake builds bui_cimgui)
+  bui/                     tksyntax/, qtsyntax.py, components/, host.py ...
+  blenderui/               alias package: blenderui.X is bui.X
+  blenderui-<v>.dist-info/
+```
+
+Wheels are built with [scikit-build-core](https://scikit-build-core.readthedocs.io), which drives the project's CMake. The version comes from `bindings/python/bui/_version.py`, the single source that CMake reads too. The console script `blenderui-tk app.py` is the same as `python -m bui.tksyntax app.py`.
+
+On Windows, the extension is built with MinGW-w64 GCC (UCRT) and statically linked against the GCC runtime, so it depends only on system DLLs and Python's own. A wheel is about 0.4 MB compressed; the sdist is about 1.7 MB.
+
+### CI
+
+The `.github/workflows/wheels.yml` workflow has four jobs:
+
+| Job | Does |
+| --- | --- |
+| `wheels` | `cibuildwheel` for Linux (manylinux x86_64, with the X11 headers installed so wheels get the native host), Windows (MinGW, x86_64) and macOS (arm64 and x86_64), for CPython 3.11 to 3.14. Each wheel is imported as a smoke test. |
+| `sdist` | `python -m build --sdist` |
+| `tests` | A CMake build and `ctest` (all C and Python suites) on Windows |
+| `publish` | On a `v*` tag, uploads everything to PyPI with trusted publishing. A manual run with `testpypi` uploads to TestPyPI. |
+
+### One-time setup
+
+1. Create the `blenderui` project on PyPI and register it as a [pending trusted publisher](https://docs.pypi.org/trusted-publishers/) for this repository: workflow `wheels.yml`, environment `pypi`.
+2. Do the same on TestPyPI with the environment `testpypi`.
+3. In the GitHub repository settings, create the environments `pypi` and `testpypi` (optionally with required reviewers).
+
+No API tokens are stored anywhere.
+
+### Release checklist
+
+<Steps>
+
+1. **Bump the version** in `bindings/python/bui/_version.py`, following semantic versioning.
+
+2. **Add the release to `CHANGELOG.md`.**
+
+3. **Test locally.** `ctest --test-dir build` must pass. Optionally run the workflow by hand with `testpypi`, then:
+
+   ```sh
+   pip install -i https://test.pypi.org/simple blenderui
+   ```
+
+4. **Tag and push.** CI builds, tests and publishes.
+
+   ```sh
+   git tag v0.1.0 && git push --tags
+   ```
+
+</Steps>
+
+### Build a wheel locally
+
+```sh
+python -m pip install build
+python -m build                    # sdist + wheel in dist/
+```
+
+On Windows with MSYS2 MinGW (the tested toolchain), set `CMAKE_GENERATOR=MinGW Makefiles`, `CC=gcc` and `CXX=g++` first. Test the wheel in a clean virtual environment:
+
+```sh
+python -m venv /tmp/bui-venv
+/tmp/bui-venv/bin/pip install dist/blenderui-*.whl
+/tmp/bui-venv/bin/python -c "import blenderui, blenderui.tksyntax, blenderui.components; print(blenderui.__version__)"
+```
+
+## npm
+
+The packages are published under the [`@blender-ui`](https://www.npmjs.com/org/blender-ui) organization. `@blender-ui/react` depends on `@blender-ui/native` (`^0.2.0`), so **publish the native package first** whenever it has changed.
+
+```sh
+npm login                                  # an account in the blender-ui org
+cd bindings
+npm install                                # link the workspace
+cd node  && npm publish --access public    # @blender-ui/native (builds the addon and runtime, runs the tests)
+cd ../react && npm publish --access public # @blender-ui/react (runs the tests)
+```
+
+- **`prepublishOnly`** runs the tests before uploading. For the native package it first builds the addon and `bui-runtime`, which needs Rust, CMake and a C compiler (with MinGW, put its `bin` folder on `PATH`).
+- **`prepack`** copies the repository's `LICENSE` into the package.
+- **Preview** with `npm pack --dry-run`, which lists what a package will contain.
+- **Releasing again:** bump `version` in the package's `package.json` first; npm refuses to publish the same version twice. When the native package changes in a way React needs, raise React's `@blender-ui/native` range to match.
+
+The native package ships `blenderui.win32-x64.node` and `bui-runtime.win32-x64.exe`, and its `os` and `cpu` fields limit it to Windows x64. More platforms would mean building both on each platform, typically in CI, and publishing optional per-platform packages, the napi-rs convention.
+
+## crates.io
+
+The four crates below are on crates.io (version 0.1.0 at the time of writing), and users add them with `cargo add blenderui`. They're published in dependency order:
+
+| Crate | What it is | Depends on |
+| --- | --- | --- |
+| `blenderui-tailwind` | Tailwind v4 class compiler (std only) | Nothing |
+| `blenderui-macros` | `rsx!` / `view!`, `#[component]`, `css!`, `tw!` | `blenderui-tailwind` |
+| `blenderui-sys` | FFI over the C kit; builds it with CMake | Nothing (CMake at build time) |
+| `blenderui` | The framework | All three |
+
+<Callout type="note" title="blenderui-imgui">
+The Dear ImGui crate, `blenderui-imgui`, isn't on crates.io yet; its users take it as a git dependency. It isn't marked `publish = false`, so `cargo publish --workspace` would include it: publish the four crates one by one (`cargo publish -p ...`) until it's meant to go out.
+</Callout>
+
+A published crate can't reach files outside itself, so `blenderui-sys` must carry the C sources. Its build script looks for them in three places, in order: `BUI_SOURCE_DIR` if set, the surrounding repository, then `csrc/`, the vendored copy a downloaded crate has.
+
+<Steps>
+
+1. **Bump the version** in `bindings/rust/Cargo.toml` (`[workspace.package]`); the crates share one version. Then update the `version = "..."` of the path dependencies in `blenderui/Cargo.toml` and `blenderui-macros/Cargo.toml`.
+
+2. **Log in once** with `cargo login` and a crates.io API token.
+
+3. **Vendor the C sources, then publish.** `cargo publish --workspace` orders the crates itself on Cargo 1.90 and newer:
+
+   ```sh
+   python bindings/rust/scripts/vendor_c.py          # copies ~7 MB into blenderui-sys/csrc/
+   cd bindings/rust
+   cargo package --workspace --allow-dirty           # optional: builds each packaged crate in isolation
+   cargo publish --workspace --allow-dirty
+   ```
+
+   `--allow-dirty` is needed because `csrc/` is untracked. Users need CMake and a C compiler to build `blenderui-sys`. The benchmark in `bench/` is excluded from the workspace and never published.
+
+</Steps>
+
+## Known gaps before 1.0
+
+- **macOS:** the native Cocoa host hasn't been run on a Mac yet. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
+- **Windows wheels** are built with MinGW. MSVC builds work (the Rust crate and the CMake build use it), but aren't what's published.
+- **No musllinux or 32-bit wheels** yet.
+- **npm:** prebuilt for Windows x64 only.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Changelog" href="docs/project/changelog/" icon="book" kicker="Project">
+    What's in the next release.
+  </Card>
+  <Card title="Contributing" href="docs/project/contributing/" icon="github" kicker="Project">
+    How changes get into a release.
+  </Card>
+</CardGrid>

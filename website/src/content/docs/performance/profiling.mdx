@@ -1,0 +1,133 @@
+---
+title: Profiling your app
+sidebarLabel: Profiling
+description: Find out where your frames go with BUI_PROFILE, choose a renderer with numbers, and avoid the few slow paths that matter.
+section: Performance
+order: 30
+languages: ["python", "rust", "javascript"]
+sources: ["README.md", "docs/javascript.md", "bindings/rust/blenderui/src/prof.rs", "bindings/rust/blenderui/src/window.rs", "bindings/rust/blenderui/src/layout.rs", "kit/intern/kit_window_win32.c", "kit/intern/kit_frame.c", "bindings/rust/bench/README.md", "CHANGELOG.md", "bindings/python/tests/test_components.py"]
+---
+
+Most BUI apps never need tuning: an idle window costs nothing, and a typical frame takes well under a millisecond. When an app does feel slow, it's usually one of a handful of causes, and BUI can tell you which.
+
+This page shows how to measure, how to read the numbers, and what to change.
+
+## Measure with BUI_PROFILE
+
+Run your app with `BUI_PROFILE` set, and BUI prints frame times to stderr, averaged over every 60 frames:
+
+```sh
+BUI_PROFILE=1 python my_app.py         # PowerShell: $env:BUI_PROFILE="1"; python my_app.py
+BUI_PROFILE=1 cargo run --release
+BUI_PROFILE=1 node app.js
+```
+
+Any value turns it on, even `0`; unset it to turn it off. When it's off, it costs one check per phase.
+
+There are two kinds of output, depending on your app.
+
+### Rust and JavaScript: per-phase times
+
+Rust apps, and JavaScript apps (which run on the Rust crate), print a line like this every 60 frames:
+
+```text
+frame ms: frame interval …  render …  cascade …  build …  boxes …  taffy …  place …  paint …  flush …  widgets+hover …
+```
+
+Each … is an average in milliseconds. Phases that took no time are left out. In frame order:
+
+| Phase | What it times |
+| --- | --- |
+| `frame interval` | Wall time between frames: rebuild, kit render and present together. While animating on a 60 Hz display, expect about 16.7 ms (one refresh). |
+| `render` | Your `render()` code building the element tree |
+| `cascade` | Matching CSS selectors and computing styles |
+| `build` | Turning elements into layout nodes |
+| `boxes` | Building the box tree (blocks, line boxes, flex and grid items) |
+| `taffy` | Layout, in [taffy](https://github.com/DioxusLabs/taffy) |
+| `place` | Placing laid-out boxes on the page |
+| `paint` | Building the display list |
+| `flush` | Handing the display list to the kit's canvas |
+| `widgets+hover` | Updating Blender widget nodes, and the rest of the frame |
+
+### Windows native window: raster and present
+
+Apps on the native Windows host print the kit's own times too (Python, C and Dear ImGui print only these):
+
+```text
+kit ms: raster …  present …  (width x height)
+```
+
+- **raster** is the time the kit spent rendering: any layout, then drawing the dirty regions.
+- **present** is the time to put the changed tiles on screen.
+
+On Linux and macOS, only Rust and JavaScript apps print profile lines.
+
+## Choose a renderer with numbers
+
+Run the same interaction twice, once per renderer, and compare:
+
+```sh
+BUI_PROFILE=1 BUI_GPU=0 python my_app.py
+BUI_PROFILE=1 BUI_GPU=1 python my_app.py
+```
+
+Rules of thumb, from the benchmarks:
+
+- **Small tool windows:** stay on the CPU. It's lighter on memory, and frames are already tiny.
+- **Large or HiDPI windows, or lots of animation:** try the GPU. The software raster's cost grows with the number of pixels; the GPU's barely does. At 3,000 animated cells, the GPU cut blenderui's CPU per frame from 22.0 to 11.6 ms.
+- **Memory-tight machines:** the GPU renderer needs about 10 MB more RAM, plus GPU memory.
+
+[Rendering](../../concepts/rendering/) explains the trade-offs in depth.
+
+## Common slow paths
+
+### Re-rendering big lists every frame (JavaScript)
+
+In React, a list held in `useState` re-renders every item when it changes. BUI's hooks hold **signals**: pass the signal itself into JSX (`{count}`), and a change updates that one node without re-rendering the component.
+
+At 3,000 cells with one changing per frame, React with signals costs about what the plain API does, while re-rendering costs more. On QuickJS, which has no JIT, re-rendering drops to 20 FPS (19.7 measured), against 58.7 with signals.
+
+- **Keep big lists on signals.**
+- **Or build with `--bun`** if you must re-render: Bun's JIT keeps it at 55.8 FPS.
+
+### Measuring React's development build
+
+React's development build is much heavier: re-rendering 3,000 cells took about 184 MB. Always measure with `NODE_ENV=production`, which is what your users run.
+
+### Layout changes instead of value changes
+
+Setting a widget's value redraws that widget. Adding, removing or resizing widgets runs a layout pass and redraws the whole window. Both are fast, but if something changes every frame, make it a value, not a structure.
+
+### Polling from your code
+
+A timer that sets the same value every few milliseconds keeps the event loop awake, even when nothing changes on screen. Prefer callbacks, `on_change`, and signals.
+
+### Big canvases on one thread
+
+On Windows, canvases with 64 or more items draw in parallel bands, using as few threads as meet the frame deadline (up to 8). If you suspect threading, compare with `BUI_RASTER_THREADS=1`: the pixels are identical either way, only the time changes. On Linux and macOS the canvas draws on one thread.
+
+### Debug builds
+
+C and Rust debug builds are far slower than release builds. Profile with `--release` (Rust) or a `Release` CMake build. The CMake build defaults to `Release` when you don't choose.
+
+## Headless checks in tests
+
+You can put a frame budget in your tests, so a slowdown fails the build. BUI's own Python suite does this: it renders the full components demo headlessly and requires full frames to fit a 120 Hz budget (under 8.3 ms). [Headless testing](../../python/headless-testing/) shows how.
+
+<Callout type="tip" title="Contributing a speed-up?">
+Run the benchmark in `bindings/rust/bench/` before and after, and include both numbers in your pull request. [Run the benchmarks](../run-benchmarks/) has the commands.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Benchmarks" href="docs/performance/benchmarks/" icon="zap" kicker="Performance">
+    What good numbers look like.
+  </Card>
+  <Card title="Damage rendering" href="docs/concepts/damage-rendering/" icon="layers" kicker="Concepts">
+    Why value changes are nearly free.
+  </Card>
+  <Card title="Environment variables" href="docs/reference/environment-variables/" icon="terminal" kicker="Reference">
+    <code>BUI_PROFILE</code>, <code>BUI_GPU</code>, <code>BUI_RASTER_THREADS</code> and more.
+  </Card>
+</CardGrid>

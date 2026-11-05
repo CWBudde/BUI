@@ -1,0 +1,30 @@
+---
+// From README.md "Partial or in progress" and "Planned". Nothing here works yet unless it says so.
+import Icon from "../site/Icon.astro";
+
+const items = [
+  { title: "macOS, tested", body: "The Cocoa host is written but untested. Next: running it on a real Mac (testers welcome), then the GPU renderer and JavaScript windows there.", tag: "In progress" },
+  { title: "WebAssembly", body: "The kit in the browser: the raster blits to a <canvas>, and React and the DOM-like API run on top, unchanged.", tag: "Planned" },
+  { title: "egui", body: "BUI panels inside egui apps, plus a Blender-styled egui theme.", tag: "Planned" },
+  { title: "More languages", body: "MyGo, C#, Go, Zig, Swift, Kotlin and Lua over the same C header; Godot, Unity, Bevy and Flutter.", tag: "Planned" },
+  { title: "Font fallback and IME", body: "Per-glyph fallback (Blender's BLF), input methods, units in number fields and widget drag and drop.", tag: "Planned" },
+  { title: "Vulkan and WebGPU", body: "More GPU backends drawing the same instance stream as Direct3D 11 and OpenGL.", tag: "Planned" },
+  { title: "blenderui-imgui on crates.io", body: "blenderui is on crates.io already. The Dear ImGui crate is next; until then it's a git dependency.", tag: "Soon" },
+  { title: "More Qt", body: "Model/view classes, docks, toolbars, splitters and Qt stylesheets, on top of today's everyday subset.", tag: "In progress" },
+];
+---
+
+<ul class="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-4">
+  {
+    items.map((it) => (
+      <li class="flex flex-col gap-2 bg-background p-5 sm:p-7">
+        <span class="kicker inline-flex items-center gap-1.5 text-link">
+          <Icon name={it.tag === "In progress" ? "circle-half" : "hourglass-medium"} weight="duotone" size={13} />
+          {it.tag}
+        </span>
+        <h3 class="text-[17px] font-semibold leading-6">{it.title}</h3>
+        <p class="text-[14.5px] leading-6 text-muted">{it.body}</p>
+      </li>
+    ))
+  }
+</ul>

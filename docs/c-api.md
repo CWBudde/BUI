@@ -53,7 +53,7 @@ int main(void)
   host.emit = on_event;                     /* the window fills in the rest */
   BK_context_set_host(ctx, &host);
 
-  if (BK_window_supported()) {              /* Windows, Linux: native window */
+  if (BK_window_supported()) {              /* Win32, X11, Cocoa (experimental) */
     BKWindow *win = BK_window_new(ctx, "BUI from C", 320, 120);
     BK_window_show(win);
     BK_window_run();
@@ -82,6 +82,7 @@ int main(void)
 | **Events** | `emit(data, node, kind, ref, a, b)`. Kinds: `BK_EV_CHANGE`, `CLICK`, `CALL` (menu item or hotkey), `RENAME`, `ACTIVATE`, `TOGGLE`, `BROWSE`, `SUBMIT`. With the `"events"` property you also get raw `PRESS` / `RELEASE` / `DOUBLE` / `MOTION` / `ENTER` / `LEAVE` / `KEY` / `KEYRELEASE` / `WHEEL` / `CONFIGURE`, plus `VIEW` and `SCROLL` for scrolling. |
 | **Windows** | `BK_window_new`, `show`, `close`, `set_title`, `set_size`, `wm(key, a, b)` (position, topmost, alpha, resizable, minsize, state ...), `timer`, `run`, `pump`, `quit` |
 | **GPU rendering** | `BUI_gpu_set_default(1)` (all new windows), `BK_window_set_gpu(win, 1)` (one window), `BK_window_gpu(win)` (1 once frames draw on the GPU). `BUI_GPU=1/0` overrides. For your own rasters: `BUI_raster_gpu_attach(r, hwnd_or_NULL, wait)`, `BUI_raster_gpu_poll`, `BUI_raster_is_gpu`. |
+| **Theme** | `BK_set_theme("dark" / "light")` (Blender's Dark or Light preset; every context relayouts and redraws), `BK_theme_name()`, `BK_theme_color(key, rgba)` (`"region_bg"`, `"text"`, `"regular.inner"` ...). Without a call, `BUI_THEME=dark|light` picks the theme. `BK_set_scale` sets the UI scale. |
 | **Text** | `BUI_text_measure`, `BUI_raster_text`, `BUI_text_add_font(family, flags, data, len)` (register a font; needed on wasm) |
 | **Specialised** | Canvas display list (`BK_canvas_set_item`), text area (`BK_textarea_*`), trees (`BK_tree_item_*`), menus (`BK_open_menu`, `BK_open_pie`), color ramps and curves, `BK_undo` / `BK_redo` |
 | **Custom nodes** | A `custom` node draws and handles input itself: `BK_custom_set(node, &cls, data)` with `event` (pointer with all three buttons and a grab, precise wheel via `BK_scroll`, keys and text while focused, key releases, focus), `frame` (called by `BK_render` when requested with `BK_custom_request_frame(node, ms)`: immediate-mode UIs build their frame there) and `draw` (raster + rect). `BK_custom_set_cursor`, `BK_node_context`. Dear ImGui runs on it: [../bindings/imgui](../bindings/imgui/README.md). |
@@ -96,9 +97,20 @@ tree gridview canvas textarea image ramp curve normal histogram custom`.
 Read the header for the full list. It is the reference: every function
 has a one-line comment.
 
-## Lower level: render sinks
+## Showing the kit in your own window
 
-The kit draws through `gpu/` into a `BuiRaster`. If you have your own
-renderer (OpenGL, Vulkan, a game engine, Qt's `QPainter`), you can receive
-BUI's primitives instead through a render sink. See
-[../INTEGRATION.md](../INTEGRATION.md).
+The kit always draws into a `BuiRaster`: the software raster, or Direct3D 11
+/ OpenGL instances when the window is on the GPU. To put kit widgets inside
+your own renderer or framework, render the context into a raster with
+`BK_render(ctx, raster, w, h, full)`, upload or blit its pixels (32-bit
+`0x00RRGGBB`, rows top-down), and feed input back with `BK_press`,
+`BK_motion`, `BK_key` and friends. `bui.qt.BuiCanvas` does exactly this
+inside a Qt widget.
+
+## A different layer: render sinks
+
+Render sinks (`api/bui_c_api.h`, `bui_set_render_sink`) are **not** how the
+kit draws. They receive the triangles, lines, points and text runs of the
+immediate-mode GPU seam (`gpu/intern/gpu_null.c`), which the Qt/QPainter
+backend, the SVG recorder and `buipy.demo_scene` use. Kit widgets never pass
+through a sink. See [../INTEGRATION.md](../INTEGRATION.md).

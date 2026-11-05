@@ -1,0 +1,133 @@
+---
+import Base from "../layouts/Base.astro";
+import Header from "../components/site/Header.astro";
+import Footer from "../components/site/Footer.astro";
+import SearchPalette from "../components/site/SearchPalette.astro";
+import Icon from "../components/site/Icon.astro";
+import Hero from "../components/landing/Hero.astro";
+import Section from "../components/landing/Section.astro";
+import Ways from "../components/landing/Ways.astro";
+import Feel from "../components/landing/Feel.astro";
+import Performance from "../components/landing/Performance.astro";
+import Platforms from "../components/landing/Platforms.astro";
+import Coming from "../components/landing/Coming.astro";
+import Components from "../components/landing/Components.astro";
+import { href } from "../lib/docs";
+---
+
+<Base>
+  <Header />
+  <SearchPalette />
+
+  <div class="bg-surface pb-10 sm:px-[3%] sm:pt-6">
+    <main id="main" class="mx-auto max-w-[1400px] border-border bg-background sm:border">
+      <Hero />
+
+      <div class="hatch h-10 border-y border-border" aria-hidden="true"></div>
+
+
+      <Section
+        id="performance"
+        kicker="Fast by design"
+        title="Starts in milliseconds, then sleeps"
+        lede="Damage rendering redraws only the widget that changed. On the same gpui code, BUI shows its first frame about 5× sooner than gpui and uses a fraction of the CPU."
+        icon="lightning"
+      >
+        <Performance />
+      </Section>
+
+      <div class="hatch h-10 border-y border-border" aria-hidden="true"></div>
+
+      <Section
+        id="ways"
+        kicker="Pick your way in"
+        title="Write it the way you already write UI"
+        lede="Five languages, a dozen syntaxes, one C runtime. Every snippet comes from the repository's docs and examples."
+        icon="code"
+      >
+        <Ways />
+      </Section>
+
+      <div class="hatch h-10 border-y border-border" aria-hidden="true"></div>
+
+      <Section
+        id="components"
+        kicker="Blender components"
+        title="Blender's own widgets, as components"
+        lede="Not look-alikes: the number fields, sliders, color picker and node editor are ported from Blender's source, behaviour included."
+        icon="sliders-horizontal"
+      >
+        <Components />
+      </Section>
+
+      <div class="hatch h-10 border-y border-border" aria-hidden="true"></div>
+
+      <Section
+        id="feel"
+        kicker="How it feels"
+        title="Blender's interaction rules, in your app"
+        lede="The habits Blender users rely on all day come along for free, in every language BUI speaks."
+        icon="hand-pointing"
+      >
+        <Feel />
+      </Section>
+
+      <div class="hatch h-10 border-y border-border" aria-hidden="true"></div>
+
+      <Section id="platforms" kicker="Platforms" title="Native on Windows and Linux" lede="With macOS written and waiting for its first real Mac.">
+        <Platforms />
+      </Section>
+
+      <div class="hatch h-10 border-y border-border" aria-hidden="true"></div>
+
+      <Section
+        id="coming"
+        kicker="What's coming"
+        title="On the roadmap"
+        lede="Honest status: these aren't built yet. Follow along, or pick one up."
+      >
+        <Coming />
+        <p class="border-t border-border px-5 py-4 text-sm sm:px-8">
+          <a href={href("docs/project/roadmap/")} class="inline-flex items-center gap-1.5 font-medium text-link hover:underline hover:underline-offset-4">
+            The full roadmap <Icon name="arrow-right" size={14} />
+          </a>
+        </p>
+      </Section>
+
+      <section class="relative overflow-hidden border-t border-border bg-stage px-5 py-16 text-foreground sm:px-10 md:py-24" aria-labelledby="cta-title">
+        <div class="cta-hatch absolute inset-0" aria-hidden="true"></div>
+        <div class="relative flex flex-col items-start gap-6 md:flex-row md:items-end md:justify-between">
+          <div class="flex flex-col gap-4">
+            <p class="kicker text-link">Ready when you are</p>
+            <h2 id="cta-title" class="max-w-[18ch] text-balance text-4xl font-light leading-[1.05] tracking-[-0.03em] sm:text-6xl">
+              Blender's UI, minus the default cube.
+            </h2>
+          </div>
+          <div class="flex flex-wrap gap-3">
+            <a
+              href={href("docs/start/installation/")}
+              class="inline-flex h-11 items-center gap-2 bg-primary px-5 text-[15px] font-medium text-primary-ink transition-colors hover:bg-primary-hover"
+            >
+              Install BUI <Icon name="arrow-right" size={16} />
+            </a>
+            <a
+              href={href("docs/start/introduction/")}
+              class="inline-flex h-11 items-center border border-border-strong px-5 text-[15px] transition-colors hover:border-muted hover:bg-surface"
+            >
+              Read the docs
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <Footer />
+    </main>
+  </div>
+</Base>
+
+<style>
+  .cta-hatch {
+    background-image: repeating-linear-gradient(135deg, rgb(71 114 179 / 0.2) 0 1.5px, transparent 1.5px 7px);
+    mask-image: linear-gradient(90deg, transparent 20%, black 100%);
+  }
+</style>

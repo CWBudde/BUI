@@ -4,8 +4,10 @@ members = ["blenderui-sys", "blenderui-tailwind", "blenderui-macros", "blenderui
 exclude = ["bench"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "GPL-2.0-or-later"
 repository = "https://github.com/ppmpreetham/BUI"
+homepage = "https://bui.preetham.top"
+authors = ["BUI contributors"]
 rust-version = "1.88"

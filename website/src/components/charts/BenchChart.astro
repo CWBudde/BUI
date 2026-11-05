@@ -1,0 +1,44 @@
+---
+/**
+ * A published benchmark, as a chart with an "Open bench" table underneath.
+ * Numbers come from src/data/bench.ts (which follows README.md "Performance").
+ *
+ *   <BenchChart id="first-frame" />
+ *   <BenchChart id="cpu-per-frame" title="Override the title" />
+ *
+ *   <BenchChart id="js-first-frame" table="jsStartupJs" />   (a narrower table under "Open bench")
+ *
+ * Ids: first-frame, idle-all, start-time, start-cpu, idle-cpu, memory-start, start-all, fps,
+ * cpu-per-frame, ram, cpu-per-frame-cells, uncapped-fps, frame-times, js-first-frame, js-cpu-3000.
+ */
+import BarChart from "./BarChart.astro";
+import GroupedBarChart from "./GroupedBarChart.astro";
+import LineChart from "./LineChart.astro";
+import { charts, type ChartId, type ChartSpec, type TableId } from "../../data/bench";
+
+interface Props {
+  id: ChartId;
+  title?: string;
+  subtitle?: string;
+  /** Show a different table from src/data/bench.ts under "Open bench" (e.g. one language's rows). */
+  table?: TableId;
+  /** Hide the headline number. */
+  plain?: boolean;
+  bare?: boolean;
+  class?: string;
+}
+
+const { id, plain = false, ...rest } = Astro.props;
+const spec = charts[id] as ChartSpec | undefined;
+if (!spec) throw new Error(`<BenchChart>: unknown id "${id}". Ids: ${Object.keys(charts).join(", ")}`);
+const { kind, ...props } = spec;
+const merged = {
+  ...props,
+  ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)),
+  headline: plain ? undefined : props.headline,
+};
+---
+
+{kind === "bars" && <BarChart {...(merged as any)} />}
+{kind === "groups" && <GroupedBarChart {...(merged as any)} />}
+{kind === "line" && <LineChart {...(merged as any)} />}
