@@ -33,11 +33,11 @@ if(TARGET bui_cimgui)
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
   )
+  if(MINGW)  # Python 3.8+ does not look on PATH for a module's DLLs: carry the MinGW runtime inside
+    target_link_options(_buiimgui PRIVATE -static-libgcc -static)
+  endif()
   if(SKBUILD)
     install(TARGETS _buiimgui LIBRARY DESTINATION . RUNTIME DESTINATION .)
-    if(MINGW)
-      target_link_options(_buiimgui PRIVATE -static-libgcc -static)
-    endif()
   endif()
 endif()
 
@@ -47,9 +47,12 @@ if(SKBUILD)
   install(TARGETS buipy LIBRARY DESTINATION . RUNTIME DESTINATION .)
   install(DIRECTORY bui blenderui DESTINATION .
           PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
-  if(MINGW)  # no MinGW runtime DLLs next to the wheel's .pyd
-    target_link_options(buipy PRIVATE -static-libgcc -static)
-  endif()
+endif()
+
+# MinGW: no runtime DLLs (libstdc++, libgcc, winpthread) next to the .pyd, in a wheel or in a plain
+# CMake build (the tests): Python 3.8+ does not search PATH for a module's dependent DLLs.
+if(MINGW)
+  target_link_options(buipy PRIVATE -static-libgcc -static)
 endif()
 
 if(BUI_BUILD_TESTS)
