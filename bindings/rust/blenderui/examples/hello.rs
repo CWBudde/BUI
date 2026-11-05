@@ -26,7 +26,7 @@ impl Render for Hello {
             <body m-0 p-6 min-h-screen flex flex-col gap-4 bg-zinc-900 text-white>
                 <h1 text-2xl font-bold>"Hello, BUI"</h1>
                 <counter label="Clicks" />
-                <input type="range" min={0.0} max={10.0} />
+                <NumberSlider min={0.0} max={10.0} value="5" />   // a real Blender slider
             </body>
         }
     }
