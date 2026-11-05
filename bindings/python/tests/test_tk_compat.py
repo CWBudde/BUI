@@ -178,7 +178,7 @@ def prog_editor(tk, ttk):
     filemenu.add_command(label="Quit", command=lambda: log.append("quit"))
     menubar.add_cascade(label="File", menu=filemenu)
     wrap = tk.BooleanVar(value=False)
-    view = tk.Menu(menubar)  # with the default tearoff entry
+    view = tk.Menu(menubar)  # with the default tearoff entry (none on Aqua)
     view.add_checkbutton(label="Wrap", variable=wrap)
     menubar.add_cascade(label="View", menu=view)
     root.config(menu=menubar)

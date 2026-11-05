@@ -203,6 +203,7 @@ The newest work. Details for some items follow in the sections below.
 - **`WindowHandle::update`:** `cx.notify()` inside the closure didn't re-render that window.
 - **Python, hidden Tk root:** BUI's hidden Tk root (started before the first window on macOS, and by the Tk host) became `tkinter._default_root`, so a real tkinter program's `StringVar()` bound to the hidden interpreter and its widgets never saw the value.
 - **tkinter on HiDPI:** a window fitting its content (and `simpledialog` windows) was scaled twice, so it came out twice too large on Retina displays and other scaled screens.
+- **tkinter on macOS:** `Menu` defaults to `tearoff=0`, like Tk on Aqua.
 
 ### Changed
 - **Text looks like Blender's:** Inter, Blender's UI font, is embedded and is the default face on every platform. The portable stb_truetype engine is now the default on Windows too. `-DBUI_TEXT_GDI=ON` (Rust: the `gdi-text` feature) restores GDI and system fonts. `BUI_TEXT_STB` and `portable-text` are now no-ops.

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 
 import buipy
 
@@ -2914,7 +2915,9 @@ class Menu(Widget):
     a popup (post / tk_popup)."""
 
     _KIND = None
-    _DEFAULTS = {"tearoff": 1, "type": "normal", "title": "", "postcommand": ""}
+    # Tk's default: a tearoff entry at index 0, except on Aqua
+    _DEFAULTS = {"tearoff": 0 if sys.platform == "darwin" else 1, "type": "normal", "title": "",
+                 "postcommand": ""}
 
     def __init__(self, master=None, cnf={}, **kw):  # noqa: B006
         self._entries = []
@@ -2922,8 +2925,8 @@ class Menu(Widget):
         self._bar = None
         self._active = None
         Widget.__init__(self, master, "menu", cnf, kw)
-        if "tearoff" not in self._opts:  # Tk's default: a tearoff entry at index 0
-            self._apply("tearoff", 1)
+        if "tearoff" not in self._opts:
+            self._apply("tearoff", self._DEFAULTS["tearoff"])
 
     def _apply(self, key, value):
         if key == "tearoff":

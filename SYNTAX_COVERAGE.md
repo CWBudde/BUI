@@ -74,8 +74,8 @@ overrides `text` (also in `cget`), `Scale` commands and
 `<<TreeviewSelect>>` run when idle, `validatecommand` sees programmatic
 `insert`/`delete`, generated key events go to the focus widget, bindings run
 per bindtag (widget, class, toplevel, `all`) and stop on `"break"`, a
-`Notebook` requests its largest page, menus keep Tk's tearoff index 0,
-`Text` keeps the trailing newline (`"end-1c"`), `edit_undo` is a no-op while
+`Notebook` requests its largest page, menus keep Tk's tearoff index 0 (off by
+default on macOS, like Aqua), `Text` keeps the trailing newline (`"end-1c"`), `edit_undo` is a no-op while
 `undo` is off, ttk `item()` converts integers.
 
 | Area | What runs where |
