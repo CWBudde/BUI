@@ -305,12 +305,55 @@ def test_disabled_ignores_input():
     assert f.value == 1.0 and not f.editing
 
 
+def test_text_edit_undo():
+    """Ctrl+Z / Ctrl+Shift+Z inside an active text edit (Blender's interface_undo.cc)."""
+    t = TextField("", "")
+    d = Driver(t)
+    d.click(t)
+    d.type("abc")
+    assert t.get_str("edit") == "abc"
+    d.key("z", "z", mods(ctrl=True))
+    assert t.get_str("edit") == "ab", t.get_str("edit")
+    d.key("z", "z", mods(ctrl=True))
+    d.key("z", "z", mods(ctrl=True))
+    assert t.get_str("edit") == ""
+    d.key("z", "z", mods(ctrl=True))                   # nothing before the start
+    assert t.get_str("edit") == ""
+    d.key("Z", "Z", mods(ctrl=True, shift=True))       # redo
+    d.key("y", "y", mods(ctrl=True))
+    assert t.get_str("edit") == "ab", t.get_str("edit")
+    d.type("X")                                         # new typing drops the redo states
+    d.key("Z", "Z", mods(ctrl=True, shift=True))
+    assert t.get_str("edit") == "abX"
+    d.key("Return")
+    assert t.value == "abX"
+
+
+def test_float_display_precision():
+    """Blender's UI_calc_float_precision: small values get the decimals they need."""
+    f = NumberField("", 0.00002)                       # precision 3 would read "0.000"
+    assert f.get_str("display") == "0.0000", f.get_str("display")  # Blender's digit count
+    f.value = 0.000123
+    assert f.get_str("display") == "0.00012", f.get_str("display")
+    f.value = 1.5
+    assert f.get_str("display") == "1.500"
+    f.value = 10.0001                                   # only small values get more
+    assert f.get_str("display") == "10.000"
+
+
 def test_eval_number():
     assert abs(eval_number("2*pi") - 2 * 3.141592653589793) < 1e-12
     assert eval_number("__import__('os')") is None
     assert eval_number("1/0") is None
     assert eval_number("10 ** 2 - 1") == 99
     assert eval_number("2^3") == 8 and eval_number("sqrt(16)") == 4
+    # Blender's expr_pylike_eval (core/intern): its functions, conditionals and min/max
+    assert eval_number("max(1, 7, 3) + min(4, 2)") == 9
+    assert eval_number("1 if 3 > 2 else 0") == 1
+    assert abs(eval_number("atan2(1, 1)") - 3.141592653589793 / 4) < 1e-12
+    assert eval_number("7 // 2") == 3 and eval_number("7 % 4") == 3
+    assert abs(eval_number("tau - 2*pi")) < 1e-12 and abs(eval_number("e") - 2.718281828459045) < 1e-12
+    assert eval_number("1 +") is None
 
 
 # -- cursors, continuous grab, context menus -------------------------------------
@@ -381,6 +424,40 @@ def test_menu_search_submenu_and_bar():
     assert [t for t, _ in d.ctx.menu_rows(0)] == ["Recent \u25b8 a.blend"]
     d.key("Return")
     assert picked == ["a"] and not d.popups()
+
+
+def test_menu_search_fuzzy():
+    """Blender's string search (blenlib string_search.cc): word initials, typos, recent first."""
+    from bui.components import MenuBar, MenuItem
+    names = ["Shade Smooth", "Subdivision Surface", "Add Cube", "Add Cylinder", "Separate"]
+    picked = []
+    bar = MenuBar(("Object", [MenuItem(n, (lambda n=n: picked.append(n))) for n in names]))
+    d = Driver(Label("body"), header=bar)
+    (obj_b,) = bar.buttons
+
+    def search(q):
+        d.click(obj_b)
+        d.type(q)
+        rows = [t for t, _ in d.ctx.menu_rows(0)]
+        return rows
+
+    rows = search("ss")                                 # word-initial match
+    assert set(rows[:2]) == {"Shade Smooth", "Subdivision Surface"}, rows
+    d.ctx.close_popups()
+    rows = search("cylnder")                            # a typo still finds it
+    assert rows and rows[0] == "Add Cylinder", rows
+    d.ctx.close_popups()
+    assert search("zzzz") == []                         # no substring fallback junk
+    d.ctx.close_popups()
+    # choosing an item makes it rank first next time for a short query
+    rows = search("s")
+    i = rows.index("Separate")
+    for _ in range(i):
+        d.key("Down")
+    d.key("Return")
+    assert picked == ["Separate"]
+    assert search("s")[0] == "Separate"
+    d.ctx.close_popups()
 
 
 def test_press_drag_release_picks():
@@ -708,6 +785,34 @@ def test_vertical_multi_drag():
     assert vals[0] > 0 and all(abs(v - vals[0]) < 1e-9 for v in vals), vals
     d.key("z", "z", mods(ctrl=True))                  # one undo step for the group
     assert [f.value for f in fields] == [0.0, 0.0, 0.0]
+
+
+def test_panel_animation_timing():
+    """Blender's interface_panel.cc do_animate: ANIMATION_TIME 0.30 s eased by sqrt(fac)."""
+    buipy.kit_set_animations(True)
+    try:
+        p = Panel("One", Column(*[Button(str(i)) for i in range(12)]))
+        d = Driver(p, Button("after"))
+        h_open = p.h
+        t0 = time.perf_counter()
+        d.click(at=(p.x + 20, p.y + 5))
+        d.frame()
+        samples = []
+        while d.ctx.animating() and time.perf_counter() - t0 < 2:
+            time.sleep(0.005)
+            d.frame()
+            samples.append((time.perf_counter() - t0, p.h))
+        took = samples[-1][0]
+        h_closed = p.h
+        assert 0.25 < took < 0.6, took                 # ~0.30 s (was a linear 0.12 s)
+        # sqrt easing: a third of the way in, it has moved well over a third
+        early = [(t, hh) for t, hh in samples if 0.06 < t < 0.10]
+        assert early, samples
+        t, hh = early[0]
+        moved = (h_open - hh) / (h_open - h_closed)
+        assert moved > (t / 0.30) + 0.1, (t, moved)
+    finally:
+        buipy.kit_set_animations(False)
 
 
 def test_panel_animation():

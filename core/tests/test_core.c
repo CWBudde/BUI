@@ -15,6 +15,7 @@
 #include "BLI_mempool.h"
 #include "BLI_string.h"
 #include "BLI_string_utf8.h"
+#include "BUI_blender_c.h"
 #include "MEM_guardedalloc.h"
 
 static int failures = 0;
@@ -149,15 +150,75 @@ static void test_color(void)
 
 static void test_strings(void)
 {
-  CHECK(BLI_strlen_utf8("héllo") == 6);
+  CHECK(BLI_strlen_utf8("héllo") == 5); /* code points (core builds with unsigned char, as Blender) */
   CHECK(BLI_strnlen("abc", 10) == 3);
   char buf[16];
   BLI_snprintf(buf, sizeof(buf), "%d-%s", 42, "x");
   CHECK(strcmp(buf, "42-x") == 0);
 }
 
+static int expr_is(const char *s, double want)
+{
+  double v = -12345.0;
+  return BUI_expr_eval(s, NULL, NULL, 0, &v) && fabs(v - want) < 1e-9;
+}
+
+/* Blender's expr_pylike_eval.cc (core/intern), with the BUI additions. */
+static void test_expr(void)
+{
+  double v;
+  CHECK(expr_is("1/3 + 2**2", 1.0 / 3.0 + 4.0));
+  CHECK(expr_is("2^3", 8.0));
+  CHECK(expr_is("-2**2", -4.0));
+  CHECK(expr_is("2**-1", 0.5));
+  CHECK(expr_is("2**3**2", 512.0)); /* right associative */
+  CHECK(expr_is("7 // 2", 3.0));
+  CHECK(expr_is("7 % 4", 3.0));
+  CHECK(expr_is("2*pi", 2.0 * 3.14159265358979323846));
+  CHECK(expr_is("tau", 2.0 * 3.14159265358979323846));
+  CHECK(expr_is("e", 2.71828182845904523536));
+  CHECK(expr_is("sqrt(16) + max(1, 5, 3)", 9.0));
+  CHECK(expr_is("radians(180)", 3.14159265358979323846));
+  CHECK(expr_is("1 if 2 > 1 else 0", 1.0));
+  CHECK(expr_is("05", 5.0));
+  CHECK(expr_is(".5", 0.5));
+  CHECK(!BUI_expr_eval("1/0", NULL, NULL, 0, &v));
+  CHECK(!BUI_expr_eval("1 +", NULL, NULL, 0, &v));
+  CHECK(!BUI_expr_eval("foo(2)", NULL, NULL, 0, &v));
+  const char *names[] = {"x"};
+  const double vals[] = {3.0};
+  CHECK(BUI_expr_eval("x*x + 1", names, vals, 1, &v) && v == 10.0);
+}
+
+/* Blender's string_search.cc (core/intern). */
+static void test_string_search(void)
+{
+  static const char *items[] = {
+      "Add Cube", "Add Cylinder", "Delete Vertices", "Shade Smooth", "Subdivision Surface"};
+  BUIStringSearch *s = BUI_string_search_new(NULL, BUI_SEARCH_MAIN_ALL);
+  for (int i = 0; i < 5; i++) {
+    BUI_string_search_add(s, items[i], (void *)items[i], 0);
+  }
+  void *found[8];
+  /* word-initial matching: "ss" -> Shade Smooth / Subdivision Surface */
+  int n = BUI_string_search_query(s, "ss", found, 8);
+  CHECK(n >= 2);
+  CHECK(n >= 1 && (found[0] == items[3] || found[0] == items[4]));
+  /* typo tolerance: "cylnder" still finds "Add Cylinder" first */
+  n = BUI_string_search_query(s, "cylnder", found, 8);
+  CHECK(n >= 1 && found[0] == items[1]);
+  /* no match */
+  n = BUI_string_search_query(s, "zzzz", found, 8);
+  CHECK(n == 0);
+  BUI_string_search_free(s);
+  CHECK(BUI_string_search_fuzzy_errors("cylnder", "cylinder") == 1);
+  CHECK(BUI_string_search_fuzzy_errors("xyz", "cylinder") == -1);
+}
+
 int main(void)
 {
+  test_expr();
+  test_string_search();
   test_listbase();
   test_ghash();
   test_dynstr();

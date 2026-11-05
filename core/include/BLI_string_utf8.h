@@ -13,6 +13,11 @@
 #include "BLI_compiler_attrs.h"
 #include "BLI_sys_types.h"
 
+/* BUI: string_utf8.c is compiled as C; C++ callers need C linkage. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 char *BLI_strncpy_utf8(char *__restrict dst, const char *__restrict src, size_t dst_maxncpy)
     ATTR_NONNULL(1, 2);
@@ -348,3 +353,7 @@ int BLI_str_utf8_column_count(const char *str, size_t str_len) ATTR_WARN_UNUSED_
 
 
 
+
+#ifdef __cplusplus
+} /* BUI: extern "C" */
+#endif

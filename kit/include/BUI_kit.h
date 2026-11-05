@@ -536,8 +536,18 @@ void BK_draw_widget(BuiRaster *r, const BKWidgetDraw *w);
 /* Width of `s` (len < 0: NUL-terminated) in the UI font at BK_scale(). */
 float BK_text_width(const char *s, int len);
 
-/* Evaluate Blender-style number input ("2*pi", "1/3 + 2^2"). */
+/* Evaluate Blender-style number input ("2*pi", "1/3 + 2^2"): Blender's
+ * BLI_expr_pylike_eval (+ - * / // % ** ^, comparisons, and/or/not, x if c
+ * else y, pi e tau, min max sin cos sqrt atan2 floor ...). */
 int BK_eval_number(const char *expr, double *r_value);
+
+/* Menu search ranks with Blender's string search (word initials, typos);
+ * items chosen from a search rank first for short queries (Blender's recent
+ * searches). On by default, kept in memory; load/save use one line per item. */
+void BK_recent_searches_enable(int enabled);
+void BK_recent_searches_clear(void);
+void BK_recent_searches_load(const char *path);
+void BK_recent_searches_save(const char *path);
 
 #ifdef __cplusplus
 }

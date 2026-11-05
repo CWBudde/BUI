@@ -187,6 +187,7 @@ typedef struct BKTextEdit {
   int caret, anchor; /* byte offsets; anchor < 0 = no selection */
   float scroll;
   char mask[8]; /* shown instead of each character (password fields), "" = none */
+  struct BKTextUndo *undo; /* Blender's interface_undo.cc text stack (Ctrl+Z while typing) */
 } BKTextEdit;
 
 enum { TE_NONE = 0, TE_CHANGED, TE_CONFIRM, TE_CANCEL, TE_NEXT, TE_PREV };
@@ -504,6 +505,8 @@ struct BKContext {
   int nmulti, multi_x0;
   /* animations */
   BKNode *anim[BK_MAX_ANIM];
+  double anim_start[BK_MAX_ANIM]; /* when each animation (re)started */
+  float anim_from[BK_MAX_ANIM];   /* its open fraction then */
   int nanim;
   double anim_t;
   /* custom nodes */
@@ -532,6 +535,8 @@ bool bk_anim_running(const BKNode *n);
 void bk_edit_next(BKNode *from, int dir);
 int bk_textarea_set_text(BKNode *n, const char *s);
 const char *bk_textarea_text(BKNode *n);
+/* The value text a number field / slider draws (static buffer; NULL for others). */
+const char *bk_number_display(BKNode *n);
 
 void bk_ctx_dirty_rect(BKContext *ctx, BKRect r);
 void bk_ctx_request(BKContext *ctx);

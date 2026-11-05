@@ -21,6 +21,10 @@ add_library(bui_kit STATIC
   intern/kit_regions.c
   intern/kit_nodes.c
   intern/kit_custom.c
+  # Blender's UI sources copied and edited for the kit (C++; see blender/bk_blender.h)
+  intern/blender/interface_string_search.cc
+  intern/blender/interface_utils.cc
+  intern/blender/interface_undo.cc
   extern/nanosvg/blender_nanosvg.c
   extern/nanosvg/blender_raster.c
 )

@@ -45,9 +45,11 @@ You can drive it five ways, and all of them share the same C runtime:
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------- |
 | **tkinter** code, even existing programs, unchanged                       | Blender-styled apps; every tkinter and ttk API                                                                 | ✅ Complete      |
 | **Qt-style** Python (`QWidget`, layouts, `clicked.connect`)               | The common subset of Qt widgets                                                                                | 🟡 Partial       |
-| **Blender components** in Python (`Panel`, `NumberSlider`, `PieMenu` ...) | 45 native Blender widgets and editors                                                                          | ✅ Complete      |
-| **Rust**: HTML + CSS + Tailwind, JSX (`rsx!`), hooks, or gpui syntax      | A web-like framework: HTML that looks like a browser's, Blender's look with `styled`, and Blender components (`<NumberSlider>`, `<Button>` ...) | ✅ Working       |
+| **Rust**: HTML + CSS + Tailwind, JSX (`rsx!`), hooks, or [gpui](https://www.gpui.rs) / [zopra](https://zopra.preetham.top) syntax      | A web-like framework: HTML that looks like a browser's, Blender's look with `styled`, and Blender components (`<NumberSlider>`, `<Button>` ...) | ✅ Working       |
 | **JavaScript / React** on Node.js or Bun: a DOM-like API or JSX           | The same engine and components in native windows, over napi-rs; React's hooks backed by signals ([guide](docs/javascript.md)) | ✅ Working       |
+| **Dear ImGUI** | Dear Imgui | ✅ Working       |
+| **MyGo** | MyGo | 🟡 Not yet       |
+| **Blender components** (framework agnostic) (`Panel`, `NumberSlider`, `PieMenu` ...) | 45 native Blender widgets and editors                                                                          | ✅ Complete      |
 
 ### HTML, Blender, or both
 
