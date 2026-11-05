@@ -212,7 +212,8 @@ BUI follows Tk's semantics, checked against the stdlib by
 - `validatecommand` also sees programmatic `insert` / `delete`.
 - Generated key events (`event_generate("<Control-q>")`) go to the widget
   with keyboard focus.
-- Menus keep Tk's tearoff entry at index 0 unless you pass `tearoff=0`.
+- Menus keep Tk's tearoff entry at index 0 unless you pass `tearoff=0`. On macOS
+  the default is `tearoff=0`, as in Tk on Aqua.
 - `Text` keeps the trailing newline: `get("1.0", "end")` ends with `"\n"`,
   so use `"end-1c"`.
 - `edit_undo()` does nothing while `undo` is off.
