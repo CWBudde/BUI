@@ -21,8 +21,31 @@ on:
         default: false
 
 jobs:
+  # Only build and publish what is missing: a tag whose version is already on PyPI (say a release
+  # that only changed the npm packages, or a re-run after PyPI succeeded) does no work at all.
+  plan:
+    name: is this version on PyPI?
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+    steps:
+      - id: plan
+        run: |
+          build=true
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/blenderui/$version/json")
+            if [ "$code" = 200 ]; then
+              echo "::notice::blenderui $version is already on PyPI; nothing to build or publish"
+              build=false
+            fi
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
   wheels:
     name: wheels (${{ matrix.os }})
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -65,6 +88,8 @@ jobs:
           path: wheelhouse/*.whl
 
   sdist:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +106,8 @@ jobs:
 
   # Full test suites on the source build (Windows: the native window host).
   tests:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,8 +128,8 @@ jobs:
           ctest --test-dir build --output-on-failure
 
   publish:
-    needs: [wheels, sdist, tests]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.testpypi)
+    needs: [plan, wheels, sdist, tests]
+    if: needs.plan.outputs.build == 'true' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.testpypi))
     runs-on: ubuntu-latest
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'pypi' || 'testpypi' }}
     permissions:

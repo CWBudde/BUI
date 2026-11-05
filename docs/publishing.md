@@ -78,11 +78,35 @@ No API tokens are stored anywhere.
 
 ## Releasing everything at once
 
-One tag publishes all of it:
+One command does the whole release:
 
 ```sh
-git tag v0.2.0 && git push --tags
+python tools/release.py minor              # or patch, major, X.Y.Z; add --npm patch for the npm packages
 ```
+
+It checks you are on a clean, up-to-date `main`, bumps every version and pushes that commit, waits
+for the `ci` and `wheels` workflows to go green on it, tags and pushes the tag, waits for the
+publish, then checks crates.io, npm and PyPI for the new version. It never tags a red commit.
+`--dry-run` shows the plan; if a publish step fails, fix it, use "Re-run failed jobs" on the run
+(no new tag needed) and run `python tools/release.py --resume`, which only waits and checks.
+GitHub's anonymous API allows 60 requests an hour (enough for one release); set `GITHUB_TOKEN`
+for more.
+
+The two steps it runs, if you want them by hand: `tools/bump_version.py` changes every version in one go
+(the Python package, the Rust workspace and the sibling dependency versions of every crate, the
+changelog, the lock files, and with `--npm` the npm packages) and runs
+`tools/check_versions.py` on the result:
+
+```sh
+python tools/bump_version.py minor --commit --push   # 0.2.0 -> 0.3.0, commits only those files, pushes main
+# ... wait for CI to go green on that commit ...
+python tools/bump_version.py --tag --push            # tags v0.3.0 and pushes the tag: the release starts
+```
+
+`minor` can be `major`, `patch` or an exact `X.Y.Z`; add `--npm patch` to move the npm
+packages too (they are versioned on their own), and `--dry-run` to see what would change. The
+tag step refuses a tag that already exists and a branch that isn't pushed yet. Doing it by hand
+is the same thing: `git tag v0.3.0 && git push origin v0.3.0`.
 
 | Workflow | Publishes |
 |---|---|
@@ -92,7 +116,8 @@ git tag v0.2.0 && git push --tags
 `release.yml` first checks that the tag matches the Python and Rust versions
 (`python tools/check_versions.py v0.2.0` runs the same check by hand), then runs the whole
 `ci.yml` suite on every platform, then publishes. A version that is already on a registry is
-skipped, so a run that failed halfway (say, crates.io timing out on the big
+skipped (crates.io, npm and PyPI alike: `wheels.yml` builds nothing when PyPI already has the
+version), so only what is missing runs: a run that failed halfway (say, crates.io timing out on the big
 `blenderui-sys` upload) can simply be re-run. The npm packages are versioned on their own; bump
 them in their `package.json` when they change.
 
