@@ -779,6 +779,8 @@ static NSCursor *ns_cursor(int c)
       return [NSCursor pointingHandCursor];
     case BK_CURSOR_MOVE:
       return [NSCursor openHandCursor];
+    case BK_CURSOR_NOT_ALLOWED:
+      return [NSCursor operationNotAllowedCursor];
   }
   return [NSCursor arrowCursor];
 }
@@ -894,10 +896,14 @@ static BKCocoaTimer *timer_slot(BKWindow *win, int ident)
 static void host_schedule(void *data, int ms, int timer)
 {
   BKWindow *win = (BKWindow *)data;
-  win->tip_id = timer;
-  BKCocoaTimer *t = timer_slot(win, -1);
+  /* slot -1: the tooltip; -2: custom nodes' frames (BK_TIMER_CUSTOM) */
+  const int slot = timer == BK_TIMER_CUSTOM ? -2 : -1;
+  if (slot == -1) {
+    win->tip_id = timer;
+  }
+  BKCocoaTimer *t = timer_slot(win, slot);
   if (t) {
-    t->ident = -1;
+    t->ident = slot;
     t->due = now_ms() + ms;
   }
 }
@@ -1650,6 +1656,9 @@ static void run_timers(void)
         tm->ident = 0;
         if (ident == -1) {
           BK_timer(win->ctx, win->tip_id);
+        }
+        else if (ident == -2) {
+          BK_timer(win->ctx, BK_TIMER_CUSTOM);
         }
         else if (win->cb.on_timer) {
           win->cb.on_timer(win->cb.data, win, ident);

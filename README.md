@@ -56,7 +56,7 @@ In Rust and JavaScript you pick the look per element:
 
 | You write                                                            | You get                                                                                   |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Plain HTML: `<button>`, `<input type="range">`, `<select>` ...      | Exactly what a browser draws: black serif text on white, Chrome's form controls           |
+| Plain HTML: `<button>`, `<input type="range">`, `<select>` ...      | What a browser draws: black text on white, Chrome's form controls, in the Inter UI font   |
 | `styled` on any element: `<div styled>`, `div().styled()`            | Blender's look for it and everything inside: dark theme, UI font, Blender widgets         |
 | **Blender components** (capitalized): `<NumberSlider>`, `<Button>` ... | Blender's widgets and interaction everywhere (drag to scrub, Ctrl+Z, Blender's color picker) |
 

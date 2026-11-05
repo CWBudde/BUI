@@ -71,7 +71,7 @@ pub fn custom(tag: &'static str) -> Div {
 /// (`div().styled()`, `<div styled>`) and everything inside it get Blender's
 /// dark theme instead. Form widgets are Blender widgets either way.
 pub const UA_CSS: &str = r#"
-html { display: block; background-color: #ffffff; color: #000000; font-size: 16px; font-family: serif; }
+html { display: block; background-color: #ffffff; color: #000000; font-size: 16px; }
 body { display: block; margin: 8px; }
 address, article, aside, blockquote, dd, details, dialog, div, dl, dt, fieldset, figcaption,
 figure, footer, form, h1, h2, h3, h4, h5, h6, header, hgroup, hr, legend, main, menu, nav, ol,

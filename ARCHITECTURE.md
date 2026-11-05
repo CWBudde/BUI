@@ -45,6 +45,7 @@ application code; everything it needs arrives through `types/`, `gpu/`, or
 | `kit/` | Blender's UI as a retained-mode C runtime: node tree, uiLayout-style layout, `interface_handlers.cc` interaction rules, widget drawing ported from `interface_widgets.cc` (widget-base shader parameters rendered by `gpu/` raster), menus, color picker, views, editors; Tk-style pack/grid/place geometry managers, canvas display list, multi-line text area; UI undo/redo, Tab field traversal, vertical multi-drag, panel animation; damage-driven rendering; native window hosts for Win32, X11 and Cocoa (`kit_window_win32.c`, `kit_window_x11.c`, `kit_window_cocoa.m`; `kit_window_null.c` elsewhere). C API: `kit/include/BUI_kit.h`. | **Builds + tested** |
 | `api/` | `bui_c_api.h` — small stable C ABI: version info + sink/viewport plumbing for hosts and bindings. | **Builds + tested** |
 | `bindings/python/` | `buipy` CPython extension (no third-party deps) + `bui` package: `bui.components` (Blender component library), `bui.qtsyntax` / `bui.tksyntax` (Qt / tkinter APIs as thin facades over the kit), `bui.host` (native or Tk windows), `SvgSink` headless renderer, `bui.qt.BuiCanvas` PySide6/PyQt6 widget. | **Builds + tested** |
+| `bindings/imgui/` | Dear ImGui (vendored, 1.93.1 WIP) on BUI: `imgui_impl_bui` platform + renderer backend hosted in a kit `custom` node (input, cursors, clipboard, DPI, damage-driven frames) drawing through `BUI_raster_mesh` and BUI textures; Blender style and Inter font. Gate: `-DBUI_BUILD_IMGUI` (ON with C++). | **Builds + tested** |
 | `backends/qt/` | C++ Qt backend: `BUI::QtSink` (BuiGpuSink → QPainter) + `BUI::BuiWidget` (QWidget host, no moc needed). Gate: `-DBUI_BUILD_QT_BACKEND=ON`. | **Shipped** (builds where Qt exists) |
 | `examples/` | `bui_svg_demo.c` (C, sink → SVG), `python_demo.py` (buipy → SVG). | **Builds + run** |
 
@@ -78,6 +79,13 @@ The kit itself draws through `GPU_raster.h`:
   uber-shader translated to GLSL, GLX on the X11 window or EGL offscreen,
   libGL loaded at run time). Opt-in with `BUI_GPU=1`, `BUI_gpu_set_default`,
   Rust `.gpu(true)` or tkinter `Tk(gpu=True)`.
+
+Textured triangle meshes (`BUI_raster_mesh`, what Dear ImGui emits) are the
+one non-analytic primitive: indexed vertices with UV and color sampling a
+`BUI_texture_*` texture. The software raster fills them with a fixed-point
+top-left rule and bilinear sampling; the GPU paths draw them indexed with a
+scissor (`vs_mesh`/`ps_mesh` in `bui_ui.hlsl`, the GLSL twin in `gpu_gl.c`),
+uploading each texture once and then only its logged update rectangles.
 
 In GPU mode the same `BUI_raster_*` calls record one 128-byte instance per
 primitive, after the same clip test. This follows Blender's

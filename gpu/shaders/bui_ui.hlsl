@@ -383,3 +383,37 @@ float4 ps_tri(TriOut i) : SV_Target
   }
   return premul(i.color, 1.0);
 }
+
+// Textured triangle meshes (BUI_raster_mesh: Dear ImGui's ImDrawList).
+// Indexed vertices: position, texture coordinates, RGBA8 color (straight
+// alpha); clipped by the scissor rectangle. Output premultiplied, so the
+// shared blend state (ONE, INV_SRC_ALPHA) gives ImGui's SRC_ALPHA,
+// INV_SRC_ALPHA result.
+Texture2D<float4> mesh_tex : register(t4);
+SamplerState mesh_smp : register(s0);
+
+struct MeshIn {
+  float2 pos : POSITION;
+  float2 uv : TEXCOORD0;
+  float4 color : COLOR0;
+};
+struct MeshOut {
+  float4 pos : SV_Position;
+  float2 uv : TEXCOORD0;
+  float4 color : COLOR0;
+};
+
+MeshOut vs_mesh(MeshIn i)
+{
+  MeshOut o;
+  o.pos = float4(i.pos.x * to_ndc.x - 1.0, 1.0 - i.pos.y * to_ndc.y, 0.0, 1.0);
+  o.uv = i.uv;
+  o.color = i.color;
+  return o;
+}
+
+float4 ps_mesh(MeshOut i) : SV_Target
+{
+  const float4 c = i.color * mesh_tex.Sample(mesh_smp, i.uv);
+  return premul(c, 1.0);
+}

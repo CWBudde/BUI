@@ -99,13 +99,13 @@ float bk_px(void)
   return (float)BK_MAX(1, bk_dpi() / 64); /* U.pixelsize */
 }
 float bk_text_scale = 1.0f;
-/* The text scale browser-look widgets draw at (html_font_begin): text at
- * exactly this scale uses the browsers' form-control font. */
+/* The text scale browser-look widgets draw at (html_font_begin). They use
+ * the UI font (Inter) like every other widget. */
 float bk_html_text_scale = -1.0f;
 
 static const char *text_family(void)
 {
-  return bk_text_scale == bk_html_text_scale ? "arial" : g_font_family;
+  return g_font_family;
 }
 
 const char *bk_font_family(void)

@@ -77,6 +77,37 @@ void bui_gpu_triangles(BuiGpu *g,
                        const float (*col)[4],
                        int count,
                        const int clip[4]);
+/* Textured meshes (BUI_raster_mesh): `vtx` translated by (ox, oy), indices
+ * uint16 or uint32 (`idx32`), each < n_vtx (others drop their triangle);
+ * `clip` is the pixel scissor (x0, y0, x1, y1), non-empty. Texture `tex`
+ * (0: white) comes from the registry below and is uploaded (or updated) on
+ * first use. */
+struct BuiMeshVertex;
+void bui_gpu_mesh(BuiGpu *g,
+                  const struct BuiMeshVertex *vtx,
+                  int n_vtx,
+                  const void *idx,
+                  int idx32,
+                  int n_idx,
+                  float ox,
+                  float oy,
+                  int tex,
+                  int nearest,
+                  const int clip[4]);
+
+/* Texture registry shared by the renderers (gpu_raster.c). */
+typedef struct BuiTexView {
+  int w, h;
+  const uint8_t *rgba; /* w * 4 bytes per row */
+  unsigned gen;        /* bumped by every update */
+} BuiTexView;
+int bui_texture_view(int tex, BuiTexView *r_view); /* 0 when not live */
+/* Rects (x, y, w, h) updated after `since`; -1 when the log no longer
+ * reaches back that far (upload everything). */
+int bui_texture_changes(int tex, unsigned since, int (*r_rects)[4], int max);
+/* Bumped whenever a texture is freed (GPU caches sweep then). */
+unsigned bui_texture_free_gen(void);
+
 /* Records damage for present (x, y, w, h); w <= 0 means the whole frame. */
 void bui_gpu_damage(BuiGpu *g, int x, int y, int w, int h);
 /* Draws everything recorded and presents. Returns 0 on device loss. */

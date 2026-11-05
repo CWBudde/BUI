@@ -241,9 +241,8 @@ The document is wrapped in `<html><body>` unless your root already is one, so
 
 ### Blender styling: `styled`
 
-Plain elements look exactly like they do in a browser: black serif text
-(Times New Roman) on white, 16 px, `#0000ee` links, and Chrome's form
-controls. Mark an element `styled` and it, and everything inside it, gets
+Plain elements look like they do in a browser: black text on white, 16 px,
+`#0000ee` links, and Chrome's form controls, in Blender's UI font (Inter). Mark an element `styled` and it, and everything inside it, gets
 Blender's look instead: the `#303030` background, `#e6e6e6` 13 px UI-font
 text, blue links, dark `code` / `pre`, themed tables, fieldsets and dialogs,
 and Blender's widgets for the form controls.

@@ -20,6 +20,7 @@ add_library(bui_kit STATIC
   intern/kit_icons_svg.c
   intern/kit_regions.c
   intern/kit_nodes.c
+  intern/kit_custom.c
   extern/nanosvg/blender_nanosvg.c
   extern/nanosvg/blender_raster.c
 )

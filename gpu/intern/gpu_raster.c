@@ -1480,6 +1480,431 @@ void BUI_raster_points(BuiRaster *r,
 }
 
 /* -------------------------------------------------------------------- */
+/** \name Textures + textured meshes (BUI_raster_mesh)
+ *
+ * The registry is shared by every raster: the software path samples the
+ * RGBA8 copy kept here, GPU devices upload it on first use and then only the
+ * rectangles logged by later updates.
+ * \{ */
+
+#define TEX_LOG 32
+
+typedef struct BuiTexture {
+  int id;
+  int w, h;
+  uint8_t *rgba;
+  unsigned gen; /* bumped by every update */
+  struct {
+    unsigned gen; /* the generation this update produced */
+    int rect[4];
+  } log[TEX_LOG];
+  unsigned nlog; /* updates logged so far (ring index = nlog % TEX_LOG) */
+} BuiTexture;
+
+static BuiTexture **g_tex;     /* slot -> texture (NULL: free) */
+static unsigned short *g_tex_serial;
+static int g_tex_slots;
+static unsigned g_tex_free_gen;
+
+static BuiTexture *tex_get(int id)
+{
+  const int slot = (id & 0xFFFF) - 1;
+  if (id <= 0 || slot < 0 || slot >= g_tex_slots) {
+    return NULL;
+  }
+  BuiTexture *t = g_tex[slot];
+  return t && t->id == id ? t : NULL;
+}
+
+static void tex_copy(BuiTexture *t, int x, int y, int w, int h, const uint8_t *src, int pitch)
+{
+  /* clip to the texture, moving the source along */
+  if (x < 0) {
+    src -= x * 4;
+    w += x;
+    x = 0;
+  }
+  if (y < 0) {
+    src -= (ptrdiff_t)y * pitch;
+    h += y;
+    y = 0;
+  }
+  w = w < t->w - x ? w : t->w - x;
+  h = h < t->h - y ? h : t->h - y;
+  for (int row = 0; row < h; row++) {
+    memcpy(t->rgba + ((size_t)(y + row) * t->w + x) * 4, src + (size_t)row * pitch,
+           (size_t)w * 4);
+  }
+}
+
+int BUI_texture_create(int w, int h, const void *rgba, int pitch)
+{
+  if (w <= 0 || h <= 0 || w > 16384 || h > 16384) {
+    return 0;
+  }
+  BuiTexture *t = (BuiTexture *)calloc(1, sizeof(BuiTexture));
+  if (!t || !(t->rgba = (uint8_t *)calloc((size_t)w * h, 4))) {
+    free(t);
+    return 0;
+  }
+  t->w = w;
+  t->h = h;
+  t->gen = 1;
+  if (rgba) {
+    tex_copy(t, 0, 0, w, h, (const uint8_t *)rgba, pitch > 0 ? pitch : w * 4);
+  }
+  int slot = 0;
+  while (slot < g_tex_slots && g_tex[slot]) {
+    slot++;
+  }
+  if (slot == g_tex_slots) {
+    if (slot >= 0xFFFF) {
+      free(t->rgba);
+      free(t);
+      return 0;
+    }
+    const int cap = g_tex_slots ? g_tex_slots * 2 : 16;
+    BuiTexture **nt = (BuiTexture **)realloc(g_tex, sizeof(BuiTexture *) * (size_t)cap);
+    unsigned short *ns = nt ? (unsigned short *)realloc(g_tex_serial,
+                                                        sizeof(unsigned short) * (size_t)cap) :
+                              NULL;
+    if (nt) {
+      g_tex = nt;
+    }
+    if (!nt || !ns) {
+      free(t->rgba);
+      free(t);
+      return 0;
+    }
+    g_tex_serial = ns;
+    for (int i = g_tex_slots; i < cap; i++) {
+      g_tex[i] = NULL;
+      g_tex_serial[i] = 0;
+    }
+    g_tex_slots = cap;
+  }
+  g_tex_serial[slot] = (unsigned short)(g_tex_serial[slot] % 0x7FFF + 1);
+  t->id = ((int)g_tex_serial[slot] << 16) | (slot + 1);
+  g_tex[slot] = t;
+  return t->id;
+}
+
+int BUI_texture_update(int tex, int x, int y, int w, int h, const void *rgba, int pitch)
+{
+  BuiTexture *t = tex_get(tex);
+  if (!t || !rgba) {
+    return 0;
+  }
+  if (w <= 0 || h <= 0 || x >= t->w || y >= t->h || x + w <= 0 || y + h <= 0) {
+    return 1;
+  }
+  tex_copy(t, x, y, w, h, (const uint8_t *)rgba, pitch > 0 ? pitch : w * 4);
+  const int x0 = x > 0 ? x : 0, y0 = y > 0 ? y : 0;
+  const int x1 = x + w < t->w ? x + w : t->w, y1 = y + h < t->h ? y + h : t->h;
+  t->gen++;
+  const unsigned k = t->nlog++ % TEX_LOG;
+  t->log[k].gen = t->gen;
+  t->log[k].rect[0] = x0;
+  t->log[k].rect[1] = y0;
+  t->log[k].rect[2] = x1 - x0;
+  t->log[k].rect[3] = y1 - y0;
+  return 1;
+}
+
+void BUI_texture_free(int tex)
+{
+  BuiTexture *t = tex_get(tex);
+  if (!t) {
+    return;
+  }
+  g_tex[(tex & 0xFFFF) - 1] = NULL;
+  free(t->rgba);
+  free(t);
+  g_tex_free_gen++;
+}
+
+int BUI_texture_size(int tex, int *r_w, int *r_h)
+{
+  const BuiTexture *t = tex_get(tex);
+  if (r_w) {
+    *r_w = t ? t->w : 0;
+  }
+  if (r_h) {
+    *r_h = t ? t->h : 0;
+  }
+  return t != NULL;
+}
+
+int bui_texture_view(int tex, BuiTexView *r_view)
+{
+  const BuiTexture *t = tex_get(tex);
+  if (!t) {
+    return 0;
+  }
+  r_view->w = t->w;
+  r_view->h = t->h;
+  r_view->rgba = t->rgba;
+  r_view->gen = t->gen;
+  return 1;
+}
+
+int bui_texture_changes(int tex, unsigned since, int (*r_rects)[4], int max)
+{
+  const BuiTexture *t = tex_get(tex);
+  if (!t) {
+    return -1;
+  }
+  const unsigned pending = t->gen - since; /* updates the caller has not seen */
+  if (pending == 0) {
+    return 0;
+  }
+  if (pending > (t->nlog < TEX_LOG ? t->nlog : TEX_LOG) || (int)pending > max) {
+    return -1;
+  }
+  for (unsigned i = 0; i < pending; i++) {
+    memcpy(r_rects[i], t->log[(t->nlog - pending + i) % TEX_LOG].rect, sizeof(int[4]));
+  }
+  return (int)pending;
+}
+
+unsigned bui_texture_free_gen(void)
+{
+  return g_tex_free_gen;
+}
+
+/* Bilinear (or nearest) sample at texture coordinates (u, v), clamped to the
+ * edge, texel centers at +0.5 like the GPU samplers; out is 0..1 RGBA. */
+static inline void tex_sample(const BuiTexture *t, float u, float v, int nearest, float out[4])
+{
+  if (nearest) {
+    const int x = clampi((int)floorf(u * t->w), 0, t->w - 1);
+    const int y = clampi((int)floorf(v * t->h), 0, t->h - 1);
+    const uint8_t *p = t->rgba + ((size_t)y * t->w + x) * 4;
+    for (int k = 0; k < 4; k++) {
+      out[k] = p[k] * (1.0f / 255.0f);
+    }
+    return;
+  }
+  const float fx = u * t->w - 0.5f, fy = v * t->h - 0.5f;
+  const float flx = floorf(fx), fly = floorf(fy);
+  const float ax = fx - flx, ay = fy - fly;
+  const int x0 = clampi((int)flx, 0, t->w - 1), x1 = clampi((int)flx + 1, 0, t->w - 1);
+  const int y0 = clampi((int)fly, 0, t->h - 1), y1 = clampi((int)fly + 1, 0, t->h - 1);
+  const uint8_t *r0 = t->rgba + (size_t)y0 * t->w * 4, *r1 = t->rgba + (size_t)y1 * t->w * 4;
+  const uint8_t *p00 = r0 + x0 * 4, *p10 = r0 + x1 * 4, *p01 = r1 + x0 * 4, *p11 = r1 + x1 * 4;
+  const float w00 = (1.0f - ax) * (1.0f - ay), w10 = ax * (1.0f - ay);
+  const float w01 = (1.0f - ax) * ay, w11 = ax * ay;
+  for (int k = 0; k < 4; k++) {
+    out[k] = (p00[k] * w00 + p10[k] * w10 + p01[k] * w01 + p11[k] * w11) * (1.0f / 255.0f);
+  }
+}
+
+/* Straight-alpha source-over of color c (0..1) into a 0x00RRGGBB pixel. */
+static inline void put_straight(uint32_t *px, const float c[4])
+{
+  const float a = c[3];
+  if (!(a > 0.0f)) {
+    return;
+  }
+  Paint p = paint_from(c);
+  if (p.a >= 256) {
+    *px = p.rgb;
+  }
+  else if (p.a > 0) {
+    *px = blend(*px, p.rgb, (uint32_t)p.a);
+  }
+}
+
+static inline void col_unpack(uint32_t c, float out[4])
+{
+  out[0] = (float)(c & 0xFF) * (1.0f / 255.0f);
+  out[1] = (float)((c >> 8) & 0xFF) * (1.0f / 255.0f);
+  out[2] = (float)((c >> 16) & 0xFF) * (1.0f / 255.0f);
+  out[3] = (float)(c >> 24) * (1.0f / 255.0f);
+}
+
+/* Vertex coordinate in 1/256 px (D3D's subpixel precision), kept in range. */
+static inline int64_t mesh_fx(float v)
+{
+  v = clampf(v, -1e6f, 1e6f);
+  return (int64_t)floorf(v * 256.0f + 0.5f);
+}
+
+/* One triangle, pixel centers inside (top-left rule), clipped to
+ * [cx0, cx1) x [cy0, cy1). */
+static void mesh_triangle(BuiRaster *r,
+                          const BuiMeshVertex *va,
+                          const BuiMeshVertex *vb,
+                          const BuiMeshVertex *vc,
+                          float ox,
+                          float oy,
+                          const BuiTexture *t,
+                          int nearest,
+                          int cx0,
+                          int cy0,
+                          int cx1,
+                          int cy1)
+{
+  int64_t X[3] = {mesh_fx(va->x + ox), mesh_fx(vb->x + ox), mesh_fx(vc->x + ox)};
+  int64_t Y[3] = {mesh_fx(va->y + oy), mesh_fx(vb->y + oy), mesh_fx(vc->y + oy)};
+  const BuiMeshVertex *v[3] = {va, vb, vc};
+  int64_t area = (X[1] - X[0]) * (Y[2] - Y[0]) - (Y[1] - Y[0]) * (X[2] - X[0]);
+  if (area == 0) {
+    return;
+  }
+  if (area < 0) { /* make it clockwise on screen (positive area, y down) */
+    int64_t tx = X[1], ty = Y[1];
+    X[1] = X[2];
+    Y[1] = Y[2];
+    X[2] = tx;
+    Y[2] = ty;
+    const BuiMeshVertex *tv = v[1];
+    v[1] = v[2];
+    v[2] = tv;
+    area = -area;
+  }
+  int64_t mnx = X[0], mxx = X[0], mny = Y[0], mxy = Y[0];
+  for (int i = 1; i < 3; i++) {
+    mnx = X[i] < mnx ? X[i] : mnx;
+    mxx = X[i] > mxx ? X[i] : mxx;
+    mny = Y[i] < mny ? Y[i] : mny;
+    mxy = Y[i] > mxy ? Y[i] : mxy;
+  }
+  /* pixels whose centers (px * 256 + 128) can be inside */
+  int x0 = (int)((mnx - 128 + 255) >> 8), x1 = (int)((mxx - 128) >> 8) + 1;
+  int y0 = (int)((mny - 128 + 255) >> 8), y1 = (int)((mxy - 128) >> 8) + 1;
+  x0 = x0 > cx0 ? x0 : cx0;
+  y0 = y0 > cy0 ? y0 : cy0;
+  x1 = x1 < cx1 ? x1 : cx1;
+  y1 = y1 < cy1 ? y1 : cy1;
+  if (x0 >= x1 || y0 >= y1) {
+    return;
+  }
+  /* edge k runs from vertex k+1 to k+2 (opposite vertex k): E > 0 inside.
+   * Top-left rule: an edge owns its pixels when it is a top edge (horizontal,
+   * running right) or a left edge (running up). */
+  int64_t A[3], B[3], E0[3];
+  int bias[3];
+  const int64_t px0 = (int64_t)x0 * 256 + 128, py0 = (int64_t)y0 * 256 + 128;
+  for (int k = 0; k < 3; k++) {
+    const int a = (k + 1) % 3, b = (k + 2) % 3;
+    const int64_t dx = X[b] - X[a], dy = Y[b] - Y[a];
+    A[k] = -dy * 256; /* per pixel step in x */
+    B[k] = dx * 256;  /* per pixel step in y */
+    E0[k] = dx * (py0 - Y[a]) - dy * (px0 - X[a]);
+    const int top_left = (dy == 0 && dx > 0) || dy < 0;
+    bias[k] = top_left ? 0 : -1;
+  }
+  float col[3][4];
+  for (int i = 0; i < 3; i++) {
+    col_unpack(v[i]->col, col[i]);
+  }
+  const int flat_col = v[0]->col == v[1]->col && v[0]->col == v[2]->col;
+  const int flat_uv = !t || (v[0]->u == v[1]->u && v[0]->u == v[2]->u && v[0]->v == v[1]->v &&
+                             v[0]->v == v[2]->v);
+  const double inv = 1.0 / (double)area;
+  float tflat[4] = {1.0f, 1.0f, 1.0f, 1.0f}; /* the texel when uv is constant */
+  if (flat_uv && t) {
+    tex_sample(t, v[0]->u, v[0]->v, nearest, tflat);
+  }
+  float flat[4];
+  for (int k = 0; k < 4; k++) {
+    flat[k] = col[0][k] * tflat[k];
+  }
+  const int flat_all = flat_col && flat_uv;
+  if (flat_all && !(flat[3] > 0.0f)) {
+    return;
+  }
+  for (int py = y0; py < y1; py++) {
+    int64_t e0 = E0[0] + B[0] * (py - y0), e1 = E0[1] + B[1] * (py - y0),
+            e2 = E0[2] + B[2] * (py - y0);
+    uint32_t *row = r->pix + (size_t)py * r->w;
+    for (int px = x0; px < x1; px++, e0 += A[0], e1 += A[1], e2 += A[2]) {
+      if (e0 + bias[0] < 0 || e1 + bias[1] < 0 || e2 + bias[2] < 0) {
+        continue;
+      }
+      if (flat_all) {
+        put_straight(row + px, flat);
+        continue;
+      }
+      /* barycentric weights of vertices 0, 1, 2 */
+      const float l0 = (float)((double)e0 * inv), l1 = (float)((double)e1 * inv);
+      const float l2 = 1.0f - l0 - l1;
+      float c[4];
+      if (flat_col) {
+        memcpy(c, col[0], sizeof(c));
+      }
+      else {
+        for (int k = 0; k < 4; k++) {
+          c[k] = col[0][k] * l0 + col[1][k] * l1 + col[2][k] * l2;
+        }
+      }
+      if (flat_uv) {
+        for (int k = 0; k < 4; k++) {
+          c[k] *= tflat[k];
+        }
+      }
+      else {
+        float tx[4];
+        tex_sample(t, v[0]->u * l0 + v[1]->u * l1 + v[2]->u * l2,
+                   v[0]->v * l0 + v[1]->v * l1 + v[2]->v * l2, nearest, tx);
+        for (int k = 0; k < 4; k++) {
+          c[k] *= tx[k];
+        }
+      }
+      put_straight(row + px, c);
+    }
+  }
+}
+
+void BUI_raster_mesh(BuiRaster *r,
+                     const BuiMeshVertex *vtx,
+                     int n_vtx,
+                     const void *idx,
+                     int n_idx,
+                     int flags,
+                     int tex,
+                     const float clip[4],
+                     float ox,
+                     float oy)
+{
+  if (!vtx || !idx || n_vtx <= 0 || n_idx < 3) {
+    return;
+  }
+  int cx0 = r->cx0, cy0 = r->cy0, cx1 = r->cx1, cy1 = r->cy1;
+  if (clip) { /* a scissor: whole pixels, truncated like ImGui's backends do */
+    const float fx0 = clampf(clip[0] + ox, -1e6f, 1e6f), fy0 = clampf(clip[1] + oy, -1e6f, 1e6f);
+    const float fx1 = clampf(clip[2] + ox, -1e6f, 1e6f), fy1 = clampf(clip[3] + oy, -1e6f, 1e6f);
+    cx0 = (int)fx0 > cx0 ? (int)fx0 : cx0;
+    cy0 = (int)fy0 > cy0 ? (int)fy0 : cy0;
+    cx1 = (int)fx1 < cx1 ? (int)fx1 : cx1;
+    cy1 = (int)fy1 < cy1 ? (int)fy1 : cy1;
+  }
+  if (cx0 >= cx1 || cy0 >= cy1) {
+    return;
+  }
+  const int idx32 = (flags & BUI_MESH_INDEX32) != 0, nearest = (flags & BUI_MESH_NEAREST) != 0;
+  if (r->gpu) {
+    const int box[4] = {cx0, cy0, cx1, cy1};
+    bui_gpu_mesh(r->gpu, vtx, n_vtx, idx, idx32, n_idx, ox, oy, tex, nearest, box);
+    return;
+  }
+  const BuiTexture *t = tex ? tex_get(tex) : NULL;
+  const uint16_t *i16 = (const uint16_t *)idx;
+  const uint32_t *i32 = (const uint32_t *)idx;
+  for (int i = 0; i + 2 < n_idx; i += 3) {
+    const uint32_t a = idx32 ? i32[i] : i16[i], b = idx32 ? i32[i + 1] : i16[i + 1],
+                   c = idx32 ? i32[i + 2] : i16[i + 2];
+    if (a >= (uint32_t)n_vtx || b >= (uint32_t)n_vtx || c >= (uint32_t)n_vtx) {
+      continue;
+    }
+    mesh_triangle(r, &vtx[a], &vtx[b], &vtx[c], ox, oy, t, nearest, cx0, cy0, cx1, cy1);
+  }
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
 /** \name Color widgets (HSV wheel, gradients, lit sphere)
  * \{ */
 
@@ -2071,6 +2496,25 @@ const uint8_t *BUI_text_run_mask(const BuiTextRun *run, int *r_w, int *r_h, int 
 /** \name Text backend: GDI
  * \{ */
 
+#  ifndef BUI_NO_INTER
+#    include "../extern/font_inter.h"
+const void *BUI_text_default_font(int *r_len)
+{
+  if (r_len) {
+    *r_len = (int)sizeof(g_font_inter_variable);
+  }
+  return g_font_inter_variable;
+}
+#  else
+const void *BUI_text_default_font(int *r_len)
+{
+  if (r_len) {
+    *r_len = 0;
+  }
+  return NULL;
+}
+#  endif
+
 static HDC g_dc = NULL;
 
 static HDC text_dc(void)
@@ -2498,6 +2942,22 @@ static int face_inter(int bold)
   }
   return ids[bold];
 }
+
+const void *BUI_text_default_font(int *r_len)
+{
+  if (r_len) {
+    *r_len = (int)sizeof(g_font_inter_variable);
+  }
+  return g_font_inter_variable;
+}
+#  else
+const void *BUI_text_default_font(int *r_len)
+{
+  if (r_len) {
+    *r_len = 0;
+  }
+  return NULL;
+}
 #  endif
 
 int BUI_text_add_font(const char *family, int flags, const void *data, int len)
@@ -2578,7 +3038,7 @@ typedef struct FamilyFiles {
 } FamilyFiles;
 
 static const FamilyFiles g_families[] = {
-    {"|sans|sans-serif|inter|segoe ui|system-ui|helvetica|dejavu sans|liberation sans|noto "
+    {"|sans|sans-serif|inter|segoe ui|system-ui|helvetica|arial|dejavu sans|liberation sans|noto "
      "sans|tkdefaultfont|tktextfont|tkheadingfont|tkcaptionfont|tkmenufont|",
      {"segoeui.ttf|DejaVuSans.ttf|LiberationSans-Regular.ttf|NotoSans-Regular.ttf|Arial.ttf|"
       "arial.ttf|Helvetica.ttc|SFNS.ttf",
@@ -2605,12 +3065,6 @@ static const FamilyFiles g_families[] = {
       "New Roman Italic.ttf",
       "timesbi.ttf|DejaVuSerif-BoldItalic.ttf|LiberationSerif-BoldItalic.ttf|NotoSerif-"
       "BoldItalic.ttf|Times New Roman Bold Italic.ttf"}},
-    /* browsers' form-control font on Windows (HTML-look widgets) */
-    {"|arial|",
-     {"arial.ttf|Arial.ttf|LiberationSans-Regular.ttf|DejaVuSans.ttf|Helvetica.ttc",
-      "arialbd.ttf|Arial Bold.ttf|LiberationSans-Bold.ttf|DejaVuSans-Bold.ttf",
-      "ariali.ttf|Arial Italic.ttf|LiberationSans-Italic.ttf|DejaVuSans-Oblique.ttf",
-      "arialbi.ttf|Arial Bold Italic.ttf|LiberationSans-BoldItalic.ttf|DejaVuSans-BoldOblique.ttf"}},
 };
 
 static int family_index(const char *family)
