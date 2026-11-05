@@ -16,6 +16,8 @@ readme = "README.md"
 include = ["src/**", "tests/**", "examples/**", "README.md", "Cargo.toml"]
 
 [dependencies]
+blenderui-table = { path = "../blenderui-table", version = "0.2.0" }
+blenderui-vlist = { path = "../blenderui-vlist", version = "0.2.0" }
 blenderui-sys = { path = "../blenderui-sys", version = "0.2.0", default-features = false }
 blenderui-macros = { path = "../blenderui-macros", version = "0.2.0" }
 blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.2.0" }

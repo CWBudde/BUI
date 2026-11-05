@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["blenderui-sys", "blenderui-tailwind", "blenderui-macros", "blenderui", "blenderui-jsview", "blenderui-node", "blenderui-qjs", "blenderui-imgui"]
-exclude = ["bench"]
+members = ["blenderui-paint", "blenderui-vlist", "blenderui-table", "blenderui-sys", "blenderui-tailwind", "blenderui-macros", "blenderui", "blenderui-jsview", "blenderui-node", "blenderui-qjs", "blenderui-imgui"]
+exclude = ["bench", "blenderui-table-gpui"]
 
 [workspace.package]
 version = "0.2.0"

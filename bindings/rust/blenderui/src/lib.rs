@@ -105,6 +105,10 @@ pub mod element;
 pub mod events;
 pub mod geometry;
 pub mod html;
+pub mod list;
+pub mod table;
+pub(crate) mod sink;
+pub mod vlist;
 pub(crate) mod layout;
 pub mod paint;
 pub(crate) mod prof;
@@ -123,6 +127,7 @@ pub use blenderui_sys as sys;
 
 pub use color::*;
 pub use element::*;
+pub use list::{uniform_list, UniformList};
 pub use events::*;
 pub use geometry::{point, px, relative, rems, size, Bounds, Length, Pixels, Point, Rems, Size};
 pub use paint::{Image, Painter};
@@ -212,6 +217,7 @@ pub mod prelude {
         Button, Checkbox, ColorSwatch, Dropdown, NumberField, NumberSlider, ProgressBar, Radio, TextArea, TextField,
     };
     pub use crate::element::*;
+    pub use crate::list::{uniform_list, UniformList};
     pub use crate::events::*;
     pub use crate::geometry::{point, px, relative, rems, size, Bounds, Length, Pixels, Point, Rems, Size};
     pub use crate::html::*;

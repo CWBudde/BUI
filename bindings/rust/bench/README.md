@@ -191,3 +191,7 @@ Fourth round (reuse across frames, fewer allocations):
 | Painter, text buffer, layout scratch, box index table reused across frames; small lists on the stack | allocations per frame no longer grow with text items |
 
 Still single-threaded and the largest remaining costs are the cascade, box tree and taffy layout (about 20 ms at 3000 cells): incremental restyling and layout would be the next step.
+
+## Data table against gpui-component
+
+The data-table head-to-head (the same gpui, same data, a real window) lives in [blenderui-table-gpui](../blenderui-table-gpui/README.md): `examples/bench_gpui.rs` and `bench/run.mjs`. It reuses this directory's `common/measure.rs` for CPU cycles and memory.

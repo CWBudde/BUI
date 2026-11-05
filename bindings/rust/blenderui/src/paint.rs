@@ -101,13 +101,17 @@ enum Coords {
 }
 
 impl Coords {
-    fn of(v: &[f32]) -> Coords {
-        if v.len() <= 4 {
+    /// Points flattened to x, y pairs; up to two stay inline (no allocation).
+    fn of_points(points: &[(f32, f32)]) -> Coords {
+        if points.len() <= 2 {
             let mut a = [0.0; 4];
-            a[..v.len()].copy_from_slice(v);
-            Coords::Inline(a, v.len() as u8)
+            for (k, &(x, y)) in points.iter().enumerate() {
+                a[k * 2] = x;
+                a[k * 2 + 1] = y;
+            }
+            Coords::Inline(a, (points.len() * 2) as u8)
         } else {
-            Coords::Heap(v.to_vec())
+            Coords::Heap(points.iter().flat_map(|&(x, y)| [x, y]).collect())
         }
     }
 
@@ -203,14 +207,12 @@ impl Painter {
 
     /// A polyline through `points`.
     pub fn line(&mut self, points: &[(f32, f32)], color: impl Into<Rgba>, width: f32) {
-        let v: Vec<f32> = points.iter().flat_map(|&(x, y)| [x, y]).collect();
-        self.push(Kind::Line { width }, Coords::of(&v), color.into());
+        self.push(Kind::Line { width }, Coords::of_points(points), color.into());
     }
 
     /// A filled polygon (gpui's `paint_path`).
     pub fn polygon(&mut self, points: &[(f32, f32)], color: impl Into<Rgba>) {
-        let v: Vec<f32> = points.iter().flat_map(|&(x, y)| [x, y]).collect();
-        self.push(Kind::Polygon, Coords::of(&v), color.into());
+        self.push(Kind::Polygon, Coords::of_points(points), color.into());
     }
 
     /// A pie slice: degrees counter-clockwise from 3 o'clock.
@@ -419,7 +421,7 @@ fn radius_px(c: &Computed, b: Bounds<f32>, vp: (f32, f32)) -> f32 {
 /// Paint every box of `frame`, in stacking order. `scale`: device pixels
 /// per logical pixel (for elements whose effects work on pixels).
 pub(crate) fn paint_frame(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, p: &mut Painter,
-                          vp: (f32, f32), scale: f32) {
+                          vp: (f32, f32), scale: f32, app: &crate::window::App) {
     let mut order: Vec<usize> = (0..frame.nodes.len()).collect();
     if frame.nodes.iter().any(|n| styles[n.style].z_index.is_some()) {
         order.sort_by_key(|&i| frame.z_of(i, styles)); // stable: tree order within a level
@@ -433,10 +435,10 @@ pub(crate) fn paint_frame(frame: &Frame, styles: &StyleStore, tc: &mut TextCache
             }
             p.opacity = n.opacity;
             p.clip = n.clip;
-            paint_node(frame, styles, tc, i, p, vp);
+            paint_node(frame, styles, tc, i, p, vp, app);
         }
     } else {
-        let mut cx = LayerCx { frame, styles, tc, vp, scale, done: vec![false; frame.nodes.len()] };
+        let mut cx = LayerCx { frame, styles, tc, vp, scale, app, done: vec![false; frame.nodes.len()] };
         paint_list(&mut cx, &order, p, None, 1.0);
         LAYERS.with(|l| l.borrow_mut().end_frame());
     }
@@ -450,6 +452,7 @@ struct LayerCx<'a> {
     tc: &'a mut TextCache,
     vp: (f32, f32),
     scale: f32,
+    app: &'a crate::window::App,
     done: Vec<bool>,
 }
 
@@ -522,7 +525,7 @@ fn paint_list(cx: &mut LayerCx, list: &[usize], p: &mut Painter, root: Option<us
         p.opacity = (n.opacity / base.max(1e-6)).min(1.0);
         p.clip = n.clip;
         let (frame, styles, vp) = (cx.frame, cx.styles, cx.vp);
-        paint_node(frame, styles, cx.tc, i, p, vp);
+        paint_node(frame, styles, cx.tc, i, p, vp, cx.app);
     }
 }
 
@@ -812,7 +815,7 @@ fn redundant_background(frame: &Frame, styles: &StyleStore, n: &BoxNode) -> bool
 }
 
 fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, p: &mut Painter,
-              vp: (f32, f32)) {
+              vp: (f32, f32), app: &crate::window::App) {
     let n = &frame.nodes[i];
     let c = &styles[n.style];
     let b = n.bounds;
@@ -895,7 +898,7 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
                         }
                         _ => p.image(inner, img),
                     },
-                    Replaced::Painted(f) => p.with_clip(inner, |p| f(inner, p)),
+                    Replaced::Painted(f) => p.with_clip(inner, |p| f(inner, p, app)),
                     Replaced::Placeholder(tag) => {
                         p.fill(inner, crate::color::rgb(0x282828));
                         let label = frame.attr(i, "alt").unwrap_or(tag);

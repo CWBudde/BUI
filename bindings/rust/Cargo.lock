@@ -41,7 +41,9 @@ version = "0.2.0"
 dependencies = [
  "blenderui-macros",
  "blenderui-sys",
+ "blenderui-table",
  "blenderui-tailwind",
+ "blenderui-vlist",
  "paste",
  "png",
  "smallvec",
@@ -81,6 +83,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "blenderui-paint"
+version = "0.2.0"
+
+[[package]]
 name = "blenderui-qjs"
 version = "0.2.0"
 dependencies = [
@@ -97,8 +103,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "blenderui-table"
+version = "0.2.0"
+dependencies = [
+ "blenderui-paint",
+]
+
+[[package]]
 name = "blenderui-tailwind"
 version = "0.2.0"
+
+[[package]]
+name = "blenderui-vlist"
+version = "0.2.0"
+dependencies = [
+ "blenderui-paint",
+]
 
 [[package]]
 name = "cc"

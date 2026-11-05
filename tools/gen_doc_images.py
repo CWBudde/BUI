@@ -130,7 +130,7 @@ def site_python(theme):
     site_shots_py.main(SITE_OUT, theme)
 
 
-def site_rust(theme):
+def site_rust(theme, only_example=None):
     rust = os.path.join(ROOT, "bindings", "rust")
     if not shutil.which("cargo"):
         print("rust: cargo not found, skipped")
@@ -144,8 +144,12 @@ def site_rust(theme):
         ("site_effects", "feature-html-effects"),
         ("site_grid", "feature-css-grid"),
         ("site_animation", "feature-animation"),
+        ("site_data_table", "data-table"),
+        ("site_chat", "chat-list"),
     ]
     for ex, name in shots:
+        if only_example and ex != only_example:
+            continue
         out = os.path.join(SITE_OUT, "%s-%s.png" % (name, theme))
         run(["cargo", "run", "--release", "-j", "1", "-q", "-p", "blenderui", "--example", ex,
              "--", "--screenshot", out], env=child_env(theme), cwd=rust)
@@ -184,7 +188,7 @@ def site_native(theme, which):
         run([path, "--screenshot", out] + args, env=child_env(theme))
 
 
-def site(only, themes):
+def site(only, themes, example=None):
     os.makedirs(SITE_OUT, exist_ok=True)
     before = set(os.listdir(SITE_OUT))
     for theme in themes:
@@ -194,7 +198,7 @@ def site(only, themes):
             run([sys.executable, os.path.abspath(__file__), "--site-python", theme],
                 env=child_env(theme))
         if only in (None, "rust"):
-            site_rust(theme)
+            site_rust(theme, example)
         if only in (None, "js"):
             site_js(theme)
         if only in (None, "imgui"):
@@ -219,12 +223,13 @@ def main():
     ap.add_argument("--site", action="store_true")
     ap.add_argument("--only", choices=("python", "rust", "js", "imgui", "c"))
     ap.add_argument("--theme", choices=THEMES)
+    ap.add_argument("--example", help="with --only rust: just this example (e.g. site_data_table)")
     ap.add_argument("--site-python", choices=THEMES, help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.site_python:
         site_python(a.site_python)
     elif a.site:
-        site(a.only, [a.theme] if a.theme else list(THEMES))
+        site(a.only, [a.theme] if a.theme else list(THEMES), a.example)
     else:
         docs_images()
 

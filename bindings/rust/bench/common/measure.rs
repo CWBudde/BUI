@@ -96,18 +96,18 @@ struct FileTime {
 
 #[repr(C)]
 #[derive(Default)]
-struct MemCounters {
+pub struct MemCounters {
     cb: u32,
     page_faults: u32,
-    peak_working_set: usize,
-    working_set: usize,
+    pub peak_working_set: usize,
+    pub working_set: usize,
     quota_peak_paged: usize,
     quota_paged: usize,
     quota_peak_nonpaged: usize,
     quota_nonpaged: usize,
     pagefile: usize,
     peak_pagefile: usize,
-    private_bytes: usize,
+    pub private_bytes: usize,
 }
 
 #[link(name = "kernel32")]
@@ -121,14 +121,14 @@ unsafe extern "system" {
 /// CPU cycles used by every thread of the process. Unlike GetProcessTimes
 /// (charged per ~15.6 ms clock tick, which aliases with a 60 Hz frame loop)
 /// this is exact; `tsc_hz` turns it into time.
-fn cpu_cycles() -> u64 {
+pub fn cpu_cycles() -> u64 {
     let mut c = 0u64;
     unsafe { QueryProcessCycleTime(GetCurrentProcess(), &mut c) };
     c
 }
 
 /// The cycle counter's frequency, measured against the wall clock.
-fn tsc_hz(over: Duration) -> f64 {
+pub fn tsc_hz(over: Duration) -> f64 {
     let (t0, c0) = (Instant::now(), unsafe { core::arch::x86_64::_rdtsc() });
     std::thread::sleep(over);
     let (t1, c1) = (Instant::now(), unsafe { core::arch::x86_64::_rdtsc() });
@@ -143,7 +143,7 @@ fn cpu_time() -> Duration {
     Duration::from_nanos(t(&k) + t(&u))
 }
 
-fn memory() -> MemCounters {
+pub fn memory() -> MemCounters {
     let mut m = MemCounters { cb: std::mem::size_of::<MemCounters>() as u32, ..Default::default() };
     unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut m, m.cb) };
     m

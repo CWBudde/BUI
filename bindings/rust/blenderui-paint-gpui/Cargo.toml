@@ -1,0 +1,20 @@
+[package]
+name = "blenderui-paint-gpui"
+description = "A gpui PaintSink: paints the BUI view cores (table, variable list) straight into a gpui window's scene"
+version = "0.2.0"
+edition = "2024"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/ppmpreetham/BUI"
+homepage = "https://bui.preetham.top"
+authors = ["BUI contributors"]
+rust-version = "1.88"
+keywords = ["gpui", "paint", "blender"]
+categories = ["gui"]
+publish = false
+
+# its own workspace: like the other gpui crates, it never enters the normal CI builds
+[workspace]
+
+[dependencies]
+blenderui-paint = { path = "../blenderui-paint", version = "0.2.0" }
+gpui = { package = "gpui-pre", version = "=0.3.11" }

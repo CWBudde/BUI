@@ -681,6 +681,45 @@ impl App {
         });
     }
 
+    /// Click at (x, y) with modifier keys held (`ctrl`, `shift`).
+    pub fn simulate_click_with(&mut self, window: WindowId, x: f32, y: f32, ctrl: bool, shift: bool) {
+        let mods = c_int::from(shift) | (c_int::from(ctrl) << 1);
+        self.simulate_mouse_move(window, x, y);
+        self.input(window, |ctx, s| unsafe {
+            sys::BK_press(ctx, (x * s) as c_int, (y * s) as c_int, mods);
+        });
+        self.input(window, |ctx, s| unsafe {
+            sys::BK_release(ctx, (x * s) as c_int, (y * s) as c_int, sys::BK_BUTTON1 | mods);
+        });
+    }
+
+    /// Press at `from`, drag to `to` and release there.
+    pub fn simulate_drag(&mut self, window: WindowId, from: (f32, f32), to: (f32, f32)) {
+        self.simulate_mouse_move(window, from.0, from.1);
+        self.input(window, |ctx, s| unsafe {
+            sys::BK_press(ctx, (from.0 * s) as c_int, (from.1 * s) as c_int, 0);
+        });
+        for k in 1..=4 {
+            let t = k as f32 / 4.0;
+            let (x, y) = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+            self.input(window, |ctx, s| unsafe {
+                sys::BK_motion(ctx, (x * s) as c_int, (y * s) as c_int, sys::BK_BUTTON1);
+            });
+        }
+        self.input(window, |ctx, s| unsafe {
+            sys::BK_release(ctx, (to.0 * s) as c_int, (to.1 * s) as c_int, sys::BK_BUTTON1);
+        });
+    }
+
+    /// A key with modifier keys held.
+    pub fn simulate_key_with(&mut self, window: WindowId, text: &str, keysym: &str, ctrl: bool, shift: bool) {
+        let mods = c_int::from(shift) | (c_int::from(ctrl) << 1);
+        let (t, k) = (CString::new(text).unwrap_or_default(), CString::new(keysym).unwrap_or_default());
+        self.input(window, |ctx, _| unsafe {
+            sys::BK_key(ctx, t.as_ptr(), k.as_ptr(), mods);
+        });
+    }
+
     /// Scroll the wheel at (x, y): positive `lines` scroll the content up.
     pub fn simulate_scroll(&mut self, window: WindowId, x: f32, y: f32, lines: i32) {
         self.simulate_mouse_move(window, x, y);
@@ -1017,6 +1056,28 @@ impl Window {
         self.dirty = true;
     }
 
+    /// Bounds (logical pixels) of the element with `.id(id)` as of the last
+    /// frame. Works while rendering (views read where they were last
+    /// placed); inside an event listener the frame is lent out, so a view
+    /// keeps what it read while rendering.
+    pub fn bounds_of(&self, id: &str) -> Option<Bounds<f32>> {
+        let f = self.frame.as_ref()?;
+        f.by_key().get(&id_key(id)).map(|&i| f.nodes[i].bounds)
+    }
+
+    /// Put `text` on the clipboard.
+    pub fn write_clipboard(&mut self, text: &str) {
+        let c = CString::new(text.replace('\0', "")).unwrap_or_default();
+        // SAFETY: a live context and a NUL-terminated string the kit copies.
+        unsafe { sys::BK_clipboard_set(self.ctx, c.as_ptr()) };
+    }
+
+    /// One UI unit (Blender's `UI_UNIT_Y`, a row of widgets) in logical pixels.
+    pub fn ui_unit(&self) -> f32 {
+        // SAFETY: a constant query.
+        unsafe { sys::BK_unit() as f32 / self.scale }
+    }
+
     fn viewport(&self) -> (f32, f32) {
         (self.phys.0 as f32 / self.scale, self.phys.1 as f32 / self.scale)
     }
@@ -1030,7 +1091,9 @@ impl Window {
         let root = {
             let _s = span(Phase::Render);
             crate::hooks::begin(self.id);
-            view(self, app)
+            let mut root = view(self, app);
+            crate::element::resolve_deferred(&mut root, self, app);
+            root
         };
         if self.view.is_none() {
             self.view = Some(view);
@@ -1051,7 +1114,7 @@ impl Window {
         p.reset();
         {
             let _s = span(Phase::Paint);
-            paint_frame(&frame, &self.caches.styles, &mut self.caches.text, p, vp, self.scale);
+            paint_frame(&frame, &self.caches.styles, &mut self.caches.text, p, vp, self.scale, app);
         }
         {
             let _s = span(Phase::Flush);

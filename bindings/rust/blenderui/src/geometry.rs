@@ -164,3 +164,9 @@ impl Mul<f32> for Pixels {
         Pixels(self.0 * k)
     }
 }
+
+impl From<Pixels> for f32 {
+    fn from(p: Pixels) -> Self {
+        p.0
+    }
+}

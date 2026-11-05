@@ -18,8 +18,36 @@ pub type ElementId = SharedString;
 /// An event listener, owned by its element (moved into the frame, never shared).
 pub(crate) type Listener<E> = Box<dyn Fn(&E, &mut Window, &mut App)>;
 
+/// Work an element postpones until the window can lend itself: it receives
+/// the window and app and finishes the element (children, styles) in place.
+pub(crate) type Deferred = Box<dyn FnOnce(&mut Window, &mut App, &mut Div)>;
+
+thread_local! {
+    /// Deferred elements built since the last [`resolve_deferred`].
+    static DEFERRED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Finish every deferred element of `el` (parents first, so what a deferred
+/// element adds is resolved too). Costs nothing when none were built.
+pub(crate) fn resolve_deferred(el: &mut AnyElement, window: &mut Window, app: &mut App) {
+    if DEFERRED.replace(0) == 0 {
+        return;
+    }
+    fn walk(el: &mut AnyElement, window: &mut Window, app: &mut App) {
+        if let AnyElement::Element(d) = el {
+            if let Some(f) = d.deferred.take() {
+                f(window, app, d);
+            }
+            for c in &mut d.children {
+                walk(c, window, app);
+            }
+        }
+    }
+    walk(el, window, app);
+}
+
 /// Custom painting (gpui's `canvas()` element).
-pub(crate) type PaintFn = Box<dyn Fn(crate::geometry::Bounds<f32>, &mut crate::paint::Painter)>;
+pub(crate) type PaintFn = Box<dyn Fn(crate::geometry::Bounds<f32>, &mut crate::paint::Painter, &App)>;
 
 #[derive(Default)]
 pub(crate) struct Listeners {
@@ -49,6 +77,8 @@ pub struct Div {
     pub(crate) listeners: Option<Box<Listeners>>,
     pub(crate) paint: Option<PaintFn>,
     pub(crate) image: Option<Arc<crate::paint::Image>>,
+    /// Runs before layout with the window and app (see [`Div::defer`]).
+    pub(crate) deferred: Option<Deferred>,
 }
 
 /// Styles for interaction states (`.hover(|s| ...)` ...).
@@ -110,7 +140,21 @@ impl Div {
             listeners: None,
             paint: None,
             image: None,
+            deferred: None,
         }
+    }
+
+    /// Finish this element later, when the window is at hand: `f` runs
+    /// once, after the view returned and before layout, and may add
+    /// children and styles. Virtualized elements ([`uniform_list`], the data
+    /// tables) use it to build only what their last-known size and scroll
+    /// offset show.
+    ///
+    /// [`uniform_list`]: crate::uniform_list
+    pub(crate) fn defer(mut self, f: impl FnOnce(&mut Window, &mut App, &mut Div) + 'static) -> Self {
+        self.deferred = Some(Box::new(f));
+        DEFERRED.set(DEFERRED.get() + 1);
+        self
     }
 
     fn listeners_mut(&mut self) -> &mut Listeners {
@@ -379,6 +423,16 @@ impl FluentBuilder for StyleRefinement {}
 
 /// gpui's `canvas(prepaint, paint)`: an element that paints itself.
 pub fn canvas(paint: impl Fn(crate::geometry::Bounds<f32>, &mut crate::paint::Painter) + 'static)
+    -> Div {
+    let mut d = Div::new("canvas");
+    d.paint = Some(Box::new(move |b, p, _| paint(b, p)));
+    d
+}
+
+/// Like [`canvas`], and the paint callback also reads the app: a view over
+/// an entity paints straight from it (`entity.read(cx)`) with nothing copied
+/// into the element tree. The data tables draw this way.
+pub fn canvas_with(paint: impl Fn(crate::geometry::Bounds<f32>, &mut crate::paint::Painter, &App) + 'static)
     -> Div {
     let mut d = Div::new("canvas");
     d.paint = Some(Box::new(paint));

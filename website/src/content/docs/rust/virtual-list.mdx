@@ -1,0 +1,178 @@
+---
+title: Variable-height lists
+description: A chat-grade virtualized list whose items have different heights, one design from 100 messages to 10 million. It has a two-level height index, scrolling anchored to an item, wrapped-text measuring on demand and a file-backed source, and is drawn the way Blender text view is drawn.
+section: Rust
+order: 66
+languages: ["rust"]
+sources: ["docs/rust.md", "bindings/rust/blenderui-vlist/src/lib.rs", "bindings/rust/blenderui-vlist/src/index/mod.rs", "bindings/rust/blenderui-vlist/src/index/block.rs", "bindings/rust/blenderui-vlist/src/index/fenwick.rs", "bindings/rust/blenderui-vlist/src/estimate.rs", "bindings/rust/blenderui-vlist/src/wrap.rs", "bindings/rust/blenderui-vlist/src/measure.rs", "bindings/rust/blenderui-vlist/src/source.rs", "bindings/rust/blenderui-vlist/src/log.rs", "bindings/rust/blenderui-vlist/src/list.rs", "bindings/rust/blenderui-vlist/src/chat.rs", "bindings/rust/blenderui-vlist/src/view/mod.rs", "bindings/rust/blenderui-vlist/src/view/frame.rs", "bindings/rust/blenderui-vlist/src/view/edit.rs", "bindings/rust/blenderui-vlist/tests/view.rs", "bindings/rust/blenderui-vlist/examples/bench_core.rs", "bindings/rust/blenderui-vlist/examples/bench_frames.rs", "bindings/rust/blenderui-paint/src/lib.rs", "bindings/rust/blenderui/src/vlist/mod.rs", "bindings/rust/blenderui/src/vlist/element.rs", "bindings/rust/blenderui/src/sink.rs", "bindings/rust/blenderui/tests/vlist.rs", "bindings/rust/blenderui/examples/site_chat.rs", "bindings/rust/blenderui-vlist-gpui/src/element.rs", "bindings/rust/blenderui-vlist-gpui/examples/bench_list_gpui.rs", "bindings/rust/blenderui-vlist-gpui/bench/run.mjs"]
+---
+
+A chat is the hard case for a list. Every message has its own height (a one-word reply, a paragraph, a screenshot), the height depends on how wide the window is, new messages arrive at the bottom while you read older ones, and history loads at the top. A list that only handles rows of equal height can't do it, and one that keeps a height for every message stops being cheap when there are ten million of them.
+
+**`blenderui-vlist` is one design for all of it.** A hundred messages and ten million take the same code path. Only what you scrolled through costs memory, a frame paints only the messages in view straight to the screen, and what you are looking at doesn't move when the heights around it change.
+
+<Figure
+  shot="chat-list"
+  alt="A chat: round colored avatars with a letter, a user name and a time above each run of messages, wrapped message text, a lighter blue band on one selected message, a thin scrollbar at the right and a status line below saying 20000 messages, showing 19993..19999"
+  caption="A chat opened at its newest message, one message selected (<code>examples/site_chat.rs</code>)."
+/>
+
+## A chat in 20 lines
+
+You give the list your messages and keep its state in an entity. `chat_list` is the element; a click on a message selects it.
+
+<Tabs sync="rust-syntax" label="Rust syntax">
+<Tab label="rsx!">
+
+```rust
+use blenderui::prelude::*;
+use blenderui::vlist::{chat_list, synth, theme_palette, ChatList, ChatStyle, ListState, Options, VecSource};
+
+struct Chat { list: Entity<ListState<VecSource, ChatStyle>> }
+
+impl Render for Chat {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        rsx! {
+            <div class="w-full h-full">
+                {chat_list(&self.list)}
+            </div>
+        }
+    }
+}
+
+// when opening the window: open at the newest message, follow new ones
+let opts = Options { start_at_end: true, ..Options::default() };
+let messages = ChatList::from_messages(synth::messages(0, 1_000_000), theme_palette(), 760.0, 436.0, opts);
+let list = cx.new(|cx| ListState::new(messages, cx));
+// from anywhere: list.update(cx, |s, _| s.push(message));
+```
+
+</Tab>
+<Tab label="gpui builders">
+
+```rust
+use blenderui::prelude::*;
+use blenderui::vlist::{chat_list, synth, theme_palette, ChatList, ChatStyle, ListState, Options, VecSource};
+
+struct Chat { list: Entity<ListState<VecSource, ChatStyle>> }
+
+impl Render for Chat {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(chat_list(&self.list))
+    }
+}
+
+let opts = Options { start_at_end: true, ..Options::default() };
+let messages = ChatList::from_messages(synth::messages(0, 1_000_000), theme_palette(), 760.0, 436.0, opts);
+let list = cx.new(|cx| ListState::new(messages, cx));
+// from anywhere: list.update(cx, |s, _| s.push(message));
+```
+
+</Tab>
+</Tabs>
+
+A `Message` is an id, a time, a sender, some flags, an optional image height and the text. Whether a message starts a new run (and shows the avatar and name) or a new day (and shows a date divider) is decided when you `push` it and kept in the message's flags, so a message's height depends on that message alone and any message can be measured without its neighbours.
+
+The same crate lists anything else: build a `List` from your own `ItemSource` (where the items come from), `Measurer` (how an item lays out) and `ItemPainter` (how it looks).
+
+## One index for every size
+
+The core of the list is `HeightIndex`, which answers two questions fast: *which item is at this pixel offset*, and *how far down is this item*. Blender's own text view answers them by walking and wrapping lines every frame (`textview_draw` in `space_info/textview.cc`), which is linear in the number of lines. A table of running totals (`OffsetIndices`, `BLI_offset_indices.hh`) is cheap to read but has to be rebuilt whenever one height changes. The index here is the updatable version of the second idea, in two levels:
+
+```text
+                      top level: a Fenwick tree over blocks
+                  spare slots ........................ spare slots
+                 [ . . . ][ B0 ][ B1 ][ B2 ] ... [ Bk ][ . . . ]
+                              |     |     |          |
+                  each block holds up to 1024 consecutive items:
+                   Uniform    count, one height          (equal rows)
+                   Estimated  count, text bytes          (never looked at)
+                   Measured   prefix sums, one bit/item  (scrolled through)
+```
+
+- **Blocks are cheap until you look at them.** A block nobody scrolled to is a count and a byte total, about 40 bytes for 512 messages. Looking at it measures the messages in view and turns that one block into prefix sums (4 bytes per message). Memory follows what was scrolled through, not the length.
+- **One block is a flat array.** A list of up to 1024 items is a single block and the tree is skipped, so a hundred messages cost what a plain array of running totals costs.
+- **Equal rows cost nothing.** A list built with `ListView::uniform` is `Uniform` blocks: ten million 24 px rows are a few hundred kilobytes, and a block turns into prefix sums only when an item of a different height arrives.
+- **Both ends are cheap.** The tree has spare slots on both sides, so adding a page of older history or a new message adds a block without shifting anything; the tree doubles when a side fills up.
+- **A height change costs O(log blocks).** The new height adds a delta to the block's running totals, then up the tree. Setting many at once (`set_heights`) touches each block once.
+- **Heights are integers.** One unit is 1/64 px, in a `u32` per item and a `u64` for offsets, so ten million 60 px rows (600 million px) stay exact; `f32` stops being exact at about 16 million px. Bad input (NaN, negative, huge) is clamped at the one function that converts.
+- **A new width forgets, lazily.** Wrapped text has different heights at another width, so a resize turns every measured block back into an estimate (and releases its memory); the messages in view are measured again as they are drawn.
+
+Estimates are not guesses: `pad + lines x line height`, with the lines worked out from the text bytes and the wrap width, and a calibration factor that every real measurement adjusts. The scrollbar of a list nobody has scrolled yet is about right, and converges as you read.
+
+## Scrolling that doesn't jump
+
+The position isn't a pixel offset. It is **an anchor**: the item at the top of the viewport and how far into it the viewport starts. Items are drawn relative to the anchor in small coordinates, which gives the behaviour a chat needs:
+
+- A height changing above the viewport (an image arrived, a block got measured) can't move what you see, because nothing you see is positioned from there.
+- Prepending a page of older history doesn't jump: the anchor moves with its item.
+- **Stick to bottom** keeps the end of the list at the bottom edge while new messages arrive, stops when you scroll up, and starts again when you scroll back to the end. It is a second kind of position (the end, with no anchor), so opening a ten-million-message chat at the newest message touches only the last screenful.
+- Streaming text into the last message re-measures one message per frame, however many tokens arrived.
+- `jump_to(item, Align::Center)` (or `jump_to_id`) takes O(log blocks) plus one page, and re-aims each frame until the target is measured, so estimates between here and there can't leave it off.
+- Dragging the scrollbar far picks an anchor from the estimate. Measuring what lands there doesn't move the anchor, so nothing fights the pointer; only the thumb adjusts.
+
+The keyboard (PageUp, PageDown, arrows, Home, End), the wheel and trackpad (a notched wheel eases in over a few frames, a trackpad applies directly) and a Blender-style scrollbar are in the core, so every framework behaves the same. An idle list asks for no frames.
+
+## Measuring without laying out
+
+Heights come from a `Measurer`: how wide an item's text may be, and how tall everything that isn't text is. The wrapping is Blender's `textview_wrap_offsets` in pixels. It makes one pass over the text and records where each line starts, and the result is cached per text, width and size in the same bounded, generation-tagged cache the data table uses for text runs (Blender's glyph cache design). Plain ASCII, which is nearly all chat, is measured from a per-character advance table filled lazily from your text engine, so a message costs a table lookup per byte rather than a call into the shaper. Other characters are measured one at a time and remembered.
+
+A frame measures what is in view and nothing else. While you fling, it has a budget (half a millisecond by default); messages it couldn't measure keep their estimated height and are drawn as a skeleton, and the next frames catch up. When the list is idle, `prefetch` measures ahead of the scroll direction, so a flick finds the next screens measured. Images and embeds carry their height in the record, so their loading shifts nothing.
+
+## Where the items come from
+
+An `ItemSource` is `len`, the text bytes in a range (so an estimate needs no per-item data), `fetch` of a range into a reusable buffer, and the id of an item and the item of an id. `ensure_loaded` and `cancel` are the hooks for items that load asynchronously: the list asks for what is on screen only when you are not flinging, and cancels what it no longer needs. Two sources are included:
+
+- `VecSource`: messages in memory, with `push`, `prepend`, `set_text` and `remove`.
+- `log::LogSource`: a file-backed, append-only log. Each message is a fixed 16-byte record plus text in an arena, read with positioned reads (`seek_read` on Windows, `read_at` on Unix) so a read costs the same at message 10 as at message 10 million. Building the index over it needs two 8-byte reads per block, because the byte total of a range is a subtraction. Ten million messages are 1.1 GB on disk and a few megabytes in memory.
+
+## Measured
+
+All numbers are on a Ryzen 7 5800U laptop (8 cores, 16 GB), Windows 11, release builds, on AC power with other programs open. They are medians of 3 runs, one process per run. The code is in `blenderui-vlist/examples` and `blenderui-vlist-gpui`.
+
+**The index against a flat `Vec` of running totals** (`bench_core`), the simplest correct implementation. Both are O(1) per item to read; the flat `Vec` pays O(n) to change a height.
+
+<BenchChart id="vlist-index" />
+
+At 100 items, the one-block index costs about 20 ns more per frame than the flat array (a frame's lookups: find the first item and read 30 heights: 53 ns against 34 ns), a few thousandths of a percent of a 60 Hz frame. From 10,000 items, changing one height or adding a page of history is 13 to 20,000 times cheaper than the flat array, and the untouched list costs about 0.1 byte per item.
+
+**Whole frames of the core** (`bench_frames`): layout and paint of the chat into a counting sink, so this is the list's own cost, without a text engine or a rasterizer (the adapters add theirs).
+
+<BenchTable id="vlistFrames" />
+
+**On real gpui, against gpui's own `list` and gpui-component's `virtual_list`** (`bench_list_gpui`): the same chat messages, the same window, one process per library and size. A frame is the main thread's time from the start of the root view's render to the end of paint; GPU submission and the 60 Hz wait are not in it.
+
+<BenchChart id="vlist-scroll" />
+
+<BenchChart id="vlist-memory" />
+
+<BenchChart id="vlist-setup" />
+
+<Callout type="note" title="How to read the head-to-head">
+`virtual_list` needs the height of every item up front, so its setup includes measuring all of them (with a cheap synthetic text width, which favours it: its rows may wrap differently from what it draws). gpui's `list` measures real elements. Ours measures with gpui's own text shaper. A process is stopped, and the run reported as failed, when it passes 4 GB above its data or 150 seconds; the numbers up to that point are in the table.
+</Callout>
+
+## What is shared
+
+The list is split so that nothing is written twice:
+
+| Crate | What it holds |
+| --- | --- |
+| `blenderui-paint` | Geometry and colors, the `PaintSink` trait a framework implements once, the theme `Palette`, the bounded `TextCache`, and the test helpers. Both view cores depend on it. |
+| `blenderui-table` | The data table core. |
+| `blenderui-vlist` | The height index, the view (anchor, frame, scrolling), the measuring and wrapping, the sources and the chat look. `std` only. |
+| `blenderui` (`vlist`, `sink`) | The adapter: an entity, an element, the engine's `PaintSink` (shared with the table), input events. |
+| `blenderui-paint-gpui`, `blenderui-vlist-gpui` | The gpui `PaintSink` (shared with the table) and the gpui element. Outside the main workspace because gpui is a huge build. |
+
+An adapter holds no list logic. It owns a `List`, forwards pointer, wheel and key events, lays a frame out while rendering (which measures, so it needs the text engine and mutable access) and paints from the result with read-only access.
+
+## Limitations
+
+- **Selecting text across messages** is not built; whole messages can be selected.
+- **A background thread measuring ahead** is not built. Prefetch runs on the UI thread in idle time, under a budget. Results are applied between frames, so nothing races, but a very slow shaper still spends UI time.
+- **Damage regions.** A scroll repaints the list's whole canvas. Reusing the previous frame and painting only the newly exposed strip needs engine support the adapters don't use yet.
+- **Complex scripts** are measured per character in the fast path and shaped properly when painted by the engine, so a line of Arabic or emoji sequences can wrap a pixel or two differently from how it draws.
+- **One height clamp.** An item can be at most 16,384 px tall.
+- **Group headers after a prepend.** The message that was first before a page of older history was prepended keeps the header it had; recompute its flags if your history can continue a run.
+- **No bottom alignment for short lists.** A list shorter than the viewport sits at the top.
+- **JavaScript and Python wrappers: coming soon.** The list is built once, in Rust.

@@ -1,0 +1,78 @@
+[package]
+name = "blenderui-vlist-gpui"
+description = "A variable-height virtualized list (chat-grade) for gpui that paints only the visible items, on the shared blenderui-vlist core"
+version = "0.2.0"
+edition = "2024"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/ppmpreetham/BUI"
+homepage = "https://bui.preetham.top"
+authors = ["BUI contributors"]
+rust-version = "1.88"
+documentation = "https://docs.rs/blenderui-vlist-gpui"
+keywords = ["gpui", "list", "virtualization", "chat", "blender"]
+categories = ["gui"]
+readme = "README.md"
+include = ["src/**", "examples/**", "README.md", "Cargo.toml"]
+# not published; also kept out of the main workspace (gpui is a huge build)
+publish = false
+
+# its own workspace: like `blenderui-table-gpui`, it never enters the normal CI builds
+[workspace]
+
+[dependencies]
+blenderui-vlist = { path = "../blenderui-vlist", version = "0.2.0" }
+blenderui-paint-gpui = { path = "../blenderui-paint-gpui", version = "0.2.0" }
+gpui = { package = "gpui-pre", version = "=0.3.11" }
+
+[dev-dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.11", features = ["test-support"] }
+
+[features]
+# The head-to-head benchmark against gpui's `list` and gpui-component's `virtual_list` (a very large build).
+bench = ["dep:gpui-component", "dep:gpui_platform", "dep:gpui-kit-assets"]
+
+[dependencies.gpui-component]
+version = "=0.9.0"
+optional = true
+
+[dependencies.gpui-kit-assets]
+version = "=0.9.0"
+optional = true
+
+[dependencies.gpui_platform]
+package = "gpui-pre-platform"
+version = "=0.3.11"
+optional = true
+
+[[example]]
+name = "bench_list_gpui"
+path = "examples/bench_list_gpui.rs"
+required-features = ["bench"]
+
+[lints.clippy]
+all = { level = "warn", priority = -2 }
+pedantic = { level = "warn", priority = -2 }
+perf = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+inline_always = "allow"
+unseparated_literal_suffix = "allow"
+similar_names = "allow"
+missing_panics_doc = "allow"
+missing_errors_doc = "allow"
+absolute_paths = "allow"
+module_name_repetitions = "allow"
+doc_markdown = "allow"
+too_many_lines = "allow"
+unused_self = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+unreadable_literal = "allow"
+implicit_hasher = "allow"
+significant_drop_tightening = "warn"
+redundant_clone = "warn"
+use_self = "warn"
+redundant_else = "warn"
+or_fun_call = "warn"
+missing_const_for_fn = "warn"
+derive_partial_eq_without_eq = "warn"

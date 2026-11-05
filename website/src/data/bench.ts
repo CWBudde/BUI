@@ -6,85 +6,85 @@
 //           <BenchTable id="startup" />              just the exact table
 // The ids are the keys of `charts` and `tables` below.
 
-export const machine = "Ryzen 7 5800U laptop, Windows 11, on AC power";
+export const machine = "Ryzen 7 5800U laptop, Windows 11, on AC power"
 export const benchCaveat =
-  "Measured before the latest features (ImGui, the Linux GPU renderer, the Blender search and expression code) landed. Your numbers will differ; the tools ship with the repo.";
+  "Measured before the latest features (ImGui, the Linux GPU renderer, the Blender search and expression code) landed. Your numbers will differ; the tools ship with the repo."
 
 export const sources = {
   readme: "README.md#performance",
   rust: "bindings/rust/bench/README.md",
   js: "docs/javascript.md#performance",
-} as const;
+} as const
 
 /** One row of a bar chart. `display` is the text shown (defaults to the value + unit). */
 export interface Bar {
-  label: string;
+  label: string
   /** Smaller second line under the label, e.g. the renderer. */
-  sub?: string;
-  value: number;
-  display?: string;
+  sub?: string
+  value: number
+  display?: string
   /** BUI's own bars are drawn in Blender blue; the rest in grey. */
-  ours?: boolean;
+  ours?: boolean
 }
 
 export interface Series {
-  name: string;
-  ours?: boolean;
+  name: string
+  ours?: boolean
 }
 
 /** A grouped chart: one group per category, one bar per series. `null` = not measured. */
 export interface Group {
-  label: string;
-  sub?: string;
-  values: (number | null)[];
-  display?: (string | null)[];
+  label: string
+  sub?: string
+  values: (number | null)[]
+  display?: (string | null)[]
 }
 
 export interface Table {
-  caption: string;
-  columns: string[];
+  caption: string
+  columns: string[]
   /** Cells may contain <strong>. First cell is the row header. */
-  rows: string[][];
+  rows: string[][]
   /** Column indexes to right-align (numbers). */
-  numeric?: number[];
-  note?: string;
+  numeric?: number[]
+  note?: string
 }
 
 interface ChartBase {
-  title: string;
+  title: string
   /** What's measured, in one line under the title. */
-  subtitle?: string;
-  unit: string;
-  better: "lower" | "higher";
+  subtitle?: string
+  unit: string
+  better: "lower" | "higher"
   /** The one-glance takeaway, e.g. { value: "40×", text: "sooner first frame than gpui" }. */
-  headline?: { value: string; text: string };
+  headline?: { value: string; text: string }
   /** Id of the exact table in `tables`, revealed by "Open bench". */
-  table: TableId;
-  source: string;
+  table: TableId
+  source: string
 }
 
 export interface BarSpec extends ChartBase {
-  kind: "bars";
-  bars: Bar[];
+  kind: "bars"
+  bars: Bar[]
 }
 export interface GroupSpec extends ChartBase {
-  kind: "groups";
-  series: Series[];
-  groups: Group[];
+  kind: "groups"
+  series: Series[]
+  groups: Group[]
 }
 export interface LineSpec extends ChartBase {
-  kind: "line";
+  kind: "line"
   /** x positions, in order (e.g. cell counts). */
-  x: number[];
-  xLabel: string;
-  lines: { name: string; ours?: boolean; values: number[] }[];
+  x: number[]
+  xLabel: string
+  lines: { name: string; ours?: boolean; values: number[] }[]
 }
-export type ChartSpec = BarSpec | GroupSpec | LineSpec;
+export type ChartSpec = BarSpec | GroupSpec | LineSpec
 
 const ratio = (a: number, b: number) => {
-  const r = a / b;
-  return `${r >= 10 ? Math.round(r) : Math.round(r * 10) / 10}×`;
-};
+  const r = a / b
+  return `${r >= 10 ? Math.round(r) : Math.round(r * 10) / 10}×`
+}
 
 // ---------------------------------------------------------------------------------------
 // The exact tables
@@ -106,7 +106,14 @@ const tablesBase = {
       ["", "GPU", "159 ms", "157 ms", "43 MB", "2.4 ms"],
       ["Qt syntax (Python)", "CPU", "156 ms", "123 ms", "27 MB", "0 ms"],
       ["", "GPU", "161 ms", "160 ms", "36 MB", "1.2 ms"],
-      ["<strong>Same gpui code:</strong> blenderui", "CPU", "<strong>40 ms</strong>", "<strong>27 ms</strong>", "<strong>15 MB</strong>", "<strong>0 ms</strong>"],
+      [
+        "<strong>Same gpui code:</strong> blenderui",
+        "CPU",
+        "<strong>40 ms</strong>",
+        "<strong>27 ms</strong>",
+        "<strong>15 MB</strong>",
+        "<strong>0 ms</strong>",
+      ],
       ["blenderui", "GPU", "43 ms", "60 ms", "31 MB", "2.1 ms"],
       ["gpui", "GPU", "231 ms", "226 ms", "29 MB", "743 ms"],
       ["gpui-fast", "GPU", "226 ms", "217 ms", "31 MB", "2.5 ms"],
@@ -155,7 +162,13 @@ const tablesBase = {
     columns: ["", "First frame", "Launch to exit", "RAM at first frame", "What you ship"],
     numeric: [1, 2, 3, 4],
     rows: [
-      ["<strong>QuickJS executable</strong> (bui build)", "<strong>68 ms</strong>", "<strong>104 ms</strong>", "<strong>19 MB</strong>", "<strong>4.9 MB</strong>"],
+      [
+        "<strong>QuickJS executable</strong> (bui build)",
+        "<strong>68 ms</strong>",
+        "<strong>104 ms</strong>",
+        "<strong>19 MB</strong>",
+        "<strong>4.9 MB</strong>",
+      ],
       ["Bun executable (bui build --bun)", "79 ms", "147 ms", "35 MB", "114 MB"],
       ["Bun (bun app.js)", "80 ms", "152 ms", "35 MB", "Bun + your app"],
       ["Node.js (node app.js)", "108 ms", "187 ms", "45 MB", "Node + your app"],
@@ -169,7 +182,12 @@ const tablesBase = {
     numeric: [1, 2, 3],
     rows: [
       ["Rust", "59.6", "<strong>12.0 ms</strong>", "<strong>43 MB</strong>"],
-      ["QuickJS: plain JS / React with signals / React with state", "59.1 / 58.7 / 19.7", "16.3 / 14.9 / 51.0 ms", "<strong>56 / 61 / 67 MB</strong>"],
+      [
+        "QuickJS: plain JS / React with signals / React with state",
+        "59.1 / 58.7 / 19.7",
+        "16.3 / 14.9 / 51.0 ms",
+        "<strong>56 / 61 / 67 MB</strong>",
+      ],
       ["Bun 1.4: plain JS / React with signals / React with state", "58.8 / 58.4 / 55.8", "13.1 / 13.3 / 20.8 ms", "80 / 85 / 118 MB"],
       ["Node 22: plain JS / React with signals / React with state", "55.8 / 56.7 / 54.8", "14.4 / 14.0 / 18.9 ms", "88 / 93 / 121 MB"],
     ],
@@ -186,16 +204,168 @@ const tablesBase = {
       ["Node: plain JS / React with signals / React with state", "60 / 60 / 60", "5.6 / 5.6 / 6.9 ms", "68 / 71 / 97 MB"],
     ],
   },
-} satisfies Record<string, Table>;
+  dataTableGpui: {
+    caption:
+      "Data table on real gpui: this crate vs gpui-component 0.9.0, 1,000,000 rows x 20 columns, 1200x700 table in a 1280x740 window (bindings/rust/blenderui-table-gpui, examples/bench_gpui.rs, release build, Direct3D 11)",
+    columns: ["", "blenderui-table-gpui", "gpui-component 0.9.0", "Empty window (no table)"],
+    numeric: [1, 2, 3],
+    rows: [
+      ["Scroll frame, render to end of paint, median", "<strong>1.45 ms</strong>", "4.75 ms", "0.15 ms"],
+      ["Scroll frame, 95th / 99th percentile", "<strong>1.77 / 2.11 ms</strong>", "8.99 / 9.58 ms", "0.26 / 0.30 ms"],
+      ["Frames per second under continuous scrolling", "60.1", "60.0", "60.1"],
+      ["Process CPU per frame (all threads)", "<strong>4.6 ms</strong>", "8.9 ms", "1.0 ms"],
+      ["Heap allocations per scrolled frame", "<strong>259</strong>", "7,623", "102"],
+      ["Heap allocations per repainted frame (no scroll)", "<strong>136</strong>", "7,416", "102"],
+      ["Selection (click) to painted, CPU", "<strong>1.05 ms</strong>", "5.27 ms", "-"],
+      ["Keyboard (Down) to painted, CPU", "<strong>1.63 ms</strong>", "8.85 ms", "-"],
+      ["Sort 1,000,000 rows by a number", "<strong>37 ms</strong>", "140 ms", "-"],
+      ["Sort 1,000,000 rows by text", "<strong>38 ms</strong>", "57 ms", "-"],
+      ["First frame (window creation dominates)", "431 ms", "445 ms", "438 ms"],
+      ["Memory above the data and the empty runtime", "42 MB", "42 MB", "-"],
+      ["Peak working set", "231 MB", "192 MB", "-"],
+      ["100,000 x 8: scroll frame median", "<strong>1.24 ms</strong>", "4.02 ms", "-"],
+      ["100,000 x 8: sort by a number / by text", "<strong>4.2 / 6.8 ms</strong>", "8.6 / <strong>3.9 ms</strong>", "-"],
+    ],
+    note: "Ryzen 7 5800U laptop (8 cores), 15 GB, Windows 11; the GPU is whatever gpui picks on the default Direct3D 11 adapter. One process per library, median of 3 runs. Frame time is the main thread from the start of the root view's render to the end of the table's paint (elements, layout, prepaint, paint); GPU submission and the 60 Hz vsync wait are not in it, so both libraries show 60 FPS and the difference is CPU time. Scrolling is two rows per frame, driven the same way for both. Allocations come from a counting global allocator on the UI thread. Select and key inject real events through Window::dispatch_event and count the dispatch plus the next frame. Both tables hold the same data (columnar, generated once) and the same 110 px columns and 32 px rows; the component sorts its own row index with sort_by in perform_sort, as its examples sort their data, while this crate sorts a row mask with typed keys on every core. At 100,000 rows the component's plain single-threaded sort wins on text. This crate's peak memory is higher because sorting builds key pairs. Not measured: GPU time, a different GPU, other platforms.",
+  },
+  dataTable: {
+    caption: "Rust data table, 1,000,000 rows x 20 columns in a 900x500 window (examples/bench_table.rs, release build, software raster)",
+    columns: ["", "DataTable (painted)", "uniform_list rows", "One element per cell"],
+    numeric: [1, 2, 3],
+    rows: [
+      ["Rows measured", "1,000,000", "1,000,000", "2,000"],
+      ["Build", "<strong>0.17 ms</strong>", "-", "-"],
+      ["First frame", "<strong>6-8 ms</strong>", "13 ms", "2,800 ms"],
+      ["Scroll frame", "<strong>1.1 ms</strong>", "3.1 ms", "1,735 ms"],
+      ["Heap allocations per frame (whole pipeline)", "<strong>48</strong>", "5,186", "780,467"],
+      ["Allocations in the table's own drawing", "<strong>0</strong>", "-", "-"],
+      ["Memory added (working set)", "<strong>17 MB</strong>", "19 MB", "138 MB"],
+      ["Sort 1,000,000 rows by a column (header click, includes the repaint)", "<strong>22 ms</strong>", "-", "-"],
+    ],
+    note: "Frame times are the whole pipeline: render, layout, paint and the software raster. One element per cell was measured at 2,000 rows (a million would need about 70 GB and over ten minutes per frame; its cost grows linearly with rows). Allocation counts come from a counting global allocator; the table's drawing allocates nothing in steady state (a unit test asserts it). The same table on real gpui against gpui-component is in the next chart.",
+  },
+  vlistIndex: {
+    caption:
+      "Height index against a flat Vec of running totals, medians of 5 runs of a batch (bindings/rust/blenderui-vlist, examples/bench_core.rs, release build)",
+    columns: ["Items", "What", "HeightIndex", "Flat Vec"],
+    numeric: [2, 3],
+    rows: [
+      ["100", "A frame's lookups: find an item, read 30 heights", "53 ns", "34 ns"],
+      ["100", "Set one height / set the last item", "22 / 11 ns", "15 / 1.4 ns"],
+      ["10,000", "Set one height, random item", "<strong>53 ns</strong>", "684 ns"],
+      ["10,000", "Prepend a 500-item page", "<strong>0.3 us</strong>", "17 us"],
+      ["1,000,000", "Item at a pixel offset (all measured, random)", "136 ns", "63 ns"],
+      ["1,000,000", "Set one height, random item", "<strong>112 ns</strong>", "81,849 ns"],
+      ["1,000,000", "Prepend a 500-item page", "<strong>0.1 us</strong>", "1,838 us"],
+      ["1,000,000", "Build with nothing measured / heap per item", "<strong>0.19 ms / 0.13 B</strong>", "needs every height / 8 B"],
+      ["1,000,000", "Heap after touching only the last 60 items", "<strong>189 KB</strong>", "8 MB"],
+      ["10,000,000", "Item at a pixel offset (all measured, random)", "536 ns", "387 ns"],
+      ["10,000,000", "Set one height, random item", "<strong>182 ns</strong>", "3,825,956 ns"],
+      ["10,000,000", "Prepend a 500-item page", "<strong>0.1 us</strong>", "26,647 us"],
+      ["10,000,000", "Build with nothing measured / heap per item", "<strong>0.86 ms / 0.12 B</strong>", "needs every height / 8 B"],
+    ],
+    note: "Single-threaded, inputs seeded. Heap is live bytes from a counting allocator. Reading is where the flat array wins (about 1.5 times faster to find an item by offset when everything is measured, and far faster at 100 items in absolute ns); changing anything is where it loses. Not measured: other machines.",
+  },
+  vlistFrames: {
+    caption:
+      "Core frame cost: layout and paint of a chat into a counting sink, medians of 3 runs, 600 px viewport, 57 px scrolled per frame (examples/bench_frames.rs, bench/run.mjs)",
+    columns: [
+      "Items (source)",
+      "Index build",
+      "First frame",
+      "Scroll frame p50 / p99",
+      "Settled frame p50",
+      "Jump p50",
+      "Allocations per frame (scroll / settled)",
+      "Working set",
+    ],
+    numeric: [1, 2, 3, 4, 5, 6, 7],
+    rows: [
+      ["100 (memory)", "0.0 ms", "50 us", "4.0 / 4.9 us", "4.0 us", "3.9 us", "0.02 / 0", "2 MB"],
+      ["10,000 (memory)", "0.3 ms", "48 us", "4.7 / 10.9 us", "3.5 us", "13 us", "2.2 / 0", "5 MB"],
+      ["1,000,000 (memory)", "19 ms", "61 us", "4.7 / 11.0 us", "3.8 us", "27 us", "2.2 / 0", "205 MB (the messages)"],
+      ["1,000,000 (file log)", "8 ms", "71 us", "4.9 / 15 us", "4.1 us", "37 us", "2.2 / 0", "<strong>2 MB</strong>"],
+      ["10,000,000 (file log)", "79 ms", "78 us", "4.8 / 19 us", "2.7 us", "36 us", "2.3 / 0", "<strong>3.6 MB</strong>"],
+    ],
+    note: "The sink only counts calls and the text width is a length times a constant, so this is the list's own cost, not a text engine's or a rasterizer's. The scroll allocations are the two a newly measured message needs (its cache entry); a frame that shows messages already measured allocates nothing. The file log was just written, so its pages come from the operating system's cache. Streaming a token into the last message (edit, layout, paint) takes about 20 us.",
+  },
+  vlistGpui: {
+    caption:
+      "Variable-height list on real gpui 0.3.11: this crate against gpui's list (SumTree) and gpui-component 0.9.0's virtual_list, 700x600 chat, medians of 3 runs, one process per run (bindings/rust/blenderui-vlist-gpui, examples/bench_list_gpui.rs)",
+    columns: [
+      "Items",
+      "Library",
+      "Setup",
+      "First frame",
+      "Scroll frame p50 / p95 / p99",
+      "Allocations per frame",
+      "RAM above the empty window",
+      "Jump p50",
+    ],
+    numeric: [2, 3, 4, 5, 6, 7],
+    rows: [
+      [
+        "100",
+        "<strong>blenderui-vlist</strong>",
+        "0 ms",
+        "508 ms",
+        "<strong>0.54 / 0.84 / 0.92 ms</strong>",
+        "<strong>134</strong>",
+        "0 MB",
+        "<strong>0.53 ms</strong>",
+      ],
+      ["", "gpui list", "0 ms", "515 ms", "1.00 / 1.39 / 1.47 ms", "793", "0 MB", "1.83 ms"],
+      ["", "virtual_list", "0.1 ms", "496 ms", "1.04 / 1.46 / 1.56 ms", "923", "0 MB", "1.94 ms"],
+      [
+        "10,000",
+        "<strong>blenderui-vlist</strong>",
+        "0 ms",
+        "501 ms",
+        "<strong>0.69 / 1.12 / 1.46 ms</strong>",
+        "<strong>152</strong>",
+        "5 MB",
+        "<strong>1.41 ms</strong>",
+      ],
+      ["", "gpui list", "0.6 ms", "506 ms", "1.30 / 1.70 / 1.86 ms", "939", "1 MB", "2.60 ms"],
+      ["", "virtual_list", "8.4 ms", "507 ms", "1.26 / 1.72 / 1.85 ms", "1,035", "0 MB", "2.10 ms"],
+      [
+        "1,000,000",
+        "<strong>blenderui-vlist</strong>",
+        "0.3 ms",
+        "<strong>224 ms</strong>",
+        "<strong>0.71 / 1.16 / 1.39 ms</strong>",
+        "<strong>152</strong>",
+        "2 MB",
+        "<strong>1.47 ms</strong>",
+      ],
+      ["", "gpui list", "58 ms", "371 ms", "1.32 / 1.78 / 1.89 ms", "982", "86 MB", "2.58 ms"],
+      ["", "virtual_list", "628 ms", "836 ms", "1.30 / 1.76 / 1.91 ms", "1,091", "10 MB", "2.15 ms"],
+      [
+        "10,000,000 (file log)",
+        "<strong>blenderui-vlist</strong>",
+        "82 ms",
+        "<strong>591 ms</strong>",
+        "<strong>0.74 / 1.22 / 1.44 ms</strong>",
+        "<strong>153</strong>",
+        "<strong>6 MB</strong>",
+        "<strong>1.54 ms</strong>",
+      ],
+      ["", "gpui list", "537 ms", "1,995 ms", "1.44 / 1.87 / 2.03 ms", "957", "910 MB", "2.82 ms"],
+      ["", "virtual_list", "7,285 ms", "7,843 ms", "1.30 / 1.82 / 2.17 ms", "984", "151 MB", "2.23 ms"],
+    ],
+    note: "Ryzen 7 5800U laptop, 16 GB, Windows 11, Direct3D 11. Frame time is the main thread from the start of the root view's render to the end of paint; GPU submission and the 60 Hz wait are not in it (all three show 60 FPS). Scrolling is 57 px per frame, driven the same way for all three; the empty window with the same harness takes 0.13 ms and 102 allocations per frame. RAM is the working set after the scroll minus the same window with 100 items (about 29 MB) and minus the data. Nobody hit the 4 GB or 150 s limits, so there are no failures to report: gpui's list held ten million items in 910 MB and virtual_list took 7.3 s to build its size table. virtual_list's sizes come from a cheap synthetic text width, which favours it. Our first frame at 100 and 10,000 items is window creation. Not measured: GPU time, other machines, selection and keyboard latency, streaming updates on the competitors. The machine was in normal use during the runs.",
+  },
+} satisfies Record<string, Table>
 
-const withoutRust = (t: Table, caption: string): Table => ({ ...t, caption, rows: t.rows.filter((r) => !r[0].startsWith("Rust")) });
+const withoutRust = (t: Table, caption: string): Table => ({ ...t, caption, rows: t.rows.filter((r) => !r[0].startsWith("Rust")) })
 
 /** The base tables plus narrower views of them, for pages about one language. */
 export const tables = {
   ...tablesBase,
   /** The startup table's last rows: one gpui-syntax file compiled against each library. */
   startupGpui: {
-    caption: "Start time, the same gpui-syntax file (bindings/rust/bench/common/settings.rs) compiled against each library: median of 10 launches, process start to first frame",
+    caption:
+      "Start time, the same gpui-syntax file (bindings/rust/bench/common/settings.rs) compiled against each library: median of 10 launches, process start to first frame",
     columns: ["Same gpui code", ...tablesBase.startup.columns.slice(1)],
     numeric: tablesBase.startup.numeric,
     rows: tablesBase.startup.rows.slice(-4).map((r, i) => (i === 0 ? ["<strong>blenderui</strong>", ...r.slice(1)] : r)),
@@ -204,9 +374,9 @@ export const tables = {
   jsStartupJs: withoutRust(tablesBase.jsStartup, tablesBase.jsStartup.caption),
   jsAnim3000Js: withoutRust(tablesBase.jsAnim3000, tablesBase.jsAnim3000.caption),
   jsAnim1000Js: withoutRust(tablesBase.jsAnim1000, tablesBase.jsAnim1000.caption),
-} satisfies Record<string, Table>;
+} satisfies Record<string, Table>
 
-export type TableId = keyof typeof tables;
+export type TableId = keyof typeof tables
 
 // ---------------------------------------------------------------------------------------
 // Charts
@@ -217,14 +387,14 @@ const gpuiSame = (v: [number, number, number, number], d?: [string, string, stri
   { label: "blenderui", sub: "GPU renderer", value: v[1], display: d?.[1], ours: true },
   { label: "gpui-fast", sub: "GPU", value: v[3], display: d?.[3] },
   { label: "gpui", sub: "Zed's, GPU", value: v[2], display: d?.[2] },
-];
+]
 
 const cells = (v: [number, number, number, number], d?: [string, string, string, string]): Bar[] => [
   { label: "blenderui", sub: "GPU renderer", value: v[0], display: d?.[0], ours: true },
   { label: "blenderui", sub: "CPU renderer", value: v[1], display: d?.[1], ours: true },
   { label: "gpui-fast", value: v[2], display: d?.[2] },
   { label: "gpui", value: v[3], display: d?.[3] },
-];
+]
 
 export const charts = {
   "first-frame": {
@@ -288,10 +458,7 @@ export const charts = {
     subtitle: "The same small settings window written five ways; median of 10 launches",
     unit: "ms",
     better: "lower",
-    series: [
-      { name: "CPU renderer", ours: true },
-      { name: "GPU renderer" },
-    ],
+    series: [{ name: "CPU renderer", ours: true }, { name: "GPU renderer" }],
     groups: [
       { label: "Rust", sub: "HTML + CSS", values: [38, 42] },
       { label: "JavaScript", sub: "React, Node.js", values: [94, 99] },
@@ -358,12 +525,7 @@ export const charts = {
     subtitle: "gpui's numbers don't include its GPU time",
     unit: "ms",
     better: "lower",
-    series: [
-      { name: "blenderui GPU", ours: true },
-      { name: "blenderui CPU", ours: true },
-      { name: "gpui-fast" },
-      { name: "gpui" },
-    ],
+    series: [{ name: "blenderui GPU", ours: true }, { name: "blenderui CPU", ours: true }, { name: "gpui-fast" }, { name: "gpui" }],
     groups: [
       { label: "100 cells", values: [1.2, 4.6, 2.7, 4.7] },
       { label: "1000 cells", values: [4.7, 10.2, 20.5, 27.7] },
@@ -401,6 +563,36 @@ export const charts = {
     table: "frameTimes",
     source: sources.readme,
   },
+  "data-table-frame": {
+    kind: "bars",
+    title: "Rust data table: scroll frame, 1,000,000 rows x 20 columns",
+    subtitle: "Whole frame, 900x500 window, software raster. One element per cell: 2,000 rows",
+    unit: "ms",
+    better: "lower",
+    headline: { value: "1.1 ms", text: "per scrolled frame at a million rows" },
+    bars: [
+      { label: "DataTable", sub: "painted like Blender's spreadsheet", value: 1.1, display: "1.1 ms", ours: true },
+      { label: "uniform_list", sub: "20 cell elements per visible row", value: 3.1, display: "3.1 ms", ours: true },
+      { label: "One element per cell", sub: "2,000 rows only", value: 1735, display: "1,735 ms" },
+    ],
+    table: "dataTable",
+    source: "bindings/rust/blenderui/examples/bench_table.rs",
+  },
+  "data-table-gpui": {
+    kind: "bars",
+    title: "gpui: scroll frame, 1,000,000 rows x 20 columns",
+    subtitle: "Main thread, render to end of paint, median of 3 runs, real window",
+    unit: "ms",
+    better: "lower",
+    headline: { value: "3.3x", text: "less CPU per scrolled frame than gpui-component" },
+    bars: [
+      { label: "blenderui-table-gpui", sub: "paints visible cells", value: 1.45, display: "1.45 ms", ours: true },
+      { label: "gpui-component 0.9.0", sub: "an element per cell", value: 4.75, display: "4.75 ms" },
+      { label: "Empty window", sub: "the framework alone", value: 0.15, display: "0.15 ms" },
+    ],
+    table: "dataTableGpui",
+    source: "bindings/rust/blenderui-table-gpui/bench/results.md",
+  },
   "js-first-frame": {
     kind: "bars",
     title: "JavaScript: first frame",
@@ -423,11 +615,7 @@ export const charts = {
     subtitle: "One cell changes per frame; GPU renderer",
     unit: "ms",
     better: "lower",
-    series: [
-      { name: "Plain JS", ours: true },
-      { name: "React + signals", ours: true },
-      { name: "React + state" },
-    ],
+    series: [{ name: "Plain JS", ours: true }, { name: "React + signals", ours: true }, { name: "React + state" }],
     groups: [
       { label: "QuickJS", values: [16.3, 14.9, 51.0] },
       { label: "Bun 1.4", values: [13.1, 13.3, 20.8] },
@@ -436,9 +624,73 @@ export const charts = {
     table: "jsAnim3000",
     source: sources.readme,
   },
-} satisfies Record<string, ChartSpec>;
+  "vlist-scroll": {
+    kind: "groups",
+    title: "Variable-height list: scroll frame (median)",
+    subtitle: "Real gpui window, chat messages, main thread from render to end of paint, median of 3 runs",
+    unit: "ms",
+    better: "lower",
+    headline: { value: "about 2x", text: "faster per scrolled frame at 100, 1M and 10M messages" },
+    series: [{ name: "blenderui-vlist", ours: true }, { name: "gpui list" }, { name: "gpui-component virtual_list" }],
+    groups: [
+      { label: "100", values: [0.54, 1.0, 1.04] },
+      { label: "1,000,000", values: [0.71, 1.32, 1.3] },
+      { label: "10,000,000", sub: "file log", values: [0.74, 1.44, 1.3] },
+    ],
+    table: "vlistGpui",
+    source: "bindings/rust/blenderui-vlist-gpui/bench/results.md",
+  },
+  "vlist-memory": {
+    kind: "groups",
+    title: "Variable-height list: memory above an empty window",
+    subtitle: "Real gpui window, resident memory after the list is built and scrolled",
+    unit: "MB",
+    better: "lower",
+    headline: { value: "6 MB", text: "for 10 million messages (gpui list: 910 MB)" },
+    series: [{ name: "blenderui-vlist", ours: true }, { name: "gpui list" }, { name: "gpui-component virtual_list" }],
+    groups: [
+      { label: "100", values: [0, 0, 0] },
+      { label: "1,000,000", values: [2, 86, 10] },
+      { label: "10,000,000", sub: "file log", values: [6, 910, 151] },
+    ],
+    table: "vlistGpui",
+    source: "bindings/rust/blenderui-vlist-gpui/bench/results.md",
+  },
+  "vlist-setup": {
+    kind: "groups",
+    title: "Variable-height list: setup time",
+    subtitle: "From handing the list its messages to being ready to draw, real gpui, median of 3 runs",
+    unit: "ms",
+    better: "lower",
+    headline: { value: "7.3 s to 82 ms", text: "building the 10M list (virtual_list vs ours)" },
+    series: [{ name: "blenderui-vlist", ours: true }, { name: "gpui list" }, { name: "gpui-component virtual_list" }],
+    groups: [
+      { label: "100", values: [0, 0, 0.1] },
+      { label: "1,000,000", values: [0.3, 58, 628] },
+      { label: "10,000,000", sub: "file log", values: [82, 537, 7285] },
+    ],
+    table: "vlistGpui",
+    source: "bindings/rust/blenderui-vlist-gpui/bench/results.md",
+  },
+  "vlist-index": {
+    kind: "groups",
+    title: "Changing one item's height",
+    subtitle: "The height index against a flat Vec of running totals, release build, median of 5",
+    unit: "ns",
+    better: "lower",
+    headline: { value: "20,000x", text: "cheaper than a flat array at 10M items" },
+    series: [{ name: "HeightIndex", ours: true }, { name: "Flat Vec" }],
+    groups: [
+      { label: "10,000", values: [53, 684] },
+      { label: "1,000,000", values: [112, 81849] },
+      { label: "10,000,000", values: [182, 3825956] },
+    ],
+    table: "vlistIndex",
+    source: "bindings/rust/blenderui-vlist/examples/bench_core.rs",
+  },
+} satisfies Record<string, ChartSpec>
 
-export type ChartId = keyof typeof charts;
+export type ChartId = keyof typeof charts
 
 /**
  * The landing page's headline comparison: blenderui against gpui and gpui-fast.
@@ -486,12 +738,12 @@ export const highlights = [
     chart: "idle-cpu",
   },
 ] as const satisfies readonly {
-  value: string;
-  unit: string;
-  label: string;
-  note: string;
-  ours: number;
-  theirs: { name: string; value: number; display: string };
-  claim: string;
-  chart: ChartId;
-}[];
+  value: string
+  unit: string
+  label: string
+  note: string
+  ours: number
+  theirs: { name: string; value: number; display: string }
+  claim: string
+  chart: ChartId
+}[]
