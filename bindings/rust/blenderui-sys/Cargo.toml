@@ -23,6 +23,9 @@ slug = []
 default = ["slug"]
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = []
+# Also build and link Dear ImGui on BUI and its C API (bindings/imgui: bui_cimgui,
+# bui_imgui; C++). Used by the blenderui-imgui crate.
+imgui = []
 
 [build-dependencies]
 cmake = "0.1"

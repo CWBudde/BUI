@@ -180,7 +180,7 @@ struct BKWindow {
   float scale;
   int w, h;
   Timer timers[MAX_TIMERS];
-  Cursor cursors[8];
+  Cursor cursors[12];
   struct BKWindow *next;
 };
 
@@ -277,7 +277,7 @@ static void host_set_cursor(void *data, int c)
   if (!win->xid) {
     return;
   }
-  c = BK_CLAMP(c, 0, 7);
+  c = BK_CLAMP(c, 0, 11);
   win->cursor = c;
   if (!win->cursors[c]) {
     if (c == BK_CURSOR_NONE) { /* an empty 1x1 bitmap */
@@ -288,9 +288,12 @@ static void host_set_cursor(void *data, int c)
       XFreePixmap(g_dpy, p);
     }
     else {
-      static const unsigned shapes[8] = {XC_left_ptr, XC_sb_h_double_arrow,
-                                         XC_sb_v_double_arrow, XC_xterm, XC_crosshair,
-                                         XC_hand2, XC_fleur, XC_left_ptr};
+      static const unsigned shapes[12] = {XC_left_ptr,     XC_sb_h_double_arrow,
+                                          XC_sb_v_double_arrow, XC_xterm,
+                                          XC_crosshair,    XC_hand2,
+                                          XC_fleur,        XC_left_ptr,
+                                          XC_bottom_left_corner, XC_bottom_right_corner,
+                                          XC_X_cursor,     XC_watch};
       win->cursors[c] = XCreateFontCursor(g_dpy, shapes[c]);
     }
   }
@@ -369,10 +372,14 @@ static Timer *timer_slot(BKWindow *win, int id)
 static void host_schedule(void *data, int ms, int timer)
 {
   BKWindow *win = (BKWindow *)data;
-  win->tip_id = timer;
-  Timer *t = timer_slot(win, -1);
+  /* slot -1: the tooltip; -2: custom nodes' frames (BK_TIMER_CUSTOM) */
+  const int slot = timer == BK_TIMER_CUSTOM ? -2 : -1;
+  if (slot == -1) {
+    win->tip_id = timer;
+  }
+  Timer *t = timer_slot(win, slot);
   if (t) {
-    t->id = -1;
+    t->id = slot;
     t->due = now_ms() + ms;
   }
 }
@@ -593,11 +600,12 @@ static void handle_event(XEvent *ev)
           break;
         case Button4: /* wheel up */
         case Button5:
-          BK_wheel(ctx, b->x, b->y, b->button == Button4 ? 1 : -1, mods & ~BK_BUTTON1);
+          BK_scroll(ctx, b->x, b->y, 0.0f, b->button == Button4 ? 1.0f : -1.0f,
+                    mods & ~BK_BUTTON1);
           break;
-        case 6: /* horizontal wheel: Shift+wheel, as GHOST maps it */
+        case 6: /* horizontal wheel: left, right (widgets: Shift+wheel, as GHOST maps it) */
         case 7:
-          BK_wheel(ctx, b->x, b->y, b->button == 6 ? 1 : -1, (mods & ~BK_BUTTON1) | BK_SHIFT);
+          BK_scroll(ctx, b->x, b->y, b->button == 6 ? -1.0f : 1.0f, 0.0f, mods & ~BK_BUTTON1);
           break;
       }
       break;
@@ -926,6 +934,9 @@ static void run_timers(void)
         tm->id = 0;
         if (id == -1) {
           BK_timer(win->ctx, win->tip_id);
+        }
+        else if (id == -2) {
+          BK_timer(win->ctx, BK_TIMER_CUSTOM);
         }
         else if (win->cb.on_timer) {
           win->cb.on_timer(win->cb.data, win, id);

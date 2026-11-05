@@ -160,6 +160,56 @@ void BUI_raster_points(BuiRaster *r,
                        int count,
                        float size);
 
+/* -- textures and textured meshes -------------------------------------------
+ * Indexed triangle meshes with per-vertex position, texture coordinates and
+ * color, sampling one texture: the geometry immediate-mode UIs emit (Dear
+ * ImGui's ImDrawList, see bindings/imgui). Every renderer draws them: the
+ * software raster, Direct3D 11 and OpenGL.
+ *
+ * Textures are RGBA8 (bytes R, G, B, A in memory; straight alpha), owned by
+ * the library and shared by every raster, CPU or GPU: a GPU device uploads a
+ * texture on first use and only the changed rectangles after an update. Ids
+ * are > 0 and fit in an int (or an ImTextureID). Create, update and free them
+ * on the thread that draws; drawing only reads them (also from band threads). */
+int BUI_texture_create(int w, int h, const void *rgba, int pitch); /* rgba NULL: transparent;
+                                                                    * pitch 0: w * 4. 0 on failure */
+/* Copies a w x h block into the texture at x, y (clipped). Returns 0 for a bad id. */
+int BUI_texture_update(int tex, int x, int y, int w, int h, const void *rgba, int pitch);
+void BUI_texture_free(int tex);
+int BUI_texture_size(int tex, int *r_w, int *r_h); /* 0 when `tex` is not a live texture */
+
+/* One mesh vertex: the memory layout of Dear ImGui's ImDrawVert. `col` is
+ * 0xAABBGGRR (bytes R, G, B, A in memory: IM_COL32), straight alpha. */
+typedef struct BuiMeshVertex {
+  float x, y; /* position in pixels (before the mesh offset) */
+  float u, v; /* texture coordinates, 0..1 over the texture */
+  uint32_t col;
+} BuiMeshVertex;
+
+enum {
+  BUI_MESH_INDEX32 = 1 << 0, /* `idx` holds uint32_t indices (else uint16_t) */
+  BUI_MESH_NEAREST = 1 << 1, /* nearest-texel sampling (else bilinear) */
+};
+
+/* Draws `n_idx / 3` triangles: vertex `vtx[idx[i]]` translated by (ox, oy),
+ * colored `col * texel(u, v)` and blended source-over with straight alpha
+ * (Dear ImGui's SRC_ALPHA, ONE_MINUS_SRC_ALPHA). `tex` 0 samples white.
+ * Pixels whose centers fall inside a triangle are drawn (top-left rule,
+ * 1/256 px vertex precision, like D3D): anti-aliasing comes from the mesh
+ * itself (ImGui's AA fringes). `clip` (x0, y0, x1, y1 in vertex space, also
+ * translated; NULL = none) narrows the raster's clip, truncated to whole
+ * pixels like a scissor rectangle. Works in raster views (band threads). */
+void BUI_raster_mesh(BuiRaster *r,
+                     const BuiMeshVertex *vtx,
+                     int n_vtx,
+                     const void *idx,
+                     int n_idx,
+                     int flags,
+                     int tex,
+                     const float clip[4],
+                     float ox,
+                     float oy);
+
 /* Text. `family` NULL/"" means the platform UI font; `size` is the em size in
  * pixels; y is the baseline. Returns 0 when no native text engine exists. */
 int BUI_text_native(void);
@@ -198,6 +248,9 @@ const uint8_t *BUI_text_run_mask(const BuiTextRun *run, int *r_w, int *r_h, int 
  * `flags` (BUI_FONT_BOLD | BUI_FONT_ITALIC). Needed where the platform has no
  * font folders (wasm); elsewhere it adds to them. Returns 0 on bad data. */
 int BUI_text_add_font(const char *family, int flags, const void *data, int len);
+/* The embedded default UI face (Inter, Blender's UI font: the variable
+ * TrueType, read-only, static). NULL when the build left it out. */
+const void *BUI_text_default_font(int *r_len);
 
 /* GPU rendering (Direct3D 11 on Windows, OpenGL 3.3 on Linux). A raster in
  * GPU mode records its primitives as instances and draws them on the GPU at

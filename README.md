@@ -4,8 +4,7 @@
 
 **Blender's user interface, as a library you can use from Python, Rust, JS/React and C.**
 
-Scrubbable number fields, drag-toggles, pie menus, the color wheel and Ctrl+Z on every edit:
-the real Blender widgets, driven by the tkinter or Qt code you already know, by HTML + CSS + Tailwind in Rust, or by plain C.
+People spent decades building and optimizing Blender's GUI. It's battery and memory efficient, super duper fast. We decoupled it, to give general user a chance to build their own products with the same. Supports multiple languages and frameworks, so you wouldn't miss a beat!
 
 [![PyPI](https://img.shields.io/pypi/v/blenderui?label=pypi%20blenderui)](https://pypi.org/project/blenderui/)
 [![Python](https://img.shields.io/pypi/pyversions/blenderui)](https://pypi.org/project/blenderui/)
@@ -56,7 +55,7 @@ In Rust and JavaScript you pick the look per element:
 
 | You write                                                            | You get                                                                                   |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Plain HTML: `<button>`, `<input type="range">`, `<select>` ...      | Exactly what a browser draws: black serif text on white, Chrome's form controls           |
+| Plain HTML: `<button>`, `<input type="range">`, `<select>` ...      | What a browser draws: black text on white, Chrome's form controls, in the Inter UI font   |
 | `styled` on any element: `<div styled>`, `div().styled()`            | Blender's look for it and everything inside: dark theme, UI font, Blender widgets         |
 | **Blender components** (capitalized): `<NumberSlider>`, `<Button>` ... | Blender's widgets and interaction everywhere (drag to scrub, Ctrl+Z, Blender's color picker) |
 
@@ -661,6 +660,7 @@ the renderer.
 | [Rust](docs/rust.md)                       | `rsx!`, hooks, HTML, CSS and Tailwind coverage, events, headless tests                     |
 | [JavaScript and React](docs/javascript.md) | `@blender-ui/native`, `@blender-ui/react`, how changes cross to the UI thread, performance |
 | [C API](docs/c-api.md)                     | The C kit (`BUI_kit.h`)                                                                    |
+| [Dear ImGui](docs/imgui.md)                | Dear ImGui on BUI from C++, C, Python and Rust; coverage                                   |
 | [Integration](INTEGRATION.md)              | Embedding BUI drawing in C, C++, Qt or PySide hosts                                        |
 | [Architecture](ARCHITECTURE.md)            | Modules and what was taken from Blender                                                    |
 | [Publishing](docs/publishing.md)           | Releasing to PyPI and crates.io                                                            |

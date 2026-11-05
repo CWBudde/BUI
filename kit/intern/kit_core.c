@@ -152,7 +152,7 @@ static const BKClass *const g_classes[] = {
     &bk_cls_menubutton, &bk_cls_menubar, &bk_cls_list,       &bk_cls_tree,
     &bk_cls_gridview, &bk_cls_ramp,      &bk_cls_curve,      &bk_cls_normal,
     &bk_cls_histogram, &bk_cls_frame,     &bk_cls_radio,      &bk_cls_canvas,
-    &bk_cls_textarea,  &bk_cls_image,     &bk_cls_meter,
+    &bk_cls_textarea,  &bk_cls_image,     &bk_cls_meter,      &bk_cls_custom,
     &bk_cls_filebrowser,
 };
 
@@ -1417,6 +1417,9 @@ BKNode *BK_context_root(BKContext *ctx)
 
 void bk_ctx_request(BKContext *ctx)
 {
+  if (ctx->in_custom_frame) {
+    return; /* BK_render draws what the frame callbacks dirtied right after */
+  }
   if (ctx->host.request) {
     ctx->host.request(ctx->host.data);
   }
@@ -2034,6 +2037,11 @@ int BK_render(BKContext *ctx, BuiRaster *r, int w, int h, int full)
   if (ctx->layout_dirty) { /* a scroll command changed the layout */
     layout(ctx);
   }
+  bk_custom_frames(ctx); /* immediate-mode nodes build this frame (they dirty themselves) */
+  if (ctx->layout_dirty) {
+    ctx->full_dirty = true;
+    layout(ctx);
+  }
   if (!ctx->full_dirty && ctx->ndirty == 0) {
     return 0;
   }
@@ -2138,6 +2146,10 @@ static void arm_tooltip(BKContext *ctx, BKNode *target, int x, int y)
 
 void BK_timer(BKContext *ctx, int timer)
 {
+  if (timer == BK_TIMER_CUSTOM) {
+    bk_custom_timer(ctx);
+    return;
+  }
   if (timer == ctx->tip_serial && ctx->tip_node && ctx->hover == ctx->tip_node && !ctx->grab &&
       !ctx->tip_shown)
   {
@@ -2196,6 +2208,11 @@ static void update_cursor(BKContext *ctx)
   }
 }
 
+void bk_update_cursor(BKContext *ctx)
+{
+  update_cursor(ctx);
+}
+
 static bool continuous(BKContext *ctx)
 {
   return ctx->host.warp && ctx->grab && ctx->dragging && !BK_HTML(ctx->grab) &&
@@ -2248,6 +2265,20 @@ static int in_BK_motion(BKContext *ctx, int x, int y, int mods)
     update_cursor(ctx);
     return changed;
   }
+  if (BK_IS_CUSTOM(ctx->grab)) { /* every motion, no drag threshold of ours */
+    BKNode *g = ctx->grab;
+    if (x <= -50000 || y <= -50000) {
+      return 0; /* a host's "pointer left the window" while grabbed: keep the last position */
+    }
+    BKEvent e = make_event(ctx, g, x, y, mods);
+    g->cls->move(g, &e);
+    BKNode *under = hit_all(ctx, x, y);
+    if (under != ctx->hover) {
+      set_hover(ctx, under);
+    }
+    update_cursor(ctx);
+    return 1;
+  }
   if (ctx->grab) {
     const int vx = x + ctx->off_x, vy = y + ctx->off_y;
     const int threshold = BK_MAX(3, (int)(0.15f * bk_unit()));
@@ -2299,8 +2330,31 @@ static int in_BK_motion(BKContext *ctx, int x, int y, int mods)
   return changed;
 }
 
+/* A custom node grabbed by one button gets presses and releases of the others
+ * directly (ImGui holds several buttons at once). */
+static int custom_extra_button(BKContext *ctx, int x, int y, int button, int release, int mods)
+{
+  BKNode *g = ctx->grab;
+  if (!BK_IS_CUSTOM(g) || button == ctx->press_button) {
+    return 0;
+  }
+  BKCustomEvent ce;
+  memset(&ce, 0, sizeof(ce));
+  ce.type = release ? BK_CUSTOM_RELEASE : BK_CUSTOM_PRESS;
+  ce.button = button;
+  ce.mods = mods;
+  ce.clicks = release ? 0 : 1;
+  bk_custom_event(g, &ce, x, y);
+  return 1;
+}
+
 static int in_BK_press(BKContext *ctx, int x, int y, int mods)
 {
+  const int button = ctx->next_button > 0 ? ctx->next_button : 1;
+  ctx->next_button = 0;
+  if (custom_extra_button(ctx, x, y, button, 0, mods)) {
+    return 1;
+  }
   hide_tooltip(ctx);
   ctx->pointer_x = x;
   ctx->pointer_y = y;
@@ -2308,7 +2362,7 @@ static int in_BK_press(BKContext *ctx, int x, int y, int mods)
   ctx->press_y = y;
   ctx->dragging = false;
   ctx->has_ungrab = false;
-  ctx->press_button = 1;
+  ctx->press_button = button;
   ctx->off_x = ctx->off_y = 0;
   if (ctx->modal) {
     BKEvent e = make_event(ctx, ctx->modal, x, y, mods);
@@ -2372,6 +2426,11 @@ static int in_BK_press(BKContext *ctx, int x, int y, int mods)
 
 static int in_BK_release(BKContext *ctx, int x, int y, int mods)
 {
+  const int button = ctx->next_button > 0 ? ctx->next_button : 1;
+  ctx->next_button = 0;
+  if (custom_extra_button(ctx, x, y, button, 1, mods)) {
+    return 1;
+  }
   if (ctx->modal) {
     BKEvent e = make_event(ctx, ctx->modal, x, y, mods);
     if (ctx->modal->cls->release) {
@@ -2447,7 +2506,11 @@ static BKNode *buttons_target(BKContext *ctx, int x, int y)
 
 static int in_BK_context_menu(BKContext *ctx, int x, int y, int mods)
 {
+  if (custom_extra_button(ctx, x, y, 3, 0, mods | BK_BUTTON3)) {
+    return 1;
+  }
   if (buttons_target(ctx, x, y) && !ctx->grab) { /* an editor takes the right button */
+    ctx->next_button = 3;
     const int r = in_BK_press(ctx, x, y, mods | BK_BUTTON3);
     ctx->press_button = 3;
     return r;
@@ -3212,6 +3275,33 @@ int BK_key(BKContext *ctx, const char *text, const char *keysym, int mods)
   INPUT_ENTRY(in_BK_key(ctx, text, keysym, mods));
 }
 
+int BK_scroll(BKContext *ctx, int x, int y, float dx, float dy, int mods)
+{
+  BKNode *t = BK_IS_CUSTOM(ctx->grab) ? ctx->grab : (ctx->modal ? NULL : hit_all(ctx, x, y));
+  if (BK_IS_CUSTOM(t) && NODE_ENABLED(t)) {
+    if (dx == 0.0f && dy == 0.0f) {
+      return 0;
+    }
+    hide_tooltip(ctx);
+    BKEvent e = make_event(ctx, t, x, y, mods);
+    e.wheel_x = dx;
+    e.wheel_y = dy;
+    e.delta = dy > 0.0f ? 1 : (dy < 0.0f ? -1 : 0);
+    ctx->in_input++;
+    t->cls->wheel(t, &e);
+    ctx->in_input--;
+    return 1;
+  }
+  int r = 0;
+  if (dy != 0.0f) {
+    r |= BK_wheel(ctx, x, y, dy > 0.0f ? 1 : -1, mods);
+  }
+  if (dx != 0.0f) { /* X11's buttons 6 / 7: Shift + wheel, left = up */
+    r |= BK_wheel(ctx, x, y, dx > 0.0f ? -1 : 1, mods | BK_SHIFT);
+  }
+  return r;
+}
+
 int BK_context_menu(BKContext *ctx, int x, int y, int mods)
 {
   INPUT_ENTRY(in_BK_context_menu(ctx, x, y, mods));
@@ -3223,6 +3313,14 @@ int BK_key_release(BKContext *ctx, const char *keysym, int mods)
   e.text = "";
   e.keysym = keysym ? keysym : "";
   for (BKNode *n = ctx->focus ? ctx->focus : ctx->hover; n; n = n->parent) {
+    if (BK_IS_CUSTOM(n) && NODE_ENABLED(n)) {
+      BKCustomEvent ce;
+      memset(&ce, 0, sizeof(ce));
+      ce.type = BK_CUSTOM_KEYUP;
+      ce.mods = mods;
+      ce.keysym = e.keysym;
+      return bk_custom_event(n, &ce, ctx->pointer_x, ctx->pointer_y);
+    }
     if (n->flags & NF_EVENTS) {
       char buf[96];
       snprintf(buf, sizeof(buf), "\t%s", e.keysym);
@@ -3237,8 +3335,12 @@ int BK_button(BKContext *ctx, int x, int y, int button, int release, int mods)
 {
   if (button == 2 || button == 3) { /* editors: middle drags, right drags */
     const int bit = button == 2 ? BK_BUTTON2 : BK_BUTTON3;
+    if (custom_extra_button(ctx, x, y, button, release, mods | bit)) {
+      return 1;
+    }
     if (!release && button == 2 && !ctx->grab && buttons_target(ctx, x, y)) {
       ctx->in_input++;
+      ctx->next_button = button;
       in_BK_press(ctx, x, y, mods | bit);
       ctx->press_button = button;
       ctx->in_input--;
@@ -3246,9 +3348,10 @@ int BK_button(BKContext *ctx, int x, int y, int button, int release, int mods)
       return 1;
     }
     if (release && ctx->grab && ctx->press_button == button) {
-      ctx->press_button = 0;
       ctx->in_input++;
+      ctx->next_button = button;
       in_BK_release(ctx, x, y, mods | bit);
+      ctx->press_button = 0;
       ctx->in_input--;
       bk_views_check(ctx);
       return 1;
@@ -3454,7 +3557,7 @@ void BK_set_animations(int enabled)
 
 int BK_animating(BKContext *ctx)
 {
-  return ctx->nanim > 0;
+  return ctx->nanim > 0 || bk_custom_animating(ctx);
 }
 
 void bk_anim_start(BKNode *n)

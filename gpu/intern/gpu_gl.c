@@ -77,6 +77,7 @@ typedef ptrdiff_t GLintptr;
 #  define GL_RENDERER 0x1F01
 #  define GL_VERSION 0x1F02
 #  define GL_NEAREST 0x2600
+#  define GL_LINEAR 0x2601
 #  define GL_TEXTURE_MAG_FILTER 0x2800
 #  define GL_TEXTURE_MIN_FILTER 0x2801
 #  define GL_TEXTURE_WRAP_S 0x2802
@@ -92,6 +93,7 @@ typedef ptrdiff_t GLintptr;
 #  define GL_TEXTURE0 0x84C0
 #  define GL_RGBA32F 0x8814
 #  define GL_ARRAY_BUFFER 0x8892
+#  define GL_ELEMENT_ARRAY_BUFFER 0x8893
 #  define GL_STREAM_DRAW 0x88E0
 #  define GL_FRAGMENT_SHADER 0x8B30
 #  define GL_VERTEX_SHADER 0x8B31
@@ -163,7 +165,9 @@ typedef ptrdiff_t GLintptr;
     F(void, glBlitFramebuffer, \
       (GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum)) \
     F(void, glDrawArrays, (GLenum, GLint, GLsizei)) \
-    F(void, glDrawArraysInstanced, (GLenum, GLint, GLsizei, GLsizei))
+    F(void, glDrawArraysInstanced, (GLenum, GLint, GLsizei, GLsizei)) \
+    F(void, glDrawElements, (GLenum, GLsizei, GLenum, const void *)) \
+    F(void, glScissor, (GLint, GLint, GLsizei, GLsizei))
 
 #  define GLF_DECL(ret, name, args) ret(*name) args;
 typedef struct GLFuncs {
@@ -767,6 +771,37 @@ static const char *const k_fs_tri =
     "  frag = vec4(v_color.rgb * a, a);\n"
     "}\n";
 
+/* textured meshes (BUI_raster_mesh: Dear ImGui's ImDrawList): position,
+ * texture coordinates, RGBA8 color; clipped by the scissor; premultiplied
+ * output for the shared ONE, ONE_MINUS_SRC_ALPHA blend (bui_ui.hlsl ps_mesh) */
+static const char *const k_vs_mesh =
+    "#version 330 core\n"
+    "uniform vec2 to_ndc;\n"
+    "layout(location = 0) in vec2 a_pos;\n"
+    "layout(location = 1) in vec2 a_uv;\n"
+    "layout(location = 2) in vec4 a_color;\n"
+    "out vec2 v_uv;\n"
+    "out vec4 v_color;\n"
+    "void main()\n"
+    "{\n"
+    "  gl_Position = vec4(a_pos.x * to_ndc.x - 1.0, a_pos.y * to_ndc.y - 1.0, 0.0, 1.0);\n"
+    "  v_uv = a_uv;\n"
+    "  v_color = a_color;\n"
+    "}\n";
+
+static const char *const k_fs_mesh =
+    "#version 330 core\n"
+    "uniform sampler2D mesh_tex;\n"
+    "in vec2 v_uv;\n"
+    "in vec4 v_color;\n"
+    "layout(location = 0) out vec4 frag;\n"
+    "void main()\n"
+    "{\n"
+    "  vec4 c = v_color * texture(mesh_tex, v_uv);\n"
+    "  float a = clamp(c.a, 0.0, 1.0);\n"
+    "  frag = vec4(c.rgb * a, a);\n"
+    "}\n";
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -807,9 +842,21 @@ typedef struct SlugGlyph {
 } SlugGlyph;
 
 typedef struct Batch {
-  int tri; /* 0: quad instances, 1: triangles */
+  int tri; /* 0: quad instances, 1: triangles, 2: textured mesh (indexed) */
   int first, count;
+  /* meshes: texture (0: white), sampler, scissor x0 y0 x1 y1 */
+  int tex, nearest;
+  int clip[4];
 } Batch;
+
+/* A registry texture (BUI_texture_*) in this context, by registry slot. */
+typedef struct DevTex {
+  int id; /* 0 = empty */
+  unsigned gen;
+  int w, h;
+  int nearest; /* the filter it is set to */
+  GLuint tex;
+} DevTex;
 
 typedef struct TriV {
   float x, y;
@@ -835,10 +882,14 @@ struct BuiGpu {
   EGLSurface esurf;
   GLFuncs f;
 
-  GLuint prog_quad, prog_tri;
-  GLint ndc_quad, ndc_tri;
-  GLuint vao_quad, vao_tri;
-  GLuint ib, tb;
+  GLuint prog_quad, prog_tri, prog_mesh;
+  GLint ndc_quad, ndc_tri, ndc_mesh;
+  GLuint vao_quad, vao_tri, vao_mesh;
+  GLuint ib, tb, mvb, mib;
+  GLuint white_tex; /* 1x1 white: meshes without a texture */
+  DevTex *dtex;
+  int n_dtex;
+  unsigned dtex_free_gen;
   int max_tex;
 
   GLuint fbo, target;
@@ -860,6 +911,10 @@ struct BuiGpu {
   int n_inst, cap_inst;
   TriV *tv;
   int n_tv, cap_tv;
+  BuiMeshVertex *mv;
+  int n_mv, cap_mv;
+  uint32_t *mi;
+  int n_mi, cap_mi;
   Batch *b;
   int n_b, cap_b;
 
@@ -1226,11 +1281,15 @@ static int device_init(BuiGpu *g)
   }
   g->prog_quad = program(g, k_vs_quad, k_fs_quad);
   g->prog_tri = program(g, k_vs_tri, k_fs_tri);
-  if (!g->prog_quad || !g->prog_tri) {
+  g->prog_mesh = program(g, k_vs_mesh, k_fs_mesh);
+  if (!g->prog_quad || !g->prog_tri || !g->prog_mesh) {
     return fail("shaders");
   }
   g->ndc_quad = GL(glGetUniformLocation)(g->prog_quad, "to_ndc");
   g->ndc_tri = GL(glGetUniformLocation)(g->prog_tri, "to_ndc");
+  g->ndc_mesh = GL(glGetUniformLocation)(g->prog_mesh, "to_ndc");
+  GL(glUseProgram)(g->prog_mesh);
+  GL(glUniform1i)(GL(glGetUniformLocation)(g->prog_mesh, "mesh_tex"), 4); /* unit 4 */
   GL(glUseProgram)(g->prog_quad);
   const char *samplers[4] = {"mask_tex", "rgba_tex", "curve_tex", "band_tex"};
   for (int i = 0; i < 4; i++) {
@@ -1259,7 +1318,31 @@ static int device_init(BuiGpu *g)
   GL(glVertexAttribPointer)(1, 4, GL_FLOAT, GL_FALSE, sizeof(TriV), (const void *)offsetof(TriV, c));
   GL(glVertexAttribPointer)(2, 4, GL_FLOAT, GL_FALSE, sizeof(TriV),
                             (const void *)offsetof(TriV, clip));
+  /* meshes: BuiMeshVertex (= ImDrawVert) + a uint32 index buffer */
+  GL(glGenBuffers)(1, &g->mvb);
+  GL(glGenBuffers)(1, &g->mib);
+  GL(glGenVertexArrays)(1, &g->vao_mesh);
+  GL(glBindVertexArray)(g->vao_mesh);
+  GL(glBindBuffer)(GL_ARRAY_BUFFER, g->mvb);
+  GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, g->mib);
+  for (GLuint k = 0; k < 3; k++) {
+    GL(glEnableVertexAttribArray)(k);
+  }
+  GL(glVertexAttribPointer)(0, 2, GL_FLOAT, GL_FALSE, sizeof(BuiMeshVertex),
+                            (const void *)offsetof(BuiMeshVertex, x));
+  GL(glVertexAttribPointer)(1, 2, GL_FLOAT, GL_FALSE, sizeof(BuiMeshVertex),
+                            (const void *)offsetof(BuiMeshVertex, u));
+  GL(glVertexAttribPointer)(2, 4, GL_UNSIGNED_BYTE, 1, sizeof(BuiMeshVertex),
+                            (const void *)offsetof(BuiMeshVertex, col));
   GL(glBindVertexArray)(0);
+  {
+    const uint32_t white = 0xFFFFFFFFu;
+    g->white_tex = tex_create(g, GL_RGBA8, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE);
+    if (!g->white_tex) {
+      return fail("white texture");
+    }
+    GL(glTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &white);
+  }
 
   GL(glDisable)(GL_DEPTH_TEST);
   GL(glDisable)(GL_CULL_FACE);
@@ -1354,9 +1437,12 @@ void bui_gpu_free(BuiGpu *g)
   if (!g) {
     return;
   }
-  context_free(g);
+  context_free(g); /* deletes the textures and buffers with it */
+  free(g->dtex);
   free(g->inst);
   free(g->tv);
+  free(g->mv);
+  free(g->mi);
   free(g->b);
   free(g->mask_map);
   free(g->img_map);
@@ -1441,7 +1527,7 @@ void bui_gpu_begin(BuiGpu *g, int w, int h)
 
 static Batch *batch_for(BuiGpu *g, int tri, int first)
 {
-  if (g->n_b > 0 && g->b[g->n_b - 1].tri == tri) {
+  if (tri != 2 && g->n_b > 0 && g->b[g->n_b - 1].tri == tri) {
     return &g->b[g->n_b - 1];
   }
   if (g->n_b == g->cap_b) {
@@ -1454,10 +1540,203 @@ static Batch *batch_for(BuiGpu *g, int tri, int first)
     g->cap_b = cap;
   }
   Batch *b = &g->b[g->n_b++];
+  memset(b, 0, sizeof(*b));
   b->tri = tri;
   b->first = first;
-  b->count = 0;
   return b;
+}
+
+/* -- textured meshes (as gpu_d3d11.c) ------------------------------------------------ */
+
+static void dtex_release(BuiGpu *g, DevTex *t)
+{
+  if (t->tex) {
+    GL(glDeleteTextures)(1, &t->tex);
+  }
+  t->tex = 0;
+  t->id = 0;
+}
+
+static void dtex_upload(BuiGpu *g, const BuiTexView *v, int x, int y, int w, int h)
+{
+  GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 4);
+  GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, v->w);
+  GL(glTexSubImage2D)(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE,
+                      v->rgba + ((size_t)y * v->w + x) * 4);
+  GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, 0);
+}
+
+/* Creates or refreshes the context's copy of registry texture `id`. */
+static void dtex_get(BuiGpu *g, int id)
+{
+  BuiTexView v;
+  if (id <= 0 || !bui_texture_view(id, &v) || !make_current(g)) {
+    return;
+  }
+  const int slot = (id & 0xFFFF) - 1;
+  if (slot >= g->n_dtex) {
+    const int n = slot + 16;
+    DevTex *nd = (DevTex *)realloc(g->dtex, sizeof(DevTex) * (size_t)n);
+    if (!nd) {
+      return;
+    }
+    memset(nd + g->n_dtex, 0, sizeof(DevTex) * (size_t)(n - g->n_dtex));
+    g->dtex = nd;
+    g->n_dtex = n;
+  }
+  DevTex *t = &g->dtex[slot];
+  if (t->id == id && t->gen == v.gen) {
+    return;
+  }
+  if (t->id == id && t->w == v.w && t->h == v.h) {
+    flush(g); /* draws recorded so far still need the old pixels */
+    int rects[32][4];
+    int n = bui_texture_changes(id, t->gen, rects, 32);
+    if (n < 0) {
+      rects[0][0] = rects[0][1] = 0;
+      rects[0][2] = v.w;
+      rects[0][3] = v.h;
+      n = 1;
+    }
+    GL(glBindTexture)(GL_TEXTURE_2D, t->tex);
+    for (int i = 0; i < n; i++) {
+      dtex_upload(g, &v, rects[i][0], rects[i][1], rects[i][2], rects[i][3]);
+    }
+    t->gen = v.gen;
+    return;
+  }
+  if (t->id) {
+    flush(g);
+    dtex_release(g, t);
+  }
+  t->tex = tex_create(g, GL_RGBA8, v.w, v.h, GL_RGBA, GL_UNSIGNED_BYTE);
+  if (!t->tex) {
+    return;
+  }
+  dtex_upload(g, &v, 0, 0, v.w, v.h);
+  t->id = id;
+  t->gen = v.gen;
+  t->w = v.w;
+  t->h = v.h;
+  t->nearest = 1; /* tex_create's filter */
+}
+
+/* Binds the texture a recorded batch samples to unit 4. */
+static void dtex_bind(BuiGpu *g, int id, int nearest)
+{
+  const int slot = (id & 0xFFFF) - 1;
+  DevTex *t = id > 0 && slot < g->n_dtex && g->dtex[slot].id == id && g->dtex[slot].tex ?
+                  &g->dtex[slot] :
+                  NULL;
+  GL(glActiveTexture)(GL_TEXTURE0 + 4);
+  GL(glBindTexture)(GL_TEXTURE_2D, t ? t->tex : g->white_tex);
+  if (t && t->nearest != nearest) {
+    const GLint f = nearest ? GL_NEAREST : GL_LINEAR;
+    GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, f);
+    GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, f);
+    t->nearest = nearest;
+  }
+  GL(glActiveTexture)(GL_TEXTURE0);
+}
+
+static void dtex_sweep(BuiGpu *g)
+{
+  const unsigned fg = bui_texture_free_gen();
+  if (fg == g->dtex_free_gen || !make_current(g)) {
+    return;
+  }
+  g->dtex_free_gen = fg;
+  BuiTexView v;
+  for (int i = 0; i < g->n_dtex; i++) {
+    if (g->dtex[i].id && !bui_texture_view(g->dtex[i].id, &v)) {
+      flush(g);
+      dtex_release(g, &g->dtex[i]);
+    }
+  }
+}
+
+static int grow(void **p, int *cap, int need, size_t size)
+{
+  if (need <= *cap) {
+    return 1;
+  }
+  int c = *cap ? *cap : 4096;
+  while (c < need) {
+    c *= 2;
+  }
+  void *np = realloc(*p, size * (size_t)c);
+  if (!np) {
+    return 0;
+  }
+  *p = np;
+  *cap = c;
+  return 1;
+}
+
+void bui_gpu_mesh(BuiGpu *g,
+                  const BuiMeshVertex *vtx,
+                  int n_vtx,
+                  const void *idx,
+                  int idx32,
+                  int n_idx,
+                  float ox,
+                  float oy,
+                  int tex,
+                  int nearest,
+                  const int clip[4])
+{
+  n_idx -= n_idx % 3;
+  if (n_idx <= 0 || n_vtx <= 0) {
+    return;
+  }
+  dtex_sweep(g);
+  dtex_get(g, tex); /* may flush: before anything of this mesh is recorded */
+  if (!grow((void **)&g->mv, &g->cap_mv, g->n_mv + n_vtx, sizeof(BuiMeshVertex)) ||
+      !grow((void **)&g->mi, &g->cap_mi, g->n_mi + n_idx, sizeof(uint32_t)))
+  {
+    return;
+  }
+  Batch *b = NULL;
+  if (g->n_b > 0) { /* same texture, sampler and clip: one draw */
+    Batch *last = &g->b[g->n_b - 1];
+    if (last->tri == 2 && last->tex == tex && last->nearest == nearest &&
+        memcmp(last->clip, clip, sizeof(int[4])) == 0)
+    {
+      b = last;
+    }
+  }
+  if (!b) {
+    b = batch_for(g, 2, g->n_mi);
+    if (!b) {
+      return;
+    }
+    b->tex = tex;
+    b->nearest = nearest;
+    memcpy(b->clip, clip, sizeof(int[4]));
+  }
+  const uint32_t base = (uint32_t)g->n_mv;
+  for (int i = 0; i < n_vtx; i++) {
+    BuiMeshVertex *v = &g->mv[g->n_mv++];
+    *v = vtx[i];
+    v->x += ox;
+    v->y += oy;
+  }
+  const uint16_t *i16 = (const uint16_t *)idx;
+  const uint32_t *i32 = (const uint32_t *)idx;
+  uint32_t *out = g->mi + g->n_mi;
+  int n = 0;
+  for (int i = 0; i < n_idx; i += 3) {
+    const uint32_t a = idx32 ? i32[i] : i16[i], c1 = idx32 ? i32[i + 1] : i16[i + 1],
+                   c2 = idx32 ? i32[i + 2] : i16[i + 2];
+    if (a >= (uint32_t)n_vtx || c1 >= (uint32_t)n_vtx || c2 >= (uint32_t)n_vtx) {
+      continue;
+    }
+    out[n++] = base + a;
+    out[n++] = base + c1;
+    out[n++] = base + c2;
+  }
+  g->n_mi += n;
+  b->count += n;
 }
 
 BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1)
@@ -1914,7 +2193,7 @@ static void flush(BuiGpu *g)
     return;
   }
   if (!make_current(g) || !ensure_target(g)) {
-    g->n_b = g->n_inst = g->n_tv = 0;
+    g->n_b = g->n_inst = g->n_tv = g->n_mv = g->n_mi = 0;
     return;
   }
   GL(glBindFramebuffer)(GL_FRAMEBUFFER, g->fbo);
@@ -1929,6 +2208,15 @@ static void flush(BuiGpu *g)
     GL(glBindBuffer)(GL_ARRAY_BUFFER, g->tb);
     GL(glBufferData)(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(TriV) * (size_t)g->n_tv), g->tv,
                      GL_STREAM_DRAW);
+  }
+  if (g->n_mi) {
+    GL(glBindVertexArray)(g->vao_mesh); /* the element buffer binding lives in the VAO */
+    GL(glBindBuffer)(GL_ARRAY_BUFFER, g->mvb);
+    GL(glBufferData)(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(BuiMeshVertex) * (size_t)g->n_mv),
+                     g->mv, GL_STREAM_DRAW);
+    GL(glBufferData)(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(sizeof(uint32_t) * (size_t)g->n_mi),
+                     g->mi, GL_STREAM_DRAW);
+    GL(glBindVertexArray)(0);
   }
   const GLuint tex[4] = {g->mask.tex, g->rgba.tex, g->curve_tex, g->band_tex};
   for (int i = 0; i < 4; i++) {
@@ -1945,8 +2233,17 @@ static void flush(BuiGpu *g)
       continue;
     }
     if (b->tri != cur) {
+      if (cur == 2) {
+        GL(glDisable)(GL_SCISSOR_TEST);
+      }
       cur = b->tri;
-      if (!b->tri) {
+      if (b->tri == 2) {
+        GL(glUseProgram)(g->prog_mesh);
+        GL(glUniform2f)(g->ndc_mesh, sx, sy);
+        GL(glBindVertexArray)(g->vao_mesh);
+        GL(glEnable)(GL_SCISSOR_TEST);
+      }
+      else if (!b->tri) {
         GL(glUseProgram)(g->prog_quad);
         GL(glUniform2f)(g->ndc_quad, sx, sy);
         GL(glBindVertexArray)(g->vao_quad);
@@ -1958,7 +2255,14 @@ static void flush(BuiGpu *g)
         GL(glBindVertexArray)(g->vao_tri);
       }
     }
-    if (!b->tri) {
+    if (b->tri == 2) {
+      /* the frame is stored top row first: GL y == BUI y */
+      dtex_bind(g, b->tex, b->nearest);
+      GL(glScissor)(b->clip[0], b->clip[1], b->clip[2] - b->clip[0], b->clip[3] - b->clip[1]);
+      GL(glDrawElements)(GL_TRIANGLES, b->count, GL_UNSIGNED_INT,
+                         (const void *)(sizeof(uint32_t) * (size_t)b->first));
+    }
+    else if (!b->tri) {
       const size_t base = sizeof(BuiGpuInst) * (size_t)b->first;
       for (GLuint k = 0; k < 8; k++) {
         GL(glVertexAttribPointer)(k, 4, GL_FLOAT, GL_FALSE, sizeof(BuiGpuInst),
@@ -1970,8 +2274,11 @@ static void flush(BuiGpu *g)
       GL(glDrawArrays)(GL_TRIANGLES, b->first, b->count);
     }
   }
+  if (cur == 2) {
+    GL(glDisable)(GL_SCISSOR_TEST);
+  }
   GL(glBindVertexArray)(0);
-  g->n_b = g->n_inst = g->n_tv = 0;
+  g->n_b = g->n_inst = g->n_tv = g->n_mv = g->n_mi = 0;
 }
 
 int bui_gpu_present(BuiGpu *g, int full)

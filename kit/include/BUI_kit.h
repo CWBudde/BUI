@@ -37,6 +37,11 @@ enum {
   BK_CURSOR_HAND,
   BK_CURSOR_MOVE,      /* panel grip */
   BK_CURSOR_NONE,      /* hidden: continuous grab while scrubbing */
+  BK_CURSOR_NESW,      /* diagonal resize (bottom-left / top-right corner) */
+  BK_CURSOR_NWSE,      /* diagonal resize (top-left / bottom-right corner) */
+  BK_CURSOR_NOT_ALLOWED,
+  BK_CURSOR_WAIT,
+  BK_CURSOR_PROGRESS,  /* busy in the background, still interactive */
 };
 
 /* Callback kinds delivered through BKHost.emit. */
@@ -96,7 +101,7 @@ const char *BK_icon_list_name(int i);
 /* Types: column row grid box panel tabs sidetabs scroll label separator
  * progress button toggle checkbox decorator text search hotkey number slider
  * dropdown enum swatch popover menubutton menubar list tree gridview ramp
- * curve normal histogram radio textarea meter */
+ * curve normal histogram radio textarea meter custom (see "custom nodes" below) */
 BKNode *BK_node_new(const char *type);
 void BK_node_free(BKNode *node);
 const char *BK_node_type(const BKNode *node);
@@ -253,6 +258,75 @@ int BK_canvas_count(BKNode *canvas);
 /* Images on labels/buttons (RGBA). */
 void BK_node_set_image(BKNode *node, const unsigned char *rgba, int w, int h);
 
+/* -- custom nodes ("custom") ------------------------------------------------------------
+ * A node whose drawing and input belong to the host: other UI systems embedded
+ * in the kit (Dear ImGui, bindings/imgui) or hand-written editors. It gets
+ *  - every pointer event over it, for all three buttons (several may be held),
+ *    with the pointer grabbed from a press until the last release (motion keeps
+ *    arriving outside the node, before any drag threshold);
+ *  - precise wheel deltas (BK_scroll), vertical and horizontal;
+ *  - keyboard focus when clicked (until another widget is clicked or
+ *    BK_focus_node moves it), then every key press, typed text and key release
+ *    (also while merely hovered, like other widgets);
+ *  - a `frame` call at the start of BK_render when it asked for one
+ *    (BK_custom_request_frame), its size changed or it was never drawn: the
+ *    place to update state and BK_node_invalidate() itself (an immediate-mode
+ *    frame). Requests while a frame runs are honored by BK_animating(), so
+ *    window hosts render the next one paced to the display;
+ *  - `draw` with the raster, clipped to the redrawn region inside the node.
+ *    It may be called several times per render (one per damaged region) and
+ *    for regions other widgets damaged, so it must draw the current state
+ *    without changing it.
+ * Positions are in raster pixels relative to the node's top-left corner. */
+enum {
+  BK_CUSTOM_PRESS = 1, /* button: 1 left, 2 middle, 3 right */
+  BK_CUSTOM_RELEASE,
+  BK_CUSTOM_MOTION,
+  BK_CUSTOM_LEAVE,     /* the pointer left the node (not sent while grabbed) */
+  BK_CUSTOM_WHEEL,     /* wheel_x, wheel_y */
+  BK_CUSTOM_KEY,       /* keysym and/or text */
+  BK_CUSTOM_KEYUP,     /* keysym */
+  BK_CUSTOM_FOCUS,     /* keyboard focus gained */
+  BK_CUSTOM_BLUR,      /* keyboard focus lost */
+};
+
+typedef struct BKCustomEvent {
+  int type;            /* BK_CUSTOM_* */
+  float x, y;          /* pointer, relative to the node */
+  int button;          /* PRESS / RELEASE */
+  int mods;            /* BK_SHIFT | BK_CTRL | BK_ALT (| BK_BUTTON* on pointer events) */
+  int clicks;          /* PRESS: 2 for a double click */
+  float wheel_x;       /* notches; > 0: scroll right (wheel tilted right) */
+  float wheel_y;       /* notches; > 0: scroll up (wheel turned away) */
+  const char *text;    /* KEY: UTF-8 text the key typed ("" for none) */
+  const char *keysym;  /* KEY / KEYUP: X11 keysym name ("Return", "a", "F1"; "" for none) */
+} BKCustomEvent;
+
+typedef struct BKCustomClass {
+  /* All optional. `event` returns 1 when it used the event (keys it ignores
+   * reach the kit's shortcuts). */
+  int (*event)(void *data, BKNode *node, const BKCustomEvent *e);
+  void (*frame)(void *data, BKNode *node);
+  /* `rect` = node x, y, w, h in raster pixels; the raster's clip is already set */
+  void (*draw)(void *data, BKNode *node, BuiRaster *r, const int rect[4]);
+  void (*free)(void *data, BKNode *node); /* the node is being freed */
+  int natural_w, natural_h;               /* natural size (0: 8 x 8 widget units) */
+} BKCustomClass;
+
+/* Attaches the callbacks (copied) and their `data` to a "custom" node. */
+int BK_custom_set(BKNode *node, const BKCustomClass *cls, void *data);
+void *BK_custom_data(BKNode *node);
+/* Ask for a `frame` call: ms <= 0 at the next render (requested right away;
+ * from inside a frame: the next display frame), else in about `ms`
+ * milliseconds (through BKHost.schedule; headless loops get it at the first
+ * BK_render after the time passed). */
+void BK_custom_request_frame(BKNode *node, int ms);
+/* Pointer shape over the node (BK_CURSOR_*), applied right away when hovered. */
+void BK_custom_set_cursor(BKNode *node, int cursor);
+int BK_custom_has_focus(BKNode *node);
+/* The context a node is shown in (NULL while detached). */
+BKContext *BK_node_context(const BKNode *node);
+
 /* -- text area (multi-line) -----------------------------------------------------------
  * Text via BK_set_str/get_str("value"); edits are byte offsets. */
 void BK_textarea_insert(BKNode *n, int offset, const char *text);
@@ -303,6 +377,10 @@ int BK_press(BKContext *ctx, int x, int y, int mods);
 int BK_release(BKContext *ctx, int x, int y, int mods);
 int BK_motion(BKContext *ctx, int x, int y, int mods);
 int BK_wheel(BKContext *ctx, int x, int y, int delta, int mods);
+/* Precise scrolling (touchpads, tilt wheels): dx, dy in wheel notches,
+ * dx > 0 right, dy > 0 up. Custom nodes receive the deltas as they are;
+ * other widgets get BK_wheel steps (horizontal ones as Shift + wheel). */
+int BK_scroll(BKContext *ctx, int x, int y, float dx, float dy, int mods);
 int BK_key(BKContext *ctx, const char *text, const char *keysym, int mods);
 int BK_context_menu(BKContext *ctx, int x, int y, int mods);
 /* Raw-only input for host bindings (Tk's <KeyRelease>, <Button-2>, <ButtonRelease-3>):

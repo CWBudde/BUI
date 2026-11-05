@@ -13,12 +13,33 @@ message(STATUS "BUI: building buipy Python bindings for Python ${Python3_VERSION
 Python3_add_library(buipy MODULE WITH_SOABI src/buipy_module.c src/buipy_kit.c)
 target_link_libraries(buipy PRIVATE bui_api bui_gpu bui_kit)
 
+# ($<0:> keeps multi-config generators from adding a Release/ subdirectory.)
 # Keep the extension next to the pure-Python 'bui' package in the build tree so
 # tests and examples can import both with a single sys.path entry.
 set_target_properties(buipy PROPERTIES
-  LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python
+  LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
 )
+
+# Dear ImGui (bindings/imgui) for Python: the _buiimgui extension behind blenderui.imgui /
+# bui.imgui. Its API is generated from imgui.h (src/buiimgui_gen.inc, bindings/imgui/gen).
+if(TARGET bui_cimgui)
+  Python3_add_library(_buiimgui MODULE WITH_SOABI src/buiimgui_module.cpp)
+  target_link_libraries(_buiimgui PRIVATE bui_cimgui)
+  if(MSVC)
+    target_compile_options(_buiimgui PRIVATE /bigobj)
+  endif()
+  set_target_properties(_buiimgui PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
+  )
+  if(SKBUILD)
+    install(TARGETS _buiimgui LIBRARY DESTINATION . RUNTIME DESTINATION .)
+    if(MINGW)
+      target_link_options(_buiimgui PRIVATE -static-libgcc -static)
+    endif()
+  endif()
+endif()
 
 # Wheel layout (pip install blenderui / scikit-build-core): the extension and
 # the pure-Python packages side by side in site-packages.
@@ -88,6 +109,13 @@ if(BUI_BUILD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tk_compat.py
   )
   set_tests_properties(buipy_tk_compat PROPERTIES ENVIRONMENT "PYTHONPATH=${BUIPY_TEST_PYTHONPATH}")
+  if(TARGET _buiimgui)
+    add_test(
+      NAME buipy_imgui
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_imgui.py
+    )
+    set_tests_properties(buipy_imgui PROPERTIES ENVIRONMENT "PYTHONPATH=${BUIPY_TEST_PYTHONPATH}")
+  endif()
   add_test(
     NAME buipy_tk_input
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tk_input.py

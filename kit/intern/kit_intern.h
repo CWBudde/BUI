@@ -222,6 +222,7 @@ typedef struct BKEvent {
   bool inside, dragged;
   const char *text;
   const char *keysym;
+  float wheel_x, wheel_y; /* BK_scroll: precise deltas (custom nodes) */
 } BKEvent;
 
 #define EV_SHIFT(e) (((e)->mods & BK_SHIFT) != 0)
@@ -522,7 +523,22 @@ struct BKContext {
   BKNode *anim[BK_MAX_ANIM];
   int nanim;
   double anim_t;
+  /* custom nodes */
+  int next_button;     /* the button the next in_BK_press / in_BK_release is for (0 = 1) */
+  int in_custom_frame; /* inside custom frame callbacks: no host requests */
+  double custom_timer_due; /* armed BK_TIMER_CUSTOM (bk_time), 0 = none */
 };
+
+/* Custom nodes (kit_custom.c). The host timer that wakes them. */
+#define BK_TIMER_CUSTOM (-1)
+extern const BKClass bk_cls_custom;
+#define BK_IS_CUSTOM(n) ((n) && (n)->cls == &bk_cls_custom)
+/* Delivers an event (fills x, y relative to the node); returns its result. */
+int bk_custom_event(BKNode *n, BKCustomEvent *e, int wx, int wy);
+void bk_custom_frames(BKContext *ctx);       /* BK_render: frame callbacks due */
+bool bk_custom_animating(BKContext *ctx);    /* a visible node wants the next frame */
+void bk_custom_timer(BKContext *ctx);        /* BK_TIMER_CUSTOM fired */
+void bk_update_cursor(BKContext *ctx);
 
 void bk_undo_record(BKNode *n, int kind);
 void bk_anim_start(BKNode *n);

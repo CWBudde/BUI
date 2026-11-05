@@ -29,6 +29,7 @@
 #  include <stdlib.h>
 #  include <string.h>
 
+#  include "GPU_raster.h"
 #  include "gpu_d3d11.h"
 #  include "gpu_d3d11_shaders.h"
 
@@ -89,9 +90,21 @@ typedef struct SlugGlyph {
 } SlugGlyph;
 
 typedef struct Batch {
-  int tri; /* 0: quad instances, 1: triangles */
+  int tri; /* 0: quad instances, 1: triangles, 2: textured mesh (indexed) */
   int first, count;
+  /* meshes: texture (0: white), sampler, scissor x0 y0 x1 y1 */
+  int tex, nearest;
+  int clip[4];
 } Batch;
+
+/* A registry texture (BUI_texture_*) on this device, by registry slot. */
+typedef struct DevTex {
+  int id; /* 0 = empty */
+  unsigned gen;
+  int w, h;
+  ID3D11Texture2D *tex;
+  ID3D11ShaderResourceView *srv;
+} DevTex;
 
 typedef struct TriV {
   float x, y;
@@ -111,13 +124,19 @@ struct BuiGpu {
   int sw, sh; /* swap chain size */
   int swap_fresh;
 
-  ID3D11VertexShader *vs_quad, *vs_tri;
-  ID3D11PixelShader *ps_quad, *ps_tri;
-  ID3D11InputLayout *il_quad, *il_tri;
-  ID3D11Buffer *cb, *ib, *tb;
-  UINT ib_cap, tb_cap; /* in elements */
+  ID3D11VertexShader *vs_quad, *vs_tri, *vs_mesh;
+  ID3D11PixelShader *ps_quad, *ps_tri, *ps_mesh;
+  ID3D11InputLayout *il_quad, *il_tri, *il_mesh;
+  ID3D11Buffer *cb, *ib, *tb, *mvb, *mib;
+  UINT ib_cap, tb_cap, mvb_cap, mib_cap; /* in elements */
   ID3D11BlendState *blend;
-  ID3D11RasterizerState *rs;
+  ID3D11RasterizerState *rs, *rs_scissor;
+  ID3D11SamplerState *smp_linear, *smp_point;
+  ID3D11Texture2D *white_tex; /* 1x1 white: meshes without a texture */
+  ID3D11ShaderResourceView *white_srv;
+  DevTex *dtex;
+  int n_dtex;
+  unsigned dtex_free_gen;
 
   ID3D11Texture2D *target;
   ID3D11RenderTargetView *rtv;
@@ -140,6 +159,10 @@ struct BuiGpu {
   int n_inst, cap_inst;
   TriV *tv;
   int n_tv, cap_tv;
+  BuiMeshVertex *mv;
+  int n_mv, cap_mv;
+  uint32_t *mi;
+  int n_mi, cap_mi;
   Batch *b;
   int n_b, cap_b;
 
@@ -279,7 +302,9 @@ static int device_init(BuiGpu *g)
   if (FAILED(ID3D11Device_CreateVertexShader(d, g_vs_quad, sizeof(g_vs_quad), NULL, &g->vs_quad)) ||
       FAILED(ID3D11Device_CreatePixelShader(d, g_ps_quad, sizeof(g_ps_quad), NULL, &g->ps_quad)) ||
       FAILED(ID3D11Device_CreateVertexShader(d, g_vs_tri, sizeof(g_vs_tri), NULL, &g->vs_tri)) ||
-      FAILED(ID3D11Device_CreatePixelShader(d, g_ps_tri, sizeof(g_ps_tri), NULL, &g->ps_tri)))
+      FAILED(ID3D11Device_CreatePixelShader(d, g_ps_tri, sizeof(g_ps_tri), NULL, &g->ps_tri)) ||
+      FAILED(ID3D11Device_CreateVertexShader(d, g_vs_mesh, sizeof(g_vs_mesh), NULL, &g->vs_mesh)) ||
+      FAILED(ID3D11Device_CreatePixelShader(d, g_ps_mesh, sizeof(g_ps_mesh), NULL, &g->ps_mesh)))
   {
     return fail("shaders", 0);
   }
@@ -295,9 +320,16 @@ static int device_init(BuiGpu *g)
       {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
       {"CLIP", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
   };
+  const D3D11_INPUT_ELEMENT_DESC il_mesh[] = { /* BuiMeshVertex (= ImDrawVert) */
+      {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+      {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
+      {"COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0},
+  };
   if (FAILED(ID3D11Device_CreateInputLayout(d, il_quad, 8, g_vs_quad, sizeof(g_vs_quad),
                                             &g->il_quad)) ||
-      FAILED(ID3D11Device_CreateInputLayout(d, il_tri, 3, g_vs_tri, sizeof(g_vs_tri), &g->il_tri)))
+      FAILED(ID3D11Device_CreateInputLayout(d, il_tri, 3, g_vs_tri, sizeof(g_vs_tri), &g->il_tri)) ||
+      FAILED(ID3D11Device_CreateInputLayout(d, il_mesh, 3, g_vs_mesh, sizeof(g_vs_mesh),
+                                            &g->il_mesh)))
   {
     return fail("input layouts", 0);
   }
@@ -327,6 +359,39 @@ static int device_init(BuiGpu *g)
   rd.DepthClipEnable = TRUE;
   if (FAILED(ID3D11Device_CreateRasterizerState(d, &rd, &g->rs))) {
     return fail("rasterizer state", 0);
+  }
+  rd.ScissorEnable = TRUE; /* meshes: the draw command's clip */
+  if (FAILED(ID3D11Device_CreateRasterizerState(d, &rd, &g->rs_scissor))) {
+    return fail("rasterizer state", 0);
+  }
+  D3D11_SAMPLER_DESC sd = {0};
+  sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+  sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sd.MaxLOD = D3D11_FLOAT32_MAX;
+  sd.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+  if (FAILED(ID3D11Device_CreateSamplerState(d, &sd, &g->smp_linear))) {
+    return fail("sampler", 0);
+  }
+  sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+  if (FAILED(ID3D11Device_CreateSamplerState(d, &sd, &g->smp_point))) {
+    return fail("sampler", 0);
+  }
+  {
+    const uint32_t white = 0xFFFFFFFFu;
+    D3D11_TEXTURE2D_DESC wd = {0};
+    wd.Width = wd.Height = 1;
+    wd.MipLevels = wd.ArraySize = 1;
+    wd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    wd.SampleDesc.Count = 1;
+    wd.Usage = D3D11_USAGE_DEFAULT;
+    wd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA init = {&white, 4, 4};
+    if (FAILED(ID3D11Device_CreateTexture2D(d, &wd, &init, &g->white_tex)) ||
+        FAILED(ID3D11Device_CreateShaderResourceView(d, (ID3D11Resource *)g->white_tex, NULL,
+                                                     &g->white_srv)))
+    {
+      return fail("white texture", 0);
+    }
   }
   if (!atlas_create(g, &g->mask, 2048, 1)) {
     return fail("atlas", 0);
@@ -398,6 +463,21 @@ void bui_gpu_free(BuiGpu *g)
   REL(g->curve_tex);
   REL(g->band_srv);
   REL(g->band_tex);
+  for (int i = 0; i < g->n_dtex; i++) {
+    REL(g->dtex[i].srv);
+    REL(g->dtex[i].tex);
+  }
+  free(g->dtex);
+  REL(g->white_srv);
+  REL(g->white_tex);
+  REL(g->smp_linear);
+  REL(g->smp_point);
+  REL(g->rs_scissor);
+  REL(g->mvb);
+  REL(g->mib);
+  REL(g->il_mesh);
+  REL(g->vs_mesh);
+  REL(g->ps_mesh);
   REL(g->rtv);
   REL(g->target);
   REL(g->rs);
@@ -417,6 +497,8 @@ void bui_gpu_free(BuiGpu *g)
   REL(g->dev);
   free(g->inst);
   free(g->tv);
+  free(g->mv);
+  free(g->mi);
   free(g->b);
   free(g->mask_map);
   free(g->img_map);
@@ -440,7 +522,7 @@ void bui_gpu_begin(BuiGpu *g, int w, int h)
 
 static Batch *batch_for(BuiGpu *g, int tri, int first)
 {
-  if (g->n_b > 0 && g->b[g->n_b - 1].tri == tri) {
+  if (tri != 2 && g->n_b > 0 && g->b[g->n_b - 1].tri == tri) {
     return &g->b[g->n_b - 1];
   }
   if (g->n_b == g->cap_b) {
@@ -453,10 +535,200 @@ static Batch *batch_for(BuiGpu *g, int tri, int first)
     g->cap_b = cap;
   }
   Batch *b = &g->b[g->n_b++];
+  memset(b, 0, sizeof(*b));
   b->tri = tri;
   b->first = first;
-  b->count = 0;
   return b;
+}
+
+/* -- textured meshes ----------------------------------------------------------- */
+
+static void dtex_release(DevTex *t)
+{
+  REL(t->srv);
+  REL(t->tex);
+  t->id = 0;
+}
+
+/* Creates or refreshes the device copy of registry texture `id`. */
+static ID3D11ShaderResourceView *dtex_get(BuiGpu *g, int id)
+{
+  BuiTexView v;
+  if (id <= 0 || !bui_texture_view(id, &v)) {
+    return g->white_srv;
+  }
+  const int slot = (id & 0xFFFF) - 1;
+  if (slot >= g->n_dtex) {
+    const int n = slot + 16;
+    DevTex *nd = (DevTex *)realloc(g->dtex, sizeof(DevTex) * (size_t)n);
+    if (!nd) {
+      return g->white_srv;
+    }
+    memset(nd + g->n_dtex, 0, sizeof(DevTex) * (size_t)(n - g->n_dtex));
+    g->dtex = nd;
+    g->n_dtex = n;
+  }
+  DevTex *t = &g->dtex[slot];
+  if (t->id == id && t->gen == v.gen) {
+    return t->srv;
+  }
+  if (t->id == id && t->w == v.w && t->h == v.h) {
+    /* updated: draws recorded so far still need the old pixels */
+    flush(g);
+    int rects[32][4];
+    int n = bui_texture_changes(id, t->gen, rects, 32);
+    if (n < 0) {
+      rects[0][0] = rects[0][1] = 0;
+      rects[0][2] = v.w;
+      rects[0][3] = v.h;
+      n = 1;
+    }
+    for (int i = 0; i < n; i++) {
+      const int *r = rects[i];
+      D3D11_BOX box = {(UINT)r[0], (UINT)r[1], 0, (UINT)(r[0] + r[2]), (UINT)(r[1] + r[3]), 1};
+      ID3D11DeviceContext_UpdateSubresource(g->ctx, (ID3D11Resource *)t->tex, 0, &box,
+                                            v.rgba + ((size_t)r[1] * v.w + r[0]) * 4,
+                                            (UINT)v.w * 4, 0);
+    }
+    t->gen = v.gen;
+    return t->srv;
+  }
+  if (t->id) {
+    flush(g);
+    dtex_release(t);
+  }
+  D3D11_TEXTURE2D_DESC td = {0};
+  td.Width = (UINT)v.w;
+  td.Height = (UINT)v.h;
+  td.MipLevels = td.ArraySize = 1;
+  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D11_USAGE_DEFAULT;
+  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+  D3D11_SUBRESOURCE_DATA init = {v.rgba, (UINT)v.w * 4, 0};
+  if (FAILED(ID3D11Device_CreateTexture2D(g->dev, &td, &init, &t->tex)) ||
+      FAILED(ID3D11Device_CreateShaderResourceView(g->dev, (ID3D11Resource *)t->tex, NULL,
+                                                   &t->srv)))
+  {
+    dtex_release(t);
+    return g->white_srv;
+  }
+  t->id = id;
+  t->gen = v.gen;
+  t->w = v.w;
+  t->h = v.h;
+  return t->srv;
+}
+
+/* The device texture a recorded batch samples (already made by dtex_get). */
+static ID3D11ShaderResourceView *dtex_srv(BuiGpu *g, int id)
+{
+  const int slot = (id & 0xFFFF) - 1;
+  if (id > 0 && slot < g->n_dtex && g->dtex[slot].id == id && g->dtex[slot].srv) {
+    return g->dtex[slot].srv;
+  }
+  return g->white_srv;
+}
+
+/* Frees device copies of textures freed in the registry. */
+static void dtex_sweep(BuiGpu *g)
+{
+  const unsigned fg = bui_texture_free_gen();
+  if (fg == g->dtex_free_gen) {
+    return;
+  }
+  g->dtex_free_gen = fg;
+  BuiTexView v;
+  for (int i = 0; i < g->n_dtex; i++) {
+    if (g->dtex[i].id && !bui_texture_view(g->dtex[i].id, &v)) {
+      flush(g);
+      dtex_release(&g->dtex[i]);
+    }
+  }
+}
+
+static int grow(void **p, int *cap, int need, size_t size)
+{
+  if (need <= *cap) {
+    return 1;
+  }
+  int c = *cap ? *cap : 4096;
+  while (c < need) {
+    c *= 2;
+  }
+  void *np = realloc(*p, size * (size_t)c);
+  if (!np) {
+    return 0;
+  }
+  *p = np;
+  *cap = c;
+  return 1;
+}
+
+void bui_gpu_mesh(BuiGpu *g,
+                  const BuiMeshVertex *vtx,
+                  int n_vtx,
+                  const void *idx,
+                  int idx32,
+                  int n_idx,
+                  float ox,
+                  float oy,
+                  int tex,
+                  int nearest,
+                  const int clip[4])
+{
+  n_idx -= n_idx % 3;
+  if (n_idx <= 0 || n_vtx <= 0) {
+    return;
+  }
+  dtex_sweep(g);
+  dtex_get(g, tex); /* may flush: before anything of this mesh is recorded */
+  if (!grow((void **)&g->mv, &g->cap_mv, g->n_mv + n_vtx, sizeof(BuiMeshVertex)) ||
+      !grow((void **)&g->mi, &g->cap_mi, g->n_mi + n_idx, sizeof(uint32_t)))
+  {
+    return;
+  }
+  Batch *b = NULL;
+  if (g->n_b > 0) { /* same texture, sampler and clip: one draw */
+    Batch *last = &g->b[g->n_b - 1];
+    if (last->tri == 2 && last->tex == tex && last->nearest == nearest &&
+        memcmp(last->clip, clip, sizeof(int[4])) == 0)
+    {
+      b = last;
+    }
+  }
+  if (!b) {
+    b = batch_for(g, 2, g->n_mi);
+    if (!b) {
+      return;
+    }
+    b->tex = tex;
+    b->nearest = nearest;
+    memcpy(b->clip, clip, sizeof(int[4]));
+  }
+  const uint32_t base = (uint32_t)g->n_mv;
+  for (int i = 0; i < n_vtx; i++) {
+    BuiMeshVertex *v = &g->mv[g->n_mv++];
+    *v = vtx[i];
+    v->x += ox;
+    v->y += oy;
+  }
+  const uint16_t *i16 = (const uint16_t *)idx;
+  const uint32_t *i32 = (const uint32_t *)idx;
+  uint32_t *out = g->mi + g->n_mi;
+  int n = 0;
+  for (int i = 0; i < n_idx; i += 3) {
+    const uint32_t a = idx32 ? i32[i] : i16[i], c1 = idx32 ? i32[i + 1] : i16[i + 1],
+                   c2 = idx32 ? i32[i + 2] : i16[i + 2];
+    if (a >= (uint32_t)n_vtx || c1 >= (uint32_t)n_vtx || c2 >= (uint32_t)n_vtx) {
+      continue;
+    }
+    out[n++] = base + a;
+    out[n++] = base + c1;
+    out[n++] = base + c2;
+  }
+  g->n_mi += n;
+  b->count += n;
 }
 
 BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1)
@@ -917,7 +1189,8 @@ static int ensure_target(BuiGpu *g)
   return 1;
 }
 
-static int ensure_buffer(BuiGpu *g, ID3D11Buffer **buf, UINT *cap, UINT need, UINT stride)
+static int ensure_buffer(BuiGpu *g, ID3D11Buffer **buf, UINT *cap, UINT need, UINT stride,
+                         UINT bind)
 {
   if (*buf && *cap >= need) {
     return 1;
@@ -930,7 +1203,7 @@ static int ensure_buffer(BuiGpu *g, ID3D11Buffer **buf, UINT *cap, UINT need, UI
   D3D11_BUFFER_DESC bd = {0};
   bd.ByteWidth = c * stride;
   bd.Usage = D3D11_USAGE_DYNAMIC;
-  bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+  bd.BindFlags = bind;
   bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
   if (FAILED(ID3D11Device_CreateBuffer(g->dev, &bd, NULL, buf))) {
     *cap = 0;
@@ -957,15 +1230,29 @@ static void flush(BuiGpu *g)
     return;
   }
   if (!ensure_target(g)) {
-    g->n_b = g->n_inst = g->n_tv = 0;
+    g->n_b = g->n_inst = g->n_tv = g->n_mv = g->n_mi = 0;
     return;
   }
   ID3D11DeviceContext *c = g->ctx;
-  if (g->n_inst && ensure_buffer(g, &g->ib, &g->ib_cap, (UINT)g->n_inst, sizeof(BuiGpuInst))) {
+  if (g->n_inst && ensure_buffer(g, &g->ib, &g->ib_cap, (UINT)g->n_inst, sizeof(BuiGpuInst),
+                                 D3D11_BIND_VERTEX_BUFFER))
+  {
     upload(g, g->ib, g->inst, sizeof(BuiGpuInst) * (size_t)g->n_inst);
   }
-  if (g->n_tv && ensure_buffer(g, &g->tb, &g->tb_cap, (UINT)g->n_tv, sizeof(TriV))) {
+  if (g->n_tv &&
+      ensure_buffer(g, &g->tb, &g->tb_cap, (UINT)g->n_tv, sizeof(TriV), D3D11_BIND_VERTEX_BUFFER))
+  {
     upload(g, g->tb, g->tv, sizeof(TriV) * (size_t)g->n_tv);
+  }
+  if (g->n_mv && ensure_buffer(g, &g->mvb, &g->mvb_cap, (UINT)g->n_mv, sizeof(BuiMeshVertex),
+                               D3D11_BIND_VERTEX_BUFFER))
+  {
+    upload(g, g->mvb, g->mv, sizeof(BuiMeshVertex) * (size_t)g->n_mv);
+  }
+  if (g->n_mi && ensure_buffer(g, &g->mib, &g->mib_cap, (UINT)g->n_mi, sizeof(uint32_t),
+                               D3D11_BIND_INDEX_BUFFER))
+  {
+    upload(g, g->mib, g->mi, sizeof(uint32_t) * (size_t)g->n_mi);
   }
   const float cbd[4] = {2.0f / (float)g->tw, 2.0f / (float)g->th, 0, 0};
   upload(g, g->cb, cbd, sizeof(cbd));
@@ -987,9 +1274,22 @@ static void flush(BuiGpu *g)
       continue;
     }
     if (b->tri != cur) {
+      if (cur == 2) {
+        ID3D11DeviceContext_RSSetState(c, g->rs);
+      }
       cur = b->tri;
       UINT off = 0;
-      if (!b->tri) {
+      if (b->tri == 2) {
+        UINT stride = sizeof(BuiMeshVertex);
+        ID3D11DeviceContext_IASetInputLayout(c, g->il_mesh);
+        ID3D11DeviceContext_IASetVertexBuffers(c, 0, 1, &g->mvb, &stride, &off);
+        ID3D11DeviceContext_IASetIndexBuffer(c, g->mib, DXGI_FORMAT_R32_UINT, 0);
+        ID3D11DeviceContext_IASetPrimitiveTopology(c, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D11DeviceContext_VSSetShader(c, g->vs_mesh, NULL, 0);
+        ID3D11DeviceContext_PSSetShader(c, g->ps_mesh, NULL, 0);
+        ID3D11DeviceContext_RSSetState(c, g->rs_scissor);
+      }
+      else if (!b->tri) {
         UINT stride = sizeof(BuiGpuInst);
         ID3D11DeviceContext_IASetInputLayout(c, g->il_quad);
         ID3D11DeviceContext_IASetVertexBuffers(c, 0, 1, &g->ib, &stride, &off);
@@ -1006,14 +1306,25 @@ static void flush(BuiGpu *g)
         ID3D11DeviceContext_PSSetShader(c, g->ps_tri, NULL, 0);
       }
     }
-    if (!b->tri) {
+    if (b->tri == 2) {
+      ID3D11ShaderResourceView *ts = dtex_srv(g, b->tex);
+      ID3D11DeviceContext_PSSetShaderResources(c, 4, 1, &ts);
+      ID3D11DeviceContext_PSSetSamplers(c, 0, 1, b->nearest ? &g->smp_point : &g->smp_linear);
+      const D3D11_RECT sr = {b->clip[0], b->clip[1], b->clip[2], b->clip[3]};
+      ID3D11DeviceContext_RSSetScissorRects(c, 1, &sr);
+      ID3D11DeviceContext_DrawIndexed(c, (UINT)b->count, (UINT)b->first, 0);
+    }
+    else if (!b->tri) {
       ID3D11DeviceContext_DrawInstanced(c, 4, (UINT)b->count, 0, (UINT)b->first);
     }
     else {
       ID3D11DeviceContext_Draw(c, (UINT)b->count, (UINT)b->first);
     }
   }
-  g->n_b = g->n_inst = g->n_tv = 0;
+  if (cur == 2) {
+    ID3D11DeviceContext_RSSetState(c, g->rs);
+  }
+  g->n_b = g->n_inst = g->n_tv = g->n_mv = g->n_mi = 0;
 }
 
 static int ensure_swap(BuiGpu *g)
@@ -1214,6 +1525,30 @@ void bui_gpu_triangles(
   (void)co;
   (void)col;
   (void)count;
+  (void)clip;
+}
+void bui_gpu_mesh(BuiGpu *g,
+                  const struct BuiMeshVertex *vtx,
+                  int n_vtx,
+                  const void *idx,
+                  int idx32,
+                  int n_idx,
+                  float ox,
+                  float oy,
+                  int tex,
+                  int nearest,
+                  const int clip[4])
+{
+  (void)g;
+  (void)vtx;
+  (void)n_vtx;
+  (void)idx;
+  (void)idx32;
+  (void)n_idx;
+  (void)ox;
+  (void)oy;
+  (void)tex;
+  (void)nearest;
   (void)clip;
 }
 void bui_gpu_damage(BuiGpu *g, int x, int y, int w, int h)

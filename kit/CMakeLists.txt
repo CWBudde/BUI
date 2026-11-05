@@ -20,6 +20,7 @@ add_library(bui_kit STATIC
   intern/kit_icons_svg.c
   intern/kit_regions.c
   intern/kit_nodes.c
+  intern/kit_custom.c
   intern/kit_filebrowser.c
   intern/kit_filebrowser_paths.c
   intern/kit_filebrowser_posix.c

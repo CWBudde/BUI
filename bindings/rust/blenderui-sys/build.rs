@@ -21,6 +21,8 @@ fn main() {
     let gdi = std::env::var("CARGO_FEATURE_GDI_TEXT").is_ok()
         || std::env::var("BUI_TEXT_GDI").map(|v| v == "1").unwrap_or(false);
     println!("cargo:rerun-if-env-changed=BUI_TEXT_GDI");
+    // `imgui`: Dear ImGui on BUI + its C API (C++), built by the same CMake project
+    let imgui = std::env::var("CARGO_FEATURE_IMGUI").is_ok();
     let dst = cmake::Config::new(&root)
         .define("BUI_TEXT_GDI", if gdi { "ON" } else { "OFF" })
         .define("BUI_SLUG", if std::env::var("CARGO_FEATURE_SLUG").is_ok() { "ON" } else { "OFF" })
@@ -29,12 +31,21 @@ fn main() {
         .define("BUI_BUILD_PYTHON_BINDINGS", "OFF")
         .define("BUI_BUILD_UI", "OFF")
         .define("BUI_BUILD_QT_BACKEND", "OFF")
+        .define("BUI_BUILD_IMGUI", if imgui { "ON" } else { "OFF" })
         // Always optimized; on MSVC also the release C runtime Rust links.
         .profile("Release")
-        .build_target("bui_kit")
+        .build_target(if imgui { "bui_cimgui" } else { "bui_kit" })
         .build();
 
     let build = dst.join("build");
+    if imgui {
+        for sub in ["", "Release"] {
+            println!("cargo:rustc-link-search=native={}", build.join("bindings/imgui").join(sub).display());
+        }
+        for lib in ["bui_cimgui", "bui_imgui"] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
+    }
     for lib in ["kit", "gpu", "core"] {
         for sub in ["", "Release"] {
             println!("cargo:rustc-link-search=native={}", build.join(lib).join(sub).display());
@@ -44,6 +55,10 @@ fn main() {
         println!("cargo:rustc-link-lib=static={lib}");
     }
     let target = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if imgui && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+        // the C++ runtime of Dear ImGui (MSVC links its own)
+        println!("cargo:rustc-link-lib={}", if target == "macos" { "c++" } else { "stdc++" });
+    }
     if target == "windows" {
         for lib in ["user32", "gdi32"] {
             println!("cargo:rustc-link-lib={lib}");
@@ -63,10 +78,13 @@ fn main() {
         println!("cargo:rustc-link-lib=m");
         println!("cargo:rustc-link-lib=pthread");
     }
-    for dir in ["kit", "gpu", "core", "CMakeLists.txt"] {
+    for dir in ["kit", "gpu", "core", "CMakeLists.txt", "bindings/imgui"] {
         println!("cargo:rerun-if-changed={}", root.join(dir).display());
     }
     println!("cargo:rerun-if-env-changed=BUI_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=BUI_TEXT_STB");
     println!("cargo:include={}", root.join("kit/include").display());
+    if imgui {
+        println!("cargo:imgui_include={}", root.join("bindings/imgui/c").display());
+    }
 }

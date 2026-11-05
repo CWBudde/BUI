@@ -49,6 +49,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "blenderui-imgui"
+version = "0.1.0"
+dependencies = [
+ "blenderui-sys",
+]
+
+[[package]]
 name = "blenderui-jsview"
 version = "0.1.0"
 dependencies = [

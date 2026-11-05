@@ -11,7 +11,78 @@
 #include <string.h>
 
 #define W 480
-#define H 360
+#define H 440
+
+/* Textured meshes (BUI_raster_mesh, the ImGui path) in the band y >= 360. */
+static void meshes(BuiRaster *r)
+{
+  static int tex = 0, tex2 = 0;
+  if (!tex) {
+    /* 16 x 16 RGBA: a hard checker with alpha, plus a white texel at (0, 0)
+     * like ImGui's atlas */
+    static unsigned char px[16 * 16 * 4];
+    for (int y = 0; y < 16; y++) {
+      for (int x = 0; x < 16; x++) {
+        unsigned char *p = px + (y * 16 + x) * 4;
+        const int on = ((x / 4) + (y / 4)) & 1;
+        p[0] = (unsigned char)(on ? 250 : 40);
+        p[1] = (unsigned char)(x * 16);
+        p[2] = (unsigned char)(y * 16);
+        p[3] = (unsigned char)(on ? 255 : 120);
+      }
+    }
+    tex = BUI_texture_create(16, 16, px, 0);
+    /* an update after creation: GPUs must pick up the logged rectangle */
+    tex2 = BUI_texture_create(8, 8, NULL, 0);
+    unsigned char blk[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) {
+      blk[i * 4 + 0] = 255;
+      blk[i * 4 + 1] = 200;
+      blk[i * 4 + 2] = 40;
+      blk[i * 4 + 3] = 255;
+    }
+    BUI_texture_update(tex2, 2, 2, 4, 4, blk, 0);
+  }
+  /* a magnified textured quad (bilinear), 16-bit indices */
+  const BuiMeshVertex q[4] = {
+      {10, 365, 0, 0, 0xFFFFFFFFu}, {110, 365, 1, 0, 0xFFFFFFFFu},
+      {110, 435, 1, 1, 0xFFFFFFFFu}, {10, 435, 0, 1, 0xFFFFFFFFu}};
+  const uint16_t qi[6] = {0, 1, 2, 0, 2, 3};
+  BUI_raster_mesh(r, q, 4, qi, 6, 0, tex, NULL, 0, 0);
+  /* the same, nearest sampling, tinted, translated by the mesh offset */
+  const BuiMeshVertex q2[4] = {
+      {0, 0, 0, 0, 0xC0FFC080u}, {80, 0, 1, 0, 0xC0FFC080u},
+      {80, 70.6f, 1, 1, 0xC0FFC080u}, {0, 70.6f, 0, 1, 0xC0FFC080u}};
+  BUI_raster_mesh(r, q2, 4, qi, 6, BUI_MESH_NEAREST, tex, NULL, 120, 365);
+  /* untextured gradient fan with an alpha fringe, 32-bit indices */
+  const BuiMeshVertex fan[6] = {
+      {250, 400, 0, 0, 0xFF2020F0u}, {290, 370, 0, 0, 0xFF20F020u},
+      {300, 420, 0, 0, 0xFFF02020u}, {240, 432, 0, 0, 0x80FFFFFFu},
+      {215, 395, 0, 0, 0x00FFFFFFu}, {251.5f, 366.25f, 0, 0, 0x40000000u}};
+  const uint32_t fi[12] = {0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5};
+  BUI_raster_mesh(r, fan, 6, fi, 12, BUI_MESH_INDEX32, 0, NULL, 0, 0);
+  /* clipped (scissor at fractional coordinates), the updated texture */
+  const BuiMeshVertex q3[4] = {
+      {320, 365, 0, 0, 0xFFFFFFFFu}, {400, 365, 1, 0, 0xFFFFFFFFu},
+      {400, 435, 1, 1, 0xFFFFFFFFu}, {320, 435, 0, 1, 0xFFFFFFFFu}};
+  const float clip[4] = {330.6f, 372.2f, 390.9f, 425.5f};
+  BUI_raster_mesh(r, q3, 4, qi, 6, 0, tex2, clip, 0, 0);
+  /* sub-pixel text-like quads sharing edges (no seams or double blending) */
+  BuiMeshVertex strip[8];
+  uint16_t si[18];
+  for (int i = 0; i < 4; i++) {
+    const float x = 410.3f + i * 15.25f;
+    strip[2 * i] = (BuiMeshVertex){x, 370.6f, 0.1f * i, 0.2f, 0x9030A0FFu};
+    strip[2 * i + 1] = (BuiMeshVertex){x, 430.4f, 0.1f * i, 0.9f, 0x9030A0FFu};
+  }
+  for (int i = 0; i < 3; i++) {
+    const uint16_t a = (uint16_t)(2 * i);
+    const uint16_t t6[6] = {a, (uint16_t)(a + 2), (uint16_t)(a + 3), a, (uint16_t)(a + 3),
+                            (uint16_t)(a + 1)};
+    memcpy(si + 6 * i, t6, sizeof(t6));
+  }
+  BUI_raster_mesh(r, strip, 8, si, 18, 0, tex, NULL, 0, 0);
+}
 
 static void scene(BuiRaster *r, int pass)
 {
@@ -88,6 +159,7 @@ static void scene(BuiRaster *r, int pass)
     BUI_raster_set_font(r, "", BUI_FONT_BOLD);
     BUI_raster_text(r, 240, 330, "Bold text 123", 13, 20, green);
   }
+  meshes(r);
   (void)pass;
   BUI_raster_end_frame(r);
 }
@@ -114,7 +186,7 @@ static void ppm(const char *dir, const char *name, const uint32_t *px)
  * may differ by a few levels of AA; only gross differences count there. */
 static int compare(const uint32_t *a, const uint32_t *b, const char *label, int slug)
 {
-  int bad = 0, gross = 0, maxd = 0;
+  int bad = 0, gross = 0, maxd = 0, mesh_bad = 0, mesh_max = 0;
   static uint32_t diff[W * H];
   for (int i = 0; i < W * H; i++) {
     int d = 0;
@@ -125,6 +197,10 @@ static int compare(const uint32_t *a, const uint32_t *b, const char *label, int 
     maxd = d > maxd ? d : maxd;
     bad += d > 3;
     gross += d > 64;
+    if (i / W >= 360) { /* the textured meshes */
+      mesh_bad += d > 3;
+      mesh_max = d > mesh_max ? d : mesh_max;
+    }
     const unsigned v = d > 255 / 8 ? 255u : (unsigned)d * 8u;
     diff[i] = (v << 16) | (v << 8) | v;
   }
@@ -138,6 +214,11 @@ static int compare(const uint32_t *a, const uint32_t *b, const char *label, int 
   }
   printf("gpu parity (%s): %d of %d pixels differ by more than 3, %d by more than 64 (max %d)\n",
          label, bad, W * H, gross, maxd);
+  printf("gpu parity (%s): meshes: %d pixels differ by more than 3 (max %d)\n", label, mesh_bad,
+         mesh_max);
+  if (mesh_bad > W * 80 / 200) { /* > 0.5% of the mesh band */
+    return 0;
+  }
   if (slug) {
     return bad < W * H / 100 && gross < W * H / 2000; /* AA differences on text only */
   }
@@ -151,6 +232,33 @@ static void set_slug(int on)
   BUI_gpu_set_slug(on);
 }
 
+/* Meshes drawn through raster views over horizontal bands (what parallel
+ * band drawing does) must give exactly the pixels of one serial draw. */
+static int mesh_bands(void)
+{
+  const float bg[4] = {0.16f, 0.16f, 0.17f, 1};
+  BuiRaster *serial = BUI_raster_create(W, H), *banded = BUI_raster_create(W, H);
+  BUI_raster_begin_frame(serial, W, H);
+  BUI_raster_fill_rect(serial, 0, 0, W, H, bg);
+  meshes(serial);
+  BUI_raster_end_frame(serial);
+  BUI_raster_begin_frame(banded, W, H);
+  BUI_raster_fill_rect(banded, 0, 0, W, H, bg);
+  BuiRaster *view = (BuiRaster *)malloc(BUI_raster_view_size());
+  for (int y = 0; y < H; y += 7) { /* odd band height: bands split triangles anywhere */
+    BUI_raster_view(banded, view, 0, y, W, y + 7);
+    meshes(view);
+  }
+  free(view);
+  BUI_raster_end_frame(banded);
+  const int same = memcmp(BUI_raster_pixels(serial), BUI_raster_pixels(banded),
+                          sizeof(uint32_t) * W * H) == 0;
+  printf("mesh bands: %s\n", same ? "identical to serial drawing" : "DIFFER from serial drawing");
+  BUI_raster_free(serial);
+  BUI_raster_free(banded);
+  return same;
+}
+
 int main(void)
 {
   BuiRaster *cpu = BUI_raster_create(W, H);
@@ -159,7 +267,7 @@ int main(void)
   if (getenv("BUI_PARITY_PPM")) {
     ppm(getenv("BUI_PARITY_PPM"), "parity_cpu", a);
   }
-  int ok = 1;
+  int ok = mesh_bands();
   /* text from glyph bitmaps (exact), then from glyph outlines (Slug) */
   for (int slug = 0; slug < 2; slug++) {
     set_slug(slug);

@@ -27,6 +27,7 @@
 #  define WM_BK_RENDER (WM_APP + 1)
 #  define ID_TIP 1
 #  define ID_ANIM 2
+#  define ID_WAKE 3 /* BK_TIMER_CUSTOM: custom nodes' frames */
 #  define ID_USER_BASE 1000
 
 struct BKWindow {
@@ -189,6 +190,21 @@ static HCURSOR cursor_handle(int c)
     case BK_CURSOR_MOVE:
       id = IDC_SIZEALL;
       break;
+    case BK_CURSOR_NESW:
+      id = IDC_SIZENESW;
+      break;
+    case BK_CURSOR_NWSE:
+      id = IDC_SIZENWSE;
+      break;
+    case BK_CURSOR_NOT_ALLOWED:
+      id = IDC_NO;
+      break;
+    case BK_CURSOR_WAIT:
+      id = IDC_WAIT;
+      break;
+    case BK_CURSOR_PROGRESS:
+      id = IDC_APPSTARTING;
+      break;
     case BK_CURSOR_NONE:
       return NULL;
   }
@@ -250,6 +266,10 @@ static void host_clipboard_set(void *data, const char *text)
 static void host_schedule(void *data, int ms, int timer)
 {
   BKWindow *win = (BKWindow *)data;
+  if (timer == BK_TIMER_CUSTOM) { /* its own timer: tooltips keep theirs */
+    SetTimer(win->hwnd, ID_WAKE, (UINT)(ms > 0 ? ms : 1), NULL);
+    return;
+  }
   win->tip_id = timer;
   SetTimer(win->hwnd, ID_TIP, (UINT)ms, NULL);
 }
@@ -542,7 +562,16 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MOUSEWHEEL: {
       POINT p = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
       ScreenToClient(hwnd, &p);
-      BK_wheel(ctx, p.x, p.y, GET_WHEEL_DELTA_WPARAM(wp) > 0 ? 1 : -1, mods_now(0, 0));
+      /* precise: touchpads send fractions of a notch (WHEEL_DELTA) */
+      BK_scroll(ctx, p.x, p.y, 0.0f, (float)GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA,
+                mods_now(0, 0));
+      return 0;
+    }
+    case WM_MOUSEHWHEEL: { /* tilt wheel / sideways swipe: > 0 right */
+      POINT p = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+      ScreenToClient(hwnd, &p);
+      BK_scroll(ctx, p.x, p.y, (float)GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA, 0.0f,
+                mods_now(0, 0));
       return 0;
     }
     case WM_KEYDOWN:
@@ -590,6 +619,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       if (wp == ID_TIP) {
         KillTimer(hwnd, ID_TIP);
         BK_timer(ctx, win->tip_id);
+      }
+      else if (wp == ID_WAKE) {
+        KillTimer(hwnd, ID_WAKE);
+        BK_timer(ctx, BK_TIMER_CUSTOM);
       }
       else if (wp >= ID_USER_BASE) {
         KillTimer(hwnd, wp);

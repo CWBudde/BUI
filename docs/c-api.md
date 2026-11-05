@@ -84,11 +84,13 @@ int main(void)
 | **GPU rendering** | `BUI_gpu_set_default(1)` (all new windows), `BK_window_set_gpu(win, 1)` (one window), `BK_window_gpu(win)` (1 once frames draw on the GPU). `BUI_GPU=1/0` overrides. For your own rasters: `BUI_raster_gpu_attach(r, hwnd_or_NULL, wait)`, `BUI_raster_gpu_poll`, `BUI_raster_is_gpu`. |
 | **Text** | `BUI_text_measure`, `BUI_raster_text`, `BUI_text_add_font(family, flags, data, len)` (register a font; needed on wasm) |
 | **Specialised** | Canvas display list (`BK_canvas_set_item`), text area (`BK_textarea_*`), trees (`BK_tree_item_*`), menus (`BK_open_menu`, `BK_open_pie`), color ramps and curves, `BK_undo` / `BK_redo` |
+| **Custom nodes** | A `custom` node draws and handles input itself: `BK_custom_set(node, &cls, data)` with `event` (pointer with all three buttons and a grab, precise wheel via `BK_scroll`, keys and text while focused, key releases, focus), `frame` (called by `BK_render` when requested with `BK_custom_request_frame(node, ms)`: immediate-mode UIs build their frame there) and `draw` (raster + rect). `BK_custom_set_cursor`, `BK_node_context`. Dear ImGui runs on it: [../bindings/imgui](../bindings/imgui/README.md). |
+| **Meshes and textures** | `BUI_texture_create/update/free` (RGBA8, shared by every raster and GPU device), `BUI_raster_mesh(r, vertices, n, indices, n_idx, flags, tex, clip, ox, oy)`: indexed triangles with position, UV and color, straight-alpha blending, per-call clip; the same pixels on the software raster, Direct3D 11 and OpenGL. |
 
 Node types: `frame column row grid box panel tabs sidetabs scroll scrollbar
 label separator progress button toggle checkbox radio decorator text search
 hotkey number slider dropdown enum swatch popover menubutton menubar list
-tree gridview canvas textarea image ramp curve normal histogram`.
+tree gridview canvas textarea image ramp curve normal histogram custom`.
 
 Read the header for the full list. It is the reference: every function
 has a one-line comment.

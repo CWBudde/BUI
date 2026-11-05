@@ -29,6 +29,13 @@ option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
 option(BUI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" ON)
 option(BUI_BUILD_QT_BACKEND "Build the Qt/QPainter backend (needs Qt5/Qt6 with Widgets)" OFF)
+# Dear ImGui on BUI (bindings/imgui): ON when its sources are here (not in the
+# C-only source copies other packages vendor) and C++ builds.
+set(_bui_imgui_default OFF)
+if(CMAKE_CXX_COMPILER AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bindings/imgui/CMakeLists.txt")
+  set(_bui_imgui_default ON)
+endif()
+option(BUI_BUILD_IMGUI "Build Dear ImGui on BUI (bui_imgui, its demo and test)" ${_bui_imgui_default})
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
@@ -71,6 +78,11 @@ if(BUI_BUILD_TESTS)
   set_tests_properties(bui_window_smoke PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
 endif()
 
+# before the Python bindings: they add the blenderui.imgui extension when bui_cimgui exists
+if(BUI_BUILD_IMGUI)
+  add_subdirectory(bindings/imgui)
+endif()
+
 if(BUI_BUILD_PYTHON_BINDINGS)
   add_subdirectory(bindings/python)
 endif()
@@ -78,6 +90,7 @@ endif()
 if(BUI_BUILD_QT_BACKEND)
   add_subdirectory(backends/qt)
 endif()
+
 
 if(BUI_BUILD_EXAMPLES)
   add_subdirectory(examples)

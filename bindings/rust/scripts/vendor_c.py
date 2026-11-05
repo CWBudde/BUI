@@ -11,7 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 DEST = ROOT / "bindings" / "rust" / "blenderui-sys" / "csrc"
-DIRS = ["core", "types", "gpu", "compat", "ui", "kit", "api"]
+# bindings/imgui: Dear ImGui on BUI + its C API (blenderui-sys's `imgui` feature)
+DIRS = ["core", "types", "gpu", "compat", "ui", "kit", "api", "bindings/imgui"]
 FILES = ["CMakeLists.txt", "LICENSE", "bindings/python/bui/_version.py"]
 SKIP = shutil.ignore_patterns("__pycache__", "*.pyc", "build*", "*.o", "*.obj")
 
