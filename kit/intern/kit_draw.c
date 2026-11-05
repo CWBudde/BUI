@@ -1540,20 +1540,27 @@ void bk_icon(int icon, float cx, float cy, const uchar *color, float alpha, floa
 
 void bk_tria(float cx, float cy, char dir, const float c[4], float size)
 {
-  /* draw_icon_tri(): 'h' right, 'v' down, 't' up */
+  /* draw_icon_tri(): 'h' right, 'v' down, 'l' left, 't' up */
   const float s = size > 0 ? size : 0.18f * bk_unit();
+  const float a = s * 0.5f, b = s * 0.7f;
   float p[3][2];
-  if (dir == 'h') {
-    const float q[3][2] = {{cx - s * 0.5f, cy - s}, {cx - s * 0.5f, cy + s}, {cx + s * 0.7f, cy}};
-    memcpy(p, q, sizeof(p));
-  }
-  else if (dir == 't') {
-    const float q[3][2] = {{cx - s, cy + s * 0.5f}, {cx + s, cy + s * 0.5f}, {cx, cy - s * 0.7f}};
-    memcpy(p, q, sizeof(p));
-  }
-  else {
-    const float q[3][2] = {{cx - s, cy - s * 0.5f}, {cx + s, cy - s * 0.5f}, {cx, cy + s * 0.7f}};
-    memcpy(p, q, sizeof(p));
+  switch (dir) {
+    case 'v':
+      p[0][0] = cx - s, p[0][1] = cy - a, p[1][0] = cx + s, p[1][1] = cy - a;
+      p[2][0] = cx, p[2][1] = cy + b;
+      break;
+    case 'l':
+      p[0][0] = cx + a, p[0][1] = cy - s, p[1][0] = cx + a, p[1][1] = cy + s;
+      p[2][0] = cx - b, p[2][1] = cy;
+      break;
+    case 't':
+      p[0][0] = cx - s, p[0][1] = cy + a, p[1][0] = cx + s, p[1][1] = cy + a;
+      p[2][0] = cx, p[2][1] = cy - b;
+      break;
+    default: /* 'h' */
+      p[0][0] = cx - a, p[0][1] = cy - s, p[1][0] = cx - a, p[1][1] = cy + s;
+      p[2][0] = cx + b, p[2][1] = cy;
+      break;
   }
   BUI_raster_polygon(bk_draw.r, (const float(*)[2])p, 3, c);
 }
@@ -1802,30 +1809,6 @@ static void wd_text_at(const BKWidgetDraw *w, const BKRect *fallback, const char
   bk_text(x, bk_text_baseline(&tr), s, -1, color, false);
 }
 
-static void wd_triangle(float cx, float cy, int dir, float s, const float c[4])
-{
-  float p[3][2];
-  switch (dir) {
-    case 1: /* down */
-      p[0][0] = cx - s, p[0][1] = cy - s * 0.5f, p[1][0] = cx + s, p[1][1] = cy - s * 0.5f;
-      p[2][0] = cx, p[2][1] = cy + s * 0.7f;
-      break;
-    case 2: /* left */
-      p[0][0] = cx + s * 0.5f, p[0][1] = cy - s, p[1][0] = cx + s * 0.5f, p[1][1] = cy + s;
-      p[2][0] = cx - s * 0.7f, p[2][1] = cy;
-      break;
-    case 3: /* up */
-      p[0][0] = cx - s, p[0][1] = cy + s * 0.5f, p[1][0] = cx + s, p[1][1] = cy + s * 0.5f;
-      p[2][0] = cx, p[2][1] = cy - s * 0.7f;
-      break;
-    default: /* right */
-      p[0][0] = cx - s * 0.5f, p[0][1] = cy - s, p[1][0] = cx - s * 0.5f, p[1][1] = cy + s;
-      p[2][0] = cx + s * 0.7f, p[2][1] = cy;
-      break;
-  }
-  BUI_raster_polygon(bk_draw.r, (const float(*)[2])p, 3, c);
-}
-
 static void wd_draw(const BKWidgetDraw *w)
 {
   BKRect r = wd_rect(w->rect);
@@ -1845,8 +1828,10 @@ static void wd_draw(const BKWidgetDraw *w)
       if (w->kind == BK_WIDGET_ARROW) {
         float c[4];
         bk_rgba(tc, c);
-        wd_triangle(r.xmin + bk_rw(&r) * 0.5f, r.ymin + bk_rh(&r) * 0.5f, (int)w->value,
-                    0.2f * BK_MIN(bk_rw(&r), bk_rh(&r)) + 0.5f, c);
+        const int dir = (int)w->value; /* 0 right, 1 down, 2 left, 3 up */
+        bk_tria(r.xmin + bk_rw(&r) * 0.5f, r.ymin + bk_rh(&r) * 0.5f,
+                (dir >= 1 && dir <= 3) ? "hvlt"[dir] : 'h', c,
+                0.2f * BK_MIN(bk_rw(&r), bk_rh(&r)) + 0.5f);
       }
       else {
         wd_text_in(&r, w->text, tc, w->align < 0 ? BK_ALIGN_CENTER : w->align);

@@ -164,7 +164,7 @@ int bk_icon_size(void);
 void bk_icon(int icon, float cx, float cy, const uchar *color, float alpha, float size);
 const float *bk_icon_tint(int icon); /* NULL: use text color */
 float bk_content_width(const char *s, int icon, bool bold);
-void bk_tria(float cx, float cy, char dir, const float c[4], float size); /* 'h' 'v' 't' */
+void bk_tria(float cx, float cy, char dir, const float c[4], float size); /* 'h' 'v' 'l' 't' */
 /* `c` drawn with its alpha over the opaque `back` (rounded), and shaded by `shade` (RGB). */
 void bk_color_over(const uchar c[4], const uchar back[4], uchar r_out[4]);
 void bk_color_shade(const uchar c[4], int shade, uchar r_out[4]);
