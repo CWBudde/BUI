@@ -78,7 +78,11 @@ def _tk():
     global _tk_root
     tk = _realtk.module()
     if _tk_root is None:
+        # keep it out of tkinter's default root: a program's own tk.StringVar() and
+        # friends must not bind to this hidden interpreter
+        default_root = tk._default_root
         _tk_root = tk.Tk()
+        tk._default_root = default_root
         _tk_root.withdraw()
     return _tk_root
 

@@ -63,9 +63,6 @@ def prog_calculator(tk, ttk):
     buttons["C"].invoke()
     entry.insert(0, "6*7")
     buttons["="].invoke()
-    # a textvariable write reaches the Entry at idle time in Tk on macOS: flush it
-    # before reading the widget (without this, stdlib Tk there still shows "6*7")
-    root.update_idletasks()
     out.append(entry.get())
     info = buttons["5"].grid_info()
     result = {"results": out, "grid": (info["row"], info["column"]), "size": root.grid_size(),
@@ -462,7 +459,11 @@ def _real_modules():
         tk = _realtk.module("tkinter")
         import importlib
         ttk = importlib.import_module("tkinter.ttk")
-        tk.Tk().destroy()
+        # Tk 9 on macOS: the next Tk() crashes if the only root was destroyed before
+        # its idle events ran
+        root = tk.Tk()
+        root.update_idletasks()
+        root.destroy()
         return tk, ttk
     except Exception:
         return None
@@ -537,7 +538,27 @@ def test_install_runs_unchanged_scripts():
         sys.modules.update(saved)
 
 
+def test_hidden_root_is_not_default_root():
+    """BUI's hidden Tk root (macOS, the Tk host) must not capture a real tkinter
+    program's variables: they belong to the program's own Tk()."""
+    real = _real_modules()
+    if real is None:
+        print("skipped hidden root test (no stdlib Tk)")
+        return
+    tk = real[0]
+    from bui import host
+    host._tk()
+    root = tk.Tk()
+    var = tk.StringVar()
+    entry = tk.Entry(root, textvariable=var)
+    var.set("linked")
+    seen = entry.get()
+    root.destroy()
+    assert seen == "linked", "StringVar went to the hidden root: Entry shows %r" % seen
+
+
 def main() -> int:
+    test_hidden_root_is_not_default_root()
     test_programs_match_stdlib()
     test_install_runs_unchanged_scripts()
     print("tkinter compatibility tests passed")
