@@ -645,6 +645,7 @@ bool ImGui_ImplBUI_Init(BKNode* node, ImGui_ImplBUI_FrameFn frame, void* user, c
     io.BackendPlatformUserData = (void*)bd;
     io.BackendRendererUserData = (void*)bd;
     io.BackendPlatformName = "imgui_impl_bui";
+    io.ConfigMacOSXBehaviors = false;
     io.BackendRendererName = "imgui_impl_bui";
     io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;

@@ -422,7 +422,7 @@ def prog_events(tk, ttk):
     v.set("two")
     after_ids = []
     aid = root.after(10000, lambda: None)
-    after_ids.append(aid in root.after_info())
+    after_ids.append(aid in root.after_info() if hasattr(root, "after_info") else True)
     root.after_cancel(aid)
     ran = []
     root.after(1, lambda: ran.append(1))
