@@ -213,7 +213,17 @@ int main(void)
     CHECK(s.clicks == 1, "click presses the button");
     /* slider: click near the right end */
     cImGui_ImplBUI_Click(app, s.slider_rc.min.x + s.slider_w * 0.8f, Center(s.slider_rc).y);
-    CHECK(s.slider > 0.6f, "click on the slider sets it");
+    if (cImGui_ImplBUI_GetBlenderWidgets())
+    {
+        /* variant (Blender widgets): a click types a value instead of jumping to the pointer */
+        CHECK(io->WantTextInput && fabsf(s.slider - 0.25f) < 1e-4f, "click on the slider types a value (Blender widgets)");
+        cImGui_ImplBUI_Key(app, "a", 2 /* BK_CTRL */);
+        cImGui_ImplBUI_TypeText(app, "0.8");
+        cImGui_ImplBUI_Key(app, "Return", 0);
+        CHECK(fabsf(s.slider - 0.8f) < 1e-4f, "typed 0.8 into the slider");
+    }
+    else
+        CHECK(s.slider > 0.6f, "click on the slider sets it");
     /* text */
     cImGui_ImplBUI_Click(app, Center(s.input).x, Center(s.input).y);
     cImGui_ImplBUI_TypeText(app, "Hi C");

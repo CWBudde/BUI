@@ -23,6 +23,7 @@ The C, Python and Rust bindings are **generated** from `imgui.h`; see
 - [Python](#python)
 - [Rust](#rust)
 - [Headless rendering and tests](#headless-rendering-and-tests)
+- [Blender widgets](#blender-widgets)
 - [Coverage](#coverage)
 - [Regenerating](#regenerating)
 - [Limitations](#limitations)
@@ -225,7 +226,28 @@ Tests:
 | `imgui_c_api` (ctest) | `bindings/imgui/tests/test_cimgui.c`: widgets, tables, list clipper, draw list, popups, IO/style structs, helpers, text filter/storage/text buffer, clicks, a slider, typing |
 | `buipy_imgui` (ctest) | `bindings/python/tests/test_imgui.py` (unittest): the same from Python, plus drags, the wheel, buffer growth, overload dispatch, struct fields and array views, the demo/metrics/style windows, errors |
 | `cargo test -p blenderui-imgui` | `tests/headless.rs`: Rust/C++ struct sizes, widgets and input, owned objects, a panic in the frame |
-| `imgui_backend` (ctest) | the backend itself, in C++ (phase 1) |
+| `imgui_backend` (ctest) | the backend itself, in C++ (phase 1); with Blender widgets also their interaction (drag steps, Shift, Ctrl snapping, arrows, click / double-click / Ctrl+click to type, relative sliders, drag-toggle) |
+| `imgui_blender_widgets_match_kit` (ctest, `BUI_IMGUI_BLENDER_WIDGETS=ON`) | `examples/imgui_blender_compare.cpp`: ImGui's Blender widgets and the kit's native widgets are the same pixels |
+
+The C, Python and C++ tests run in both widget variants; expectations that differ with
+Blender widgets (sliders do not jump to the pointer, a click types a value) are marked
+"variant" in them.
+
+## Blender widgets
+
+Built with `-DBUI_IMGUI_BLENDER_WIDGETS=ON` (Rust: `blenderui-imgui` feature
+`blender-widgets`), Dear ImGui's widgets are Blender's widgets: drawn by the BUI kit with
+its own widget drawing and handled with Blender's rules where they differ (number fields,
+sliders, checkboxes). Nothing changes in the API; the switch is also available at runtime:
+
+| | C++ | C | Python | Rust |
+|---|---|---|---|---|
+| built with them | `ImGui_ImplBUI_HasBlenderWidgets()` | `cImGui_ImplBUI_HasBlenderWidgets()` | `imgui.has_blender_widgets()` | `has_blender_widgets()` |
+| in use | `ImGui_ImplBUI_GetBlenderWidgets()` | `cImGui_ImplBUI_GetBlenderWidgets()` | `imgui.get_blender_widgets()` | `blender_widgets()` |
+| switch | `ImGui_ImplBUI_SetBlenderWidgets(on)` | `cImGui_ImplBUI_SetBlenderWidgets(on)` | `imgui.set_blender_widgets(on)` | `set_blender_widgets(on)` |
+
+The widget mapping, the behavior differences and the gaps are in
+[bindings/imgui/blender/README.md](../bindings/imgui/blender/README.md).
 
 ## Coverage
 

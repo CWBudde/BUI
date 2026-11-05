@@ -132,6 +132,9 @@ void ImGui_ImplBUI_StyleBlender(ImGuiStyle* dst, float scale)
     style.TreeLinesSize = 1.0f;
     style.DisabledAlpha = 0.5f;                          // widget_alpha_factor for disabled buttons
     style.ScaleAllSizes(scale);
+    // Frames exactly one widget unit tall: ImGui rounds the font to whole pixels (13 px at
+    // scale 1) and ScaleAllSizes() truncates the padding, which made frames 19 px.
+    style.FramePadding.y = ImMax(1.0f, (IM_ROUND(unit * scale) - IM_ROUND(font * scale)) * 0.5f);
 
     // -- colors --
     const ImVec4 text = Rgba(0xe6e6e6ff);        // wcol_regular.text

@@ -207,21 +207,36 @@ class ImGuiTest(unittest.TestCase):
         self.click("button")
         self.assertEqual(self.ui.clicks, n + 1)
 
-    def test_slider_click(self):
+    def slider_click(self, fx, typed):
         (x0, y0), (x1, y1) = self.ui.rects["slider"]
-        self.app.click(x0 + self.ui.slider_w * 0.9, (y0 + y1) / 2)
+        self.app.click(x0 + self.ui.slider_w * fx, (y0 + y1) / 2)
+        if imgui.get_blender_widgets():
+            # variant (Blender widgets): a click types a value, no jump to the pointer
+            self.app.key("a", imgui.BK_CTRL)
+            self.app.type_text(typed)
+            self.app.key("Return")
+
+    def test_slider_click(self):
+        self.slider_click(0.9, "0.9")
         self.assertGreater(self.ui.slider, 0.8)
-        self.app.click(x0 + self.ui.slider_w * 0.1, (y0 + y1) / 2)
+        self.slider_click(0.1, "0.1")
         self.assertLess(self.ui.slider, 0.2)
 
     def test_slider_drag(self):
         (x0, y0), (x1, y1) = self.ui.rects["slider"]
         y = (y0 + y1) / 2
+        before = self.ui.slider
         self.app.mouse_down(x0 + self.ui.slider_w * 0.2, y)
         self.app.mouse_move(x0 + self.ui.slider_w * 0.5, y)
         self.app.mouse_move(x0 + self.ui.slider_w * 0.7, y)
         self.app.mouse_up(x0 + self.ui.slider_w * 0.7, y)
-        self.assertAlmostEqual(self.ui.slider, 0.7, delta=0.06)
+        # variant (Blender widgets): relative to the value at the press (half the width: +0.5)
+        expected = min(1.0, before + 0.5) if imgui.get_blender_widgets() else 0.7
+        self.assertAlmostEqual(self.ui.slider, expected, delta=0.06)
+
+    def test_blender_widgets_switch(self):
+        self.assertIsInstance(imgui.has_blender_widgets(), bool)
+        self.assertEqual(imgui.get_blender_widgets(), imgui.has_blender_widgets())
 
     def test_typing(self):
         self.click("input")

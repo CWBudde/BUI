@@ -298,6 +298,17 @@ static PyObject* bi_style_blender(PyObject*, PyObject* args)
 
 static PyObject* bi_get_scale(PyObject*, PyObject*) { return PyFloat_FromDouble(cimgui::cImGui_ImplBUI_GetScale()); }
 
+static PyObject* bi_has_blender_widgets(PyObject*, PyObject*) { return PyBool_FromLong(cimgui::cImGui_ImplBUI_HasBlenderWidgets()); }
+static PyObject* bi_get_blender_widgets(PyObject*, PyObject*) { return PyBool_FromLong(cimgui::cImGui_ImplBUI_GetBlenderWidgets()); }
+static PyObject* bi_set_blender_widgets(PyObject*, PyObject* arg)
+{
+    const int on = PyObject_IsTrue(arg);
+    if (on < 0)
+        return nullptr;
+    cimgui::cImGui_ImplBUI_SetBlenderWidgets(on != 0);
+    Py_RETURN_NONE;
+}
+
 static PyObject* bi_set_scale(PyObject*, PyObject* args)
 {
     float s;
@@ -317,6 +328,9 @@ static PyObject* bi_sizeof(PyObject*, PyObject* args)
 
 static PyMethodDef bi_module_methods_extra[] = {
     { "style_blender", bi_style_blender, METH_VARARGS, "style_blender(scale=1.0) -- Blender's theme on the current style" },
+    { "has_blender_widgets", bi_has_blender_widgets, METH_NOARGS, "has_blender_widgets() -- built with Blender's widgets (BUI_IMGUI_BLENDER_WIDGETS)" },
+    { "get_blender_widgets", bi_get_blender_widgets, METH_NOARGS, "get_blender_widgets() -- ImGui's widgets are drawn and handled as Blender's" },
+    { "set_blender_widgets", bi_set_blender_widgets, METH_O, "set_blender_widgets(on) -- switch Blender's widgets on or off (when built with them)" },
     { "get_ui_scale", bi_get_scale, METH_NOARGS, "get_ui_scale() -> BUI's UI scale (DPI)" },
     { "set_ui_scale", bi_set_scale, METH_VARARGS, "set_ui_scale(scale)" },
     { "_sizeof", bi_sizeof, METH_VARARGS, "_sizeof(type_name) -> sizeof() in C++ (tests)" },

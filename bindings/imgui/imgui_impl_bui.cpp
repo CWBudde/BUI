@@ -77,10 +77,57 @@ struct ContextScope
 //-----------------------------------------------------------------------------
 
 // Markers for the standard draw callbacks: ImGui never calls them, RenderDrawData
-// recognizes them.
-static void DrawCallback_ResetRenderState(const ImDrawList*, const ImDrawCmd*) {}
-static void DrawCallback_SetSamplerLinear(const ImDrawList*, const ImDrawCmd*) {}
-static void DrawCallback_SetSamplerNearest(const ImDrawList*, const ImDrawCmd*) {}
+// recognizes them by address. Distinct bodies: identical empty functions may be folded into
+// one address by the linker (MSVC /OPT:ICF), which would make them indistinguishable.
+static volatile int g_MarkerCalls[4];
+static void DrawCallback_ResetRenderState(const ImDrawList*, const ImDrawCmd*) { g_MarkerCalls[0] = 1; }
+static void DrawCallback_SetSamplerLinear(const ImDrawList*, const ImDrawCmd*) { g_MarkerCalls[1] = 2; }
+static void DrawCallback_SetSamplerNearest(const ImDrawList*, const ImDrawCmd*) { g_MarkerCalls[2] = 3; }
+
+// Blender widgets (BUI_IMGUI_BLENDER_WIDGETS, blender/imgui_widgets_blender.cpp): the
+// callback data is a BKWidgetDraw followed by its two NUL-terminated texts; RenderDrawData
+// draws it with BK_draw_widget, in draw order, clipped to the command's clip rect.
+void ImGui_ImplBUI_DrawCallback_Widget(const ImDrawList*, const ImDrawCmd*) { g_MarkerCalls[3] = 4; }
+
+#ifdef BUI_IMGUI_BLENDER_WIDGETS
+bool g_ImGui_ImplBUI_BlenderWidgets = true; // read by imgui_widgets_blender.cpp
+bool ImGui_ImplBUI_HasBlenderWidgets() { return true; }
+#else
+bool g_ImGui_ImplBUI_BlenderWidgets = false;
+bool ImGui_ImplBUI_HasBlenderWidgets() { return false; }
+#endif
+void ImGui_ImplBUI_SetBlenderWidgets(bool on) { g_ImGui_ImplBUI_BlenderWidgets = on && ImGui_ImplBUI_HasBlenderWidgets(); }
+bool ImGui_ImplBUI_GetBlenderWidgets() { return g_ImGui_ImplBUI_BlenderWidgets; }
+
+static void DrawWidget(const ImDrawCmd& cmd, BuiRaster* r, float dx, float dy)
+{
+    if (cmd.UserCallbackData == nullptr || cmd.UserCallbackDataSize < (int)sizeof(BKWidgetDraw) + 2)
+        return;
+    BKWidgetDraw w;
+    memcpy(&w, cmd.UserCallbackData, sizeof(w));
+    const char* text = (const char*)cmd.UserCallbackData + sizeof(BKWidgetDraw);
+    w.text = text;
+    w.text2 = text + strlen(text) + 1;
+    w.rect[0] += dx;
+    w.rect[1] += dy;
+    w.text_rect[0] += dx;
+    w.text_rect[1] += dy;
+    if (w.aux[0] != 0.0f)
+        w.aux[0] += dx;
+    if (w.aux[1] != 0.0f)
+        w.aux[1] += dy;
+    // the command's clip, narrowed by the widget's own
+    ImVec4 c = cmd.ClipRect;
+    if (w.clip[2] > w.clip[0])
+        c = ImVec4(ImMax(c.x, w.clip[0]), ImMax(c.y, w.clip[1]), ImMin(c.z, w.clip[2]), ImMin(c.w, w.clip[3]));
+    if (c.z <= c.x || c.w <= c.y)
+        return;
+    w.clip[0] = c.x + dx;
+    w.clip[1] = c.y + dy;
+    w.clip[2] = c.z + dx;
+    w.clip[3] = c.w + dy;
+    BK_draw_widget(r, &w);
+}
 
 static void UploadRect(ImTextureData* tex, int tex_id, int x, int y, int w, int h)
 {
@@ -169,6 +216,8 @@ void ImGui_ImplBUI_RenderDrawData(ImDrawData* draw_data, BuiRaster* r, float ox,
             {
                 if (cmd.UserCallback == DrawCallback_SetSamplerNearest)
                     nearest = BUI_MESH_NEAREST;
+                else if (cmd.UserCallback == ImGui_ImplBUI_DrawCallback_Widget)
+                    DrawWidget(cmd, r, dx, dy);
                 else if (cmd.UserCallback == DrawCallback_SetSamplerLinear || cmd.UserCallback == DrawCallback_ResetRenderState ||
                          cmd.UserCallback == platform_io.DrawCallback_ResetRenderState)
                     nearest = 0;
@@ -429,6 +478,8 @@ static uint64_t HashDrawData(const ImDrawData* dd)
             h = HashMix(h, (uint64_t)cmd.GetTexID());
             h = HashMix(h, ((uint64_t)cmd.VtxOffset << 32) ^ cmd.IdxOffset ^ ((uint64_t)cmd.ElemCount << 16));
             h = HashMix(h, (uint64_t)(uintptr_t)cmd.UserCallback);
+            if (cmd.UserCallback != nullptr && cmd.UserCallbackData != nullptr && cmd.UserCallbackDataSize > 0)
+                h = HashBytes(h, cmd.UserCallbackData, (size_t)cmd.UserCallbackDataSize);
         }
     }
     return h;

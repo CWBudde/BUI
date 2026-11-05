@@ -1674,3 +1674,460 @@ void bk_icons_draw(int id, float x, float y, float s, const float color[4])
 }
 
 /** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name BK_draw_widget: one widget into a raster, for other toolkits
+ *
+ * The same drawing the kit's nodes do (button_draw, checkbox_draw, number_draw,
+ * slider_draw, text_draw, dropdown_draw, menu_draw rows, list rows, swatch_draw,
+ * progress_draw, tabs_draw, panel_draw), driven by a plain description instead of a
+ * node. Used by Dear ImGui's Blender widgets (bindings/imgui/blender).
+ * \{ */
+
+float BK_text_width(const char *s, int len)
+{
+  return bk_text_width(s, len, false);
+}
+
+static int ws_state(int ws)
+{
+  int st = 0;
+  if (ws & BK_WS_DISABLED) {
+    st |= ST_DISABLED;
+  }
+  else if (ws & BK_WS_HOVER) {
+    st |= ST_HOVER;
+  }
+  if (ws & (BK_WS_PRESSED | BK_WS_SELECTED)) {
+    st = (st & ~ST_HOVER) | ST_SELECT;
+  }
+  if (ws & BK_WS_HOVER_LEFT) {
+    st |= ST_HOVER_LEFT;
+  }
+  if (ws & BK_WS_HOVER_RIGHT) {
+    st |= ST_HOVER_RIGHT;
+  }
+  if (ws & BK_WS_MIXED) {
+    st |= ST_INDETERMINATE;
+  }
+  if (ws & BK_WS_FLAT) {
+    st |= ST_NO_EMBOSS;
+  }
+  return st;
+}
+
+static BKRect wd_rect(const float f[4])
+{
+  const int x0 = bk_iround(f[0]), y0 = bk_iround(f[1]);
+  const BKRect r = {x0, y0, bk_iround(f[0] + f[2]), bk_iround(f[1] + f[3])};
+  return r;
+}
+
+/* bk_text_in, with the margin narrowed when a toolkit sized the widget to its text with less
+ * padding than Blender's (ImGui: FramePadding), so short labels never elide */
+static void wd_text_in(const BKRect *r, const char *s, const uchar color[4], int align)
+{
+  if (!s || !s[0]) {
+    return;
+  }
+  const float tw = bk_text_width(s, -1, false);
+  int pad = bk_pad();
+  if (tw + 2 * pad > bk_rw(r)) {
+    pad = BK_MAX(0, (int)floorf((bk_rw(r) - tw) * 0.5f));
+  }
+  bk_text_in_pad(r, s, color, align, false, pad);
+}
+
+/* number_texts: the label left and the value right, or the value centered */
+static void wd_number_texts(const BKRect *r, const char *label, const char *val,
+                            const uchar color[4])
+{
+  BKRect tr = *r;
+  if (label && label[0] && val && val[0]) {
+    const float vw = bk_text_width(val, -1, false);
+    BKRect lr = tr;
+    lr.xmax = (int)(tr.xmax - vw - bk_pad());
+    bk_text_in(&lr, label, color, BK_ALIGN_LEFT, false);
+    bk_text_in(&tr, val, color, BK_ALIGN_RIGHT, false);
+  }
+  else {
+    bk_text_in(&tr, (val && val[0]) ? val : label, color, BK_ALIGN_CENTER, false);
+  }
+}
+
+/* text placed by the toolkit: from text_rect's x, vertically centered in it */
+static void wd_text_at(const BKWidgetDraw *w, const BKRect *fallback, const char *s,
+                       const uchar color[4], int align)
+{
+  if (!s || !s[0]) {
+    return;
+  }
+  if (w->text_rect[2] <= 0.0f) {
+    bk_text_in(fallback, s, color, align < 0 ? BK_ALIGN_LEFT : align, false);
+    return;
+  }
+  const BKRect tr = wd_rect(w->text_rect);
+  const float tw = bk_text_width(s, -1, false);
+  float x = w->text_rect[0];
+  if (align == BK_ALIGN_CENTER) {
+    x += (w->text_rect[2] - tw) * 0.5f;
+  }
+  else if (align == BK_ALIGN_RIGHT) {
+    x += w->text_rect[2] - tw;
+  }
+  bk_text(x, bk_text_baseline(&tr), s, -1, color, false);
+}
+
+static void wd_triangle(float cx, float cy, int dir, float s, const float c[4])
+{
+  float p[3][2];
+  switch (dir) {
+    case 1: /* down */
+      p[0][0] = cx - s, p[0][1] = cy - s * 0.5f, p[1][0] = cx + s, p[1][1] = cy - s * 0.5f;
+      p[2][0] = cx, p[2][1] = cy + s * 0.7f;
+      break;
+    case 2: /* left */
+      p[0][0] = cx + s * 0.5f, p[0][1] = cy - s, p[1][0] = cx + s * 0.5f, p[1][1] = cy + s;
+      p[2][0] = cx - s * 0.7f, p[2][1] = cy;
+      break;
+    case 3: /* up */
+      p[0][0] = cx - s, p[0][1] = cy + s * 0.5f, p[1][0] = cx + s, p[1][1] = cy + s * 0.5f;
+      p[2][0] = cx, p[2][1] = cy - s * 0.7f;
+      break;
+    default: /* right */
+      p[0][0] = cx - s * 0.5f, p[0][1] = cy - s, p[1][0] = cx - s * 0.5f, p[1][1] = cy + s;
+      p[2][0] = cx + s * 0.7f, p[2][1] = cy;
+      break;
+  }
+  BUI_raster_polygon(bk_draw.r, (const float(*)[2])p, 3, c);
+}
+
+static void wd_draw(const BKWidgetDraw *w)
+{
+  BKRect r = wd_rect(w->rect);
+  const int ws = w->state;
+  int st = ws_state(ws);
+  const int corners = w->corners;
+  const bool enabled = !(ws & BK_WS_DISABLED);
+  BKWCol wc;
+  switch (w->kind) {
+    case BK_WIDGET_BUTTON:
+    case BK_WIDGET_TOGGLE:
+    case BK_WIDGET_ARROW: { /* button_draw, toggle_draw */
+      bk_widget_state(&wc, w->kind == BK_WIDGET_TOGGLE ? &bk_theme.toggle : &bk_theme.regular,
+                      st);
+      bk_widget_but(&wc, &r, st, corners); /* flat: nothing unless hovered */
+      const uchar *tc = (st & ST_NO_EMBOSS) ? bk_theme.text : wc.text;
+      if (w->kind == BK_WIDGET_ARROW) {
+        float c[4];
+        bk_rgba(tc, c);
+        wd_triangle(r.xmin + bk_rw(&r) * 0.5f, r.ymin + bk_rh(&r) * 0.5f, (int)w->value,
+                    0.2f * BK_MIN(bk_rw(&r), bk_rh(&r)) + 0.5f, c);
+      }
+      else {
+        wd_text_in(&r, w->text, tc, w->align < 0 ? BK_ALIGN_CENTER : w->align);
+      }
+      break;
+    }
+    case BK_WIDGET_CHECKBOX: { /* checkbox_draw */
+      bk_widget_state(&wc, &bk_theme.option, st);
+      bk_widget_optionbut(&wc, &r, st);
+      uchar tc[4];
+      memcpy(tc, wc.text, 4);
+      if (!enabled) {
+        tc[3] /= 2;
+      }
+      bk_text_in_pad(&r, w->text, tc, BK_ALIGN_LEFT, false, 0);
+      break;
+    }
+    case BK_WIDGET_RADIO: { /* widget_optionbut, with a round box and a dot */
+      bk_widget_state(&wc, &bk_theme.option, st);
+      BKRect rt = r;
+      rt.xmax = rt.xmin + bk_rh(&rt);
+      const int delta = (int)((bk_rh(&rt) - 2 * bk_px()) / 6);
+      rt.ymin += delta;
+      rt.ymax -= delta;
+      rt.xmax -= 2 * delta;
+      WidgetBase wtb;
+      widget_init(&wtb);
+      round_box_edges(&wtb, CNR_ALL, &rt, 0.5f * bk_rh(&rt));
+      widgetbase_draw(&wtb, &wc);
+      if (st & ST_SELECT) {
+        float c[4];
+        bk_rgba(wc.item, c);
+        bk_circle(rt.xmin + bk_rw(&rt) * 0.5f, rt.ymin + bk_rh(&rt) * 0.5f, bk_rh(&rt) * 0.2f,
+                  c);
+      }
+      r.xmin = rt.xmax + (int)(delta * 0.9f);
+      uchar tc[4];
+      memcpy(tc, wc.text, 4);
+      if (!enabled) {
+        tc[3] /= 2;
+      }
+      bk_text_in_pad(&r, w->text, tc, BK_ALIGN_LEFT, false, 0);
+      break;
+    }
+    case BK_WIDGET_NUMBER:
+    case BK_WIDGET_SLIDER:
+      if (ws & BK_WS_EDITING) { /* draw_editing: the toolkit draws the text */
+        bk_widget_state(&wc, &bk_theme.textfield, ST_SELECT | ST_TEXT_INPUT);
+        bk_widget_textbut(&wc, &r, ST_SELECT, corners);
+        break;
+      }
+      if (w->kind == BK_WIDGET_NUMBER) { /* number_draw */
+        bk_widget_state(&wc, &bk_theme.num, st);
+        bk_widget_numbut(&wc, &r, st, corners);
+      }
+      else { /* slider_draw */
+        bk_widget_state(&wc, &bk_theme.numslider, st);
+        bk_widget_numslider(&wc, &r, st, corners, w->value);
+      }
+      wd_number_texts(&r, w->text, w->text2, wc.text);
+      break;
+    case BK_WIDGET_TEXT: /* text_draw */
+      if (ws & BK_WS_EDITING) {
+        st = ST_SELECT | ST_TEXT_INPUT;
+      }
+      bk_widget_state(&wc, &bk_theme.textfield, st);
+      bk_widget_textbut(&wc, &r, st, corners);
+      bk_text_in(&r, w->text, wc.text, BK_ALIGN_LEFT, false);
+      break;
+    case BK_WIDGET_MENU: /* dropdown_draw */
+      bk_widget_state(&wc, &bk_theme.menu, st);
+      bk_widget_menubut(&wc, &r, st, corners);
+      wd_text_in(&r, w->text, wc.text, w->align < 0 ? BK_ALIGN_LEFT : w->align);
+      break;
+    case BK_WIDGET_PULLDOWN:
+      bk_widget_state(&wc, &bk_theme.pulldown, st & ~ST_SELECT);
+      bk_widget_pulldownbut(&wc, &r, (st & ST_SELECT) ? ST_HOVER : st, corners);
+      wd_text_at(w, &r, w->text, wc.text, w->align < 0 ? BK_ALIGN_CENTER : w->align);
+      break;
+    case BK_WIDGET_MENU_ITEM: { /* menu_draw, one row */
+      const BKWCol *mi = &bk_theme.menu_item;
+      int mst = enabled ? 0 : ST_DISABLED;
+      if (ws & BK_WS_HOVER) {
+        mst |= ST_HOVER;
+      }
+      if (ws & (BK_WS_SELECTED | BK_WS_PRESSED)) {
+        mst |= ST_ACTIVE_DEFAULT;
+      }
+      bk_widget_state_menu_item(&wc, mi, mst);
+      BKRect wr = r;
+      if (mst & (ST_HOVER | ST_ACTIVE_DEFAULT)) {
+        bk_widget_menu_itembut(&wc, &wr);
+      }
+      const int check = (int)w->value;
+      if (check == 1 || check == 2) { /* menu_check_icon */
+        const int s = bk_iround(0.6f * bk_unit());
+        BKRect cr = bk_rect((int)(w->aux[0] - s * 0.5f), (int)(w->aux[1] - s * 0.5f), s, s);
+        BKWCol oc;
+        bk_widget_state(&oc, &bk_theme.option, check == 2 ? ST_SELECT : 0);
+        bk_widget_optionbut(&oc, &cr, check == 2 ? ST_SELECT : 0);
+      }
+      bk_clip_push(r.xmin, r.ymin, bk_rw(&r), bk_rh(&r));
+      wd_text_at(w, &r, w->text, wc.text, BK_ALIGN_LEFT);
+      if (w->text2 && w->text2[0]) {
+        uchar sc[4];
+        memcpy(sc, wc.text, 4);
+        sc[3] = (uchar)(sc[3] * 0.55f);
+        const float sw = bk_text_width(w->text2, -1, false);
+        const float right = w->text_rect[2] > 0 ? w->text_rect[0] + w->text_rect[2] :
+                                                  (float)(r.xmax - bk_pad());
+        bk_text(right - sw, bk_text_baseline(&r), w->text2, -1, sc, false);
+      }
+      bk_clip_pop();
+      if (check == 3) {
+        uchar ac[4];
+        memcpy(ac, wc.text, 4);
+        ac[3] = (uchar)(ac[3] * 0.8f);
+        bk_icon(bk_icons_lookup("RIGHTARROW"), r.xmax - 0.5f * bk_unit(),
+                r.ymin + bk_rh(&r) * 0.5f, ac, 1.0f, 0.6f * bk_unit());
+      }
+      break;
+    }
+    case BK_WIDGET_LIST_ITEM: { /* list rows (kit_views.c) */
+      bk_widget_state(&wc, &bk_theme.list_item, st & ST_SELECT);
+      BKRect wr = r;
+      bk_widget_list_itembut(&wc, &wr, st & (ST_SELECT | ST_HOVER));
+      uchar tc[4];
+      memcpy(tc, (st & ST_SELECT) ? bk_theme.list_item.text_sel : bk_theme.list_item.text, 4);
+      if (!enabled) {
+        tc[3] /= 2;
+      }
+      wd_text_at(w, &r, w->text, tc, w->align);
+      break;
+    }
+    case BK_WIDGET_DISCLOSURE: { /* tree_draw_row */
+      if (st & (ST_HOVER | ST_SELECT)) {
+        bk_widget_state(&wc, &bk_theme.list_item, st & ST_SELECT);
+        BKRect wr = r;
+        bk_widget_list_itembut(&wc, &wr, st & (ST_SELECT | ST_HOVER));
+      }
+      uchar tc[4];
+      memcpy(tc, (st & ST_SELECT) ? bk_theme.list_item.text_sel : bk_theme.text, 4);
+      if (!enabled) {
+        tc[3] /= 2;
+      }
+      if (w->aux[0] > 0.0f) {
+        bk_icon(bk_icons_lookup((ws & BK_WS_OPEN) ? "DISCLOSURE_TRI_DOWN" : "DISCLOSURE_TRI_RIGHT"),
+                w->aux[0], r.ymin + bk_rh(&r) * 0.5f, tc, 0.8f, 0);
+      }
+      wd_text_at(w, &r, w->text, tc, BK_ALIGN_LEFT);
+      break;
+    }
+    case BK_WIDGET_SWATCH: { /* swatch_draw */
+      bk_widget_state(&wc, &bk_theme.regular, st & ~ST_SELECT);
+      const float opaque[4] = {w->color[0], w->color[1], w->color[2], 1.0f};
+      BKRect rr = r;
+      bk_widget_swatch(&wc, &rr, st & ~ST_SELECT, corners, opaque);
+      if (w->color[3] < 1.0f) {
+        rr = r;
+        bk_clip_push(r.xmin + bk_rw(&r) / 2, r.ymin - 2, bk_rw(&r), bk_rh(&r) + 4);
+        bk_widget_swatch(&wc, &rr, st & ~ST_SELECT, corners, w->color);
+        bk_clip_pop();
+      }
+      break;
+    }
+    case BK_WIDGET_PROGRESS: /* progress_draw */
+      bk_widget_state(&wc, &bk_theme.progress, enabled ? 0 : ST_DISABLED);
+      bk_widget_progress(&wc, &r, corners, w->value);
+      bk_text_in(&r, w->text, wc.text, BK_ALIGN_CENTER, false);
+      break;
+    case BK_WIDGET_TAB: { /* tabs_draw, one tab */
+      const bool active = (ws & BK_WS_SELECTED) != 0;
+      float c[4];
+      BKWCol tw = bk_theme.tab;
+      if (!active && (ws & BK_WS_HOVER)) {
+        bk_widget_active_color(&tw);
+      }
+      bk_rgba(active ? tw.inner_sel : tw.inner, c);
+      bk_roundbox((float)r.xmin, (float)r.ymin, (float)bk_rw(&r), (float)bk_rh(&r),
+                  bk_widget_radius(&bk_theme.tab), corners, c);
+      uchar tc[4];
+      memcpy(tc, active ? tw.text_sel : tw.text, 4);
+      if (!enabled) {
+        tc[3] /= 2;
+      }
+      if (w->text_rect[2] > 0.0f) {
+        const BKRect tr = wd_rect(w->text_rect);
+        bk_text_in_pad(&tr, w->text, tc, w->align < 0 ? BK_ALIGN_CENTER : w->align, false, 0);
+      }
+      else {
+        bk_text_in(&r, w->text, tc, BK_ALIGN_CENTER, false);
+      }
+      break;
+    }
+    case BK_WIDGET_PANEL_HEADER: { /* panel_draw: the header of a top-level panel */
+      const int hh = bk_rh(&r);
+      const float uu = (float)bk_unit();
+      const bool open = (ws & BK_WS_OPEN) != 0;
+      const float rad = bk_theme.panel_roundness * 0.5f * uu;
+      float c[4];
+      BKWCol hc = bk_theme.regular;
+      memcpy(hc.inner, bk_theme.panel_header, 4);
+      if (st & ST_HOVER) {
+        bk_widget_active_color(&hc);
+      }
+      bk_rgba(hc.inner, c);
+      bk_roundbox((float)r.xmin, (float)r.ymin, (float)bk_rw(&r), (float)hh, rad, corners, c);
+      const float isz = (float)bk_icon_size();
+      const float icy = r.ymin + hh - hh * (open ? 0.14f : 0.17f) - isz * 0.5f;
+      if (!(ws & BK_WS_FLAT)) { /* FLAT: no arrow (a leaf) */
+        bk_icon(bk_icons_lookup(open ? "DOWNARROW_HLT" : "RIGHTARROW"),
+                r.xmin + hh * 0.2f + isz * 0.5f, icy, bk_theme.text, enabled ? 0.8f : 0.4f, 0);
+      }
+      BKRect tr = {r.xmin + (int)(1.1f * uu) - bk_pad(), r.ymin, r.xmax, r.ymax + 2};
+      if (w->text_rect[2] > 0.0f) {
+        tr.xmax = bk_iround(w->text_rect[0] + w->text_rect[2]);
+      }
+      const int shadow = bk_text_shadow;
+      bk_text_shadow = 3;
+      uchar tc[4];
+      memcpy(tc, bk_theme.text, 4);
+      if (!enabled) {
+        tc[3] /= 2;
+      }
+      bk_text_in(&tr, w->text, tc, BK_ALIGN_LEFT, false);
+      bk_text_shadow = shadow;
+      bk_rgba(bk_theme.panel_outline, c);
+      if (c[3] > 0.0f) {
+        BuiWidgetBase wb = {
+            {(float)r.xmin, (float)r.ymin, (float)bk_rw(&r), (float)hh}, rad, rad - 1, corners};
+        memcpy(wb.outline, c, sizeof(c));
+        wb.pixelsize = 1.0f;
+        BUI_raster_widget_base(bk_draw.r, &wb);
+      }
+      break;
+    }
+    case BK_WIDGET_MENU_BACK:
+      bk_widget_menu_back(&r, corners);
+      break;
+    case BK_WIDGET_TOOLTIP_BACK:
+      bk_widget_tooltip_back(&r);
+      break;
+    case BK_WIDGET_BOX:
+      bk_widget_box(&bk_theme.box, &r, corners, NULL);
+      break;
+    case BK_WIDGET_SEPARATOR: {
+      float c[4];
+      bk_rgba_alpha(bk_theme.text, 0.15f * (enabled ? 1.0f : 0.5f), c);
+      if (bk_rh(&r) > bk_rw(&r)) {
+        bk_fill_f(r.xmin + bk_rw(&r) / 2, r.ymin, 1, bk_rh(&r), c);
+      }
+      else {
+        bk_fill_f(r.xmin, r.ymin + bk_rh(&r) / 2, bk_rw(&r), 1, c);
+      }
+      break;
+    }
+    case BK_WIDGET_LABEL: {
+      uchar tc[4];
+      if (w->color[3] >= 0.0f) {
+        for (int k = 0; k < 4; k++) {
+          tc[k] = (uchar)BK_CLAMP(w->color[k] * 255.0f + 0.5f, 0.0f, 255.0f);
+        }
+      }
+      else {
+        memcpy(tc, bk_theme.text, 4);
+        if (!enabled) {
+          tc[3] /= 2;
+        }
+      }
+      wd_text_at(w, &r, w->text, tc, w->align < 0 ? BK_ALIGN_LEFT : w->align);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+void BK_draw_widget(BuiRaster *r, const BKWidgetDraw *w)
+{
+  if (!r || !w) {
+    return;
+  }
+  const BKDraw saved = bk_draw;
+  const bool own = bk_draw.r != r;
+  if (own) { /* outside a BK_render: the whole raster */
+    bk_draw.r = r;
+    bk_clip_reset(BUI_raster_width(r), BUI_raster_height(r));
+  }
+  const bool clip = w->clip[2] > w->clip[0];
+  if (clip) {
+    const int x0 = (int)floorf(w->clip[0]), y0 = (int)floorf(w->clip[1]);
+    bk_clip_push(x0, y0, (int)ceilf(w->clip[2]) - x0, (int)ceilf(w->clip[3]) - y0);
+  }
+  if (bk_draw.clip[2] > bk_draw.clip[0] && bk_draw.clip[3] > bk_draw.clip[1]) {
+    wd_draw(w);
+  }
+  if (clip) {
+    bk_clip_pop();
+  }
+  if (own) {
+    bk_draw = saved;
+    if (bk_draw.r) {
+      clip_apply();
+    }
+  }
+}
+
+/** \} */

@@ -237,12 +237,31 @@ unsafe extern "C" {
     fn cImGui_ImplBUI_FrameCount() -> c_int;
     fn cImGui_ImplBUI_StyleBlender(dst: *mut ImGuiStyle, scale: f32);
     fn cImGui_ImplBUI_GetScale() -> f32;
+    fn cImGui_ImplBUI_HasBlenderWidgets() -> bool;
+    fn cImGui_ImplBUI_SetBlenderWidgets(on: bool);
+    fn cImGui_ImplBUI_GetBlenderWidgets() -> bool;
     fn cImGui_ImplBUI_SetScale(scale: f32);
 }
 
 /// Blender's theme (colors and metrics at `scale`) on `style` (None: the current style).
 pub fn style_blender(style: Option<&mut ImGuiStyle>, scale: f32) {
     unsafe { cImGui_ImplBUI_StyleBlender(style.map_or(core::ptr::null_mut(), |s| s as *mut _), scale) }
+}
+
+/// Built with Blender's widgets (feature `blender-widgets`, CMake BUI_IMGUI_BLENDER_WIDGETS):
+/// ImGui's widgets drawn and handled as Blender's.
+pub fn has_blender_widgets() -> bool {
+    unsafe { cImGui_ImplBUI_HasBlenderWidgets() }
+}
+
+/// Whether Blender's widgets are in use (on by default when built with them).
+pub fn blender_widgets() -> bool {
+    unsafe { cImGui_ImplBUI_GetBlenderWidgets() }
+}
+
+/// Switches Blender's widgets on or off at runtime (no effect when not built with them).
+pub fn set_blender_widgets(on: bool) {
+    unsafe { cImGui_ImplBUI_SetBlenderWidgets(on) }
 }
 
 /// BUI's UI scale (DPI).

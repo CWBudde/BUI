@@ -32,6 +32,7 @@ fn main() {
         .define("BUI_BUILD_UI", "OFF")
         .define("BUI_BUILD_QT_BACKEND", "OFF")
         .define("BUI_BUILD_IMGUI", if imgui { "ON" } else { "OFF" })
+        .define("BUI_IMGUI_BLENDER_WIDGETS", if std::env::var("CARGO_FEATURE_IMGUI_BLENDER_WIDGETS").is_ok() { "ON" } else { "OFF" })
         // Always optimized; on MSVC also the release C runtime Rust links.
         .profile("Release")
         .build_target(if imgui { "bui_cimgui" } else { "bui_kit" })

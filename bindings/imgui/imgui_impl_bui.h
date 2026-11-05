@@ -100,6 +100,16 @@ IMGUI_IMPL_API float    ImGui_ImplBUI_BlenderFontSize(float scale = 1.0f);
 // BUI build has no embedded font.
 IMGUI_IMPL_API ImFont*  ImGui_ImplBUI_AddBlenderFont(float size_pixels = 0.0f);
 
+// Blender widgets (CMake BUI_IMGUI_BLENDER_WIDGETS=ON: blender/imgui_widgets_blender.cpp
+// replaces imgui_widgets.cpp): ImGui's widgets drawn by the kit as Blender's widgets and
+// handled with Blender's interaction rules. HasBlenderWidgets: built with them;
+// SetBlenderWidgets: runtime switch (on by default when built; off draws ImGui's own).
+IMGUI_IMPL_API bool     ImGui_ImplBUI_HasBlenderWidgets();
+IMGUI_IMPL_API void     ImGui_ImplBUI_SetBlenderWidgets(bool on);
+IMGUI_IMPL_API bool     ImGui_ImplBUI_GetBlenderWidgets();
+// The draw callback marker those widgets emit (data: BKWidgetDraw + its texts).
+IMGUI_IMPL_API void     ImGui_ImplBUI_DrawCallback_Widget(const ImDrawList* list, const ImDrawCmd* cmd);
+
 // A complete app: a native BUI window (or, without a window system, nothing) whose whole
 // client area is one ImGui node. CreateApp needs a current ImGui context.
 struct ImGui_ImplBUI_App;
