@@ -19,6 +19,7 @@ import collections
 import enum
 import functools
 import itertools
+import math
 import re
 import sys
 import time
@@ -2024,9 +2025,10 @@ class Wm:
     def wm_geometry(self, newGeometry=None):
         """'WxH+X+Y' (any part optional); without an argument, the current."""
         if newGeometry is None:
+            scale = buipy.kit_scale()
             w, h = self._window.size
             pos = self._window.wm_get("pos") or (0, 0)
-            return "%dx%d+%d+%d" % (w, h, pos[0], pos[1])
+            return "%dx%d+%d+%d" % (round(w / scale), round(h / scale), pos[0], pos[1])
         m = re.match(r"^\s*(?:(\d+)x(\d+))?\s*(?:([+-]-?\d+)([+-]-?\d+))?\s*$",
                      str(newGeometry))
         if not m:
@@ -2227,16 +2229,22 @@ class _WindowHost:
         self.destroy()
         return False
 
+    def _fit_size(self):
+        """Logical size fitting the content (+ menu bar). natural() measures raster
+        pixels, which include the UI scale; set_size and geometry scale again."""
+        w, h = self._node.natural()
+        if self._menubar is not None and self._menubar._bar is not None:
+            bw, bh = self._menubar._bar.natural()
+            w, h = max(w, bw), h + bh
+        scale = buipy.kit_scale()
+        return max(1, math.ceil(w / scale)), max(1, math.ceil(h / scale))
+
     def _show(self):
         if self._shown_window or self._destroyed:
             return
         self._shown_window = True
-        if self._geometry is None:  # Tk: the window fits its content (+ menu bar)
-            w, h = self._node.natural()
-            if self._menubar is not None and self._menubar._bar is not None:
-                bw, bh = self._menubar._bar.natural()
-                w, h = max(w, bw), h + bh
-            self._window.set_size(max(1, w), max(1, h))
+        if self._geometry is None:  # Tk: the window fits its content
+            self._window.set_size(*self._fit_size())
         master = self._wm_store.get("transient")
         if master and self._wm_store.get("_placed") is False:
             self._wm_store["_placed"] = True

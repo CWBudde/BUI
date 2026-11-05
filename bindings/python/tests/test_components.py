@@ -805,8 +805,9 @@ def test_panel_animation_timing():
         took = samples[-1][0]
         h_closed = p.h
         assert 0.25 < took < 0.6, took                 # ~0.30 s (was a linear 0.12 s)
-        # sqrt easing: a third of the way in, it has moved well over a third
-        early = [(t, hh) for t, hh in samples if 0.06 < t < 0.10]
+        # sqrt easing: early on, it has moved well over its share of the time. A wide
+        # window: a busy machine can sleep tens of ms between two frames
+        early = [(t, hh) for t, hh in samples if 0.03 < t < 0.15]
         assert early, samples
         t, hh = early[0]
         moved = (h_open - hh) / (h_open - h_closed)

@@ -9,6 +9,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 """
 
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -63,9 +64,6 @@ def prog_calculator(tk, ttk):
     buttons["C"].invoke()
     entry.insert(0, "6*7")
     buttons["="].invoke()
-    # a textvariable write reaches the Entry at idle time in Tk on macOS: flush it
-    # before reading the widget (without this, stdlib Tk there still shows "6*7")
-    root.update_idletasks()
     out.append(entry.get())
     info = buttons["5"].grid_info()
     result = {"results": out, "grid": (info["row"], info["column"]), "size": root.grid_size(),
@@ -180,7 +178,7 @@ def prog_editor(tk, ttk):
     filemenu.add_command(label="Quit", command=lambda: log.append("quit"))
     menubar.add_cascade(label="File", menu=filemenu)
     wrap = tk.BooleanVar(value=False)
-    view = tk.Menu(menubar)  # with the default tearoff entry
+    view = tk.Menu(menubar)  # with the default tearoff entry (none on Aqua)
     view.add_checkbutton(label="Wrap", variable=wrap)
     menubar.add_cascade(label="View", menu=view)
     root.config(menu=menubar)
@@ -462,7 +460,11 @@ def _real_modules():
         tk = _realtk.module("tkinter")
         import importlib
         ttk = importlib.import_module("tkinter.ttk")
-        tk.Tk().destroy()
+        # Tk 9 on macOS: the next Tk() crashes if the only root was destroyed before
+        # its idle events ran
+        root = tk.Tk()
+        root.update_idletasks()
+        root.destroy()
         return tk, ttk
     except Exception:
         return None
@@ -537,7 +539,102 @@ def test_install_runs_unchanged_scripts():
         sys.modules.update(saved)
 
 
+def test_hidden_root_is_not_default_root():
+    """BUI's hidden Tk root (macOS, the Tk host) must not capture a real tkinter
+    program's variables: they belong to the program's own Tk()."""
+    real = _real_modules()
+    if real is None:
+        print("skipped hidden root test (no stdlib Tk)")
+        return
+    tk = real[0]
+    from bui import host
+    host._tk()
+    root = tk.Tk()
+    var = tk.StringVar()
+    entry = tk.Entry(root, textvariable=var)
+    var.set("linked")
+    seen = entry.get()
+    root.destroy()
+    assert seen == "linked", "StringVar went to the hidden root: Entry shows %r" % seen
+
+
+_FIT_AT_SCALE = """
+import sys
+import bui, buipy
+from bui import host
+from bui.tksyntax import Label, Listbox, Tk, Toplevel, simpledialog
+if host.native_available():
+    root = Tk()
+    Listbox(root, height=5).pack()
+    root.update()
+    top = Toplevel(root)
+    for _ in range(4):  # larger than the dialog's minimum size, smaller than a small screen
+        Label(top, text="wider than the minimum " * 3).pack()
+    simpledialog._place_window(top)
+    root.update()
+    for win in (root, top):
+        need, got = win._node.natural(), win._window.size
+        assert 0 <= got[0] - need[0] <= 1 and 0 <= got[1] - need[1] <= 1, (need, got)
+    assert buipy.kit_scale() == 2.0
+    # geometry() round trips (the position: macOS so far; Win32 and X11 still set the
+    # frame's and report the content's)
+    before = root.geometry()
+    root.geometry(before)
+    root.update()
+    after = root.geometry()
+    if sys.platform != "darwin":
+        before, after = before.split("+")[0], after.split("+")[0]
+    assert after == before, (before, after)
+    root.destroy()
+"""
+
+
+def test_window_fits_content_at_ui_scale():
+    """HiDPI: a window fitting its content isn't scaled twice (natural() is in raster
+    pixels). In a child process: the UI scale is read when the first window opens."""
+    env = dict(os.environ, BUI_UI_SCALE="2", PYTHONPATH=os.pathsep.join(sys.path))
+    subprocess.run([sys.executable, "-c", _FIT_AT_SCALE], env=env, check=True, timeout=60)
+
+
+def test_quit_asks_windows_to_close():
+    """macOS: Quit in Tk's menu (Cmd+Q) runs the windows' close handlers, as it does
+    on BUI's own NSApp."""
+    if sys.platform != "darwin":
+        return
+    import ctypes
+    import ctypes.util
+    from bui.tksyntax import Tk
+    objc = ctypes.CDLL(ctypes.util.find_library("objc"))
+    objc.objc_getClass.restype = objc.sel_registerName.restype = ctypes.c_void_p
+
+    def msg(obj, sel, *args):
+        # PYFUNCTYPE keeps the GIL: Quit runs the Python close handler inside the call
+        call = ctypes.PYFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                                 *[ctypes.c_long] * len(args))(("objc_msgSend", objc))
+        return call(obj, objc.sel_registerName(sel), *args)
+    root = Tk()
+    closed = []
+    root.protocol("WM_DELETE_WINDOW", lambda: (closed.append(1), root.destroy()))
+
+    def choose_quit():
+        app = msg(objc.objc_getClass(b"NSApplication"), b"sharedApplication")
+        menu = msg(msg(msg(app, b"mainMenu"), b"itemAtIndex:", 0), b"submenu")
+        for i in range(msg(menu, b"numberOfItems") or 0):
+            key = msg(msg(menu, b"itemAtIndex:", i), b"keyEquivalent")
+            if ctypes.cast(msg(key, b"UTF8String"), ctypes.c_char_p).value == b"q":
+                msg(menu, b"performActionForItemAtIndex:", i)
+                return
+        raise AssertionError("no Quit item in Tk's application menu")
+    root.after(50, choose_quit)
+    root.after(3000, root.destroy)  # the failure case: Quit did nothing
+    root.mainloop()
+    assert closed, "Quit didn't reach the window"
+
+
 def main() -> int:
+    test_hidden_root_is_not_default_root()
+    test_quit_asks_windows_to_close()
+    test_window_fits_content_at_ui_scale()
     test_programs_match_stdlib()
     test_install_runs_unchanged_scripts()
     print("tkinter compatibility tests passed")
