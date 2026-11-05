@@ -81,7 +81,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           version="${TAG#v}"
-          for crate in blenderui-tailwind blenderui-macros blenderui-sys blenderui blenderui-imgui; do
+          for crate in blenderui-tailwind blenderui-macros blenderui-sys blenderui-paint blenderui-table blenderui-vlist blenderui blenderui-imgui; do
             if [ "$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/$crate/$version")" = 200 ]; then
               echo "::notice::$crate $version is already on crates.io; skipping"
               continue

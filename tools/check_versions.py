@@ -34,7 +34,7 @@ def main() -> int:
         r'^version\s*=\s*"([^"]+)"', read(RUST / "Cargo.toml"), re.M).group(1)
 
     # the published crates name their siblings with an exact version
-    for crate in ("blenderui", "blenderui-macros", "blenderui-imgui"):
+    for crate in ("blenderui", "blenderui-macros", "blenderui-imgui", "blenderui-table", "blenderui-vlist", "blenderui-paint"):
         text = read(RUST / crate / "Cargo.toml")
         for dep, ver in re.findall(r'^(blenderui[\w-]*)\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"', text, re.M):
             found[f"bindings/rust/{crate}/Cargo.toml: {dep}"] = ver

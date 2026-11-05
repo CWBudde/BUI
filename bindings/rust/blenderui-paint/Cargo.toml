@@ -13,7 +13,6 @@ keywords = ["gui", "paint", "text-cache", "blender"]
 categories = ["gui", "data-structures"]
 readme = "README.md"
 include = ["src/**", "README.md", "Cargo.toml"]
-publish = false
 
 [dependencies]
 
