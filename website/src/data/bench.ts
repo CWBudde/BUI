@@ -643,7 +643,7 @@ export const charts = {
   "vlist-memory": {
     kind: "groups",
     title: "Variable-height list: memory above an empty window",
-    subtitle: "Real gpui window, resident memory after the list is built and scrolled",
+    subtitle: "Real gpui window: how much the process grows for the list, not counting the messages (at 10M they are a file on disk)",
     unit: "MB",
     better: "lower",
     headline: { value: "6 MB", text: "for 10 million messages (gpui list: 910 MB)" },

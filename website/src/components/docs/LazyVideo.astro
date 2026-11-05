@@ -1,0 +1,83 @@
+---
+/**
+ * A video that is not downloaded until the reader clicks it.
+ *
+ *   <LazyVideo src="videos/Virtual_list.mp4" shot="chat-list" alt="…" caption="…" />
+ *
+ * The page ships only the poster (a screenshot, light/dark like <Figure>) and a play button.
+ * No <video> element, and so no request for the file, exists until the click; then the
+ * poster is replaced by a <video> that starts playing. `shot` or `poster` give the poster.
+ */
+import { href } from "../../lib/docs";
+import ThemedImage from "./ThemedImage.astro";
+
+interface Props {
+  src: string;
+  alt: string;
+  caption?: string;
+  shot?: string;
+  poster?: string;
+  /** Size of the file, shown on the button so the click is an informed one, e.g. "15 MB". */
+  size?: string;
+}
+
+const { src, alt, caption, shot, poster, size } = Astro.props;
+if (!shot && !poster) throw new Error(`<LazyVideo src="${src}">: give shot or poster.`);
+---
+
+<figure class="figure not-prose border border-border" data-reveal>
+  <div class="lazy-video figure-stage hatch flex justify-center px-4 py-6 sm:px-8 sm:py-9" data-src={href(src)} data-label={alt}>
+    <button type="button" class="lazy-video-btn relative block max-w-full cursor-pointer border-0 bg-transparent p-0" aria-label={`Play video: ${alt}`}>
+      <ThemedImage alt="" shot={shot} light={poster} dark={poster} loading="lazy" class:list={["img-outline h-auto max-w-full figure-img"]} />
+      <span class="play absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 bg-primary px-4 py-2 text-[14px] font-semibold text-primary-ink shadow-lg">
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 1l11 6-11 6z" fill="currentColor"></path></svg>
+        Play video{size ? ` (${size})` : ""}
+      </span>
+    </button>
+  </div>
+  {caption && <figcaption class="border-t border-border bg-surface px-4 py-2.5 text-[13px] leading-5 text-muted [&_code]:font-mono [&_code]:text-[0.9em]" set:html={caption} />}
+</figure>
+
+<style>
+  .figure-stage {
+    background-color: var(--stage);
+  }
+  .figure-img {
+    box-shadow: var(--shadow);
+  }
+  .lazy-video-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+  .lazy-video-btn:hover .play {
+    filter: brightness(1.08);
+  }
+  .lazy-video :global(video) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    box-shadow: var(--shadow);
+  }
+</style>
+
+<script>
+  // Nothing is requested until the click: the <video> does not exist before it.
+  document.querySelectorAll<HTMLElement>(".lazy-video").forEach((box) => {
+    const btn = box.querySelector<HTMLButtonElement>(".lazy-video-btn");
+    btn?.addEventListener(
+      "click",
+      () => {
+        const video = document.createElement("video");
+        video.controls = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.preload = "auto";
+        video.setAttribute("aria-label", box.dataset.label ?? "Video");
+        video.src = box.dataset.src ?? "";
+        btn.replaceWith(video);
+        video.play().catch(() => {}); // autoplay may be refused; the controls are there
+      },
+      { once: true },
+    );
+  });
+</script>

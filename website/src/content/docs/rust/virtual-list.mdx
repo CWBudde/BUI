@@ -17,6 +17,14 @@ A chat is the hard case for a list. Every message has its own height (a one-word
   caption="A chat opened at its newest message, one message selected (<code>examples/site_chat.rs</code>)."
 />
 
+<LazyVideo
+  src="videos/Virtual_list.mp4"
+  shot="chat-list"
+  size="15 MB"
+  alt="Scrolling a chat with ten million messages: the list stays smooth while the scrollbar jumps through history"
+  caption="The list in motion. The video downloads only when you press play."
+/>
+
 ## A chat in 20 lines
 
 You give the list your messages and keep its state in an entity. `chat_list` is the element; a click on a message selects it.
@@ -127,6 +135,21 @@ An `ItemSource` is `len`, the text bytes in a range (so an estimate needs no per
 - `log::LogSource`: a file-backed, append-only log. Each message is a fixed 16-byte record plus text in an arena, read with positioned reads (`seek_read` on Windows, `read_at` on Unix) so a read costs the same at message 10 as at message 10 million. Building the index over it needs two 8-byte reads per block, because the byte total of a range is a subtraction. Ten million messages are 1.1 GB on disk and a few megabytes in memory.
 
 ## Measured
+
+### What these benchmarks are
+
+Every chart below answers one question: **how much does it cost to show a long chat, and does that cost grow with the number of messages?** The chat is a list of messages of different heights (wrapped text, images, run headers), scrolled continuously in a real window.
+
+- **The three libraries.** `blenderui-vlist` is this crate. `gpui list` is the variable-height list that ships with gpui. `gpui-component virtual_list` is the one in gpui-component 0.9.0. All three show the same messages in the same window on the same gpui.
+- **The sizes.** 100 messages is a normal chat. 1,000,000 and 10,000,000 are the limit cases: an archive, a log viewer, a support inbox.
+- **Scroll frame.** The time the main thread spends from the start of a frame's render to the end of paint while the list is being scrolled. It leaves out the GPU and the wait for the screen's refresh. Lower is smoother; a 60 Hz screen allows 16.7 ms.
+- **Memory above an empty window.** How much the process grows when it builds and shows the list, **not counting the messages themselves**. At 10M messages the messages are a 1.1 GB file on disk that every library reads from, so this is the cost of the list's own bookkeeping (positions, heights, caches). An app that keeps its messages in memory pays for them on top, in any library.
+- **Setup time.** From handing the list its messages to being ready to draw the first frame.
+- **The index chart** compares the list's height index with the simplest approach, a flat array of running totals, to show what each costs when one message's height changes (an image loads, text is edited, the window is resized).
+
+All numbers are on one laptop (below), median of 3 runs, release builds. They show how the libraries scale on that machine, not absolute speed on yours; the code to rerun them is in `blenderui-vlist/examples` and `blenderui-vlist-gpui`.
+
+### Results
 
 All numbers are on a Ryzen 7 5800U laptop (8 cores, 16 GB), Windows 11, release builds, on AC power with other programs open. They are medians of 3 runs, one process per run. The code is in `blenderui-vlist/examples` and `blenderui-vlist-gpui`.
 

@@ -7,6 +7,7 @@ export { default as CardGrid } from "./CardGrid.astro";
 export { default as ComingSoon } from "./ComingSoon.astro";
 export { default as Compare } from "./Compare.astro";
 export { default as Figure } from "./Figure.astro";
+export { default as LazyVideo } from "./LazyVideo.astro";
 export { default as Hatch } from "./Hatch.astro";
 export { default as Kbd } from "./Kbd.astro";
 export { default as LangTabs } from "./LangTabs.astro";
