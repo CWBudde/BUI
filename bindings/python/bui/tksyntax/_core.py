@@ -2025,9 +2025,10 @@ class Wm:
     def wm_geometry(self, newGeometry=None):
         """'WxH+X+Y' (any part optional); without an argument, the current."""
         if newGeometry is None:
+            scale = buipy.kit_scale()
             w, h = self._window.size
             pos = self._window.wm_get("pos") or (0, 0)
-            return "%dx%d+%d+%d" % (w, h, pos[0], pos[1])
+            return "%dx%d+%d+%d" % (round(w / scale), round(h / scale), pos[0], pos[1])
         m = re.match(r"^\s*(?:(\d+)x(\d+))?\s*(?:([+-]-?\d+)([+-]-?\d+))?\s*$",
                      str(newGeometry))
         if not m:

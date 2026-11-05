@@ -559,6 +559,7 @@ def test_hidden_root_is_not_default_root():
 
 
 _FIT_AT_SCALE = """
+import sys
 import bui, buipy
 from bui import host
 from bui.tksyntax import Label, Listbox, Tk, Toplevel, simpledialog
@@ -575,6 +576,15 @@ if host.native_available():
         need, got = win._node.natural(), win._window.size
         assert 0 <= got[0] - need[0] <= 1 and 0 <= got[1] - need[1] <= 1, (need, got)
     assert buipy.kit_scale() == 2.0
+    # geometry() round trips (the position: macOS so far; Win32 and X11 still set the
+    # frame's and report the content's)
+    before = root.geometry()
+    root.geometry(before)
+    root.update()
+    after = root.geometry()
+    if sys.platform != "darwin":
+        before, after = before.split("+")[0], after.split("+")[0]
+    assert after == before, (before, after)
     root.destroy()
 """
 

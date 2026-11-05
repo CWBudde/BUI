@@ -1519,8 +1519,10 @@ void BK_window_wm(BKWindow *win, const char *key, double a, double b)
     return;
   }
   @autoreleasepool {
-    if (!strcmp(key, "pos")) {
-      [nw setFrameTopLeftPoint:NSMakePoint(a, primary_height() - b)];
+    if (!strcmp(key, "pos")) { /* the content's top-left, as wm_get reports it */
+      const NSRect f = [nw frame];
+      const CGFloat title = NSMaxY(f) - NSMaxY([nw contentRectForFrameRect:f]);
+      [nw setFrameTopLeftPoint:NSMakePoint(a, primary_height() - b + title)];
     }
     else if (!strcmp(key, "minsize") || !strcmp(key, "maxsize")) {
       const int mini = key[1] == 'i';
