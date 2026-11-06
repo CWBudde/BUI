@@ -6,6 +6,9 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
+
 ## [0.4.0] - 2026-11-06
 
 ### Added
