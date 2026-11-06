@@ -2013,6 +2013,15 @@ code (tkinter, Qt-style, Blender components, Rust, JavaScript or C).
 </details>
 
 <details>
+<summary><b>Is the C API stable?</b></summary>
+Not before 1.0, but it is versioned: <code>BUI_kit.h</code> has <code>BUI_KIT_VERSION_*</code> macros
+and <code>BK_version()</code> reports the library's version, the same number as the Python, Rust and
+npm packages. Every change that breaks existing code is listed under "C API changes" in the
+changelog. Pin a release number, not a commit. From 1.0 it follows semantic versioning
+(<a href="docs/c-api.md">details</a>).
+</details>
+
+<details>
 <summary><b>Is BUI accessible to screen readers?</b></summary>
 Not yet. See the <a href="#40-status-and-roadmap">known limitations</a>.
 </details>
@@ -2065,11 +2074,18 @@ keep their own licenses:
 | [FreeType](https://freetype.org) 2.13.3                                                | Glyph loading, hinting and rendering, like Blender's BLF                                                        | FreeType License or GPLv2 (dual-licensed) |
 | [stb_truetype](https://github.com/nothings/stb) by Sean Barrett                        | Font metrics and character maps, and the fallback rasterizer                                                    | Public domain                             |
 | [NanoSVG](https://github.com/memononen/nanosvg) by Mikko Mononen, as edited by Blender | Rasterizing Blender's SVG icons                                                                                 | Zlib                                      |
+| [Wuffs](https://github.com/google/wuffs) by Google                                     | Decoding PNG, GIF, BMP, TGA and QOI images                                                                      | MIT or Apache-2.0 (used as MIT)           |
+| [libjpeg-turbo](https://libjpeg-turbo.org) 3.1.2                                       | Decoding JPEG images                                                                                            | IJG, BSD-3-Clause and zlib                |
+| [libwebp](https://chromium.googlesource.com/webm/libwebp) 1.6.0                        | Decoding WebP images, including animation                                                                       | BSD-3-Clause                              |
 | [Slug](https://github.com/EricLengyel/Slug) by Eric Lengyel                            | The GPU glyph coverage algorithm (shader code "Copyright 2017 by Eric Lengyel")                                 | MIT                                       |
 | [Tailwind CSS](https://tailwindcss.com)                                                | The v4 default theme values behind the Tailwind support                                                         | MIT                                       |
 
 The Rust and JavaScript bindings also depend on crates and packages such as
 taffy, napi-rs, React and QuickJS, each under its own license.
+
+The full license texts of everything above, and of every Rust crate BUI's packages are
+built from, are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). It ships inside the
+Python wheels, the npm packages and the crates, and `python tools/gen_notices.py` regenerates it.
 
 **Acknowledgments.** Thank you to:
 

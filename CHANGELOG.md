@@ -6,6 +6,16 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Added
+- **The C API is versioned.** `BUI_kit.h` has `BUI_KIT_VERSION_MAJOR` / `_MINOR` / `_PATCH`,
+  `BUI_KIT_VERSION_STRING`, `BUI_KIT_VERSION` (0.4.0 is 400) and `BUI_KIT_VERSION_AT_LEAST`, the library
+  reports its own with `BK_version()` and `BK_version_string()` (Python: `buipy.kit_version()`), and
+  `BUI_DEPRECATED` is there for the day a function is retired. The number is BUI's own: `check_versions.py`
+  refuses a release when the header differs, and `bump_version.py` moves it. The stability policy (no
+  promise before 1.0, semantic versioning after, what counts as ABI) is in the header and in the C API
+  guide. Changes that break the C API are listed here under "C API changes" from now on.
+- **Third-party notices** (`THIRD_PARTY_NOTICES.md`), shipped with the wheels, the npm packages and the crates.
+
 ### Changed
 - **License, following Blender's own wording:** BUI as a whole is under the GNU GPL, version 3 or
   later (the `LICENSE` file was already the GPLv3 text), and individual files keep their compatible

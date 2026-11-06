@@ -31,13 +31,14 @@
     "register.js",
     "runtime.js",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "test": "node --import ./register.js --test test/*.test.js",
     "prepublishOnly": "node --import ./register.js --test test/*.test.js",
-    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\"",
-    "postpack": "node -e \"require('fs').rmSync('LICENSE', { force: true })\""
+    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','THIRD_PARTY_NOTICES.md'])fs.copyFileSync('../../'+f,f)\"",
+    "postpack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','THIRD_PARTY_NOTICES.md'])fs.rmSync(f,{force:true})\""
   },
   "engines": {
     "node": ">=22.15"

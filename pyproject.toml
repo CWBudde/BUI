@@ -13,7 +13,7 @@ description = "Blender's UI as a library: run tkinter apps unchanged, write Qt-s
 readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "BUI contributors" }]
 keywords = ["gui", "ui", "blender", "tkinter", "qt", "widgets", "toolkit"]
 classifiers = [

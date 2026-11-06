@@ -52,6 +52,10 @@ Some parts of BUI come from other projects and keep their own licenses:
 
 The Rust and JavaScript bindings also depend on crates and packages such as taffy, napi-rs, React and QuickJS, each under its own license.
 
+## Third-party notices
+
+The full license texts of every library and Rust crate that BUI's packages include are in [`THIRD_PARTY_NOTICES.md`](https://github.com/ppmpreetham/BUI/blob/main/THIRD_PARTY_NOTICES.md). The file ships inside the Python wheels, the npm packages and the crates, so it travels with every binary. It is generated from the repository by `tools/gen_notices.py`, and a release is refused when it is out of date.
+
 ## Acknowledgments
 
 BUI stands on the work of many people. Thank you to:

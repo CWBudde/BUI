@@ -52,6 +52,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python tools/check_versions.py "$TAG"
+      - name: Third-party notices are up to date
+        run: python tools/gen_notices.py --check
 
   ci:
     name: build and test everywhere

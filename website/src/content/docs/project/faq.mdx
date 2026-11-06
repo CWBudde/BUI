@@ -71,6 +71,10 @@ BUI is derived from Blender's source code, so it follows Blender's licensing: th
 
 BUI is retained-mode: it keeps a tree of nodes, like Blender's own UI, and redraws only what changed. There is no visual UI editor yet; you write the UI in code (tkinter, Qt-style, Blender components, Rust, JavaScript or C).
 
+## Is the C API stable?
+
+Not before 1.0, but it is versioned. `BUI_kit.h` has `BUI_KIT_VERSION_*` macros and `BK_version()` reports the library's version, the same number as the Python, Rust and npm packages. Every change that breaks existing code is listed under "C API changes" in the changelog, so pin a release number, not a commit. From 1.0 it follows semantic versioning. Details: [the C API guide](../../c/c-api/#versioning-and-stability).
+
 ## Is BUI accessible to screen readers?
 
 Not yet. BUI draws its own widgets and doesn't talk to the platform's accessibility APIs. See [Limitations](../limitations/).

@@ -14,7 +14,7 @@ build = "build.rs"
 keywords = ["gui", "ui", "blender", "ffi"]
 categories = ["gui", "external-ffi-bindings"]
 # csrc/ is git-ignored (vendored by scripts/vendor_c.py), so list it explicitly
-include = ["src/**", "build.rs", "Cargo.toml", "csrc/**"]
+include = ["src/**", "build.rs", "Cargo.toml", "LICENSE", "THIRD_PARTY_NOTICES.md", "csrc/**"]
 
 [features]
 # Windows' native GDI text engine (system fonts) instead of the portable
