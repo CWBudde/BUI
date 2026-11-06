@@ -129,6 +129,30 @@ and `BK_set_animations(0)` holds them all. To step one yourself:
 `BK_anim_open`, then `BK_anim_next` for each frame and its delay;
 `BK_imbuf_texture_update` puts a frame into a texture.
 
+## Video
+
+`BK_video_*` (kit/intern/image/video.c) plays video files through the OS
+decoders (Media Foundation, GStreamer, AVFoundation; loaded at run time),
+decoded at the size drawn, in one GPU texture per player, and only while it
+shows. Muted autoplay; no audio yet.
+
+```c
+BKVideo *v = BK_video_new("intro.mp4");     /* loads when first drawn */
+BK_video_set_loop(v, 1);
+BK_video_set_controls(v, 1);                /* Blender-style controls on "video" nodes */
+BK_video_set_listener(v, on_state, app);    /* BK_VIDEO_LOADING .. ENDED, ERROR */
+BKNode *n = BK_node_new("video");
+BK_node_set_video(n, v, BK_FIT_CONTAIN);    /* or a canvas item's .video */
+BK_video_seek(v, 10.0);
+BK_video_set_rate(v, 2.0);
+int tex = BK_video_texture(v, 0, 640, 360); /* Dear ImGui: the frame in a texture */
+BK_video_free(v);                           /* after nodes / items let go */
+```
+
+`BK_video_backends()` names what the build has. Optional parts (image formats,
+video, the GPU renderers, the file browser) are CMake options from
+`features.json`; see [Binary size](https://bui.preetham.top/docs/reference/binary-size/).
+
 ## Showing the kit in your own window
 
 The kit always draws into a `BuiRaster`: the software raster, or Direct3D 11

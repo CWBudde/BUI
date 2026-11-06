@@ -1,0 +1,61 @@
+---
+title: Binary size and features
+description: Pay only for what you use. One feature table turns BUI's optional parts (image formats, video, the GPU renderers, the file browser, Dear ImGui) on or off in CMake, cargo and bui build, and bui build links the smallest runtime an app needs. Measured sizes.
+section: Reference
+order: 22
+languages: ["c", "rust", "javascript", "python"]
+sources: ["features.json", "features.cmake", "kit/CMakeLists.txt", "gpu/CMakeLists.txt", "bindings/rust/blenderui-sys/build.rs", "bindings/rust/blenderui-sys/Cargo.toml", "bindings/rust/blenderui/Cargo.toml", "bindings/rust/blenderui/tests/features.rs", "bindings/node/features.js", "bindings/node/cli.js", "bindings/node/scripts/build.js", "bindings/node/bench/size/hello.jsx"]
+---
+
+A feature should cost binary size only if you use it. BUI's optional parts are one table, [`features.json`](https://github.com/ppmpreetham/BUI/blob/main/features.json), and three tools read it:
+
+- **CMake** (`features.cmake`): one option each, `ON` by default (`-DBUI_VIDEO=OFF`). See [CMake options](/docs/reference/cmake-options#optional-parts-featuresjson).
+- **cargo**: the same names are features of `blenderui-sys` and `blenderui`, all on by default. `blenderui-sys/build.rs` maps each to its CMake option and stops the build if `Cargo.toml` misses one; a test checks `blenderui` forwards them all.
+- **`bui build`**: links the smallest prebuilt runtime that has what the app uses.
+
+Off, a part's sources aren't compiled at all. Its API stays, so code compiles either way: a missing format doesn't decode, a video reports an error state, `BK_file_dialog` returns -1, and windows draw with the software raster.
+
+| Feature | What it is |
+| --- | --- |
+| `png`, `gif`, `bmp`, `tga`, `qoi` | Those formats (Wuffs, only the modules on) |
+| `jpeg` | libjpeg-turbo |
+| `webp` | libwebp (with animations) |
+| `hdr`, `pnm` | BUI's readers |
+| `svg` | SVG images (nanosvg, which the icons need anyway) |
+| `video` | [Video](/docs/concepts/video) through the OS, loaded at run time |
+| `gpu` | Direct3D 11 / OpenGL renderers |
+| `freetype` | FreeType text (else stb_truetype) |
+| `filebrowser` | Blender's File Browser and `BK_file_dialog` |
+| `imgui` | Dear ImGui on BUI (cargo: off unless `blenderui-imgui` asks) |
+
+## Rust
+
+```toml
+[dependencies]
+# only what this app shows: no JPEG, WebP, video, GPU or file browser code
+blenderui = { version = "0.3", default-features = false, features = ["slug", "png", "svg", "freetype"] }
+```
+
+## bui build
+
+Rebuilding the runtime per app would need a Rust and C toolchain on every machine that runs `bui build`. Splitting it into a core and loadable modules would cost a dynamic-library boundary (no whole-program LTO across it) and more files to ship. So the package ships a few prebuilt runtimes, listed in `features.json`, and `bui build` appends the app to the smallest one that has every feature the app needs: no compiler, and the same one-file executable.
+
+| Runtime | Has |
+| --- | --- |
+| `base` | UI, text, SVG images |
+| `media` | base + every image format + video |
+| `full` | media + the GPU renderer + the file browser |
+
+How `bui build` decides, explicit first:
+
+1. `--features png,video` on the command line;
+2. `"bui": { "features": ["png", "video"] }` in the app's `package.json`;
+3. otherwise, it looks in the bundle: `<video>` elements, media file names in string literals (`"logo.webp"`, `"intro.mp4"`) and file dialogs.
+
+It prints its choice (`bui: runtime "media" for png, video`). A path built at run time (`"photo." + ext`, a file the user picks) can't be seen in the bundle, and the GPU renderer is never detected (the library's own code mentions its option): list those features explicitly. A feature no prebuilt runtime has is an error that says so.
+
+## Measured
+
+<BenchChart id="binary-size" />
+
+By feature, on Windows x64 with fat LTO: every image format together is about 596 KB (most of it libwebp and libjpeg-turbo), video 3 KB (the OS decodes; Media Foundation is loaded at run time), the Direct3D 11 renderer 42 KB and the file browser about 50 KB. The base runtime is about a tenth smaller than the full one; most of what remains is the same for every app: QuickJS, Rust's standard library, the CSS and layout engine, Blender's icons and the embedded Inter font. The Python wheel, the Node addon and cargo builds with default features have everything.

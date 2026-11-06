@@ -119,6 +119,21 @@ unused. Animated images (`kit/intern/image/anim.c`, `play.c`) are decoded a
 frame at a time on the workers and advance on the context's frame timer,
 shared with custom nodes (`bk_ctx_arm_timer`), only while on screen.
 
+Video uses the same path: one codec interface (`BKImAnimCodec`: open, output
+size, next, seek, close) for GIF, WebP and the OS movie backends
+(`movie_mf.c` Media Foundation, `movie_gst.c` GStreamer, `movie_avf.m`
+AVFoundation; loaded at run time), one clock (`play.c`), and private cache
+entries per player (`video.c`). Frames are NV12 pixmaps
+(`BUI_PIXMAP_NV12_*`) at the size drawn, two per player reused; a pixmap's
+`stream` keeps one GPU texture pair per player, updated in place, converted
+to RGB in the shader (the software raster converts what it draws).
+
+The optional parts (image formats, video, the GPU renderers, FreeType, the
+file browser, Dear ImGui) are one table, `features.json`, read by CMake
+(`features.cmake`), cargo (`blenderui-sys/build.rs`) and `bui build`
+(`bindings/node/features.js`). Off, their sources aren't compiled; their API
+stays.
+
 Textured triangle meshes (`BUI_raster_mesh`, what Dear ImGui emits) are the
 one non-analytic primitive: indexed vertices with UV and color sampling a
 `BUI_texture_*` texture. The software raster fills them with a fixed-point

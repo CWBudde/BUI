@@ -7,6 +7,39 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Video, in every language** (`kit/intern/image`: `video.c`, `movie*.c`). One codec
+  interface for GIF, WebP and video (Blender's MovieReader shape: open, output size, next,
+  seek, close) and one clock (`play.c`: pause, seek, rate, loop, end). The OS decodes,
+  loaded at run time so a machine without it still starts: Windows Media Foundation
+  (`IMFSourceReader` with a DXVA Direct3D 11 device manager; decoding and scaling on the
+  GPU), Linux GStreamer (`decodebin ! videoconvert ! videoscale ! appsink`, `dlopen`ed;
+  VA-API through its `va` plugin), macOS AVFoundation (written, **untested**: no Mac).
+  Frames are NV12 at the size drawn, two per player reused (no allocation per frame), in
+  one GPU texture pair per player updated in place (YCbCr to RGB in the Direct3D 11 and
+  OpenGL shaders; the software raster converts what it draws); off screen, clipped or in a
+  window that isn't rendering, nothing is decoded. C: `BK_video_*` (new, play, pause,
+  seek, rate, loop, poster, controls, state, time, duration, size, listener, texture,
+  backends), the `"video"` node with Blender-style controls (play/pause button, scrubber
+  with the time; `BK_node_set_video`), canvas items' `video`. Rust: `<video src loop
+  poster autoplay>`, `video().video(handle)`, `blenderui::Video` (play, pause, seek,
+  set_rate, set_loop, time, duration, state, `on_state`, texture), `Painter::video`.
+  Python: `bui.Video` and the `Video` component (`controls`, `on_ended`). React /
+  @blender-ui/native / `bui build`: `<video>`. Dear ImGui: `BK_video_texture`. Muted
+  autoplay by default; no audio yet.
+- **GPU NV12 pixmaps and stream textures**: `BuiPixmap.format` (`BUI_PIXMAP_NV12_BT601`
+  / `_BT709`) and `.stream` (frames of one stream update one texture in place), and
+  `BUI_pixmap_read`. The GPU parity test covers them (Direct3D 11 and OpenGL).
+- **Pay only for what you use: one feature table** (`features.json`): image formats,
+  video, the GPU renderers, FreeType, the file browser and Dear ImGui are CMake options
+  (`features.cmake`), cargo features of `blenderui-sys` and `blenderui` (same names;
+  build.rs maps them and checks the list), and what `bui build` reads. Off, a part isn't
+  compiled; its API stays. `bui build` links the smallest prebuilt runtime (`base`,
+  `media`, `full`) with the features an app uses: `--features`, then package.json
+  `"bui": {"features": [...]}`, then detection in the bundle (`<video>`, media file
+  extensions, `gpu:`, file dialogs).
+- `bench/video` (`bui_video_bench`, `make_clips.sh`) and `tests/video_test.c`,
+  `bindings/rust/blenderui/tests/video.rs` (counting allocator), `features.rs`,
+  `bindings/python/tests/test_video.py`.
 - **Images, once in C for every binding** (`kit/intern/image`, after Blender's imbuf: one
   image type, `BKImBuf`, and a format table): PNG, GIF (animated), BMP, TGA and QOI with
   Wuffs (memory-safe), JPEG with libjpeg-turbo 3.1.2 (EXIF orientation, CMYK, DCT-scaled

@@ -1,0 +1,146 @@
+---
+title: Video
+description: A <video> in every language, decoded by the operating system at the size it is drawn, frames in one GPU texture updated in place, and nothing decoded while it is off screen. Backends, API, controls, performance and limits.
+section: Concepts
+order: 66
+sources: ["kit/intern/image/video.c", "kit/intern/image/movie.c", "kit/intern/image/movie_mf.c", "kit/intern/image/movie_gst.c", "kit/intern/image/movie_avf.m", "kit/intern/image/anim.c", "kit/intern/image/play.c", "kit/intern/image/cache.c", "kit/include/BUI_kit.h", "gpu/include/GPU_raster.h", "gpu/intern/gpu_raster.c", "gpu/shaders/bui_ui.hlsl", "gpu/intern/gpu_gl.c", "bindings/rust/blenderui/src/video.rs", "bindings/python/src/buipy_video.c", "bindings/python/bui/components/widgets.py", "bench/video/video_bench.c", "tests/video_test.c", "features.json"]
+---
+
+BUI plays video with the same machinery as [animated images](/docs/concepts/images#animations): one codec interface for GIF, WebP and video (Blender's `MovieReader` shape: open, next frame, seek, close), one clock (`play.c`) and the same worker threads. What is different is where the frames come from and where they go.
+
+- **The operating system decodes.** Windows uses Media Foundation (DXVA hardware decoding through its own Direct3D 11 device, scaling on the GPU), Linux uses GStreamer (VA-API through its `va` plugin where the driver has it, software otherwise), macOS uses AVFoundation / VideoToolbox. They are loaded at run time: a machine without them (Windows "N" editions, a Linux box without GStreamer) starts normally and just reports no video. Nothing is linked: on Windows the `video` feature adds 3 KB to a fat-LTO binary ([Binary size](/docs/reference/binary-size)).
+- **Decoded at the size drawn.** A 4K file in a 640 px box is decoded and scaled by the decoder (on the GPU on Windows) to 640 px, as NV12 (1.5 bytes a pixel). Resizing within 0.5x to 1.25x of that size just scales when drawing; beyond it the decoder switches size where it was.
+- **One texture, updated in place.** Two NV12 frames per player are allocated once (the one shown and the next, decoded ahead), then reused: no allocation per frame. On the GPU renderers each player has one luma and one chroma texture updated in place; the shader converts BT.601 / BT.709 YCbCr to RGB. The software raster converts only the pixels it draws, while drawing.
+- **Only what is on screen plays.** A video scrolled away, clipped, in a hidden window, or in a window that isn't rendering pauses: no decoding, no timers, no redraws. It continues from where it was when it shows again.
+
+## Showing a video
+
+<LangTabs>
+<Tab label="Rust">
+
+```rust
+use blenderui::prelude::*;
+
+// the element owns its player: muted autoplay (autoplay="false" to hold the
+// first frame), loop, poster
+rsx! { <video src="intro.mp4" loop poster="intro.jpg" class="w-[640px] h-[360px] object-cover" /> }
+
+// or keep the player: play, pause, seek, rate, time, duration, state events
+let clip = std::rc::Rc::new({
+    let mut v = blenderui::Video::new("intro.mp4").unwrap();
+    v.on_state(|s| if s == blenderui::VideoState::Ended { println!("done") });
+    v
+});
+video().video(clip.clone()).w(px(640.0)).h(px(360.0));
+clip.seek(std::time::Duration::from_secs(10));
+clip.set_rate(2.0);
+
+// in a canvas
+canvas(move |b, p| p.video(b, &clip, blenderui::sys::BK_FIT_CONTAIN));
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```jsx
+// React and @blender-ui/native's DOM API (and `bui build` apps): the same <video> as Rust
+<video src="intro.mp4" loop poster="intro.jpg" style={{ width: 640, height: 360, objectFit: 'cover' }} />
+<video src="intro.mp4" autoplay="false" />   {/* holds the first frame */}
+```
+
+</Tab>
+<Tab label="Python">
+
+```py
+import blenderui as bui
+from blenderui.components import Video
+
+v = Video("intro.mp4", controls=True, loop=True, poster="intro.jpg", fit="cover",
+          on_ended=lambda: print("done"))
+v.pause(); v.seek(10.0); v.play()
+v.player.rate = 2.0                        # the bui.Video behind it
+print(v.player.time, v.player.duration, v.player.state == bui.VIDEO_PLAYING)
+bui.video_backends                         # "mf", "gstreamer", "avfoundation"; "" without video
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+BKVideo *v = BK_video_new("intro.mp4");          /* muted autoplay; loads when first drawn */
+BK_video_set_loop(v, 1);
+BK_video_set_controls(v, 1);                     /* Blender-style controls on "video" nodes */
+BK_video_set_listener(v, on_state, app);         /* loaded, playing, paused, ended, error */
+
+BKNode *n = BK_node_new("video");                /* the frame, fitted, and its controls */
+BK_node_set_video(n, v, BK_FIT_CONTAIN);
+
+BKCanvasItem it = {.type = BK_ITEM_IMAGE, .coords = (float[]){0, 0, 640, 360}, .ncoords = 4,
+                   .video = v, .fit = BK_FIT_COVER};  /* or on a canvas */
+BK_canvas_set_item(canvas, &it);
+
+BK_video_seek(v, 10.0);
+BK_video_set_rate(v, 2.0);
+double t = BK_video_time(v), d = BK_video_duration(v);
+BK_video_free(v);                                /* after the node / item let go */
+```
+
+</Tab>
+<Tab label="Dear ImGui">
+
+```py
+import blenderui as bui
+from blenderui import imgui
+
+clip = bui.Video("intro.mp4")
+tex = 0
+# every frame:
+tex = clip.texture(tex, 640, 360)    # the current frame, updated in place (RGBA)
+if tex:
+    imgui.image(tex, clip.size or (640, 360))
+```
+
+C: `BK_video_texture(v, tex, max_w, max_h)`; Rust: `Video::texture`. Calling it each frame is what keeps the video playing; keep rendering while `BK_video_state` is `BK_VIDEO_PLAYING`.
+
+</Tab>
+</LangTabs>
+
+**Defaults.** A video autoplays muted (what browsers allow without a click), plays once (`loop` to repeat), and fits its box like `object-fit: contain`. Its size is 300 x 150 (HTML's) until the first frame tells the real one. `poster` shows an image until then.
+
+**Controls.** `controls` on a `"video"` node (C, Python's `Video(controls=True)`) draws Blender's widgets over the bottom of the video: a play/pause button and a number-slider scrubber showing `0:12 / 1:30`, like the Timeline's playback controls and frame slider. Click to play or pause, drag the scrubber to seek (the video holds while you drag), Space toggles. Rust and JavaScript elements don't draw controls yet: build them from the player's methods.
+
+**Events.** One listener per player (`BK_video_set_listener`, Rust `on_state`, Python `on_state` / `on_ended`) hears every state change: loading, playing, paused, ended, error. JavaScript elements have no media events yet.
+
+## Backends
+
+| Backend | Where | Default | Notes |
+| --- | --- | --- | --- |
+| Media Foundation | Windows | on (`video`) | `IMFSourceReader` with a DXVA `IMFDXGIDeviceManager` (one Direct3D 11 video device for every player) and the reader's video processor: hardware decoding and scaling. H.264, HEVC*, VP9*, AV1* (*with the Store extensions). Tested on Windows 11. |
+| GStreamer | Linux | on (`video`) | `filesrc ! decodebin ! videoconvert ! videoscale ! appsink`, `dlopen`ed. Hardware decoding where GStreamer's `va` plugin finds VA-API, else software (libav, openh264, dav1d plugins). Chosen over raw VA-API: it brings the demuxers and every system decoder; VA-API alone would need our own demuxers and a software fallback anyway. Compiled and syntax-checked under WSL; see [Platforms](/docs/reference/platforms). |
+| AVFoundation | macOS | on (`video`) | `AVAssetReader` with VideoToolbox scaling, weak-linked frameworks. **Untested**: written against the documented API without a Mac; it compiles only on Apple platforms, so it can't affect others. |
+| dav1d, FFmpeg | any | not written | Planned as optional features (off by default): dav1d (BSD-2) for AV1 where the OS lacks it, with a small MP4/WebM demuxer; FFmpeg for everything (LGPL or GPL by its build, patent-encumbered codecs: opt-in only). They are not in the feature table until they exist. |
+
+Formats are the OS's: what Windows' Movies & TV, GStreamer's `gst-play-1.0` or QuickTime Player plays, BUI plays. `BK_video_backends()` / `bui.video_backends` / `Video::backends()` name the ones a build has. Audio isn't played yet (every video is muted); see Limits.
+
+## How it works
+
+1. `BK_video_new` makes a *private* entry of the [image cache](/docs/concepts/images#how-it-works): the same requests, worker threads and visibility tracking as an `<img>`, but owned by the player (never shared or evicted) and with its own clock.
+2. The first draw asks for the first frame at the drawn size. A worker opens the file with the first backend that reads it (sniffing the container: MP4/MOV, WebM/MKV, AVI, ASF, Ogg, MPEG-PS/TS, FLV), plans the decode size from the intrinsic size and the box (`imb_plan`, as for images) and decodes NV12 into a fresh frame.
+3. While it shows, the clock asks for the next frame one step ahead; it decodes into the frame the screen let go of. When its time comes (the frame's duration over the rate), it is swapped in and only its rectangle redraws, on the window's frame timer.
+4. A seek drops the frame decoded ahead, seeks the decoder to the keyframe before the time and decodes forward to the frame showing then; it shows as soon as it is ready, paused or not.
+5. On the GPU, the frame's planes are uploaded into the player's two textures (`UpdateSubresource` / `glTexSubImage2D`) and one instanced quad samples them; a parity test checks the CPU and GPU conversions agree to within 2 levels.
+
+## Performance
+
+<BenchChart id="video-frames" />
+
+<BenchChart id="video-cpu" />
+
+## Limits
+
+- **No audio** yet: every video is muted. A small mixer (miniaudio) behind an optional feature is the plan.
+- **Not zero-copy** on Windows: frames are decoded and scaled on the GPU, then copied back (at the drawn size) and uploaded to the renderer's own device. Sharing the decoder's textures with the renderer's device is the next step.
+- **8-bit** output: 10-bit (P010) and HDR video are converted to 8-bit NV12 by the decoder.
+- No dav1d or FFmpeg backend yet: a format the OS can't decode doesn't play (state: error).
+- Rust and JavaScript `<video>` elements have no built-in controls and JavaScript has no media events.
+- An `<img src="clip.mp4">` doesn't play video (as in browsers): use `<video>`.

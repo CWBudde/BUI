@@ -218,6 +218,7 @@ If you're starting fresh in Python, the Blender components are the friendliest.
 - **One memory-budgeted cache** (256 MiB by default). Scrolling 1,000 photo thumbnails: **2.9 ms p99 frames and 100 MB**, against 96 ms and 2.5 GB when decoding on the UI thread; **0 allocations** in a settled frame, every block freed at exit. [Images](https://bui.preetham.top/docs/concepts/images/).
 - **Animated GIF and WebP play** everywhere an image shows, decoded one frame at a time at the size drawn (two frames held per animation), each frame for its own delay, only the image's rectangle repainting. Off screen, scrolled away or in a hidden window they pause: 200 animations at once take **0.76 ms p50 / 1.5 ms p99** render frames, and **nothing at all** once off screen. `frame` holds one frame; reduced motion holds them all.
 - **Large images on the GPU**: images over 2047 px get a texture of their own on Direct3D 11 and OpenGL (tiled only past the device limit), freed with the image.
+- **Video**: `<video>` in every language, decoded by the OS (Media Foundation with DXVA, GStreamer, AVFoundation; loaded at run time) at the size drawn, frames in one GPU texture per player updated in place, YCbCr converted in the shader, and **nothing decoded off screen**. 1080p plays at **0.99 ms** render frames and **9 %** of a core on the GPU renderer, five at once at 28 %, with **0 allocations per frame**. Play, pause, seek, rate, loop, poster, state events, and Blender-style controls. [Video](https://bui.preetham.top/docs/concepts/video/).
 - `<img>`, CSS `background-image`, `object-fit`, Blender `Image` components, tkinter `PhotoImage` (now also JPEG, WebP, BMP, TGA, QOI, HDR, SVG), canvas items, data-table image columns, chat-list media and Dear ImGui textures (animated ones too).
 
 ### JavaScript and React
@@ -229,10 +230,11 @@ If you're starting fresh in Python, the Blender components are the friendliest.
 
 ### Small standalone apps
 
-- **`bui build app.jsx`** produces one executable of about **7 MB**: BUI with an embedded QuickJS engine.
+- **`bui build app.jsx`** produces one executable of **6.3 to 6.9 MB** (by the features it uses): BUI with an embedded QuickJS engine.
 - **First frame in ~70 ms**, at **19 MB** of RAM, with nothing to install. There's no browser and no webview.
 - **`--bun`** builds a Bun executable instead, with Node's APIs and a JIT.
 - Builds take under a second: the app's bundle is appended to a prebuilt runtime.
+- **Pay for what you use**: one feature table (`features.json`) drives CMake options, cargo features and `bui build`, which links the smallest runtime an app needs: **6.3 MB** for hello world, 6.9 MB with images or video. [Binary size](https://bui.preetham.top/docs/reference/binary-size/).
 
 ### Dear ImGui
 

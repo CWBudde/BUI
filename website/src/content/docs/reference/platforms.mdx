@@ -20,6 +20,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 | Renderer | CPU raster, or GPU (Direct3D 11) | CPU raster, or GPU (OpenGL 3.3) | CPU raster |
 | HiDPI | Per-monitor DPI | `Xft.dpi` | Retina (backing scale) |
 | Images | All [built-in formats](/docs/concepts/images); decode threads; GPU atlas | All built-in formats; decode threads; GPU atlas | All built-in formats; decode threads (CPU raster) |
+| [Video](/docs/concepts/video) | Works: Media Foundation (DXVA), tested | Works: GStreamer (VA-API where available), tested under WSL | AVFoundation: written, **untested** |
 
 **Works** means it works and is tested. **Experimental** means it's written and checked by CI, but has had little hands-on testing on real hardware (macOS: one Apple Silicon Mac so far).
 
@@ -29,6 +30,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 - **GPU renderer:** Direct3D 11 (feature level 10.0 or newer). Machines without it stay on the CPU raster.
 - **Compilers:** MSVC, or MinGW-w64 GCC. The published Python wheels are built with MinGW (UCRT) and statically linked to the GCC runtime, so they depend only on system DLLs and Python's. The Rust crate's default target uses MSVC: install the Visual Studio Build Tools.
 - **JavaScript:** the npm packages ship a prebuilt addon and the `bui-runtime` for **Windows x64**.
+- **Video:** Media Foundation, loaded at run time (Windows "N" editions without the Media Feature Pack start normally and report no video). H.264 always; HEVC, VP9 and AV1 with Microsoft's Store extensions. Tested on Windows 11 (Ryzen 7 5800U, Radeon graphics).
 
 ## Linux
 
@@ -38,6 +40,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 - **Tested on:** the C, Python, window and GPU parity tests pass on Mesa's software OpenGL and on an NVIDIA GPU. The suites also run under WSLg.
 - **Building from source** needs the X11 headers: `libx11-dev` (Debian, Ubuntu) or `libX11-devel` (Fedora). No GL headers are needed.
 - **JavaScript:** no prebuilt npm addon yet. Build it from a clone with `npm run build` in `bindings/node` (needs Rust, CMake and a C compiler); windows are native.
+- **Video:** GStreamer 1.x, `dlopen`ed (no headers needed to build): install `gstreamer1.0-plugins-base` and `-good`, plus `gstreamer1.0-libav` (or `-plugins-bad` for openh264/dav1d) for H.264 and friends, and `gstreamer1.0-vaapi` / the `va` plugin for hardware decoding. Tested under WSL (Kali, GStreamer 1.24, software decoding); the OpenGL NV12 shader passes the parity test there on Mesa.
 
 ## macOS <Badge tone="preview">Experimental</Badge>
 

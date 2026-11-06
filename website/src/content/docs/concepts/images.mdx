@@ -27,6 +27,8 @@ Three things make it fast and light:
 | PNM | BUI | PGM and PPM, ASCII and binary, 8 and 16 bit (what Tk reads) |
 | SVG | nanosvg (Blender's copy, already used for its icons) | rasterized at the drawn size; CMake `BUI_IMAGE_SVG` (on) |
 
+Each format is a feature of the build (`features.json`): leave out what an app doesn't show, and it costs no binary size ([Binary size](/docs/reference/binary-size)). Videos play through [Video](/docs/concepts/video), with the same worker threads and clock.
+
 Not built in yet (planned as options, off by default): AVIF (dav1d + libavif), OpenEXR (tinyexr), TIFF, JPEG XL, and HEIC through the system (WIC on Windows, ImageIO on macOS).
 
 Licences: Wuffs (MIT, used as MIT), libjpeg-turbo (IJG, BSD-3-Clause, zlib), libwebp (BSD-3-Clause) and nanosvg (zlib) are all compatible with BUI's GPL-2.0-or-later. See [License and credits](/docs/project/license-and-credits).

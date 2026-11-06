@@ -216,6 +216,9 @@ get its id: Python `tex, w, h = blenderui.image_texture(data)` then
 Animated GIF and WebP: Python `blenderui.AnimatedTexture(data)` (call
 `update()` each frame, draw `texture`), Rust `blenderui::Animation` with
 `Image::update_texture`, C `BK_anim_next` with `BK_imbuf_texture_update`.
+Video: Python `tex = clip.texture(tex, w, h)` on a `blenderui.Video`, Rust
+`Video::texture`, C `BK_video_texture`: the current frame, updated in place;
+calling it each frame keeps the video playing.
 
 ## Headless rendering and tests
 

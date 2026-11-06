@@ -277,6 +277,19 @@ compiled per app, and a build takes well under a second. Prebuilt runtimes
 are for Windows x64. On other platforms, `npm run build` in `bindings/node`
 builds `bui-runtime` from source.
 
+### What an app pays for
+
+`bui build` links the smallest prebuilt runtime with the kit features the app
+uses (`features.json`: `base`, `media` with every image format and video,
+`full` with the GPU renderer and the file browser): `--features png,video`,
+else `"bui": {"features": [...]}` in package.json, else what it finds in the
+bundle (`<video>`, media file names). A hello-world app is 6.3 MB, one with
+images or video 6.9 MB (Windows x64). See
+[Binary size](https://bui.preetham.top/docs/reference/binary-size/).
+
+`<video src="intro.mp4" loop />` plays video in React and the DOM API (muted
+autoplay, `autoPlay={false}` holds the first frame); no media events yet.
+
 ## How it works
 
 - **A UI thread.** BUI runs its own message loop on a thread of its own, so

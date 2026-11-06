@@ -4,7 +4,7 @@ description: Every option you can pass when building BUI from source with CMake,
 section: Reference
 order: 20
 languages: ["c", "cpp", "imgui"]
-sources: ["CMakeLists.txt", "kit/CMakeLists.txt", "gpu/CMakeLists.txt", "ui/CMakeLists.txt", "bindings/imgui/CMakeLists.txt", "bindings/python/CMakeLists.txt", "backends/qt/CMakeLists.txt", "examples/CMakeLists.txt", "docs/getting-started.md", "pyproject.toml", "bindings/rust/blenderui-sys/build.rs"]
+sources: ["CMakeLists.txt", "features.json", "features.cmake", "kit/CMakeLists.txt", "gpu/CMakeLists.txt", "ui/CMakeLists.txt", "bindings/imgui/CMakeLists.txt", "bindings/python/CMakeLists.txt", "backends/qt/CMakeLists.txt", "examples/CMakeLists.txt", "docs/getting-started.md", "pyproject.toml", "bindings/rust/blenderui-sys/build.rs"]
 ---
 
 When you build BUI from source, a handful of CMake options decide what gets built and how text is drawn. The defaults suit almost everyone, so you only need this page when you want something specific: C only, Windows' own fonts, or Dear ImGui with Blender's widgets.
@@ -39,11 +39,22 @@ Options are cached in the build folder. To change one later, configure again wit
 | `BUI_SLUG` | `ON` | The GPU renderer's default way to draw text: `ON` is Slug (glyph outlines), `OFF` the per-glyph atlas. Switchable at run time either way (`BUI_SLUG=0/1`, `BUI_gpu_set_slug`). |
 | `BUI_TEXT_STB` | `ON` | Deprecated and ignored: the portable engine is the default everywhere now. |
 
-## Images
+## Optional parts (features.json)
 
-| Option | Default | What it does |
-| --- | --- | --- |
-| `BUI_IMAGE_SVG` | `ON` | SVG files in the [image module](/docs/concepts/images), rasterized by the nanosvg the kit already uses for Blender's icons (so it adds about 1 KB). PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR and PNM are always built in. |
+Every sizeable optional part of the C kit is one row of `features.json`, the single table that CMake (`features.cmake`: an option each), cargo (the same names as features of `blenderui-sys` and `blenderui`) and `bui build` read. Off, a part's sources aren't compiled, so it costs no binary size; its API stays and reports it missing (no format, no video backend, `BK_file_dialog` returns -1). See [Binary size](/docs/reference/binary-size) for what each costs.
+
+| Option | Cargo feature | Default | What it is |
+| --- | --- | --- | --- |
+| `BUI_IMAGE_PNG`, `_GIF`, `_BMP`, `_TGA`, `_QOI` | `png`, `gif`, `bmp`, `tga`, `qoi` | `ON` | Those formats through Wuffs (one translation unit with only the modules turned on). |
+| `BUI_IMAGE_JPEG` | `jpeg` | `ON` | libjpeg-turbo's decoder. |
+| `BUI_IMAGE_WEBP` | `webp` | `ON` | libwebp's decoder and demuxer (animated WebP). |
+| `BUI_IMAGE_HDR`, `BUI_IMAGE_PNM` | `hdr`, `pnm` | `ON` | BUI's own readers. |
+| `BUI_IMAGE_SVG` | `svg` | `ON` | SVG files, through the nanosvg the icons use anyway (about 1 KB). |
+| `BUI_VIDEO` | `video` | `ON` | [Video](/docs/concepts/video) through the OS: Media Foundation, AVFoundation or GStreamer, loaded at run time. |
+| `BUI_GPU` | `gpu` | `ON` | The Direct3D 11 / OpenGL renderers. Off: every window draws with the software raster. |
+| `BUI_TEXT_FREETYPE` | `freetype` | `ON` | Text through FreeType like Blender (else stb_truetype). |
+| `BUI_FILEBROWSER` | `filebrowser` | `ON` | Blender's File Browser: the `filebrowser` node and `BK_file_dialog`. |
+| `BUI_BUILD_IMGUI` | `imgui` | `ON` (CMake, with a C++ compiler), off in cargo | Dear ImGui on BUI. |
 
 See [Text and fonts](../../concepts/text-and-fonts/) for what these change on screen.
 
@@ -72,7 +83,10 @@ These aren't options, but they change what you get:
 **C only, smallest build:**
 
 ```sh
-cmake -S . -B build -DBUI_BUILD_PYTHON_BINDINGS=OFF -DBUI_BUILD_IMGUI=OFF -DBUI_BUILD_TESTS=OFF
+cmake -S . -B build -DBUI_BUILD_PYTHON_BINDINGS=OFF -DBUI_BUILD_IMGUI=OFF -DBUI_BUILD_TESTS=OFF \
+  -DBUI_IMAGE_PNG=OFF -DBUI_IMAGE_GIF=OFF -DBUI_IMAGE_BMP=OFF -DBUI_IMAGE_TGA=OFF \
+  -DBUI_IMAGE_QOI=OFF -DBUI_IMAGE_JPEG=OFF -DBUI_IMAGE_WEBP=OFF -DBUI_IMAGE_HDR=OFF \
+  -DBUI_IMAGE_PNM=OFF -DBUI_VIDEO=OFF -DBUI_GPU=OFF -DBUI_FILEBROWSER=OFF
 ```
 
 **Dear ImGui with Blender's widgets, plus the examples:**

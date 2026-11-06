@@ -449,6 +449,14 @@ play (paused while off screen); `<img frame="2">` holds a frame,
 yourself (`Image::update_texture` for Dear ImGui). See
 [Images](https://bui.preetham.top/docs/concepts/images/).
 
+`<video src="intro.mp4" loop poster="intro.jpg" />` plays a video file (muted
+autoplay; `autoplay="false"` holds the first frame): the OS decodes it at the
+size drawn, only while it shows. Keep a `blenderui::Video` to control it
+(`play`, `pause`, `seek`, `set_rate`, `time`, `duration`, `on_state`) and
+pass it with `video().video(rc.clone())` or `Painter::video`. Cargo features
+(`png`, `jpeg`, `video`, `gpu`, ... from `features.json`, all default) drop
+what an app doesn't use. See [Video](https://bui.preetham.top/docs/concepts/video/).
+
 ## Painting your own content
 
 `canvas(|bounds, painter| ..)` is gpui's `canvas()`: it paints with a
