@@ -1,6 +1,6 @@
 ---
 // The top bar: product-level areas (Docs, Tutorials, Benchmarks, Roadmap), search, theme
-// and GitHub. The pages themselves live in the docs sidebar, not here.
+// and the GitHub and Discord links. The pages themselves live in the docs sidebar, not here.
 import Logo from "./Logo.astro";
 import Icon from "./Icon.astro";
 import ThemeToggle from "./ThemeToggle.astro";
@@ -62,6 +62,13 @@ const { menuTarget = "site-menu", current = "" } = Astro.props;
   <ThemeToggle />
 
   <a
+    href={site.discord}
+    class="inline-flex size-10 items-center justify-center text-muted transition-[background-color,color] duration-150 ease-out hover:bg-foreground/6 hover:text-foreground"
+    aria-label="BUI on Discord"
+  >
+    <Icon name="discord-logo" size={19} />
+  </a>
+  <a
     href={site.repo}
     class="inline-flex size-10 items-center justify-center text-muted transition-[background-color,color] duration-150 ease-out hover:bg-foreground/6 hover:text-foreground"
     aria-label="BUI on GitHub"
@@ -84,6 +91,11 @@ const { menuTarget = "site-menu", current = "" } = Astro.props;
         <li>
           <a href={site.repo} class="flex min-h-12 items-center gap-2 px-3 text-base hover:bg-foreground/6">
             <Icon name="github-logo" size={18} /> GitHub
+          </a>
+        </li>
+        <li>
+          <a href={site.discord} class="flex min-h-12 items-center gap-2 px-3 text-base hover:bg-foreground/6">
+            <Icon name="discord-logo" size={18} /> Discord
           </a>
         </li>
       </ul>

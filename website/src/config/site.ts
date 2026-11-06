@@ -13,5 +13,6 @@ export const site = {
   pypi: "https://pypi.org/project/blenderui/",
   npm: "https://www.npmjs.com/package/@blender-ui/react",
   crates: "https://crates.io/crates/blenderui",
+  discord: "https://discord.gg/MWXZfdyM3D",
   license: "GPL-2.0-or-later",
 } as const;
