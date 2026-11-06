@@ -1,6 +1,6 @@
 ---
 title: License and credits
-description: BUI is free software under GPL-2.0-or-later, because it's built from Blender. What that means, the licenses of the parts BUI includes, and the projects it stands on.
+description: BUI is free software under the GNU GPL, version 3 or later, because it's built from Blender and follows Blender's licensing. What that means, the licenses of the parts BUI includes, and the projects it stands on.
 section: Project
 order: 60
 sources: ["README.md", "LICENSE", "kit/extern/wuffs/README.bui", "kit/extern/libjpeg-turbo/README.bui", "kit/extern/libwebp/README.bui", "pyproject.toml", "bindings/rust/Cargo.toml", "bindings/node/package.json", "bindings/react/package.json", "gpu/extern/Inter-LICENSE.txt", "gpu/extern/stb_truetype.h", "gpu/extern/freetype/LICENSE.TXT", "kit/extern/nanosvg/README.blender", "bindings/imgui/extern/imgui/LICENSE.txt", "bindings/rust/blenderui-tailwind/src/theme.rs", "CONTRIBUTING.md"]
@@ -8,15 +8,15 @@ sources: ["README.md", "LICENSE", "kit/extern/wuffs/README.bui", "kit/extern/lib
 
 BUI is free software. You can use it, study it, change it and share it. It exists because thousands of people built Blender's interface over decades and shared it under a free license; BUI keeps that promise going.
 
-## BUI's license: GPL-2.0-or-later
+## BUI's license: GPL-3.0-or-later
 
-BUI is derived from Blender's source code, which is licensed under the **GNU General Public License, version 2 or later**, so BUI is too. Every source file keeps its SPDX header:
+BUI is derived from Blender's source code, so it follows Blender's licensing: BUI as a whole is licensed under the **GNU General Public License, version 3 or later**, and individual files may have a different, but compatible license. The files that come from Blender keep Blender's SPDX header, and new files carry the same one:
 
 ```c
 SPDX-License-Identifier: GPL-2.0-or-later
 ```
 
-The Python package (`pyproject.toml`), the Rust crates (`Cargo.toml`) and the npm packages (`package.json`) all declare `GPL-2.0-or-later`. The repository's `LICENSE` file holds the text of version 3 of the GNU GPL, one of the versions that "or later" covers.
+The Python package (`pyproject.toml`), the Rust crates (`Cargo.toml`) and the npm packages (`package.json`) all declare `GPL-3.0-or-later`, the license of the whole. The repository's `LICENSE` file holds the text of version 3 of the GNU GPL. A file that says `GPL-2.0-or-later` can be combined into that whole, which is how Blender itself is licensed.
 
 ### What it means for you
 
@@ -51,6 +51,10 @@ Some parts of BUI come from other projects and keep their own licenses:
 | [Tailwind CSS](https://tailwindcss.com) | The v4 default theme values behind the Tailwind support | MIT |
 
 The Rust and JavaScript bindings also depend on crates and packages such as taffy, napi-rs, React and QuickJS, each under its own license.
+
+## Third-party notices
+
+The full license texts of every library and Rust crate that BUI's packages include are in [`THIRD_PARTY_NOTICES.md`](https://github.com/ppmpreetham/BUI/blob/main/THIRD_PARTY_NOTICES.md). The file ships inside the Python wheels, the npm packages and the crates, so it travels with every binary. It is generated from the repository by `tools/gen_notices.py`, and a release is refused when it is out of date.
 
 ## Acknowledgments
 

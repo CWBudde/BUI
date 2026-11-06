@@ -11,11 +11,11 @@ rust-version.workspace = true
 documentation = "https://docs.rs/blenderui-imgui"
 keywords = ["gui", "imgui", "blender", "ui"]
 categories = ["gui", "api-bindings"]
-include = ["src/**", "tests/**", "examples/**", "Cargo.toml"]
+include = ["src/**", "tests/**", "examples/**", "Cargo.toml", "LICENSE", "THIRD_PARTY_NOTICES.md"]
 
 [dependencies]
 # builds and links bui_cimgui (Dear ImGui + its C API + the BUI backend) with the C kit
-blenderui-sys = { path = "../blenderui-sys", version = "0.4.0", features = ["imgui"] }
+blenderui-sys = { path = "../blenderui-sys", version = "0.4.1", features = ["imgui"] }
 
 [features]
 # ImGui's widgets drawn and handled as Blender's widgets (bindings/imgui/blender)

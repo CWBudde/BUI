@@ -626,7 +626,7 @@ Already written: `start/introduction`, `start/installation`,
 | `contributing.mdx` | 30 | How to help: issues, PRs, tests, the code of conduct, security reports, writing docs (link this guide). Sources: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
 | `publishing.mdx` | 40 | Releasing to PyPI, npm and crates.io (for maintainers). Source: `docs/publishing.md` |
 | `changelog.mdx` | 50 | A readable summary of `CHANGELOG.md` with a link to the full file; don't copy it wholesale. |
-| `license-and-credits.mdx` | 60 | GPL-2.0-or-later and why, third-party licenses, acknowledgments. Source: `README.md#license` |
+| `license-and-credits.mdx` | 60 | GPL-3.0-or-later (like Blender) and why, per-file headers, third-party licenses, acknowledgments. Source: `README.md#license` |
 
 ## 9. Before you open a PR
 

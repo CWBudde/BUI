@@ -3,7 +3,7 @@ name = "blenderui-table-gpui"
 description = "A gpui-component-style DataTable for gpui that paints only the visible cells, on the shared blenderui-table core"
 version = "0.2.0"
 edition = "2024"
-license = "GPL-2.0-or-later"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/ppmpreetham/BUI"
 homepage = "https://bui.preetham.top"
 authors = ["BUI contributors"]
@@ -20,8 +20,8 @@ publish = false
 [workspace]
 
 [dependencies]
-blenderui-table = { path = "../blenderui-table", version = "0.4.0" }
-blenderui-paint-gpui = { path = "../blenderui-paint-gpui", version = "0.4.0" }
+blenderui-table = { path = "../blenderui-table", version = "0.4.1" }
+blenderui-paint-gpui = { path = "../blenderui-paint-gpui", version = "0.4.1" }
 gpui = { package = "gpui-pre", version = "=0.3.11" }
 
 [dev-dependencies]

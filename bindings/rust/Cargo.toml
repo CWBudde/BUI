@@ -4,9 +4,9 @@ members = ["blenderui-paint", "blenderui-vlist", "blenderui-table", "blenderui-s
 exclude = ["bench", "blenderui-table-gpui"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
-license = "GPL-2.0-or-later"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/ppmpreetham/BUI"
 homepage = "https://bui.preetham.top"
 authors = ["BUI contributors"]

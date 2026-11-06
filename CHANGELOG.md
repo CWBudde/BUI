@@ -6,6 +6,55 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU.
+- **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
+
+### Fixed
+- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
+- **X11:** a frame callback that closes its window no longer renders into the closed window.
+
+## [0.4.1] - 2026-11-06
+
+### Added
+- **The C API is versioned.** `BUI_kit.h` has `BUI_KIT_VERSION_MAJOR` / `_MINOR` / `_PATCH`,
+  `BUI_KIT_VERSION_STRING`, `BUI_KIT_VERSION` (0.4.0 is 400) and `BUI_KIT_VERSION_AT_LEAST`, the library
+  reports its own with `BK_version()` and `BK_version_string()` (Python: `buipy.kit_version()`), and
+  `BUI_DEPRECATED` is there for the day a function is retired. The number is BUI's own: `check_versions.py`
+  refuses a release when the header differs, and `bump_version.py` moves it. The stability policy (no
+  promise before 1.0, semantic versioning after, what counts as ABI) is in the header and in the C API
+  guide. Changes that break the C API are listed here under "C API changes" from now on.
+- **Third-party notices** (`THIRD_PARTY_NOTICES.md`), shipped with the wheels, the npm packages and the crates.
+
+### Changed
+- **License, following Blender's own wording:** BUI as a whole is under the GNU GPL, version 3 or
+  later (the `LICENSE` file was already the GPLv3 text), and individual files keep their compatible
+  `GPL-2.0-or-later` header, as Blender's do. The Python package, the Rust crates, the npm packages,
+  the README and the website said `GPL-2.0-or-later` for the whole; they now say `GPL-3.0-or-later`.
+- **README:** a lead-in sentence before each screenshot that isn't the output of the snippet above it,
+  plainer headings ("Pick your language", "Python", "Rust: HTML and CSS, without a browser"), and a
+  corrected "Who wrote it?" (the code is written by agents, a human directs and reviews it).
+- **Limitations, said plainly:** a list in the README (Status and roadmap) and a new website page,
+  covering accessibility (none yet), text and input methods, the non-native look, GPU backends,
+  platforms, retained mode with no visual editor, and that the numbers come from one machine. The
+  FAQ answers "is it immediate mode?" and "is it accessible?"; accessibility joins the roadmap.
+
+- **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
+  pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
+  SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
+  `build/`), and records a bug from his log (fixed below: Objective-C printed "Class BUIKitView is
+  implemented in both"). The docs and the website say two Apple Silicon Macs.
+- **Python:** Dear ImGui (`blenderui.imgui`) is compiled into the `buipy` extension; the separate
+  `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
+  `buipy.imgui_module()`). The public API is unchanged.
+- **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
+- **Releases:** `tools/bump_version.py --npm patch` moves every published npm package by that kind from its
+  own version (native 0.3.0 to 0.3.1, svelte 0.1.0 to 0.1.1; a package that isn't on npm yet keeps its first
+  version), and `release.yml` skips a package that is not on npm yet with a clear warning instead of failing
+  (a new package's first publish is manual, then it gets a trusted publisher; `tools/release.py` shows it as
+  MANUAL). A release is also refused when `THIRD_PARTY_NOTICES.md` is out of date.
+- **Svelte** now publishes from CI like the other npm packages (its trusted publisher is set up).
+
 ### Fixed
 - **Backspace over a Blender value resets it to its default, not to zero** (number fields, sliders,
   vector fields, checkboxes; the right-click "Reset to Default Value" already did, and the docs always
@@ -21,21 +70,6 @@ All notable changes to **blenderui** (BUI). The format follows
   registered twice (reported by [DanNoby](https://github.com/DanNoby), issue #6). A process now
   holds one kit: `buipy` and Dear ImGui are one binary on every platform, which also means one
   theme and one set of kit state instead of two.
-- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
-- **X11:** a frame callback that closes its window no longer renders into the closed window.
-
-### Changed
-- **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
-  pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
-  SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
-  `build/`), and records a bug from his log (fixed below: Objective-C printed "Class BUIKitView is
-  implemented in both"). The docs and the website say two Apple Silicon Macs.
-- **Python:** Dear ImGui (`blenderui.imgui`) is compiled into the `buipy` extension; the separate
-  `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
-  `buipy.imgui_module()`). The public API is unchanged.
-- **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
-- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU.
-- **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
 
 ## [0.4.0] - 2026-11-06
 

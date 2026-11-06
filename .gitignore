@@ -17,3 +17,5 @@ bindings/rust/blenderui-sys/csrc/
 /.claude/worktrees/
 __pycache__/
 *.pyc
+bindings/rust/*/LICENSE
+bindings/rust/*/THIRD_PARTY_NOTICES.md

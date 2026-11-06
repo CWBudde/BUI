@@ -114,7 +114,9 @@ is the same thing: `git tag v0.3.0 && git push origin v0.3.0`.
 | `release.yml` | the Rust crates to crates.io, `@blender-ui/native` and `@blender-ui/react` to npm, and a GitHub Release |
 
 `release.yml` first checks that the tag matches the Python and Rust versions
-(`python tools/check_versions.py v0.2.0` runs the same check by hand), then runs the whole
+(`python tools/check_versions.py v0.2.0` runs the same check by hand; the C header's
+`BUI_KIT_VERSION_*` macros are part of it) and that `THIRD_PARTY_NOTICES.md` is up to date
+(`python tools/gen_notices.py` regenerates it when a dependency changes), then runs the whole
 `ci.yml` suite on every platform, then publishes. A version that is already on a registry is
 skipped (crates.io, npm and PyPI alike: `wheels.yml` builds nothing when PyPI already has the
 version), so only what is missing runs: a run that failed halfway (say, crates.io timing out on the big

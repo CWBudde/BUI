@@ -72,7 +72,7 @@ Bugs and features start with an [issue](https://github.com/ppmpreetham/BUI/issue
   - Python: `bindings/python/tests/`. For tkinter behaviour, add a program to the side-by-side suite (`tests/test_tk_compat.py`) that must behave exactly like the standard library.
   - Rust: `bindings/rust/blenderui/tests/`.
 - **Don't let performance regress.** The test suite enforces frame budgets. For rendering or layout changes, run the benchmark in `bindings/rust/bench/` and include before and after numbers. [Run the benchmarks](../../performance/run-benchmarks/) has the commands.
-- **Keep the license header.** New files carry the SPDX header `GPL-2.0-or-later`, and contributions are accepted under that license.
+- **Keep the license header.** New files carry the SPDX header `GPL-2.0-or-later` (the one Blender's files carry), and contributions are accepted under BUI's license, the GNU GPL version 3 or later.
 - **Update the docs.** Add your change to the Unreleased section of `CHANGELOG.md`, and to the relevant guide.
 - **Match the style around you.** C is formatted like Blender's sources. Rust uses `rustfmt` defaults with a maximum width of 120.
 
