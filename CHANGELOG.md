@@ -6,14 +6,37 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Backspace over a Blender value resets it to its default, not to zero** (number fields, sliders,
+  vector fields, checkboxes; the right-click "Reset to Default Value" already did, and the docs always
+  said Backspace resets to the default). A widget's default is the value it was made with, or an
+  explicit `default`, in every language: the kit records the first value a widget gets as its default
+  (`NF_DEFAULT_SET`) and the dead "zero" flag of `reset` is gone. Text fields still clear.
+- **Website:** the interactive panel on the home page is labelled as a browser sketch, and it now does
+  what the text next to it says: dragging down across X, Y and Z edits all three, and Ctrl+C / Ctrl+V
+  over a field copy and paste a value.
+- **macOS:** Python printed `objc: Class BUIKitView is implemented in both buipy... and
+  _buiimgui...` (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both
+  extensions were loaded: each linked the whole kit, Cocoa host included, so the classes were
+  registered twice (reported by [DanNoby](https://github.com/DanNoby), issue #6). A process now
+  holds one kit: `buipy` and Dear ImGui are one binary on every platform, which also means one
+  theme and one set of kit state instead of two.
+- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
+- **X11:** a frame callback that closes its window no longer renders into the closed window.
+
 ### Changed
+- **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
+  pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
+  SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
+  `build/`), and records a bug from his log (fixed below: Objective-C printed "Class BUIKitView is
+  implemented in both"). The docs and the website say two Apple Silicon Macs.
+- **Python:** Dear ImGui (`blenderui.imgui`) is compiled into the `buipy` extension; the separate
+  `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
+  `buipy.imgui_module()`). The public API is unchanged.
+- **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
 - **Linux frame pacing:** an animation frame is due one refresh after the previous frame started, at the screen's refresh rate (XRandR). Before, the X11 loop slept 16.7 ms after each frame.
 - **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU.
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
-
-### Fixed
-- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
-- **X11:** a frame callback that closes its window no longer renders into the closed window.
 
 ## [0.4.0] - 2026-11-06
 

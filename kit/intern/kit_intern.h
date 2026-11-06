@@ -274,7 +274,7 @@ typedef struct BKClass {
   int (*to_text)(BKNode *n, char *buf, int size);
   int (*from_text)(BKNode *n, const char *s); /* 1 when set */
   void (*step)(BKNode *n, int dir);
-  void (*reset)(BKNode *n, bool to_zero);
+  void (*reset)(BKNode *n); /* back to the default (Backspace, "Reset to Default Value") */
   void (*negate)(BKNode *n);
   void (*activate)(BKNode *n);
   /* class-specific properties (consulted before the generic ones) */
@@ -331,6 +331,7 @@ enum {
   NF_OPAQUE = 1 << 24,      /* root: the host paints every pixel, skip the region clear */
   NF_HTML = 1 << 25,        /* "html": Chrome's default form-control look and interaction */
   NF_ACTIVE_DEFAULT = 1 << 26, /* buttons: UI_BUT_ACTIVE_DEFAULT (drawn with the select colors) */
+  NF_DEFAULT_SET = 1 << 27, /* `defval` was set: by "default", or by the first "value" a widget got */
 };
 
 #define BK_HTML(n) (((n)->flags & NF_HTML) != 0)

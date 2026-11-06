@@ -95,10 +95,13 @@ def test_animations():
     tex = bui.AnimatedTexture(read("anim.webp"), 4, 4)  # for Dear ImGui
     assert tex.texture > 0 and tex.size == (4, 4) and tex.frames == 3
     changed = 0
-    for _ in range(30):
+    start = time.monotonic()
+    while time.monotonic() - start < 0.35:
         time.sleep(0.01)
         changed += tex.update()
-    assert 2 <= changed <= 4, changed  # 100 ms frames over ~0.3 s
+    # 100 ms frames: one change per 100 ms of wall time, whatever the runner's sleep granularity
+    expected = (time.monotonic() - start) / 0.1
+    assert expected - 2 <= changed <= expected + 1, (changed, expected)
     tex.close()
     from bui.components import Image
     img = Image(path("anim.gif"), frame=1)

@@ -10,14 +10,17 @@ ctest (buipy_imgui).
 SPDX-License-Identifier: GPL-2.0-or-later
 """
 
+import glob
 import math
 import os
+import subprocess
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import bui  # noqa: E402,F401  (locates the build tree)
+import buipy  # noqa: E402
 import blenderui.imgui as imgui  # noqa: E402
 import bui.imgui as bui_imgui  # noqa: E402
 
@@ -183,7 +186,8 @@ class ImGuiTest(unittest.TestCase):
         self.assertEqual(imgui.WINDOW_NO_TITLE_BAR, imgui.ImGuiWindowFlags_NoTitleBar)
         self.assertEqual(imgui.KEY_A, imgui.ImGuiKey_A)
         self.assertEqual(imgui.COL_TEXT, 0)
-        import _buiimgui
+        import _buiimgui  # the module buipy.imgui_module() creates, also registered by name
+        self.assertIs(_buiimgui, imgui._buiimgui)
         self.assertGreater(_buiimgui._sizeof("ImGuiIO"), 1000)
         self.assertIn("ImGui::Button", imgui.button.__doc__)
         self.assertEqual(imgui.im_col32(255, 0, 0), 0xFF0000FF)
@@ -425,6 +429,51 @@ class ImGuiTest(unittest.TestCase):
         finally:
             self.ui.extra = None
             self.app.render(2)
+
+
+class OneKitTest(unittest.TestCase):
+    """Dear ImGui is compiled into buipy: a process holds ONE copy of the kit.
+
+    Two extensions linking the kit statically registered the Cocoa classes of
+    kit_window_cocoa.m twice on macOS ("Class BUIKitView is implemented in both ...") and
+    kept two copies of the kit's state elsewhere."""
+
+    def test_no_second_extension(self):
+        here = os.path.dirname(os.path.abspath(buipy.__file__))
+        self.assertEqual(glob.glob(os.path.join(here, "_buiimgui*")), [])
+
+    def test_kit_state_is_shared(self):
+        # a second kit would keep its own theme: setting it through one is seen through the other
+        was = buipy.kit_theme_name()
+        other = "light" if was == "dark" else "dark"
+        try:
+            imgui.set_theme(other)
+            self.assertEqual(buipy.kit_theme_name(), other)
+            bui.set_theme(was)
+            self.assertEqual(imgui.theme_name(), was)
+        finally:
+            buipy.kit_set_theme(was)
+
+    def test_loading_both_registers_nothing_twice(self):
+        code = "import buipy, blenderui.imgui, sys; sys.exit(0 if 'imgui_module' in dir(buipy) else 1)"
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+        r = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("is implemented in both", r.stderr)  # the Objective-C runtime's warning
+
+    @unittest.skipUnless(sys.platform == "darwin", "Cocoa host classes")
+    def test_cocoa_classes_come_from_buipy(self):
+        import ctypes
+        objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        objc.class_getImageName.restype = ctypes.c_char_p
+        objc.class_getImageName.argtypes = [ctypes.c_void_p]
+        for name in (b"BUIKitNSWindow", b"BUIKitView", b"BUIKitWindowDelegate", b"BUIKitAppDelegate"):
+            cls = objc.objc_getClass(name)
+            self.assertTrue(cls, name)
+            self.assertEqual(os.path.realpath(objc.class_getImageName(cls).decode()),
+                             os.path.realpath(buipy.__file__), name)
 
 
 if __name__ == "__main__":

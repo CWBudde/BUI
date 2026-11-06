@@ -26,8 +26,8 @@ BUI ships to three registries: **PyPI** (`blenderui`), **npm** (`@blender-ui/nat
 
 ```text
 site-packages/
-  buipy.<abi>.pyd|.so     the C kit + raster engine (one extension module)
-  _buiimgui.<abi>.pyd|.so  Dear ImGui for blenderui.imgui (when CMake builds bui_cimgui)
+  buipy.<abi>.pyd|.so     the C kit + raster engine, with Dear ImGui (blenderui.imgui) when
+                           CMake builds bui_cimgui: one extension module, one kit per process
   bui/                     tksyntax/, qtsyntax.py, components/, host.py ...
   blenderui/               alias package: blenderui.X is bui.X
   blenderui-<v>.dist-info/
@@ -150,7 +150,7 @@ A published crate can't reach files outside itself, so `blenderui-sys` must carr
 
 ## Known gaps before 1.0
 
-- **macOS:** the native Cocoa host has been tried by hand on one Apple Silicon Mac so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
+- **macOS:** the native Cocoa host has been tried by hand on two Apple Silicon Macs so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
 - **Windows wheels** are built with MinGW. MSVC builds work (the Rust crate and the CMake build use it), but aren't what's published.
 - **No musllinux or 32-bit wheels** yet.
 - **npm:** prebuilt for Windows x64 only.

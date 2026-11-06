@@ -133,6 +133,12 @@ jobs:
             cd "bindings/$pkg"
             name=$(node -p "require('./package.json').name")
             version=$(node -p "require('./package.json').version")
+            if ! npm view "$name" name >/dev/null 2>&1; then
+              # trusted publishing can only be configured on a package that exists
+              echo "::warning::$name is not on npm yet: publish it once by hand (cd bindings/$pkg && npm publish --access public), then add its trusted publisher (docs/publishing.md). Skipping."
+              cd ../..
+              continue
+            fi
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "::notice::$name@$version is already on npm; skipping"
             else

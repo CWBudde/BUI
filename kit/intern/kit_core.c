@@ -604,7 +604,7 @@ static void vc_reset(void *data)
 {
   BKNode *n = (BKNode *)data;
   if (n->cls->reset) {
-    n->cls->reset(n, false);
+    n->cls->reset(n);
   }
 }
 
@@ -644,7 +644,7 @@ int bk_value_key(BKNode *n, BKEvent *e)
   }
   if (bk_keysym_is(e->keysym, "BackSpace")) {
     if (c->reset) {
-      c->reset(n, true);
+      c->reset(n);
     }
     return 1;
   }
@@ -933,6 +933,10 @@ int BK_set_num(BKNode *n, const char *key, double v)
       bk_relayout(n);
     }
     else {
+      if (!(n->flags & NF_DEFAULT_SET)) { /* the value a widget is made with is its default */
+        n->defval = v;
+        n->flags |= NF_DEFAULT_SET;
+      }
       bk_set_value_silent(n, v);
     }
     return 1;
@@ -943,6 +947,7 @@ int BK_set_num(BKNode *n, const char *key, double v)
   }
   if (strcmp(key, "default") == 0) {
     n->defval = v;
+    n->flags |= NF_DEFAULT_SET;
     return 1;
   }
   if (strcmp(key, "min") == 0) {

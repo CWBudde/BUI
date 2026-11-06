@@ -1647,9 +1647,9 @@ static void bool_step(BKNode *n, int dir)
   bool_toggle(n);
 }
 
-static void bool_reset(BKNode *n, bool zero)
+static void bool_reset(BKNode *n)
 {
-  bk_set_value(n, zero ? 0 : n->defval);
+  bk_set_value(n, n->defval);
 }
 
 static int bool_press(BKNode *n, BKEvent *e)
@@ -1811,9 +1811,9 @@ static void number_step(BKNode *n, int dir)
   bk_set_value(n, n->value + dir * step);
 }
 
-static void number_reset(BKNode *n, bool zero)
+static void number_reset(BKNode *n)
 {
-  bk_set_value(n, zero ? 0.0 : n->defval);
+  bk_set_value(n, n->defval);
 }
 
 static void number_negate(BKNode *n)
@@ -2345,7 +2345,7 @@ static int text_from_text(BKNode *n, const char *s)
   return 1;
 }
 
-static void text_reset(BKNode *n, bool zero)
+static void text_reset(BKNode *n)
 {
   text_from_text(n, "");
 }
@@ -2690,7 +2690,7 @@ static void choice_step(BKNode *n, int dir)
   }
 }
 
-static void choice_reset(BKNode *n, bool zero)
+static void choice_reset(BKNode *n)
 {
   bk_set_value(n, n->defval);
 }
@@ -3018,7 +3018,7 @@ static int swatch_from_text(BKNode *n, const char *s)
   return 1;
 }
 
-static void swatch_reset(BKNode *n, bool zero)
+static void swatch_reset(BKNode *n)
 {
   const float black[4] = {0, 0, 0, 1};
   BK_set_color(n, "set_value", black);

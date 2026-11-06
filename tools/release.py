@@ -129,15 +129,19 @@ def crates() -> list[str]:
     return m.group(1).split() if m else []
 
 
-def registry_status(version: str) -> dict[str, bool]:
-    out: dict[str, bool] = {}
+def registry_status(version: str) -> dict[str, bool | None]:
+    """True: published. False: missing. None: a new npm package, whose first publish is by hand."""
+    out: dict[str, bool | None] = {}
     for c in crates():
         out[f"crates.io  {c}"] = http_json(f"https://crates.io/api/v1/crates/{c}/{version}")[0] == 200
     for pkg in npm_packages():
         meta = json.loads((ROOT / "bindings" / pkg / "package.json").read_text(encoding="utf-8"))
         name = meta["name"].replace("/", "%2F")
-        out[f"npm        {meta['name']}@{meta['version']}"] = (
-            http_json(f"https://registry.npmjs.org/{name}/{meta['version']}")[0] == 200)
+        label = f"npm        {meta['name']}@{meta['version']}"
+        if http_json(f"https://registry.npmjs.org/{name}")[0] == 404:
+            out[label] = None  # not on npm at all: trusted publishing needs the package to exist first
+        else:
+            out[label] = http_json(f"https://registry.npmjs.org/{name}/{meta['version']}")[0] == 200
     out[f"PyPI       blenderui {version}"] = http_json(f"https://pypi.org/pypi/blenderui/{version}/json")[0] == 200
     return out
 
@@ -147,12 +151,15 @@ def verify(version: str) -> bool:
     deadline = time.time() + 10 * 60  # indexes lag a little behind a successful publish
     while True:
         status = registry_status(version)
-        if all(status.values()) or time.time() > deadline:
+        if all(v is not False for v in status.values()) or time.time() > deadline:
             break
         time.sleep(POLL)
     for k, ok in status.items():
-        print(f"  {'ok     ' if ok else 'MISSING'} {k}")
-    return all(status.values())
+        print(f"  {'ok     ' if ok else 'MANUAL ' if ok is None else 'MISSING'} {k}")
+    if None in status.values():
+        print("  MANUAL = a new npm package: publish it once by hand, then add its trusted publisher "
+              "(docs/publishing.md, 'A new npm package')")
+    return all(v is not False for v in status.values())
 
 
 def preflight(allow_dirty: bool) -> None:

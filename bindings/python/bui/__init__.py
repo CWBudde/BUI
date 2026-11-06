@@ -195,8 +195,6 @@ def set_theme(name: str = "dark") -> None:
     from bui import theme as _theme
     buipy.kit_set_theme(str(name))
     _theme._sync()
-    if "_buiimgui" in sys.modules:  # the Dear ImGui extension has its own kit
-        sys.modules["_buiimgui"].set_theme(str(name))
 
 
 def theme_name() -> str:
