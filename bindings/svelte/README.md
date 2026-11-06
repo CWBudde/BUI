@@ -45,9 +45,11 @@ bun --preload @blender-ui/svelte/register app.js     # Bun
 npx bui build app.js                                 # ship it: one small executable
 ```
 
-`register` compiles `.svelte` (and `.svelte.js`) files on import, caching the
-output in `node_modules/.cache/@blender-ui/svelte`, and resolves `svelte` to
-its browser build. `bui build` finds this package's bundler plugin by itself.
+`register` compiles `.svelte` (and `.svelte.js`) files on import and resolves
+`svelte` to its browser build. It caches both in
+`node_modules/.cache/@blender-ui/svelte`: the compiled components, and (when
+Bun is installed) Svelte's runtime bundled on the first run, so it loads like
+one module. `bui build` finds this package's bundler plugin by itself.
 
 ## API
 
@@ -57,7 +59,7 @@ its browser build. `bui build` finds this package's bundler plugin by itself.
 | `createRoot(window)` | `{ render(Component, { props, context }), unmount() }` for a window you opened with [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native); closing the window unmounts it |
 | `act(fn)` | Runs `fn` and applies Svelte's pending updates now (tests) |
 | `Button`, `Checkbox`, `Radio`, `NumberField`, `NumberSlider`, `TextField`, `TextArea`, `ColorSwatch`, `Dropdown`, `ProgressBar` | Blender's widgets, always drawn and handled like Blender |
-| `signal`, `computed`, `effect`, `batch`, `untrack`, `createSignal`, `ref`, `startTransition` | BUI's signals, for state outside components; each is a Svelte store (`$count`) |
+| `signal`, `computed`, `effect`, `batch`, `untrack`, `createSignal`, `ref`, `startTransition` | BUI's signals, for state outside components. As a value (`{label}`, `style={style}`) a signal binds its node, so a write updates it without Svelte running; as a store (`$count`) the component follows it |
 
 Options: `props`, `context`, and the window's `title`, `width`, `height`,
 `resizable`, `gpu`, `slug`, `headless`, `theme` (`'dark'` or `'light'`) and
@@ -72,7 +74,11 @@ retained tree when inserted, comments are anchors that take no space, and only
 the changes of each tick cross to BUI's UI thread. Components compile with
 `fragments: 'tree'` (templates built with `createElement`, no HTML parser).
 Svelte's event delegation works: an element with an `onclick` listens
-natively, so BUI sends it its clicks.
+natively, so BUI sends it its clicks. The functions Svelte's templates call on
+each update (`set_text`, `set_attribute`, `set_class`, `set_style`, `clsx`)
+are served by `internal.js` and write straight into BUI's nodes; each is
+used only while Svelte's has the shape it was written for (a test compares
+them), otherwise Svelte's own runs.
 
 Not there yet: transitions run their start and end without animating in
 between; `{@html}` (no HTML parser); `bind:clientWidth` and other size

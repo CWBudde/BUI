@@ -1503,34 +1503,42 @@ What this means:
 **React and Svelte, side by side** (one session, runs interleaved, medians of
 3; `--svelte` in the commands below):
 
-| 3,000 cells, one session                    | FPS         | CPU per frame     | RAM            |
-| ------------------------------------------- | ----------: | ----------------: | -------------: |
-| Node 26: React with state / with signals    | 27.6 / 27.6 | 42.5 / 36.9 ms    | 150 / 98 MB    |
-| Node 26: Svelte (runes) / with signals      | 24.8 / 26.6 | 41.5 / 38.6 ms    | 119 / 118 MB   |
-| Bun 1.4: React with state / with signals    | 24.0 / 25.0 | 55.8 / 40.8 ms    | 111 / 86 MB    |
-| Bun 1.4: Svelte (runes) / with signals      | 26.4 / 27.0 | 39.3 / 38.2 ms    | 100 / 100 MB   |
-| QuickJS: React with state / with signals    |  8.5 / 27.0 | 117 / 37.3 ms     | 67 / 62 MB     |
-| QuickJS: Svelte (runes) / with signals      | 26.9 / 25.9 | 37.5 / 38.7 ms    | 76 / 76 MB     |
+| 3,000 cells, one session (Node 26 / Bun 1.4 / QuickJS) | CPU per frame         | RAM              | JavaScript per update   |
+| ----------------------------------------------------- | --------------------: | ---------------: | ----------------------: |
+| Plain JS                                              | 37.0 / 37.4 / 38.6 ms | 92 / 81 / 59 MB  | 14 / 13 / 28 µs         |
+| React with signals                                    | 37.6 / 38.4 / 37.8 ms | 100 / 87 / 60 MB | 23 / 17 / 40 µs         |
+| Svelte with signals (as values)                       | 39.0 / 36.8 / 38.5 ms | 116 / 97 / 75 MB | 17 / 19 / 36 µs         |
+| Svelte with runes                                     | 39.4 / 35.9 / 37.0 ms | 117 / 98 / 75 MB | 65 / 76 / 790 µs        |
+| React with state                                      | 38.1 ms on Node       | 166 MB on Node   | 5.2 / 8.6 / 76 ms       |
 
-| First frame, median of 12 (React / Svelte)  | First frame   | RAM at first frame |
-| ------------------------------------------- | ------------: | -----------------: |
-| QuickJS executable (`bui build`, 6.9 MB)    | 94 / 89 ms    | 20.5 / 19.8 MB     |
-| Bun executable (`bui build --bun`)          | 111 / 107 ms  | 37.8 / 38.3 MB     |
-| Bun (`--preload …/register` for Svelte)     | 130 / 243 ms  | 36.4 / 46.6 MB     |
-| Node.js (`--import …/register` for Svelte)  | 147 / 440 ms  | 46.8 / 64.1 MB     |
+| First frame, median of 12        | React  | Svelte | Svelte before | RAM (React / Svelte) |
+| -------------------------------- | -----: | -----: | ------------: | -------------------: |
+| QuickJS executable (`bui build`) | 93 ms  | 89 ms  | 81 ms         | 20.4 / 20.4 MB       |
+| Bun executable (`--bun`)         | 106 ms | 90 ms  | 94 ms         | 37.8 / 38.8 MB       |
+| Bun (`--preload …/register`)     | 107 ms | 121 ms | 203 ms        | 36.5 / 40.2 MB       |
+| Node.js (`--import …/register`)  | 125 ms | 135 ms | 393 ms        | 52.1 / 55.4 MB       |
 
-- **Svelte needs no signals to stay cheap:** runes update the one cell that
-  changes, so Svelte costs what React with signals does on every runtime, and
-  holds 27 FPS on QuickJS where React re-rendering the grid falls to 8.5.
-- **Memory:** Svelte keeps 14–21 MB more than React with signals at 3,000
-  cells (its effects and each-block items).
-- **Startup:** built with `bui build`, both reach the first frame in about
-  90 ms. On Node.js and Bun, Svelte's runtime loads from about 90 source files
-  first (components come from the compile cache).
-- **This session ran at about 27 FPS** for every variant (the machine, not the
-  code), so compare these rows with each other, not with the tables above.
-  React with state cost 45.8 ms and 190 MB on Node in the same session before
-  this release's DOM changes (linked siblings, lazy listener maps).
+- **Every variant ran at 26–29 FPS** in this session (the machine, not the
+  code), so CPU per frame is mostly BUI's own rendering and differs within
+  noise. "JavaScript per update" is the cost of one update alone: 500 back to
+  back, each applied by the framework and sent to the UI thread.
+- **Svelte with signals costs what React with signals does:** a BUI signal
+  passed as a value (`{label}`, `style={style}`) binds its node, so an
+  update skips Svelte. Before this release's work it went through Svelte as a
+  store: 86–87 µs on Node.js and Bun, 793 µs on QuickJS.
+- **Svelte with runes** pays Svelte's flush, which walks the component's
+  effects (3,000 here): 65–76 µs, 790 µs on QuickJS (85 / 78 / 790 before).
+- **Memory:** Svelte keeps 10–17 MB more than React with signals (6 MB less
+  than before on Node). A heap snapshot puts the rest in Svelte's own effects,
+  closures and each-block items, about 1.9 KB per cell; BUI's nodes are the
+  same for both.
+- **Startup:** `register` serves Svelte's runtime bundled (once, with Bun,
+  into `node_modules/.cache`), which brought Node.js from 393 to 135 ms and
+  Bun from 203 to 121 ms. React and Svelte ran one after the other here.
+- **React with state** on Bun and QuickJS: the 500 back-to-back re-renders
+  overran the warm-up, so only its per-update cost is valid from this session.
+  Bun also sometimes crashes when a React app quits (after its first frame), a
+  bug that predates this work.
 
 Method, the memory breakdown and how to rerun:
 [docs/javascript.md](docs/javascript.md#performance).

@@ -29,6 +29,7 @@
     "compile.js",
     "plugin.js",
     "register.js",
+    "runtime.js",
     "README.md",
     "LICENSE"
   ],

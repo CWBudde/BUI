@@ -28,7 +28,30 @@ All notable changes to **blenderui** (BUI). The format follows
   globals DOM frameworks read), and `bui build` bundling with the Bun plugin of every
   `@blender-ui/*` package that declares one (`"bui": { "bunPlugin" }`). A binding for another
   framework is a thin adapter over these.
-- **Benchmarks:** `bench/cells.js --svelte [--signals]` and `bench/startup.js --svelte`.
+- **Benchmarks:** `bench/cells.js --svelte [--signals]` and `bench/startup.js --svelte`;
+  `cells.js` also reports `js_us_per_update` (500 updates back to back, each applied by the
+  framework and sent to the UI thread: the JavaScript cost of an update alone) and `heap_mb`.
+- **Svelte, faster updates:** compiled components import `@blender-ui/svelte/internal`, which
+  serves Svelte's runtime with `set_text`, `set_attribute`, `set_class`, `set_style` and `clsx`
+  writing straight into BUI's nodes (each used only while Svelte's own has the shape it was
+  written for; a test compares them on the same inputs). A BUI signal passed as a value
+  (`{label}`, `style={style}`, `class={cls}`) binds its node: a write updates it without Svelte
+  running, as React's signal props do.
+- **Svelte, faster start on Node.js and Bun:** with Bun installed, `register` bundles Svelte's
+  client runtime once (per Svelte version) into `node_modules/.cache/@blender-ui/svelte` and
+  serves it from there; the compile cache is found from the working directory up, and cache
+  keys no longer load `node:crypto`.
+- **`@blender-ui/native`, slimmer nodes:** attributes are a flat array made by the first one
+  (not a `Map` per element), `tagName` is derived from `localName`, and children, signal
+  bindings, listeners and form state live on the prototype until a node has them; a text node
+  is five fields. About 0.7 MB less JavaScript heap for a 3,000-cell grid, in React and Svelte
+  alike.
+- **Measured** (3,000 cells, one session, Node 26 / Bun 1.4 / QuickJS): an update costs 17 / 19 /
+  36 µs of JavaScript in Svelte with signals (was 87 / 86 / 793; React with signals 23 / 17 / 40),
+  65 / 76 / 790 µs with runes (was 85 / 78 / 790); a Svelte app's first frame is 135 ms on Node.js
+  and 121 ms on Bun (was 393 / 203; React 125 / 107). Svelte still keeps 10–17 MB more than React
+  with signals at 3,000 cells: its own effects and each-block items. Details in
+  docs/javascript.md.
 
 ### Changed
 - **`@blender-ui/native`:** siblings are a linked list (insert, remove and `nextSibling` are
