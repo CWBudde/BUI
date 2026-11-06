@@ -51,8 +51,9 @@ headers (`libx11-dev` / `libX11-devel`). More detail:
 - Don't let performance regress. The test suite enforces frame budgets. For
   rendering or layout changes, run the benchmark in `bindings/rust/bench/`
   and include before and after numbers.
-- Keep the SPDX header (`GPL-2.0-or-later`) in new files. Contributions are
-  accepted under that license.
+- Keep the SPDX header (`GPL-2.0-or-later`, the one Blender's files carry) in new
+  files. Contributions are accepted under BUI's license, the GNU GPL version 3
+  or later.
 - Update `CHANGELOG.md` (the Unreleased section) and the relevant guide in `docs/`.
 - Code style: follow the surrounding code. C is formatted like Blender's
   sources, and Rust with `rustfmt` defaults (max width 120).

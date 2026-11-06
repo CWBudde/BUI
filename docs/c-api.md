@@ -153,6 +153,36 @@ BK_video_free(v);                           /* after nodes / items let go */
 video, the GPU renderers, the file browser) are CMake options from
 `features.json`; see [Binary size](https://bui.preetham.top/docs/reference/binary-size/).
 
+## Versioning and stability
+
+The C API is versioned with BUI itself, as `MAJOR.MINOR.PATCH`. `BUI_kit.h` says which version it is, and the library reports its own:
+
+```c
+#include "BUI_kit.h"
+
+#if !BUI_KIT_VERSION_AT_LEAST(0, 4, 0)
+#  error "BUI 0.4.0 or newer is required"
+#endif
+
+/* at run time, when the header and the library can differ (a shared build, a binding) */
+if (BK_version() != BUI_KIT_VERSION) {
+    fprintf(stderr, "BUI %s linked, header is %s\n", BK_version_string(), BUI_KIT_VERSION_STRING);
+}
+```
+
+The macros are `BUI_KIT_VERSION_MAJOR`, `_MINOR`, `_PATCH`, `BUI_KIT_VERSION_STRING` (`"0.4.0"`) and `BUI_KIT_VERSION` (one number: 0.4.0 is 400, 1.2.3 is 10203). The Python wheels, Rust crates and npm packages carry the same number, and a release is refused when any of them differs.
+
+**Before 1.0 there is no promise that the API stays the same.** Any release may add to it, and a release may change or remove a function. Every change that breaks existing code is listed under "C API changes" in `CHANGELOG.md`, with what to use instead. Pin a release number, not a commit.
+
+**From 1.0 on, semantic versioning:**
+
+- a MAJOR release may break the API;
+- a MINOR release only adds to it;
+- a PATCH release only fixes bugs;
+- a function marked `BUI_DEPRECATED` stays for at least one MINOR release, and the compiler warns where you use it.
+
+**ABI.** Nodes, contexts and the other handles are opaque and stay that way. The structs you fill in or read (`BKHost`, `BKMenuSpec`, `BKImageInfo`, `BKImageStats`, `BKCanvasItem`, `BKCustomEvent`) can gain fields before 1.0, so rebuild against the header of the library you link.
+
 ## Showing the kit in your own window
 
 The kit always draws into a `BuiRaster`: the software raster, or Direct3D 11

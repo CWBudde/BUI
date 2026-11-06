@@ -1302,6 +1302,9 @@ BuiRaster *buipy_raster_of(PyObject *obj)
 
 int buipy_kit_init(PyObject *module);   /* buipy_kit.c */
 int buipy_video_init(PyObject *module); /* buipy_video.c */
+#ifdef BUI_PY_IMGUI
+int buipy_imgui_init(PyObject *module); /* buiimgui_module.cpp: Dear ImGui, in the same binary */
+#endif
 
 PyMODINIT_FUNC PyInit_buipy(void)
 {
@@ -1313,7 +1316,11 @@ PyMODINIT_FUNC PyInit_buipy(void)
     return NULL;
   }
   if (PyModule_AddObjectRef(m, "Raster", (PyObject *)&BuiPyRaster_Type) < 0 ||
-      buipy_kit_init(m) < 0 || buipy_video_init(m) < 0)
+      buipy_kit_init(m) < 0 || buipy_video_init(m) < 0
+#ifdef BUI_PY_IMGUI
+      || buipy_imgui_init(m) < 0
+#endif
+  )
   {
     Py_DECREF(m);
     return NULL;

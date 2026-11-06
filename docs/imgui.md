@@ -12,7 +12,7 @@ Every public Dear ImGui function and type can be used from four languages:
 |---|---|---|
 | C++ | `imgui.h` + `imgui_impl_bui.h` | CMake target `bui_imgui` |
 | C | `cimgui.h` + `cimgui_impl_bui.h` (`bindings/imgui/c`) | CMake target `bui_cimgui` |
-| Python | `import blenderui.imgui as imgui` (or `bui.imgui`) | CMake target `_buiimgui` (next to `buipy`) |
+| Python | `import blenderui.imgui as imgui` (or `bui.imgui`) | CMake target `buipy` (compiled in) |
 | Rust | crate `blenderui-imgui` (`bindings/rust/blenderui-imgui`) | Cargo (blenderui-sys builds the C++ through CMake) |
 
 The C, Python and Rust bindings are **generated** from `imgui.h`; see
@@ -146,8 +146,10 @@ pyimgui-style:
   `imgui.HeadlessApp` renders without a window ([below](#headless-rendering-and-tests)).
 - `help(imgui.begin)` shows the Python signature and the C++ function.
 
-The extension `_buiimgui` is built next to `buipy` (`cmake --build build --target
-_buiimgui`) and installed with the wheel.
+Dear ImGui is compiled into the `buipy` extension (`cmake --build build --target buipy`, and
+the wheel), not built as a second extension: a process loads one copy of the kit (two copies
+registered the Cocoa classes twice on macOS). `bui.imgui` gets its module from
+`buipy.imgui_module()`, which creates it on first use; it is also importable as `_buiimgui`.
 
 ## Rust
 

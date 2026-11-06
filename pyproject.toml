@@ -12,8 +12,8 @@ dynamic = ["version"]
 description = "Blender's UI as a library: run tkinter apps unchanged, write Qt-style code, or use Blender components — all drawn by a fast C kit"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "GPL-2.0-or-later"
-license-files = ["LICENSE"]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "BUI contributors" }]
 keywords = ["gui", "ui", "blender", "tkinter", "qt", "widgets", "toolkit"]
 classifiers = [
@@ -52,9 +52,8 @@ blenderui-tk = "bui.tksyntax.__main__:main"   # blenderui-tk app.py == python -m
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 cmake.version = ">=3.20"
-# the core extension and Dear ImGui's (_buiimgui, behind blenderui.imgui): both are
-# installed by bindings/python/CMakeLists.txt, so both must be built
-build.targets = ["buipy", "_buiimgui"]
+# one extension: buipy, with Dear ImGui (blenderui.imgui) compiled in so a process holds one kit
+build.targets = ["buipy"]
 wheel.packages = []          # CMake installs bui/, blenderui/ and buipy
 wheel.exclude = ["**/__pycache__/**"]
 sdist.exclude = ["reference/", "build*/", ".github/", "**/__pycache__/", "*.pyd", "*.so"]

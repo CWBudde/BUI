@@ -2,7 +2,8 @@
 import Icon from "../site/Icon.astro";
 // A web sketch of how BUI's Blender widgets behave: drag to scrub (Shift for precision,
 // Ctrl to snap), click to type math, drag across checkboxes, Ctrl+Z / Ctrl+Shift+Z.
-// It imitates the feel in the browser; the real widgets are native and drawn by BUI.
+// It imitates the feel in the browser; the real widgets are native and drawn by BUI. The panel
+// says so, and it covers the same gestures the real widgets have (see the list in the note).
 const fields = [
   { axis: "X", value: 0 },
   { axis: "Y", value: 1.25 },
@@ -81,8 +82,12 @@ const toggles = [
       }
     </div>
   </div>
+  <p class="fp-note">
+    A browser sketch of BUI's widgets, not the native ones. Try: drag down across X, Y and Z, hover a field and press
+    <kbd>Ctrl</kbd> <kbd>C</kbd> then <kbd>Ctrl</kbd> <kbd>V</kbd> on another, <kbd>Shift</kbd> while dragging, <kbd>Backspace</kbd>.
+  </p>
   <div class="fp-status" aria-live="polite">
-    <span data-status>Drag a number sideways.</span>
+    <span data-status>Drag a number sideways, or drag down across X, Y and Z.</span>
     <span class="fp-undo">
       <button type="button" data-undo aria-label="Undo (Ctrl+Z)" title="Undo · Ctrl+Z"><Icon name="arrow-counter-clockwise" weight="bold" size={12} /></button>
       <button type="button" data-redo aria-label="Redo (Ctrl+Shift+Z)" title="Redo · Ctrl+Shift+Z"><Icon name="arrow-clockwise" weight="bold" size={12} /></button>
@@ -238,6 +243,21 @@ const toggles = [
   }
   .fp-check[aria-checked="true"] .fp-box svg {
     opacity: 1;
+  }
+  .fp-note {
+    margin: 0;
+    padding: 0.5rem 0.9rem;
+    border-top: 1px solid var(--bl-panel-line);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--bl-muted);
+  }
+  .fp-note kbd {
+    font-family: inherit;
+    font-size: 11px;
+    padding: 0 0.3em;
+    border: 1px solid var(--bl-outline);
+    border-radius: 3px;
   }
   .fp-status {
     display: flex;
@@ -395,6 +415,26 @@ const toggles = [
     };
     undoBtn.addEventListener("click", doUndo);
     redoBtn.addEventListener("click", doRedo);
+    // Ctrl+C / Ctrl+V over a field (Blender: hover is enough, no click or focus needed)
+    let hovered: Valued | null = null;
+    let clip: number | null = null;
+    root.querySelectorAll<Valued>("[data-num], [data-slider]").forEach((f) => {
+      f.addEventListener("pointerenter", () => (hovered = f));
+      f.addEventListener("pointerleave", () => hovered === f && (hovered = null));
+    });
+    document.addEventListener("keydown", (e) => {
+      if (!hovered || !(e.ctrlKey || e.metaKey) || e.altKey || (e.target as HTMLElement | null)?.tagName === "INPUT") return;
+      const k = e.key.toLowerCase();
+      if (k === "c") {
+        clip = hovered._v!;
+        say(`Copied ${fmt(clip, 4)}. Hover another field and press Ctrl+V.`);
+      } else if (k === "v" && clip !== null) {
+        const before = hovered._v!, after = clamp(hovered, clip);
+        setValue(hovered, after);
+        if (before !== after) push([change(hovered, before, after)], `Pasted ${fmt(after, 4)}`);
+      } else return;
+      e.preventDefault();
+    });
     root.addEventListener("keydown", (e) => {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z" && e.key.toLowerCase() !== "y") return;
       if ((e.target as HTMLElement).closest("input")) return;
@@ -428,7 +468,9 @@ const toggles = [
     editors.forEach((el) => {
       setValue(el, +el.dataset.value!);
       const isSlider = el.hasAttribute("data-slider");
-      let start = 0, startX = 0, moved = false, dragging = false;
+      let start = 0, startX = 0, startY = 0, moved = false, dragging = false;
+      // a vertical drag over the other fields of the stack edits them all (Blender's multi-value drag)
+      let multi = false, group: Valued[] = [], starts: number[] = [];
 
       const beginEdit = () => {
         const input = document.createElement("input");
@@ -470,12 +512,41 @@ const toggles = [
         el.setPointerCapture(e.pointerId);
         start = el._v!;
         startX = e.clientX;
+        startY = e.clientY;
         moved = false;
+        multi = false;
         dragging = true;
       });
       el.addEventListener("pointermove", (e) => {
         if (!dragging) return;
         const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!moved && !multi && !isSlider && Math.abs(dy) >= 3 && Math.abs(dy) > Math.abs(dx)) {
+          multi = true;
+          group = [el];
+          starts = [el._v!];
+          el.toggleAttribute("data-dragging", true);
+          say("Now drag sideways: every field you crossed changes together.");
+        }
+        if (multi) {
+          const peers = el.parentElement ? [...el.parentElement.querySelectorAll<Valued>("[data-num]")] : [];
+          for (const p of peers) {
+            const r = p.getBoundingClientRect();
+            if (e.clientY >= r.top && e.clientY <= r.bottom && !group.includes(p)) {
+              group.push(p);
+              starts.push(p._v!);
+              p.toggleAttribute("data-dragging", true);
+            }
+          }
+          moved = true;
+          group.forEach((p, i) => {
+            const k = +p.dataset.step! * (e.shiftKey ? 0.1 : 1) * 0.1;
+            let nv = starts[i] + dx * k;
+            if (e.ctrlKey || e.metaKey) nv = Math.round(nv);
+            setValue(p, clamp(p, nv));
+          });
+          return;
+        }
         if (!moved && Math.abs(dx) < 3) return; // Blender's drag threshold
         if (!moved) el.toggleAttribute("data-dragging", !isSlider);
         moved = true;
@@ -494,6 +565,13 @@ const toggles = [
         if (!dragging) return;
         dragging = false;
         el.removeAttribute("data-dragging");
+        if (multi) {
+          multi = false;
+          group.forEach((p) => p.removeAttribute("data-dragging"));
+          const changes = group.map((p, i) => change(p, starts[i], p._v!)).filter((_, i) => group[i]._v !== starts[i]);
+          if (changes.length) push(changes, `${group.length} fields edited together`);
+          return;
+        }
         if (!moved) return beginEdit();
         if (el._v !== start) push([change(el, start, el._v!)], `${el.getAttribute("aria-label") ?? "Scale"}: ${fmt(el._v!, isSlider ? 3 : 4)}`);
       };

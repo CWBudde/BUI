@@ -225,6 +225,8 @@ unsafe extern "C" {
     pub fn BK_set_font(family: *const c_char);
     pub fn BK_set_theme(name: *const c_char) -> c_int;
     pub fn BK_theme_name() -> *const c_char;
+    pub fn BK_version() -> c_int;
+    pub fn BK_version_string() -> *const c_char;
     pub fn BK_theme_color(key: *const c_char, r_rgba: *mut c_float) -> c_int;
 
     // nodes
