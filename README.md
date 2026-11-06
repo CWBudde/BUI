@@ -1298,7 +1298,7 @@ JavaScript after BUI handled them (no native `preventDefault`), and
 | -------- | ------------------------------------------ | --------------------------------------- |
 | C++      | `imgui.h` + `imgui_impl_bui.h`             | CMake target `bui_imgui` (`bui::imgui`) |
 | C        | `cimgui.h` + `cimgui_impl_bui.h`           | CMake target `bui_cimgui`               |
-| Python   | `import blenderui.imgui as imgui`          | The `_buiimgui` extension, in the wheel |
+| Python   | `import blenderui.imgui as imgui`          | Compiled into `buipy`, in the wheel     |
 | Rust     | the `blenderui-imgui` crate (on crates.io) | Cargo                                   |
 
 The C, Python and Rust bindings are generated from `imgui.h`. ImGui is

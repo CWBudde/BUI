@@ -6,13 +6,23 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **macOS:** Python printed `objc: Class BUIKitView is implemented in both buipy... and
+  _buiimgui...` (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both
+  extensions were loaded: each linked the whole kit, Cocoa host included, so the classes were
+  registered twice (reported by [DanNoby](https://github.com/DanNoby), issue #6). A process now
+  holds one kit: `buipy` and Dear ImGui are one binary on every platform, which also means one
+  theme and one set of kit state instead of two.
+
 ### Changed
 - **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
   pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
   SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
-  `build/`), and records a known bug from his log: the Python extensions `buipy` and
-  `_buiimgui` each embed the Cocoa host, so Objective-C prints "Class BUIKitView is implemented
-  in both". The docs and the website say two Apple Silicon Macs.
+  `build/`), and records a bug from his log (fixed below: Objective-C printed "Class BUIKitView is
+  implemented in both"). The docs and the website say two Apple Silicon Macs.
+- **Python:** Dear ImGui (`blenderui.imgui`) is compiled into the `buipy` extension; the separate
+  `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
+  `buipy.imgui_module()`). The public API is unchanged.
 - **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
 
 ## [0.4.0] - 2026-11-06
