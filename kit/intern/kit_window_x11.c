@@ -961,6 +961,9 @@ static double next_wait(void)
     if (win->render_pending) {
       return 0.0;
     }
+    if (BUI_raster_gpu_pending(win->raster)) { /* check the device once per refresh */
+      wait = wait < 0 ? refresh_ms() : BK_MIN(wait, refresh_ms());
+    }
     for (int i = 0; i < MAX_TIMERS; i++) {
       if (win->timers[i].id != 0) {
         const double d = BK_MAX(0.0, win->timers[i].due - t);
@@ -1013,6 +1016,13 @@ static void turn(double block_ms)
     handle_event(&ev);
   }
   run_timers();
+  for (BKWindow *win = g_windows; win; win = win->next) {
+    /* a GPU device that is ready switches an idle window over too */
+    if (win->xid && BUI_raster_gpu_pending(win->raster) && BUI_raster_gpu_poll(win->raster)) {
+      win->full = 1;
+      win->render_pending = 1;
+    }
+  }
   int rendered = 0;
   for (BKWindow *win = g_windows; win; win = win->next) {
     if (win->xid && win->render_pending) {

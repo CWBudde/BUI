@@ -306,6 +306,11 @@ int BUI_raster_gpu_poll(BuiRaster *r)
   return sw;
 }
 
+int BUI_raster_gpu_pending(const BuiRaster *r)
+{
+  return r->gpu_pending != NULL;
+}
+
 int BUI_raster_is_gpu(const BuiRaster *r)
 {
   return r->gpu != NULL;

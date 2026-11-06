@@ -7,7 +7,7 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Changed
-- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU.
+- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU. A window switches to the GPU when the device is ready, also when it is idle (Linux and Windows; `BUI_raster_gpu_pending`).
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
 
 ### Fixed
