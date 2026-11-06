@@ -17,6 +17,7 @@
   },
   "files": [
     "index.js",
+    "dom.js",
     "signals.js",
     "index.d.ts",
     "cli.js",

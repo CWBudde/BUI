@@ -122,3 +122,59 @@ test('DOM semantics: moving nodes, insertBefore checks, bubbling with stopPropag
   await tick()
   assert.deepStrictEqual(log, ['x', 'b target=true current=true'], 'stopPropagation stops it')
 })
+
+test('document: detached nodes join a window when inserted; fragments, clones, comments (headless)', async (t) => {
+  const { App, document } = require('..')
+  const app = new App({ headless: true })
+  t.after(() => app.quit())
+  const win = app.window({ width: 100, height: 100 })
+  win.body.style = 'margin: 0'
+  const tpl = document.createElement('div')
+  tpl.className = 'flex gap-[20px]'
+  tpl.append(document.createElement('Button'), document.createComment('anchor'), 'text')
+  assert.strictEqual(tpl.ownerWindow, null, 'detached: nothing native yet')
+  const copy = tpl.cloneNode(true)
+  assert.deepStrictEqual(copy.childNodes.map(n => n.nodeName), ['BUTTON', '#comment', '#text'])
+  assert.strictEqual(copy.firstChild.getAttribute('bui-blender'), '', 'a Blender widget, cloned')
+  const frag = document.createDocumentFragment()
+  frag.append(copy)
+  win.body.appendChild(frag)
+  assert.strictEqual(frag.firstChild, null, 'a fragment inserts its children')
+  assert.strictEqual(copy.ownerWindow, win)
+  assert.ok(copy.childNodes.every(n => n.ownerWindow === win && win._nodes.get(n.id) === n), 'the subtree joined the window')
+  assert.strictEqual(copy.textContent, 'text', 'comments are not text')
+  assert.ok(copy.isConnected)
+  // linked siblings
+  const [btn, comment, text] = copy.childNodes
+  assert.strictEqual(btn.nextSibling, comment)
+  assert.strictEqual(text.previousSibling, comment)
+  comment.after('more')
+  assert.strictEqual(comment.nextSibling.data, 'more')
+  // the style object, classList, reflected properties
+  btn.style.setProperty('width', '30px')
+  btn.style.setProperty('height', '10px')
+  btn.style.removeProperty('width')
+  assert.strictEqual(btn.style.cssText.trim(), 'height: 10px;')
+  btn.classList.add('a', 'b')
+  btn.classList.toggle('a')
+  assert.strictEqual(btn.className, 'b')
+  btn.disabled = true
+  assert.strictEqual(btn.getAttribute('disabled'), '')
+  btn.disabled = false
+  assert.strictEqual(btn.hasAttribute('disabled'), false)
+  // dispatchEvent and composedPath; event types BUI doesn't report are accepted
+  const seen = []
+  win.body.addEventListener('custom', (e) => seen.push(e.target === btn && e.currentTarget === win.body))
+  btn.addEventListener('pointerdown', () => {})
+  btn.dispatchEvent(new CustomEvent('custom', { bubbles: true }))
+  assert.deepStrictEqual(seen, [true])
+  // a document's node removed and dropped is freed at the end of the tick; reinserted, kept
+  await new Promise(r => setTimeout(r, 30))
+  const size = win._nodes.size
+  text.remove()
+  btn.remove()
+  copy.appendChild(btn)
+  await new Promise(r => setTimeout(r, 30))
+  assert.strictEqual(win._nodes.size, size - 1, 'the dropped text node is freed; the moved button is not')
+  assert.ok(win._nodes.has(btn.id))
+})
