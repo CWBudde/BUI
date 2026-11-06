@@ -1107,7 +1107,7 @@ A **window host** puts a kit context in a top-level window and feeds it input.
 | -------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Win32** (`kit_window_win32.c`) | Windows                         | BUI's own host. Per-monitor DPI, vsync-paced animation, clipboard, cursors, window-manager features.                                                                                                                           |
 | **X11** (`kit_window_x11.c`)     | Linux; Wayland through XWayland | Input mapping after Blender's GHOST. `Xft.dpi` scaling. libX11 is loaded when the first window opens.                                                                                                                          |
-| **Cocoa** (`kit_window_cocoa.m`) | macOS                           | **Experimental.** Ported from Blender's GHOST Cocoa code, with Retina scaling. It's checked by CI and has been tried by hand on one Apple Silicon Mac so far; testing notes in [docs/macos-testing.md](docs/macos-testing.md). |
+| **Cocoa** (`kit_window_cocoa.m`) | macOS                           | **Experimental.** Ported from Blender's GHOST Cocoa code, with Retina scaling. It's checked by CI and has been tried by hand on two Apple Silicon Macs so far; testing notes in [docs/macos-testing.md](docs/macos-testing.md). |
 | **Tk**                           | Python, anywhere                | A stdlib `tkinter` window that shows the kit's frame buffer. `BUI_HOST=tk` forces it; it's also the fallback where no native host works.                                                                                       |
 | **Headless**                     | Everywhere                      | No window: render into a raster for tests and screenshots, with a virtual clock that steps animations exactly.                                                                                                                 |
 
@@ -1641,11 +1641,11 @@ py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
 | HiDPI                        | Per-monitor DPI                  | `Xft.dpi`                                                                | Retina (backing scale)       |
 
 **Works** means it works and is tested. **Experimental** means it's written
-but has had little hands-on testing on real hardware (macOS: one Apple Silicon Mac so far, plus CI).
+but has had little hands-on testing on real hardware (macOS: two Apple Silicon Macs so far, plus CI).
 
 **macOS.** The macOS window host is new: it's a port of Blender's Cocoa code
-(GHOST). So far it has been checked by CI and tried by hand on one Apple Silicon
-Mac by [Krish Kalaria](https://github.com/krishkalaria12), who reported issue #3 and fixed it in pull request #4. If you have another one, please try it and
+(GHOST). So far it has been checked by CI and tried by hand on two Apple Silicon
+Macs: by [Krish Kalaria](https://github.com/krishkalaria12), who reported issue #3 and fixed it in pull request #4, and by [DanNoby](https://github.com/DanNoby) (17/17 tests; issue #6 added a toolchain note to the guide). If you have another Mac, especially an Intel one, please try it and
 tell us what happens: [docs/macos-testing.md](docs/macos-testing.md). Python
 can still use the stdlib Tk window there (`BUI_HOST=tk`; this needs Python's
 `tkinter`, for example from python.org or `brew install python-tk`). Node runs
@@ -1828,7 +1828,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                             |
 | Dear ImGui                                             | Python and safe Rust skip the `va_list`, `void*` and C-callback functions (reachable from C and the Rust FFI); with Blender widgets, window title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing                       |
 | JavaScript / React packages                            | npm packages are prebuilt for Windows x64 only (on Linux, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element                             |
-| macOS                                                  | **Experimental.** The native Cocoa window host is written, checked by CI and tried by hand on one Apple Silicon Mac ([how to help](docs/macos-testing.md)); JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet |
+| macOS                                                  | **Experimental.** The native Cocoa window host is written, checked by CI and tried by hand on two Apple Silicon Macs ([how to help](docs/macos-testing.md)); JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet |
 | Themes                                                 | Dark and Light work; loading other Blender theme files doesn't yet                                                                                                                                                                                     |
 
 **Planned (coming soon)**

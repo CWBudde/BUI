@@ -6,6 +6,15 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Changed
+- **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
+  pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
+  SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
+  `build/`), and records a known bug from his log: the Python extensions `buipy` and
+  `_buiimgui` each embed the Cocoa host, so Objective-C prints "Class BUIKitView is implemented
+  in both". The docs and the website say two Apple Silicon Macs.
+- **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
+
 ## [0.4.0] - 2026-11-06
 
 ### Added

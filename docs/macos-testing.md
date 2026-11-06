@@ -1,10 +1,14 @@
 # Testing BUI on macOS
 
-Thanks for testing BUI on a Mac. The macOS window host is new. CI checks it, and
-[Krish Kalaria](https://github.com/krishkalaria12) has tried it by hand on an Apple Silicon MacBook Air. His
-report (issue #3) and fixes became pull request #4: Quit, window sizing and tkinter. More Macs find
-more, especially Intel Macs and older macOS versions, because a person clicking
-around finds what CI can't.
+Thanks for testing BUI on a Mac. The macOS window host is new. CI checks it, and two people
+have tried it by hand on Apple Silicon Macs (below). Their reports found real bugs and a build
+trap, now fixed or documented. More Macs find more, especially Intel Macs and older macOS
+versions, because a person clicking around finds what CI can't.
+
+| Tester | Mac | Commit | Result | What it led to |
+| --- | --- | --- | --- | --- |
+| [Krish Kalaria](https://github.com/krishkalaria12) | MacBook Air (M5), simulated input | `53263f8` | 16/17 ctest; Cocoa window, Retina, input all work | Issue #3, fixed by pull request #4: tkinter variables, Quit, `geometry()` and fit-to-content sizing |
+| [DanNoby](https://github.com/DanNoby) | Apple Silicon, trackpad and mouse, Python 3.12 | `adf5632` | 17/17 ctest, the whole section 5 checklist works | Issue #6: the toolchain trap in section 1, and the duplicate Objective-C classes in section 7 |
 This guide takes about 30–60 minutes: build from source, run the tests, try a
 few apps, and report back.
 
@@ -33,6 +37,21 @@ You need macOS 11 (Big Sur) or newer, on Apple Silicon or Intel.
 
 The `python3` that comes with the Command Line Tools is 3.9, which is too old.
 Use the full name of a newer one (`python3.12` below) everywhere.
+
+**If CMake fails at its compiler test with `ld: tapi error: malformed file` or
+`error: unknown architecture arm64e.x1-macos`:** the Command Line Tools on your Mac are older
+than its macOS SDK (seen with AppleClang 17 against `MacOSX27.0.sdk`), so the linker can't read
+the SDK's text stubs. This is a toolchain mismatch, not a BUI bug. Select the full Xcode
+toolchain, delete the build directory (CMake caches the failed compiler test) and configure again:
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+rm -rf build
+```
+
+Reported and confirmed by [DanNoby](https://github.com/DanNoby) (issue #6): after that the build succeeded and all tests
+passed with no source changes. Updating the Command Line Tools in System Settings > Software
+Update does the same for most people.
 
 ## 2. Get the code
 
@@ -209,6 +228,15 @@ Blender's Ctrl** (Cmd+C, Cmd+V, Cmd+Z, Cmd+wheel) and **Option is Alt**.
 - **No input method (IME) support yet:** composed input such as Japanese or
   Chinese, and possibly dead-key accents, is not expected to work.
 - Fonts are Blender's (Inter, drawn with FreeType like Blender), not the system font.
+- **Python prints `objc: Class BUIKitView is implemented in both buipy... and _buiimgui...`**
+  (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both extensions are
+  loaded, for example in the Dear ImGui test. Each of the two Python extensions embeds the Cocoa
+  host, so its Objective-C classes exist twice. The tests pass with it (17/17 on [DanNoby](https://github.com/DanNoby)'s Mac),
+  but the Objective-C runtime warns it "may cause spurious casting failures and mysterious
+  crashes", so treat it as a known bug until the host is shared or renamed. It needs a Mac to
+  verify the fix. Reported through [DanNoby](https://github.com/DanNoby)'s test log. Also expected in that log:
+  `gpu_parity: no GPU device, skipped` (there is no Metal renderer) and
+  `[imgui-error] Missing End()` (a test of error reporting).
 - Python: when tkinter is importable, BUI starts a hidden Tk first (Tk insists on
   creating the application object). `BUI_MAC_TK=0` skips that; `BUI_HOST=tk`
   draws BUI inside a Tk window instead of a native one, for comparison.

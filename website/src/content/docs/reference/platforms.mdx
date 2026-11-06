@@ -22,7 +22,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 | Images | All [built-in formats](/docs/concepts/images); decode threads; GPU atlas | All built-in formats; decode threads; GPU atlas | All built-in formats; decode threads (CPU raster) |
 | [Video](/docs/concepts/video) | Works: Media Foundation (DXVA), tested | Works: GStreamer (VA-API where available), tested under WSL | AVFoundation: written, **untested** |
 
-**Works** means it works and is tested. **Experimental** means it's written and checked by CI, but has had little hands-on testing on real hardware (macOS: one Apple Silicon Mac so far).
+**Works** means it works and is tested. **Experimental** means it's written and checked by CI, but has had little hands-on testing on real hardware (macOS: two Apple Silicon Macs so far).
 
 ## Windows
 
@@ -44,7 +44,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 
 ## macOS <Badge tone="preview">Experimental</Badge>
 
-- **Window:** a native Cocoa host, ported from Blender's GHOST code, with Retina scaling. It's checked by CI and has been tried by hand on one Apple Silicon Mac by [Krish Kalaria](https://github.com/krishkalaria12), who also fixed the bugs he found (issue #3, pull request #4). AppKit only allows windows on the main thread.
+- **Window:** a native Cocoa host, ported from Blender's GHOST code, with Retina scaling. It's checked by CI and has been tried by hand on two Apple Silicon Macs: by [Krish Kalaria](https://github.com/krishkalaria12), who also fixed the bugs he found (issue #3, pull request #4), and by [DanNoby](https://github.com/DanNoby) (17/17 tests; issue #6 added a toolchain note to the guide). AppKit only allows windows on the main thread.
 - **Python fallback:** if the native host misbehaves, use the standard Tk window: `BUI_HOST=tk`. That needs a Python with `tkinter` (for example from python.org, or `brew install python-tk`).
 - **JavaScript is headless.** Node runs BUI on its own UI thread, and macOS only allows windows on the main thread.
 - **Renderer:** the CPU raster only.
