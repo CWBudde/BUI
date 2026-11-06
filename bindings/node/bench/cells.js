@@ -7,7 +7,10 @@
 // --dev: React's development build. Runs on Node, Bun (`bun bench/cells.js`) or
 // the QuickJS runtime (`node cli.js run bench/cells.js -- 3000 --gpu`).
 // Prints frames per second, CPU per frame (the whole process: JavaScript,
-// BUI's UI thread, the runtime) and resident memory.
+// BUI's UI thread, the runtime), resident memory, the JavaScript heap, and
+// the JavaScript cost of one update alone (js_us_per_update: 500 updates run
+// back to back before the animation, each applied by the framework at once
+// and sent to the UI thread; no frame waits in it).
 'use strict'
 const args = process.argv.slice(2)
 // React's production build, as an app ships (--dev: the development build)
@@ -42,11 +45,13 @@ const gridStyle = `width: 100%; height: 100%; background: #303030; display: flex
   `align-content: flex-start; gap: ${GAP}px; padding: ${GAP}px`
 
 let tick
+let settle = (fn) => fn() // apply a framework's pending update now
 let app
 let win
 if (useReact) {
   const React = require('react')
-  const { render } = require('../../react')
+  const { render, act } = require('../../react')
+  settle = act
   const h = React.createElement
   let setT
   const { signal, batch } = require('..')
@@ -71,7 +76,8 @@ if (useReact) {
     ? (t) => batch(() => { style0.value = cellStyle(0, t); label0.value = label(0, t) })
     : (t) => setT(t)
 } else if (useSvelte) {
-  const { render, signal, batch } = require('../../svelte')
+  const { render, act, signal, batch } = require('../../svelte')
+  settle = act
   const Grid = require('./Grid.svelte').default
   let setT
   const style0 = useSignals ? signal(cellStyle(0, 0)) : null
@@ -116,7 +122,20 @@ const cycles = () => native.processCpuCycles()
 const tsc = () => native.timestampCounter()
 const exact = cycles() != null && tsc() != null
 
-let t = 0, updates = 0, running = true
+// the JavaScript cost of an update, alone
+let t = 0
+let jsUs = null
+setTimeout(() => {
+  const n = 500
+  const t0 = performance.now()
+  for (let i = 0; i < n; i++) {
+    settle(() => tick(++t))
+    win.flush()
+  }
+  jsUs = (performance.now() - t0) / n * 1000
+}, 100)
+
+let updates = 0, running = true
 let wall0, cpu0, tsc0, cal0
 let rss = 0, peakRss = 0, samples = 0
 // one update per displayed frame (vsync), like the Rust benchmark
@@ -160,6 +179,8 @@ setTimeout(() => {
     cpu_counter: exact ? 'cycles' : 'ticks',
     rss_mb: +(rss / samples / 1048576).toFixed(1),
     peak_rss_mb: +(peakRss / 1048576).toFixed(1),
+    heap_mb: +(process.memoryUsage().heapUsed / 1048576).toFixed(1),
+    js_us_per_update: +jsUs.toFixed(1),
   }))
   app.quit()
 }, (warmup + seconds) * 1000)
