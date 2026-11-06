@@ -176,7 +176,7 @@ struct BKWindow {
   GC gc;
   int render_pending, frames, cursor, tip_id, next_timer, full;
   int want_frame, frame_vsync;
-  double frame_start;
+  double frame_start, frame_due;
   float scale;
   int w, h;
   Timer timers[MAX_TIMERS];
@@ -458,13 +458,37 @@ static void do_render(BKWindow *win)
   }
 }
 
+/* The screen refresh interval in ms. XRandR is optional. Without it, use 60 Hz. */
 static double refresh_ms(void)
 {
-  return 1000.0 / 60.0;
+  static double ms = 0.0;
+  if (ms <= 0.0) {
+    int hz = 0;
+    void *lib = dlopen("libXrandr.so.2", RTLD_NOW | RTLD_LOCAL);
+    if (lib) {
+      typedef void *(*InfoFn)(Display *, Window);
+      typedef short (*RateFn)(void *);
+      typedef void (*FreeFn)(void *);
+      const InfoFn info_get = (InfoFn)dlsym(lib, "XRRGetScreenInfo");
+      const RateFn rate = (RateFn)dlsym(lib, "XRRConfigCurrentRate");
+      const FreeFn info_free = (FreeFn)dlsym(lib, "XRRFreeScreenConfigInfo");
+      void *info = (info_get && rate && info_free) ? info_get(g_dpy, DefaultRootWindow(g_dpy)) :
+                                                     NULL;
+      if (info) {
+        hz = rate(info);
+        info_free(info);
+      }
+      dlclose(lib);
+    }
+    ms = 1000.0 / (hz > 1 ? hz : 60);
+  }
+  return ms;
 }
 
 static void render_window(BKWindow *win)
 {
+  const double start = now_ms();
+  const int animation = win->want_frame || BK_animating(win->ctx);
   if (win->want_frame && win->cb.on_frame) {
     win->want_frame = 0;
     win->frame_start = now_ms();
@@ -481,7 +505,13 @@ static void render_window(BKWindow *win)
     bk_frame_ms = 0.0;
   }
   if (BK_animating(win->ctx)) {
-    win->render_pending = 1; /* paced by the loop's frame wait */
+    win->render_pending = 1;
+  }
+  /* The next frame is due one refresh after this animation frame started, so the render time is
+   * part of the interval. A host can request the next frame after this frame. An uncapped frame
+   * request does not wait. */
+  if (animation) {
+    win->frame_due = win->frame_vsync ? start + refresh_ms() : 0.0;
   }
 }
 
@@ -946,17 +976,27 @@ static void run_timers(void)
   }
 }
 
-/* Milliseconds until the next timer or frame (-1: nothing to wait for). */
-static double next_wait(void)
+static double frame_wait(void)
 {
   double wait = -1.0;
   const double t = now_ms();
   for (BKWindow *win = g_windows; win; win = win->next) {
+    if (win->xid && win->render_pending) {
+      const double d = BK_MAX(0.0, win->frame_due - t);
+      wait = wait < 0 ? d : BK_MIN(wait, d);
+    }
+  }
+  return wait;
+}
+
+/* Milliseconds until the next timer or frame (-1: nothing to wait for). */
+static double next_wait(void)
+{
+  double wait = frame_wait();
+  const double t = now_ms();
+  for (BKWindow *win = g_windows; win; win = win->next) {
     if (!win->xid) {
       continue;
-    }
-    if (win->render_pending) {
-      return 0.0;
     }
     for (int i = 0; i < MAX_TIMERS; i++) {
       if (win->timers[i].id != 0) {
@@ -1010,15 +1050,11 @@ static void turn(double block_ms)
     handle_event(&ev);
   }
   run_timers();
-  int rendered = 0;
+  const double t = now_ms();
   for (BKWindow *win = g_windows; win; win = win->next) {
-    if (win->xid && win->render_pending) {
+    if (win->xid && win->render_pending && t >= win->frame_due) {
       render_window(win);
-      rendered |= win->render_pending; /* animating: another frame wanted */
     }
-  }
-  if (rendered) {
-    usleep((useconds_t)(refresh_ms() * 1000.0)); /* pace animation frames */
   }
 }
 
@@ -1050,7 +1086,8 @@ void BK_window_run(void)
 int BK_window_pump(void)
 {
   if (g_dpy) {
-    turn(0.0);
+    /* Wait for a pending frame, so a caller that pumps in a loop does not spin. */
+    turn(BK_MAX(0.0, frame_wait()));
   }
   return g_open;
 }
