@@ -142,7 +142,7 @@ uint8_t *imb_read_file(const char *path, size_t max, size_t *r_size);
 
 typedef struct BKImAnimInfo {
   int w, h;          /* the frames' size: the canvas (in-memory codecs) or what a
-                      * streamed codec decodes to (about the size asked, even) */
+                      * streamed codec decodes to (`output`: even, about the size asked) */
   int src_w, src_h;  /* intrinsic (display) size */
   int format;        /* BUI_PIXMAP_* of the frames */
   int loops;         /* plays the file asks for, 0 = forever */
@@ -156,11 +156,13 @@ typedef struct BKImAnimCodec {
   bool streamed;
   /* The file starts like one this codec reads (a few dozen bytes). */
   bool (*is_a)(const uint8_t *head, size_t size);
-  /* `path` (streamed) or `mem` (kept by the caller while open). want_w x
-   * want_h is the size frames are drawn at: a hint (video scales to it on
-   * the decoder, in hardware where there is one). */
-  void *(*open)(const char *path, const uint8_t *mem, size_t size, int want_w, int want_h,
-                BKImAnimInfo *r_info);
+  /* `path` (streamed) or `mem` (kept by the caller while open). Fills the
+   * info: a streamed codec its intrinsic size, duration and format. */
+  void *(*open)(const char *path, const uint8_t *mem, size_t size, BKImAnimInfo *r_info);
+  /* Streamed codecs: decode whole frames at about w x h from now on (the
+   * size drawn: video scales on the decoder, in hardware where there is
+   * one), setting info->w, h. In-memory codecs: NULL (their canvas). */
+  bool (*output)(void *state, int w, int h, BKImAnimInfo *r_info);
   /* 1 with the next frame in `dst` (the info's size and format), its time
    * and duration in seconds (pts < 0: unknown, frames follow each other);
    * 0 past the last; -1 on errors. */

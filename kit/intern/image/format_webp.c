@@ -95,12 +95,9 @@ static void webp_close(void *state)
   MEM_freeN(a);
 }
 
-static void *webp_open(const char *path, const uint8_t *mem, size_t size, int want_w, int want_h,
-                       BKImAnimInfo *r_info)
+static void *webp_open(const char *path, const uint8_t *mem, size_t size, BKImAnimInfo *r_info)
 {
   (void)path;
-  (void)want_w;
-  (void)want_h;
   WebPAnimDecoderOptions opt;
   if (!WebPAnimDecoderOptionsInit(&opt)) {
     return NULL;
@@ -158,6 +155,6 @@ static size_t webp_bytes(const void *state)
   return sizeof(*a) + 2 * sizeof(uint32_t) * (size_t)a->w * a->h; /* its canvas and previous */
 }
 
-const BKImAnimCodec imb_webp_codec = {"webp", false, imb_webp_animated, webp_open, webp_next, webp_seek, webp_bytes, webp_close};
+const BKImAnimCodec imb_webp_codec = {"webp", false, imb_webp_animated, webp_open, NULL, webp_next, webp_seek, webp_bytes, webp_close};
 
 /** \} */

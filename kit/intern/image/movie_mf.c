@@ -144,6 +144,8 @@ static bool mf_ready(void)
 typedef struct MFMovie {
   IMFSourceReader *reader;
   int w, h;         /* output frame (NV12) */
+  int src_w, src_h; /* the coded frame */
+  bool interlaced;
   double frame_dur; /* from the frame rate, for samples without a duration */
 } MFMovie;
 
@@ -223,8 +225,7 @@ static IMFSourceReader *open_reader(const char *path)
   return reader;
 }
 
-static void *mf_open(const char *path, const uint8_t *mem, size_t size, int want_w, int want_h,
-                     BKImAnimInfo *r_info)
+static void *mf_open(const char *path, const uint8_t *mem, size_t size, BKImAnimInfo *r_info)
 {
   (void)mem;
   (void)size;
@@ -252,27 +253,14 @@ static void *mf_open(const char *path, const uint8_t *mem, size_t size, int want
   IMFMediaType_GetUINT32(native, &MF_MT_YUV_MATRIX, &matrix);
   IMFMediaType_GetUINT32(native, &MF_MT_INTERLACE_MODE, &interlace);
   IMFMediaType_Release(native);
-  int src_w = (int)(fs >> 32), src_h = (int)(fs & 0xFFFFFFFF);
+  m->src_w = (int)(fs >> 32);
+  m->src_h = (int)(fs & 0xFFFFFFFF);
+  int src_w = m->src_w, src_h = m->src_h;
   const UINT32 pn = (UINT32)(par >> 32), pd = (UINT32)par;
   if (has_par && pn && pd && pn != pd) {
     src_w = (int)((double)src_w * pn / pd + 0.5);
   }
-  if (src_w <= 0 || src_h <= 0 || src_w > BK_IMB_MAX_SIDE || src_h > BK_IMB_MAX_SIDE) {
-    mf_close(m);
-    return NULL;
-  }
-  /* decode at the size asked (never above the source), even for NV12 */
-  int out_w = want_w > 0 ? BK_MIN(want_w, src_w) : src_w;
-  int out_h = want_h > 0 ? BK_MIN(want_h, src_h) : src_h;
-  out_w = BK_MAX(2, out_w & ~1);
-  out_h = BK_MAX(2, out_h & ~1);
-  const bool interlaced = interlace != MFVideoInterlace_Progressive;
-  if (!set_output(m, out_w, out_h, interlaced) &&
-      !set_output(m, BK_MAX(2, src_w & ~1), BK_MAX(2, src_h & ~1), interlaced))
-  {
-    mf_close(m); /* no NV12 output: no decoder for this format */
-    return NULL;
-  }
+  m->interlaced = interlace != MFVideoInterlace_Progressive;
   const UINT32 rn = (UINT32)(rate >> 32), rd = (UINT32)rate;
   m->frame_dur = rn && rd ? (double)rd / rn : 1.0 / 30.0;
   PROPVARIANT dur;
@@ -283,8 +271,6 @@ static void *mf_open(const char *path, const uint8_t *mem, size_t size, int want
               dur.vt == VT_UI8 ?
           (double)dur.uhVal.QuadPart / 1e7 :
           0.0;
-  r_info->w = m->w;
-  r_info->h = m->h;
   r_info->src_w = src_w;
   r_info->src_h = src_h;
   r_info->loops = 1;
@@ -293,6 +279,23 @@ static void *mf_open(const char *path, const uint8_t *mem, size_t size, int want
                    src_h >= 720                          ? BUI_PIXMAP_NV12_BT709 :
                                                            BUI_PIXMAP_NV12_BT601;
   return m;
+}
+
+static bool mf_output(void *state, int w, int h, BKImAnimInfo *r_info)
+{
+  MFMovie *m = (MFMovie *)state;
+  /* the size asked (never above the coded frame), even for NV12; the
+   * coded size when the video processor can't scale (no NV12 at all: no
+   * decoder for this format) */
+  const int out_w = BK_MAX(2, BK_MIN(w, m->src_w) & ~1), out_h = BK_MAX(2, BK_MIN(h, m->src_h) & ~1);
+  if (!set_output(m, out_w, out_h, m->interlaced) &&
+      !set_output(m, BK_MAX(2, m->src_w & ~1), BK_MAX(2, m->src_h & ~1), m->interlaced))
+  {
+    return false;
+  }
+  r_info->w = m->w;
+  r_info->h = m->h;
+  return true;
 }
 
 /* The frame's planes into `dst` (NV12, its size). */
@@ -413,7 +416,7 @@ static size_t mf_bytes(const void *state)
 }
 
 const BKImAnimCodec imb_movie_mf = {
-    "mf", true, imb_is_a_movie, mf_open, mf_next, mf_seek, mf_bytes, mf_close};
+    "mf", true, imb_is_a_movie, mf_open, mf_output, mf_next, mf_seek, mf_bytes, mf_close};
 
 /** \} */
 

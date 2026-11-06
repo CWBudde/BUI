@@ -70,7 +70,7 @@ BKImAnim *imb_anim_open(uint8_t *file, size_t size, const BKImageFit *target)
   a->file = file;
   a->size = size;
   a->frames = BK_MAX(1, info.frames);
-  a->state = codec->open(NULL, file, size, 0, 0, &a->info);
+  a->state = codec->open(NULL, file, size, &a->info);
   if (!a->state || !imb_plan(target, a->info.w, a->info.h, 1, &a->plan)) {
     imb_anim_free(a); /* frees `file` too */
     return NULL;
@@ -78,32 +78,19 @@ BKImAnim *imb_anim_open(uint8_t *file, size_t size, const BKImageFit *target)
   return a;
 }
 
-/* Opens `a`'s streamed codec at its target (the plan's whole-frame size). */
-static bool movie_start(BKImAnim *a)
+/* A streamed codec decoding at `a`'s target: the whole frame at the plan's
+ * size (validated here, at the codec boundary: even-sized NV12 frames). */
+static bool movie_output(BKImAnim *a)
 {
   BKImPlan plan;
-  if (a->info.src_w > 0 && !imb_plan(&a->target, a->info.src_w, a->info.src_h, 1, &plan)) {
-    return false; /* nothing of it shows */
-  }
-  const int want_w = a->info.src_w > 0 ? plan.fw : a->target.box_w;
-  const int want_h = a->info.src_h > 0 ? plan.fh : a->target.box_h;
-  BKImAnimInfo info;
-  memset(&info, 0, sizeof(info));
-  void *state = a->codec->open(a->path, NULL, 0, want_w, want_h, &info);
-  if (!state) {
-    return false;
-  }
-  if (info.w <= 0 || info.h <= 0 || (info.w | info.h) & 1 || info.w > BK_IMB_MAX_SIDE ||
-      info.h > BK_IMB_MAX_SIDE || info.src_w <= 0 || info.src_h <= 0 ||
-      !imb_plan(&a->target, info.src_w, info.src_h, 1, &plan))
+  BKImAnimInfo info = a->info;
+  if (!imb_plan(&a->target, info.src_w, info.src_h, 1, &plan) ||
+      !a->codec->output(a->state, plan.fw, plan.fh, &info) || info.w <= 0 || info.h <= 0 ||
+      (info.w | info.h) & 1 || info.w > BK_IMB_MAX_SIDE || info.h > BK_IMB_MAX_SIDE ||
+      (info.format != BUI_PIXMAP_NV12_BT601 && info.format != BUI_PIXMAP_NV12_BT709))
   {
-    a->codec->close(state); /* validated at the codec boundary: frames are even-sized NV12 */
     return false;
   }
-  if (a->state) {
-    a->codec->close(a->state);
-  }
-  a->state = state;
   a->info = info;
   a->plan = plan;
   return true;
@@ -128,7 +115,10 @@ BKImAnim *imb_movie_open(const char *path, const BKImageFit *target)
     memcpy(a->path, path, len + 1);
     a->ftype = BK_IMAGE_VIDEO;
     a->stream = imb_new_key();
-    if (!movie_start(a)) {
+    a->state = codec->open(path, NULL, 0, &a->info);
+    if (!a->state || a->info.src_w <= 0 || a->info.src_h <= 0 ||
+        a->info.src_w > BK_IMB_MAX_SIDE || a->info.src_h > BK_IMB_MAX_SIDE || !movie_output(a))
+    {
       imb_anim_free(a);
       a = NULL; /* the next backend may read it */
     }
@@ -181,8 +171,8 @@ bool imb_anim_retarget(BKImAnim *a, const BKImageFit *target)
       return true;
     }
   }
-  else if (movie_start(a)) {
-    imb_anim_seek(a, a->pts); /* where it was */
+  else if (movie_output(a)) {
+    imb_anim_seek(a, a->pts); /* where it was (the decoder flushes at the new size) */
     return true;
   }
   a->target = old;

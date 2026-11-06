@@ -272,12 +272,9 @@ static void gif_close(void *state)
   MEM_freeN(g);
 }
 
-static void *gif_open(const char *path, const uint8_t *mem, size_t size, int want_w, int want_h,
-                      BKImAnimInfo *r_info)
+static void *gif_open(const char *path, const uint8_t *mem, size_t size, BKImAnimInfo *r_info)
 {
   (void)path;
-  (void)want_w;
-  (void)want_h;
   GifAnim *g = (GifAnim *)MEM_callocN(sizeof(GifAnim), "GifAnim");
   g->mem = mem;
   g->size = size;
@@ -363,6 +360,6 @@ static size_t gif_bytes(const void *state)
   return sizeof(*g) + (size_t)g->wl + 2 * sizeof(uint32_t) * (size_t)g->w * g->h;
 }
 
-const BKImAnimCodec imb_gif_codec = {"gif", false, imb_is_a_gif, gif_open, gif_next, gif_seek, gif_bytes, gif_close};
+const BKImAnimCodec imb_gif_codec = {"gif", false, imb_is_a_gif, gif_open, NULL, gif_next, gif_seek, gif_bytes, gif_close};
 
 /** \} */
