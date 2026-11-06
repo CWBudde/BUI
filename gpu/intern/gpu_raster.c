@@ -1133,6 +1133,20 @@ static inline uint32_t premul_scale(uint32_t c, uint32_t f)
   return ag | rb;
 }
 
+/* An image pixel (premultiplied) times ga/256 over the frame. */
+static inline void put_image_px(uint32_t *d, uint32_t c, uint32_t ga)
+{
+  if (ga < 256) {
+    c = premul_scale(c, ga);
+  }
+  if (c >= 0xFF000000u) {
+    *d = c & 0xFFFFFFu;
+  }
+  else if (c) {
+    *d = premul_over(*d, c);
+  }
+}
+
 /* Bilinear tap of premultiplied pixels: fx, fy are 8-bit fractions. */
 static inline uint32_t bilerp(uint32_t c00, uint32_t c10, uint32_t c01, uint32_t c11, uint32_t fx,
                               uint32_t fy)
@@ -1153,7 +1167,9 @@ static uint64_t pixmap_key(const BuiPixmap *img)
   }
   /* content hash: an image updated in place gets a new atlas entry */
   uint64_t h = 1469598103934665603ull;
-  const size_t n = (size_t)img->w * img->h;
+  /* in 32-bit words: NV12 holds 1.5 bytes a pixel */
+  const size_t px = (size_t)img->w * img->h;
+  const size_t n = img->format == BUI_PIXMAP_ARGB ? px : px * 3 / 8;
   for (size_t i = 0; i < n; i++) {
     h = (h ^ img->px[i]) * 1099511628211ull;
   }
@@ -1213,6 +1229,9 @@ static void gpu_image_big(BuiRaster *r, float x, float y, float w, float h, cons
     return;
   }
   const int tiled = img->w > core + 2 || img->h > core + 2;
+  if (tiled && img->format != BUI_PIXMAP_ARGB) {
+    return; /* video frames are decoded within the device's limit */
+  }
   const int nx = tiled ? (img->w + core - 1) / core : 1, ny = tiled ? (img->h + core - 1) / core : 1;
   const float kx = w / sw, ky = h / sh;
   for (int j = 0; j < ny; j++) {
@@ -1228,8 +1247,12 @@ static void gpu_image_big(BuiRaster *r, float x, float y, float w, float h, cons
       const int tx0 = cx0 > 0 ? cx0 - 1 : 0, tx1 = imin(img->w, cx1 + 1);
       const int ty0 = cy0 > 0 ? cy0 - 1 : 0, ty1 = imin(img->h, cy1 + 1);
       const uint64_t tkey = tiled ? (key ^ ((uint64_t)(j * nx + i + 1) * 0x9E3779B97F4A7C15ull)) : key;
-      const int tex = bui_gpu_image_tex(r->gpu, tkey, key, img->px + (size_t)ty0 * img->w + tx0,
-                                        img->w, tx1 - tx0, ty1 - ty0);
+      const int tex = tiled ? bui_gpu_image_tex(r->gpu, tkey, key, 0, BUI_PIXMAP_ARGB,
+                                                img->px + (size_t)ty0 * img->w + tx0, img->w,
+                                                tx1 - tx0, ty1 - ty0) :
+                              bui_gpu_image_tex(r->gpu, key, img->stream ? img->stream : key,
+                                                img->stream != 0, img->format, img->px, img->w,
+                                                img->w, img->h);
       if (!tex) {
         continue;
       }
@@ -1250,7 +1273,95 @@ static void gpu_image_big(BuiRaster *r, float x, float y, float w, float h, cons
         v4(in->uv, sx - (float)tx0, sy - (float)ty0, sw, sh);
         in->p[1] = alpha;
         in->p[2] = (flags & BUI_IMAGE_NEAREST) ? 1.0f : 0.0f;
+        in->p[3] = (float)img->format; /* > 0: NV12 (luma + chroma textures) */
       }
+    }
+  }
+}
+
+/* -- NV12 video frames --------------------------------------------------------------
+ * Converted to RGB while drawing: only the pixels drawn are converted (the
+ * decoder already scaled the frame to about the size shown, so this is
+ * usually the 1:1 path). Limited-range YCbCr, 16.16 fixed point:
+ * {Y gain, Cr->R, Cb->G, Cr->G, Cb->B}. */
+static const int k_yuv[2][5] = {
+    {76309, 104597, 25675, 53279, 132201}, /* BT.601 */
+    {76309, 117489, 13975, 34925, 138438}, /* BT.709 */
+};
+
+static inline uint32_t yuv_argb(const int *k, int y, int u, int v)
+{
+  const int c = (y - 16) * k[0] + 32768;
+  u -= 128;
+  v -= 128;
+  const int r = clampi((c + k[1] * v) >> 16, 0, 255);
+  const int g = clampi((c - k[2] * u - k[3] * v) >> 16, 0, 255);
+  const int b = clampi((c + k[4] * u) >> 16, 0, 255);
+  return 0xFF000000u | (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b;
+}
+
+/* 8-bit bilinear of four samples (fx, fy: 0..256). */
+static inline int lerp2(int a, int b, int c, int d, int fx, int fy)
+{
+  const int top = a * 256 + (b - a) * fx, bot = c * 256 + (d - c) * fx;
+  return (top * 256 + (bot - top) * fy + 32768) >> 16;
+}
+
+static void raster_nv12(BuiRaster *r, float x, float y, float w, float h, const BuiPixmap *img,
+                        float sx, float sy, float sw, float sh, uint32_t ga, int nearest,
+                        int x0, int y0, int x1, int y1)
+{
+  const int *k = k_yuv[img->format == BUI_PIXMAP_NV12_BT709];
+  const uint8_t *yp = (const uint8_t *)img->px;
+  const uint8_t *uvp = yp + (size_t)img->w * img->h;
+  const int iw = img->w;
+  const float kx = sw / w, ky = sh / h;
+  if (fabsf(kx - 1.0f) < 1e-4f && fabsf(ky - 1.0f) < 1e-4f && x == floorf(x) && y == floorf(y) &&
+      sx == floorf(sx) && sy == floorf(sy))
+  {
+    /* 1:1: one luma sample and its chroma pair per pixel */
+    const int ox = (int)sx - (int)x, oy = (int)sy - (int)y;
+    for (int py = y0; py < y1; py++) {
+      uint32_t *row = r->pix + (size_t)py * r->w;
+      const int ty = py + oy;
+      const uint8_t *yr = yp + (size_t)ty * iw, *cr = uvp + (size_t)(ty >> 1) * iw;
+      for (int px = x0; px < x1; px++) {
+        const int tx = px + ox;
+        const uint8_t *c = cr + (tx & ~1);
+        put_image_px(row + px, yuv_argb(k, yr[tx], c[0], c[1]), ga);
+      }
+    }
+    return;
+  }
+  /* scaled: bilinear luma, bilinear chroma at half resolution (texel centers
+   * at .5, as BUI_raster_image and the shaders) */
+  const int ix0 = (int)sx, iy0 = (int)sy;
+  const int ix1 = (int)fmaxf((float)ix0, ceilf(sx + sw) - 1.0f);
+  const int iy1 = (int)fmaxf((float)iy0, ceilf(sy + sh) - 1.0f);
+  const float bias = nearest ? 0.0f : 0.5f;
+  for (int py = y0; py < y1; py++) {
+    uint32_t *row = r->pix + (size_t)py * r->w;
+    const float v = sy + ((float)py + 0.5f - y) * ky;
+    const float vy = v - bias, vc = v * 0.5f - 0.5f;
+    const int ty = (int)floorf(vy), tc = (int)floorf(vc);
+    const int fy = nearest ? 0 : (int)((vy - (float)ty) * 256.0f);
+    const int fcy = (int)((vc - (float)tc) * 256.0f);
+    const uint8_t *ya = yp + (size_t)clampi(ty, iy0, iy1) * iw;
+    const uint8_t *yb = yp + (size_t)clampi(ty + 1, iy0, iy1) * iw;
+    const uint8_t *ca = uvp + (size_t)clampi(tc, iy0 >> 1, iy1 >> 1) * iw;
+    const uint8_t *cb = uvp + (size_t)clampi(tc + 1, iy0 >> 1, iy1 >> 1) * iw;
+    for (int px = x0; px < x1; px++) {
+      const float u = sx + ((float)px + 0.5f - x) * kx;
+      const float uy = u - bias, uc = u * 0.5f - 0.5f;
+      const int tx = (int)floorf(uy), tcx = (int)floorf(uc);
+      const int fx = nearest ? 0 : (int)((uy - (float)tx) * 256.0f);
+      const int fcx = (int)((uc - (float)tcx) * 256.0f);
+      const int xa = clampi(tx, ix0, ix1), xb = clampi(tx + 1, ix0, ix1);
+      const int ca0 = clampi(tcx, ix0 >> 1, ix1 >> 1) * 2, cb0 = clampi(tcx + 1, ix0 >> 1, ix1 >> 1) * 2;
+      const int Y = lerp2(ya[xa], ya[xb], yb[xa], yb[xb], fx, fy);
+      const int U = lerp2(ca[ca0], ca[cb0], cb[ca0], cb[cb0], fcx, fcy);
+      const int V = lerp2(ca[ca0 + 1], ca[cb0 + 1], cb[ca0 + 1], cb[cb0 + 1], fcx, fcy);
+      put_image_px(row + px, yuv_argb(k, Y, U, V), ga);
     }
   }
 }
@@ -1283,7 +1394,19 @@ void BUI_raster_image(BuiRaster *r,
     }
   }
   alpha = clampf(alpha, 0.0f, 1.0f);
-  if (r->gpu && (img->w > BUI_IMAGE_ATLAS_MAX || img->h > BUI_IMAGE_ATLAS_MAX)) {
+  if (img->format != BUI_PIXMAP_ARGB) {
+    if ((img->w | img->h) & 1) {
+      return; /* NV12 is even-sized */
+    }
+    if (!r->gpu) {
+      raster_nv12(r, x, y, w, h, img, sx, sy, sw, sh, (uint32_t)(alpha * 256.0f + 0.5f),
+                  (flags & BUI_IMAGE_NEAREST) != 0, x0, y0, x1, y1);
+      return;
+    }
+  }
+  if (r->gpu && (img->format != BUI_PIXMAP_ARGB || img->stream || img->w > BUI_IMAGE_ATLAS_MAX ||
+                 img->h > BUI_IMAGE_ATLAS_MAX))
+  {
     gpu_image_big(r, x, y, w, h, img, sx, sy, sw, sh, alpha, flags, x0, y0, x1, y1);
     return;
   }
@@ -1310,16 +1433,7 @@ void BUI_raster_image(BuiRaster *r,
       uint32_t *row = r->pix + (size_t)py * r->w;
       const uint32_t *s = img->px + (size_t)(py - (int)y + (int)sy) * img->w + (int)sx - (int)x;
       for (int px = x0; px < x1; px++) {
-        uint32_t c = s[px];
-        if (ga < 256) {
-          c = premul_scale(c, ga);
-        }
-        if (c >= 0xFF000000u) {
-          row[px] = c & 0xFFFFFFu;
-        }
-        else if (c) {
-          row[px] = premul_over(row[px], c);
-        }
+        put_image_px(row + px, s[px], ga);
       }
     }
     return;
@@ -1348,15 +1462,7 @@ void BUI_raster_image(BuiRaster *r,
         const int xa = clampi(tx, ix0, ix1), xb = clampi(tx + 1, ix0, ix1);
         c = bilerp(ra[xa], ra[xb], rb[xa], rb[xb], fx, fy);
       }
-      if (ga < 256) {
-        c = premul_scale(c, ga);
-      }
-      if (c >= 0xFF000000u) {
-        row[px] = c & 0xFFFFFFu;
-      }
-      else if (c) {
-        row[px] = premul_over(row[px], c);
-      }
+      put_image_px(row + px, c, ga);
     }
   }
 }

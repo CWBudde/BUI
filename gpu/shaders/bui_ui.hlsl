@@ -39,6 +39,7 @@ Texture2D<float> mask_tex : register(t0);
 Texture2D<float4> rgba_tex : register(t1);
 Texture2D<float4> curve_tex : register(t2); // Slug: (p1, p2), (p3, -) per curve
 Texture2D<uint2> band_tex : register(t3);   // Slug: band headers (count, at), entries (curve)
+Texture2D<float2> uv_tex : register(t5);    // NV12 video frames: chroma (luma is rgba_tex.r)
 
 struct Inst {
   float4 rect : RECT;
@@ -317,6 +318,32 @@ float4 ps_quad(VOut v) : SV_Target
     // centers at .5), clamped to the source rect so neighbours never bleed.
     const float2 k = v.uv.zw / R.zw;
     const float2 lo = floor(v.uv.xy), hi = max(lo, ceil(v.uv.xy + v.uv.zw) - 1.0);
+    if (v.p.w > 0.5) {
+      // NV12 video frame (p.w: 1 BT.601, 2 BT.709), as gpu_raster.c raster_nv12:
+      // luma bilinear (or nearest), chroma bilinear at half resolution.
+      const float2 u = v.uv.xy + (s - R.xy) * k;
+      float y;
+      if (v.p.z > 0.5) {
+        y = rgba_tex.Load(int3((int2)clamp(floor(u), lo, hi), 0)).r;
+      }
+      else {
+        const float2 t = u - 0.5, t0 = floor(t), f = t - t0;
+        const int2 a = (int2)clamp(t0, lo, hi), b = (int2)clamp(t0 + 1.0, lo, hi);
+        y = lerp(lerp(rgba_tex.Load(int3(a.x, a.y, 0)).r, rgba_tex.Load(int3(b.x, a.y, 0)).r, f.x),
+                 lerp(rgba_tex.Load(int3(a.x, b.y, 0)).r, rgba_tex.Load(int3(b.x, b.y, 0)).r, f.x), f.y);
+      }
+      const float2 tc = u * 0.5 - 0.5, c0 = floor(tc), fc = tc - c0;
+      const float2 clo = floor(lo * 0.5), chi = floor(hi * 0.5);
+      const int2 ca = (int2)clamp(c0, clo, chi), cb = (int2)clamp(c0 + 1.0, clo, chi);
+      const float2 cbcr = lerp(lerp(uv_tex.Load(int3(ca.x, ca.y, 0)), uv_tex.Load(int3(cb.x, ca.y, 0)), fc.x),
+                               lerp(uv_tex.Load(int3(ca.x, cb.y, 0)), uv_tex.Load(int3(cb.x, cb.y, 0)), fc.x), fc.y) -
+                          128.0 / 255.0;
+      const float l = 1.164383 * (y - 16.0 / 255.0);
+      const float4 m = v.p.w > 1.5 ? float4(1.792741, 0.213249, 0.532909, 2.112402) :
+                                     float4(1.596027, 0.391762, 0.812968, 2.017232);
+      const float3 rgb = saturate(float3(l + m.x * cbcr.y, l - m.y * cbcr.x - m.z * cbcr.y, l + m.w * cbcr.x));
+      return float4(rgb, 1.0) * v.p.y;
+    }
     if (v.p.z > 0.5) {
       const int2 t = (int2)clamp(floor(v.uv.xy + (s - R.xy) * k), lo, hi);
       return rgba_tex.Load(int3(t, 0)) * v.p.y;

@@ -87,7 +87,9 @@ typedef ptrdiff_t GLintptr;
 #  define GL_BGRA 0x80E1
 #  define GL_CLAMP_TO_EDGE 0x812F
 #  define GL_RG_INTEGER 0x8228
+#  define GL_RG 0x8227
 #  define GL_R8 0x8229
+#  define GL_RG8 0x822B
 #  define GL_RG32UI 0x823C
 #  define GL_UNSIGNED_INT_8_8_8_8_REV 0x8367
 #  define GL_TEXTURE0 0x84C0
@@ -469,6 +471,7 @@ static const char *const k_fs_quad =
     "uniform sampler2D rgba_tex;\n"
     "uniform sampler2D curve_tex;\n"   /* Slug: (p1, p2), (p3, -) per curve */
     "uniform usampler2D band_tex;\n"   /* Slug: band headers (count, at), entries (curve) */
+    "uniform sampler2D uv_tex;\n"      /* NV12 video frames: chroma (luma is rgba_tex.r) */
     "flat in vec4 v_rect, v_c0, v_c1, v_c2, v_c3, v_p, v_uv;\n"
     "layout(location = 0) out vec4 frag;\n"
     "float sat(float x) { return clamp(x, 0.0, 1.0); }\n"
@@ -695,6 +698,29 @@ static const char *const k_fs_quad =
     "  if (kind == K_IMAGE) {\n" /* premultiplied, bilinear: as bui_ui.hlsl */
     "    vec2 k = v_uv.zw / R.zw;\n"
     "    vec2 lo = floor(v_uv.xy), hi = max(lo, ceil(v_uv.xy + v_uv.zw) - 1.0);\n"
+    "    if (v_p.w > 0.5) {\n" /* NV12 video frame: as bui_ui.hlsl */
+    "      vec2 u = v_uv.xy + (s - R.xy) * k;\n"
+    "      float y;\n"
+    "      if (v_p.z > 0.5) {\n"
+    "        y = texelFetch(rgba_tex, ivec2(clamp(floor(u), lo, hi)), 0).r;\n"
+    "      } else {\n"
+    "        vec2 t = u - 0.5, t0 = floor(t), f = t - t0;\n"
+    "        ivec2 a = ivec2(clamp(t0, lo, hi)), b = ivec2(clamp(t0 + 1.0, lo, hi));\n"
+    "        y = mix(mix(texelFetch(rgba_tex, a, 0).r, texelFetch(rgba_tex, ivec2(b.x, a.y), 0).r, f.x),\n"
+    "                mix(texelFetch(rgba_tex, ivec2(a.x, b.y), 0).r, texelFetch(rgba_tex, b, 0).r, f.x), f.y);\n"
+    "      }\n"
+    "      vec2 tc = u * 0.5 - 0.5, c0 = floor(tc), fc = tc - c0;\n"
+    "      vec2 clo = floor(lo * 0.5), chi = floor(hi * 0.5);\n"
+    "      ivec2 ca = ivec2(clamp(c0, clo, chi)), cb = ivec2(clamp(c0 + 1.0, clo, chi));\n"
+    "      vec2 cbcr = mix(mix(texelFetch(uv_tex, ca, 0).rg, texelFetch(uv_tex, ivec2(cb.x, ca.y), 0).rg, fc.x),\n"
+    "                      mix(texelFetch(uv_tex, ivec2(ca.x, cb.y), 0).rg, texelFetch(uv_tex, cb, 0).rg, fc.x), fc.y) -\n"
+    "                  128.0 / 255.0;\n"
+    "      float l = 1.164383 * (y - 16.0 / 255.0);\n"
+    "      vec4 m = v_p.w > 1.5 ? vec4(1.792741, 0.213249, 0.532909, 2.112402) :\n"
+    "                             vec4(1.596027, 0.391762, 0.812968, 2.017232);\n"
+    "      vec3 rgb = sat(vec3(l + m.x * cbcr.y, l - m.y * cbcr.x - m.z * cbcr.y, l + m.w * cbcr.x));\n"
+    "      return vec4(rgb, 1.0) * v_p.y;\n"
+    "    }\n"
     "    if (v_p.z > 0.5) {\n"
     "      ivec2 t = ivec2(clamp(floor(v_uv.xy + (s - R.xy) * k), lo, hi));\n"
     "      return texelFetch(rgba_tex, t, 0) * v_p.y;\n"
@@ -858,15 +884,18 @@ typedef struct Batch {
   int clip[4];
 } Batch;
 
-/* An image too big for the atlas, in a texture of its own (as gpu_d3d11.c). */
+/* An image too big for the atlas, or a video frame, in a texture of its own
+ * (as gpu_d3d11.c). */
 #  define BIG_MAX 32
 #  define BIG_BUDGET ((size_t)256 << 20)
 #  define BIG_IDLE 120
 typedef struct BigTex {
   uint64_t key, base; /* 0 = empty */
   int w, h;
+  int format; /* BUI_PIXMAP_*: NV12 is luma in tex, chroma in uv_tex */
+  int stream; /* `base` is a stream: its frames update the textures in place */
   unsigned used;
-  GLuint tex;
+  GLuint tex, uv_tex;
 } BigTex;
 
 /* A registry texture (BUI_texture_*) in this context, by registry slot. */
@@ -1324,6 +1353,7 @@ static int device_init(BuiGpu *g)
   for (int i = 0; i < 4; i++) {
     GL(glUniform1i)(GL(glGetUniformLocation)(g->prog_quad, samplers[i]), i);
   }
+  GL(glUniform1i)(GL(glGetUniformLocation)(g->prog_quad, "uv_tex"), 5); /* unit 4: meshes */
   GL(glUseProgram)(0);
 
   GL(glGenBuffers)(1, &g->ib);
@@ -2190,13 +2220,56 @@ int bui_gpu_image(BuiGpu *g, uint64_t key, const uint32_t *argb, int w, int h, i
 
 /* -- big images: textures of their own (as gpu_d3d11.c) ----------------------------- */
 
+static size_t big_size(int format, int w, int h)
+{
+  return format == BUI_PIXMAP_ARGB ? (size_t)w * h * 4 : (size_t)w * h * 3 / 2;
+}
+
 static void big_release(BuiGpu *g, BigTex *t)
 {
   if (t->tex) {
-    g->big_bytes -= (size_t)t->w * t->h * 4;
+    g->big_bytes -= big_size(t->format, t->w, t->h);
     GL(glDeleteTextures)(1, &t->tex);
   }
+  if (t->uv_tex) {
+    GL(glDeleteTextures)(1, &t->uv_tex);
+  }
   memset(t, 0, sizeof(*t));
+}
+
+/* `px` into slot `t`'s textures (created first when `create`). */
+static int big_upload(BuiGpu *g, BigTex *t, int create, const uint32_t *px, int stride)
+{
+  const int nv12 = t->format != BUI_PIXMAP_ARGB;
+  if (create) {
+    t->tex = nv12 ? tex_create(g, GL_R8, t->w, t->h, GL_RED, GL_UNSIGNED_BYTE) :
+                    tex_create(g, GL_RGBA8, t->w, t->h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV);
+    t->uv_tex = nv12 ? tex_create(g, GL_RG8, t->w / 2, t->h / 2, GL_RG, GL_UNSIGNED_BYTE) : 0;
+    if (!t->tex || (nv12 && !t->uv_tex)) {
+      GL(glDeleteTextures)(1, &t->tex);
+      GL(glDeleteTextures)(1, &t->uv_tex);
+      t->tex = t->uv_tex = 0;
+      return 0;
+    }
+  }
+  GL(glBindTexture)(GL_TEXTURE_2D, t->tex);
+  if (!nv12) {
+    GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 4);
+    GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, stride);
+    GL(glTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, t->w, t->h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, px);
+  }
+  else {
+    GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 1);
+    GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, t->w);
+    GL(glTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, t->w, t->h, GL_RED, GL_UNSIGNED_BYTE, px);
+    GL(glBindTexture)(GL_TEXTURE_2D, t->uv_tex);
+    GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, t->w / 2);
+    GL(glTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, t->w / 2, t->h / 2, GL_RG, GL_UNSIGNED_BYTE,
+                        (const uint8_t *)px + (size_t)t->w * t->h);
+    GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 4);
+  }
+  GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, 0);
+  return 1;
 }
 
 static void big_sweep(BuiGpu *g)
@@ -2229,8 +2302,8 @@ int bui_gpu_max_texture(BuiGpu *g)
   return g->big_max;
 }
 
-int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
-                      int w, int h)
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, int stream, int format,
+                      const uint32_t *px, int stride, int w, int h)
 {
   if (w <= 0 || h <= 0 || w > g->big_max || h > g->big_max || !make_current(g)) {
     return 0;
@@ -2238,7 +2311,13 @@ int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *ar
   int free_slot = -1, lru = -1;
   for (int i = 0; i < BIG_MAX; i++) {
     BigTex *t = &g->big[i];
-    if (t->key == key && t->w == w && t->h == h) {
+    if (t->key && t->w == w && t->h == h && t->format == format &&
+        (t->key == key || (stream && t->stream && t->base == base)))
+    {
+      if (t->key != key) { /* the stream's next frame: in place, no new texture */
+        big_upload(g, t, 0, px, stride);
+        t->key = key;
+      }
       t->used = g->frame;
       return i + 1;
     }
@@ -2249,7 +2328,7 @@ int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *ar
       lru = i; /* not drawn this frame: no recorded batch samples it */
     }
   }
-  const size_t bytes = (size_t)w * h * 4;
+  const size_t bytes = big_size(format, w, h);
   while (lru >= 0 && (free_slot < 0 || g->big_bytes + bytes > BIG_BUDGET)) {
     big_release(g, &g->big[lru]);
     free_slot = free_slot < 0 ? lru : free_slot;
@@ -2265,18 +2344,16 @@ int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *ar
     return 0;
   }
   BigTex *t = &g->big[free_slot];
-  t->tex = tex_create(g, GL_RGBA8, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV);
-  if (!t->tex) {
-    return 0;
-  }
-  GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 4);
-  GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, stride);
-  GL(glTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, argb);
-  GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, 0);
-  t->key = key;
-  t->base = base;
   t->w = w;
   t->h = h;
+  t->format = format;
+  t->stream = stream;
+  if (!big_upload(g, t, 1, px, stride)) {
+    memset(t, 0, sizeof(*t));
+    return 0;
+  }
+  t->key = key;
+  t->base = base;
   t->used = g->frame;
   g->big_bytes += bytes;
   return free_slot + 1;
@@ -2413,10 +2490,12 @@ static void flush(BuiGpu *g)
     }
     else if (!b->tri) {
       const int want = b->img > 0 && g->big[b->img - 1].tex ? b->img : 0;
-      if (want != img) { /* unit 1: the atlas, or a big image's own texture */
+      if (want != img) { /* unit 1: the atlas, or a big image's own texture (5: NV12 chroma) */
         img = want;
         GL(glActiveTexture)(GL_TEXTURE0 + 1);
         GL(glBindTexture)(GL_TEXTURE_2D, img ? g->big[img - 1].tex : g->rgba.tex);
+        GL(glActiveTexture)(GL_TEXTURE0 + 5);
+        GL(glBindTexture)(GL_TEXTURE_2D, img ? g->big[img - 1].uv_tex : 0);
         GL(glActiveTexture)(GL_TEXTURE0);
       }
       const size_t base = sizeof(BuiGpuInst) * (size_t)b->first;

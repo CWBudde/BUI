@@ -98,16 +98,18 @@ typedef struct Batch {
   int clip[4];
 } Batch;
 
-/* An image too big for the atlas, in a texture of its own. */
+/* An image too big for the atlas, or a video frame, in a texture of its own. */
 #  define BIG_MAX 32
 #  define BIG_BUDGET ((size_t)256 << 20) /* bytes of big-image textures kept */
 #  define BIG_IDLE 120                   /* frames unused before one is freed */
 typedef struct BigTex {
   uint64_t key, base; /* 0 = empty */
   int w, h;
+  int format;    /* BUI_PIXMAP_*: NV12 is luma in tex, chroma in uv_tex */
+  int stream;    /* `base` is a stream: its frames update the textures in place */
   unsigned used; /* the frame it was last drawn in */
-  ID3D11Texture2D *tex;
-  ID3D11ShaderResourceView *srv;
+  ID3D11Texture2D *tex, *uv_tex;
+  ID3D11ShaderResourceView *srv, *uv_srv;
 } BigTex;
 
 /* A registry texture (BUI_texture_*) on this device, by registry slot. */
@@ -484,6 +486,8 @@ void bui_gpu_free(BuiGpu *g)
   for (int i = 0; i < BIG_MAX; i++) {
     REL(g->big[i].srv);
     REL(g->big[i].tex);
+    REL(g->big[i].uv_srv);
+    REL(g->big[i].uv_tex);
   }
   REL(g->curve_srv);
   REL(g->curve_tex);
@@ -1194,14 +1198,74 @@ int bui_gpu_image(BuiGpu *g, uint64_t key, const uint32_t *argb, int w, int h, i
 
 /* -- big images: textures of their own ------------------------------------------------ */
 
+static size_t big_size(int format, int w, int h)
+{
+  return format == BUI_PIXMAP_ARGB ? (size_t)w * h * 4 : (size_t)w * h * 3 / 2;
+}
+
 static void big_release(BuiGpu *g, BigTex *t)
 {
   if (t->srv) {
-    g->big_bytes -= (size_t)t->w * t->h * 4;
+    g->big_bytes -= big_size(t->format, t->w, t->h);
   }
   REL(t->srv);
   REL(t->tex);
+  REL(t->uv_srv);
+  REL(t->uv_tex);
   memset(t, 0, sizeof(*t));
+}
+
+/* One plane: a texture and its view, initialized from `data`. */
+static int big_plane(BuiGpu *g, DXGI_FORMAT fmt, int w, int h, const void *data, UINT pitch,
+                     int dynamic, ID3D11Texture2D **r_tex, ID3D11ShaderResourceView **r_srv)
+{
+  D3D11_TEXTURE2D_DESC td = {0};
+  td.Width = (UINT)w;
+  td.Height = (UINT)h;
+  td.MipLevels = td.ArraySize = 1;
+  td.Format = fmt;
+  td.SampleDesc.Count = 1;
+  td.Usage = dynamic ? D3D11_USAGE_DEFAULT : D3D11_USAGE_IMMUTABLE;
+  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+  D3D11_SUBRESOURCE_DATA init = {data, pitch, 0};
+  if (FAILED(ID3D11Device_CreateTexture2D(g->dev, &td, &init, r_tex)) ||
+      FAILED(ID3D11Device_CreateShaderResourceView(g->dev, (ID3D11Resource *)*r_tex, NULL, r_srv)))
+  {
+    REL(*r_tex);
+    return 0;
+  }
+  return 1;
+}
+
+/* `px` into slot `t`'s textures: created, or (a stream's next frame) updated in place. */
+static int big_upload(BuiGpu *g, BigTex *t, int create, const uint32_t *px, int stride)
+{
+  const int nv12 = t->format != BUI_PIXMAP_ARGB;
+  const uint8_t *uv = (const uint8_t *)px + (size_t)t->w * t->h;
+  if (!create) {
+    ID3D11DeviceContext_UpdateSubresource(g->ctx, (ID3D11Resource *)t->tex, 0, NULL, px,
+                                          (UINT)stride * (nv12 ? 1 : 4), 0);
+    if (nv12) {
+      ID3D11DeviceContext_UpdateSubresource(g->ctx, (ID3D11Resource *)t->uv_tex, 0, NULL, uv,
+                                            (UINT)t->w, 0);
+    }
+    return 1;
+  }
+  if (!nv12) { /* 0xAARRGGBB in memory order */
+    return big_plane(g, DXGI_FORMAT_B8G8R8A8_UNORM, t->w, t->h, px, (UINT)stride * 4, t->stream,
+                     &t->tex, &t->srv);
+  }
+  if (!big_plane(g, DXGI_FORMAT_R8_UNORM, t->w, t->h, px, (UINT)t->w, t->stream, &t->tex, &t->srv)) {
+    return 0;
+  }
+  if (!big_plane(g, DXGI_FORMAT_R8G8_UNORM, t->w / 2, t->h / 2, uv, (UINT)t->w, t->stream,
+                 &t->uv_tex, &t->uv_srv))
+  {
+    REL(t->srv);
+    REL(t->tex);
+    return 0;
+  }
+  return 1;
 }
 
 /* Frees what the kit freed (BUI_image_forget) and what went unused. */
@@ -1229,8 +1293,8 @@ int bui_gpu_max_texture(BuiGpu *g)
   return g->max_tex > 0 ? g->max_tex : 8192;
 }
 
-int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
-                      int w, int h)
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, int stream, int format,
+                      const uint32_t *px, int stride, int w, int h)
 {
   if (w <= 0 || h <= 0 || w > bui_gpu_max_texture(g) || h > bui_gpu_max_texture(g)) {
     return 0;
@@ -1238,7 +1302,13 @@ int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *ar
   int free_slot = -1, lru = -1;
   for (int i = 0; i < BIG_MAX; i++) {
     BigTex *t = &g->big[i];
-    if (t->key == key && t->w == w && t->h == h) {
+    if (t->key && t->w == w && t->h == h && t->format == format &&
+        (t->key == key || (stream && t->stream && t->base == base)))
+    {
+      if (t->key != key) { /* the stream's next frame: in place, no new texture */
+        big_upload(g, t, 0, px, stride);
+        t->key = key;
+      }
       t->used = g->frame;
       return i + 1;
     }
@@ -1249,7 +1319,7 @@ int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *ar
       lru = i; /* not drawn this frame: no recorded batch samples it */
     }
   }
-  const size_t bytes = (size_t)w * h * 4;
+  const size_t bytes = big_size(format, w, h);
   while (lru >= 0 && (free_slot < 0 || g->big_bytes + bytes > BIG_BUDGET)) {
     big_release(g, &g->big[lru]);
     free_slot = free_slot < 0 ? lru : free_slot;
@@ -1265,26 +1335,16 @@ int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *ar
     return 0;
   }
   BigTex *t = &g->big[free_slot];
-  D3D11_TEXTURE2D_DESC td = {0};
-  td.Width = (UINT)w;
-  td.Height = (UINT)h;
-  td.MipLevels = td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_B8G8R8A8_UNORM; /* 0xAARRGGBB in memory order */
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_IMMUTABLE;
-  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-  D3D11_SUBRESOURCE_DATA init = {argb, (UINT)stride * 4, 0};
-  if (FAILED(ID3D11Device_CreateTexture2D(g->dev, &td, &init, &t->tex)) ||
-      FAILED(ID3D11Device_CreateShaderResourceView(g->dev, (ID3D11Resource *)t->tex, NULL,
-                                                   &t->srv)))
-  {
-    REL(t->tex);
+  t->w = w;
+  t->h = h;
+  t->format = format;
+  t->stream = stream;
+  if (!big_upload(g, t, 1, px, stride)) {
+    memset(t, 0, sizeof(*t));
     return 0;
   }
   t->key = key;
   t->base = base;
-  t->w = w;
-  t->h = h;
   t->used = g->frame;
   g->big_bytes += bytes;
   return free_slot + 1;
@@ -1466,10 +1526,12 @@ static void flush(BuiGpu *g)
     }
     else if (!b->tri) {
       const int want = b->img > 0 && g->big[b->img - 1].srv ? b->img : 0;
-      if (want != img) { /* t1: the atlas, or a big image's own texture */
+      if (want != img) { /* t1: the atlas, or a big image's own texture (t5: NV12 chroma) */
         img = want;
         ID3D11ShaderResourceView *t1 = img ? g->big[img - 1].srv : g->rgba.srv;
+        ID3D11ShaderResourceView *t5 = img ? g->big[img - 1].uv_srv : NULL;
         ID3D11DeviceContext_PSSetShaderResources(c, 1, 1, &t1);
+        ID3D11DeviceContext_PSSetShaderResources(c, 5, 1, &t5);
       }
       ID3D11DeviceContext_DrawInstanced(c, 4, (UINT)b->count, 0, (UINT)b->first);
     }
@@ -1641,12 +1703,14 @@ void bui_gpu_begin(BuiGpu *g, int w, int h)
   (void)w;
   (void)h;
 }
-int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
-                      int w, int h)
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, int stream, int format,
+                      const uint32_t *argb, int stride, int w, int h)
 {
   (void)g;
   (void)key;
   (void)base;
+  (void)stream;
+  (void)format;
   (void)argb;
   (void)stride;
   (void)w;

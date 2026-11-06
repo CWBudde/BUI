@@ -323,6 +323,77 @@ static int big_image(int max_texture)
   return ok;
 }
 
+/* Video frames (NV12): converted on the CPU while drawing, in the shader on
+ * the GPU. Two frames of one stream: the second updates the first's texture
+ * in place, and must show (not the stale first frame). */
+#define VW 320
+#define VH 180
+static void nv12_frame(uint8_t *f, int t)
+{
+  uint8_t *uv = f + VW * VH;
+  for (int y = 0; y < VH; y++) {
+    for (int x = 0; x < VW; x++) {
+      f[y * VW + x] = (uint8_t)(16 + ((x * 219 / VW + t * 40) % 220));
+    }
+  }
+  for (int y = 0; y < VH / 2; y++) {
+    for (int x = 0; x < VW / 2; x++) {
+      uv[y * VW + x * 2] = (uint8_t)(16 + (x * 224 / (VW / 2)));
+      uv[y * VW + x * 2 + 1] = (uint8_t)(16 + ((y * 2 + t * 30) % 224));
+    }
+  }
+}
+
+static int video_frames(void)
+{
+  static uint8_t f[2][VW * VH * 3 / 2];
+  nv12_frame(f[0], 0);
+  nv12_frame(f[1], 1);
+  BuiRaster *rs[2] = {BUI_raster_create(640, 200), BUI_raster_create(640, 200)};
+  int ok = 1;
+  if (!BUI_raster_gpu_attach(rs[1], NULL, 1)) {
+    printf("video frames: no GPU device, skipped\n");
+  }
+  else {
+    const float part[4] = {40.5f, 20.25f, 200, 120};
+    for (int frame = 0; frame < 2; frame++) {
+      const BuiPixmap pm = {(const uint32_t *)f[frame], VW, VH, 900 + (uint64_t)frame,
+                            BUI_PIXMAP_NV12_BT709, 4242};
+      const BuiPixmap sd = {(const uint32_t *)f[frame], VW, VH, 950 + (uint64_t)frame,
+                            BUI_PIXMAP_NV12_BT601, 4343};
+      for (int k = 0; k < 2; k++) {
+        const float bg[4] = {0.16f, 0.16f, 0.17f, 1};
+        BUI_raster_begin_frame(rs[k], 640, 200);
+        BUI_raster_fill_rect(rs[k], 0, 0, 640, 200, bg);
+        BUI_raster_image(rs[k], 0, 0, VW, VH, &pm, NULL, 1.0f, 0);            /* 1:1 */
+        BUI_raster_image(rs[k], 330, 10, 150, 84, &pm, NULL, 1.0f, 0);        /* down */
+        BUI_raster_image(rs[k], 330, 100, 200, 96, &sd, part, 0.7f, 0);       /* crop, up, BT.601 */
+        BUI_raster_image(rs[k], 540, 10, 90, 60, &sd, part, 1.0f, BUI_IMAGE_NEAREST);
+        BUI_raster_end_frame(rs[k]);
+      }
+      const uint32_t *a = BUI_raster_pixels(rs[0]), *b = BUI_raster_pixels(rs[1]);
+      int bad = 0, maxd = 0;
+      for (int i = 0; i < 640 * 200; i++) {
+        int d = 0;
+        for (int s = 0; s < 24; s += 8) {
+          const int da = abs((int)((a[i] >> s) & 0xFF) - (int)((b[i] >> s) & 0xFF));
+          d = da > d ? da : d;
+        }
+        maxd = d > maxd ? d : maxd;
+        bad += d > 3;
+      }
+      ok &= bad <= 640 * 200 / 500;
+      printf("video frame %d (NV12): %d of %d pixels differ by more than 3 (max %d)\n", frame, bad,
+             640 * 200, maxd);
+    }
+  }
+  BUI_image_forget(4242);
+  BUI_image_forget(4343);
+  BUI_raster_free(rs[0]);
+  BUI_raster_free(rs[1]);
+  return ok;
+}
+
 int main(void)
 {
   BuiRaster *cpu = BUI_raster_create(W, H);
@@ -349,6 +420,7 @@ int main(void)
   }
   BUI_raster_free(cpu);
   ok &= big_image(0);
+  ok &= video_frames();
   ok &= big_image(512); /* tiles of 510 px with a pixel of overlap */
   return ok ? 0 : 1;
 }

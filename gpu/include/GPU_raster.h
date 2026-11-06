@@ -121,16 +121,28 @@ typedef struct BuiWidgetBase {
 
 void BUI_raster_widget_base(BuiRaster *r, const BuiWidgetBase *params);
 
-/* A premultiplied 0xAARRGGBB image (rows top-down, stride w): the layout of
- * the frame itself and of the GPU atlas, so drawing needs no conversion.
- * `key` names the pixels for the GPU renderers' atlas: nonzero and unique
- * per content (the kit's BKImBuf keys); 0 hashes the pixels at each draw
- * (small, short-lived images). */
+/* An image: premultiplied 0xAARRGGBB (rows top-down, stride w: the layout
+ * of the frame itself and of the GPU atlas, so drawing needs no conversion)
+ * or a video frame in NV12 (BUI_PIXMAP_NV12_*: `px` points at w * h bytes
+ * of luma, then w * h / 2 of interleaved Cb Cr at half resolution; w and h
+ * even; limited range; opaque). `key` names the pixels for the GPU
+ * renderers: nonzero and unique per content (the kit's BKImBuf keys); 0
+ * hashes the pixels at each draw (small, short-lived images). `stream`
+ * nonzero marks successive frames of one stream (a video): GPU renderers
+ * keep one texture for it and update it in place when `key` changes;
+ * BUI_image_forget(stream) frees it. */
 typedef struct BuiPixmap {
   const uint32_t *px;
   int w, h;
   uint64_t key;
+  int format;      /* BUI_PIXMAP_* */
+  uint64_t stream; /* 0: a still image */
 } BuiPixmap;
+enum {
+  BUI_PIXMAP_ARGB = 0,      /* premultiplied 0xAARRGGBB */
+  BUI_PIXMAP_NV12_BT601 = 1, /* YCbCr 4:2:0, BT.601 (SD video) */
+  BUI_PIXMAP_NV12_BT709 = 2, /* YCbCr 4:2:0, BT.709 (HD video) */
+};
 enum {
   BUI_IMAGE_NEAREST = 1 << 0, /* nearest texel (CSS image-rendering: pixelated); else bilinear */
 };

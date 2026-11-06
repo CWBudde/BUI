@@ -73,12 +73,17 @@ int bui_text_glyph_outline(int face, int glyph, float **r_curves, int *r_n, floa
 /* Atlas placement of a premultiplied 0xAARRGGBB image, cached by `key`
  * (BuiPixmap.key, or its content hash). 0 when it can't be placed. */
 int bui_gpu_image(BuiGpu *g, uint64_t key, const uint32_t *argb, int w, int h, int *r_x, int *r_y);
-/* Images too big for the atlas get a texture of their own (uploaded once
- * per `key`; `base` is the image's key, which BUI_image_forget names). Rows
- * are `stride` pixels apart. Returns a texture handle > 0 for
- * bui_gpu_inst_image, 0 when it can't be made. Unused ones are freed. */
-int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
-                      int w, int h);
+/* Images too big for the atlas, and video frames, get a texture of their
+ * own, uploaded once per `key`; `base` is what BUI_image_forget names (the
+ * image's key, or its stream). With `stream`, a new key of the same size and
+ * format updates the stream's texture in place (a video: one texture, no
+ * allocation per frame). `format` is BUI_PIXMAP_*: ARGB rows are `stride`
+ * pixels apart; NV12 (stride w) becomes an R8 luma and an R8G8 chroma
+ * texture, which image instances sample as YCbCr when their p[3] is the
+ * format. Returns a texture handle > 0 for bui_gpu_inst_image, 0 when it
+ * can't be made. Unused ones are freed. */
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, int stream, int format,
+                      const uint32_t *px, int stride, int w, int h);
 /* The largest texture side the device takes (images over it are tiled). */
 int bui_gpu_max_texture(BuiGpu *g);
 /* An image instance sampling texture `tex` (0: the atlas), batched with
