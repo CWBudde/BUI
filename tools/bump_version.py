@@ -18,8 +18,8 @@ Where the version lives (one source of truth per registry, all moved together):
 * Python: `bindings/python/bui/_version.py` (the wheel reads it).
 * Rust: `[workspace.package]` in `bindings/rust/Cargo.toml`, and the `version = "..."` of every
   sibling path dependency (`blenderui-sys = { path = "...", version = "..." }`).
-* npm (only with `--npm`): `bindings/node` and `bindings/react` move together, and react's
-  dependency on native. npm versions are otherwise independent of the tag.
+* npm (only with `--npm`): every package in `bindings/package.json`'s workspaces moves to the
+  same version, and their dependency on `@blender-ui/native` with it. npm versions are otherwise independent of the tag.
 * `CHANGELOG.md`: `[Unreleased]` becomes a dated section and a fresh `[Unreleased]` opens.
 * The lock files (`Cargo.lock`, `bindings/package-lock.json`) are refreshed (best effort).
 
@@ -33,6 +33,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+from check_versions import npm_packages
 
 ROOT = Path(__file__).resolve().parent.parent
 RUST = ROOT / "bindings" / "rust"
@@ -103,7 +105,7 @@ def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
         put(toml, "".join(out))
 
     if npm:
-        for pkg in ("node", "react"):
+        for pkg in npm_packages():
             path = ROOT / "bindings" / pkg / "package.json"
             text = read(path)
             text = re.sub(r'("version"\s*:\s*")[^"]+(")', rf"\g<1>{npm}\g<2>", text, count=1)

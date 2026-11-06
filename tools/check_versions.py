@@ -21,6 +21,11 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def npm_packages() -> list[str]:
+    """The npm packages, in publish order: the workspaces of bindings/package.json (native first)."""
+    return json.loads(read(ROOT / "bindings" / "package.json"))["workspaces"]
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__)
@@ -42,7 +47,7 @@ def main() -> int:
     bad = {k: v for k, v in found.items() if v != want}
     for k, v in found.items():
         print(f"{'ok ' if v == want else 'BAD'} {v:8} {k}")
-    for pkg in ("node", "react"):
+    for pkg in npm_packages():
         meta = json.loads(read(ROOT / "bindings" / pkg / "package.json"))
         print(f"npm {meta['version']:8} {meta['name']} (own version; published only if new)")
     if bad:

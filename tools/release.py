@@ -33,6 +33,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from check_versions import npm_packages
+
 ROOT = Path(__file__).resolve().parent.parent
 BUMP = ROOT / "tools" / "bump_version.py"
 PY_VERSION = ROOT / "bindings" / "python" / "bui" / "_version.py"
@@ -131,7 +133,7 @@ def registry_status(version: str) -> dict[str, bool]:
     out: dict[str, bool] = {}
     for c in crates():
         out[f"crates.io  {c}"] = http_json(f"https://crates.io/api/v1/crates/{c}/{version}")[0] == 200
-    for pkg in ("node", "react"):
+    for pkg in npm_packages():
         meta = json.loads((ROOT / "bindings" / pkg / "package.json").read_text(encoding="utf-8"))
         name = meta["name"].replace("/", "%2F")
         out[f"npm        {meta['name']}@{meta['version']}"] = (
