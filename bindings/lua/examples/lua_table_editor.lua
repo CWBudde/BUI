@@ -29,25 +29,43 @@ local function count_items(t)
   return n
 end
 
+local function table_deepcopy(t)
+  if type(t) ~= "table" then return t end
+  local c = {}
+  for k, v in pairs(t) do c[table_deepcopy(k)] = table_deepcopy(v) end
+  return c
+end
+
 local function lua_type_name(v)
   local t = type(v)
   if t ~= "table" then return t end
+  local mt = getmetatable(v)
+  if mt then
+    local name = mt.__name or mt.__type or getmetatable(mt)
+    if name then return "(" .. tostring(name) .. ")" end
+  end
   local n = count_items(v)
   if n == 0 then return "table" end
-  -- check if array
   for i = 1, n do if v[i] == nil then return "table" end end
   return "array"
 end
 
 local function fmt_val(v)
   local t = type(v)
-  if t == "string"  then return string.format("%q", v)
+  if t == "string" then return string.format("%q", v)
   elseif t == "number" then
     if v == math.floor(v) and math.abs(v) < 1e15 then return tostring(v)
     else return string.format("%.14g", v) end
   elseif t == "boolean" then return v and "true" or "false"
-  elseif t == "nil"   then return "nil"
-  elseif t == "table" then return "{" .. count_items(v) .. " items}"
+  elseif t == "nil" then return "nil"
+  elseif t == "table" then
+    local mt = getmetatable(v)
+    local tag = ""
+    if mt then
+      local name = mt.__name or mt.__type
+      if name then tag = " [" .. tostring(name) .. "]" end
+    end
+    return "{" .. count_items(v) .. " items" .. tag .. "}"
   else return "(" .. t .. ")" end
 end
 
@@ -138,13 +156,21 @@ DEMOS["Game State"] = {
 -- DATA MODEL
 -- ============================================================
 
-local data       = nil             -- current table being edited
-local id_counter = 1000
-local item_meta  = {}              -- id -> {type, key, parent, value}
+local data           = nil
+local id_counter     = 1000
+local item_meta      = {}
+local undo_stack     = {}
+local redo_stack     = {}
+local key_numeric    = false
 
 local function next_id()
   id_counter = id_counter + 1
   return id_counter
+end
+
+local function push_undo()
+  table.insert(undo_stack, table_deepcopy(data))
+  redo_stack = {}
 end
 
 -- ============================================================
@@ -165,6 +191,7 @@ local function build_subtree(parent_item, t, parent_data)
       value  = v,
       parent = parent_data,
       id     = id,
+      item   = item,
     }
     if type(v) == "table" then
       build_subtree(item, v, v)
@@ -178,10 +205,7 @@ end
 local function rebuild_tree(tree, source, meta_clean)
   if meta_clean then item_meta = {} end
   id_counter = 1000
-  local roots = {}
-  build_subtree(nil, source, source)
   local items = {}
-  -- Collect root items: items whose parent is `source`
   for k, v in sorted_pairs(source) do
     local key_str = tostring(k)
     local vt = lua_type_name(v)
@@ -195,6 +219,7 @@ local function rebuild_tree(tree, source, meta_clean)
       value  = v,
       parent = source,
       id     = id,
+      item   = item,
     }
     if type(v) == "table" then
       build_subtree(item, v, v)
@@ -220,7 +245,6 @@ local function serialize(v, indent)
   elseif t == "nil"   then return "nil"
   elseif t ~= "table" then return tostring(v) end
 
-  -- table
   local n = count_items(v)
   if n == 0 then return "{}" end
   local is_arr = true
@@ -240,30 +264,42 @@ local function serialize(v, indent)
     end
     parts[#parts + 1] = line
   end
+  local body
   if #parts <= 3 and #table.concat(parts, ", ") < 60 then
-    return "{ " .. table.concat(parts, ", ") .. " }"
+    body = "{ " .. table.concat(parts, ", ") .. " }"
+  else
+    body = "{\n" .. sub .. table.concat(parts, ",\n" .. sub) .. "\n" .. indent .. "}"
   end
-  return "{\n" .. sub .. table.concat(parts, ",\n" .. sub) .. "\n" .. indent .. "}"
+  return body
 end
 
 -- ============================================================
 -- UI STATE
 -- ============================================================
 
-local tree_node     = nil
-local editor_key    = nil
-local editor_type   = nil
-local editor_val    = nil
-local editor_bool   = nil
-local val_label     = nil
-local status_node   = nil
-local demo_selector = nil
-local current_demo  = ""
-local edit_id       = nil   -- id of item being edited
+local tree_node       = nil
+local editor_key      = nil
+local editor_type     = nil
+local editor_val_str  = nil
+local editor_val_num  = nil
+local editor_bool     = nil
+local val_label       = nil
+local status_node     = nil
+local demo_selector   = nil
+local current_demo    = ""
+local edit_id         = nil
+local undo_btn        = nil
+local redo_btn        = nil
+local search_node     = nil
+local key_num_toggle  = nil
 
 -- ============================================================
 -- EDITOR ACTIONS
 -- ============================================================
+
+local function update_status(text)
+  if status_node then status_node:set("text", text) end
+end
 
 local function refresh_editor()
   if not tree_node then return end
@@ -272,9 +308,13 @@ local function refresh_editor()
     edit_id = nil
     if editor_key then editor_key:set("value", "") end
     if editor_type then editor_type:set("value", 0) end
-    if editor_val then
-      editor_val:set("value", "")
-      editor_val:set("enabled", 0)
+    if editor_val_str then
+      editor_val_str:set("value", "")
+      editor_val_str:set("enabled", 0)
+    end
+    if editor_val_num then
+      editor_val_num:set("value", 0)
+      editor_val_num:set("enabled", 0)
     end
     if editor_bool then
       editor_bool:set("value", 0)
@@ -298,35 +338,37 @@ local function refresh_editor()
   end
   if editor_type then editor_type:set("value", type_idx) end
 
-  -- Show/hide value vs bool widgets based on type
   if meta.type == "boolean" then
     if val_label then val_label:set("text", "Value:") end
-    if editor_val then
-      editor_val:set("value", meta.value and "true" or "false")
-      editor_val:set("enabled", 1)
-    end
+    if editor_val_str then editor_val_str:set("enabled", 0) end
+    if editor_val_num then editor_val_num:set("enabled", 0) end
     if editor_bool then
       editor_bool:set("value", meta.value and 1 or 0)
       editor_bool:set("enabled", 1)
     end
-  elseif meta.type == "string" or meta.type == "number" then
+  elseif meta.type == "string" then
     if val_label then val_label:set("text", "Value:") end
-    if editor_val then
-      local sv
-      if meta.type == "string" then sv = meta.value or ""
-      else sv = tostring(meta.value or 0) end
-      editor_val:set("value", sv)
-      editor_val:set("enabled", 1)
+    if editor_val_str then
+      editor_val_str:set("value", meta.value or "")
+      editor_val_str:set("enabled", 1)
     end
-    if editor_bool then
-      editor_bool:set("enabled", 0)
+    if editor_val_num then editor_val_num:set("enabled", 0) end
+    if editor_bool then editor_bool:set("enabled", 0) end
+  elseif meta.type == "number" then
+    if val_label then val_label:set("text", "Value:") end
+    if editor_val_str then editor_val_str:set("enabled", 0) end
+    if editor_val_num then
+      editor_val_num:set("value", meta.value or 0)
+      editor_val_num:set("enabled", 1)
     end
+    if editor_bool then editor_bool:set("enabled", 0) end
   else
     if val_label then val_label:set("text", "(read-only)") end
-    if editor_val then
-      editor_val:set("value", "")
-      editor_val:set("enabled", 0)
+    if editor_val_str then
+      editor_val_str:set("value", "")
+      editor_val_str:set("enabled", 0)
     end
+    if editor_val_num then editor_val_num:set("enabled", 0) end
     if editor_bool then editor_bool:set("enabled", 0) end
   end
 end
@@ -338,22 +380,18 @@ local function apply_edit()
 
   local parent = meta.parent
   local old_key = meta.key
-
-  -- Read new key
   local new_key_str = editor_key:get("value")
   if not new_key_str or new_key_str == "" then return end
 
-  -- Determine new type from dropdown
   local type_idx = editor_type:get("value")
   local type_names = {"string", "number", "boolean", "table", "array", "nil"}
   local new_type = type_names[type_idx + 1] or "string"
 
-  -- Parse value
   local new_val
   if new_type == "string" then
-    new_val = editor_val:get("value") or ""
+    new_val = editor_val_str:get("value") or ""
   elseif new_type == "number" then
-    new_val = tonumber(editor_val:get("value")) or 0
+    new_val = editor_val_num:get("value") or 0
   elseif new_type == "boolean" then
     new_val = editor_bool:get("value") > 0
   elseif new_type == "table" or new_type == "array" then
@@ -362,32 +400,55 @@ local function apply_edit()
     new_val = nil
   end
 
-  -- Determine final key type
-  local new_key = tonumber(new_key_str) or new_key_str
-
-  -- Update parent table
-  if old_key ~= new_key then
-    parent[old_key] = nil
+  local new_key
+  if key_numeric then
+    new_key = tonumber(new_key_str) or new_key_str
+  else
+    if new_key_str:match("^[+-]?%d+$") and not new_key_str:match("^0%d") then
+      new_key = tonumber(new_key_str) or new_key_str
+    else
+      new_key = new_key_str
+    end
   end
-  parent[new_key] = new_val
 
-  rebuild_tree(tree_node, data)
+  push_undo()
+
+  local is_scalar = (new_type == "string" or new_type == "number" or new_type == "boolean")
+  local type_changed = meta.type ~= new_type
+  local key_changed = (old_key ~= new_key)
+  local is_simple = is_scalar and not type_changed
+
+  if is_simple and not key_changed then
+    meta.value = new_val
+    local sel = tree_node:selected()
+    if sel then
+      sel:set_values({tostring(new_key), new_type, fmt_val(new_val)})
+    end
+  else
+    if old_key ~= new_key then
+      parent[old_key] = nil
+    end
+    parent[new_key] = new_val
+    rebuild_tree(tree_node, data)
+  end
+
   edit_id = nil
-  if status_node then
-    status_node:set("text", "Applied. Entries: " .. count_items(data))
-  end
+  update_status("Applied. Entries: " .. count_items(data))
+  if redo_btn then redo_btn:set("enabled", #redo_stack > 0 and 1 or 0) end
+  if undo_btn then undo_btn:set("enabled", #undo_stack > 0 and 1 or 0) end
 end
 
 local function delete_selected()
   if not edit_id then return end
   local meta = item_meta[edit_id]
   if not meta then return end
+  push_undo()
   meta.parent[meta.key] = nil
   rebuild_tree(tree_node, data)
   edit_id = nil
-  if status_node then
-    status_node:set("text", "Deleted. Entries: " .. count_items(data))
-  end
+  update_status("Deleted. Entries: " .. count_items(data))
+  if redo_btn then redo_btn:set("enabled", #redo_stack > 0 and 1 or 0) end
+  if undo_btn then undo_btn:set("enabled", #undo_stack > 0 and 1 or 0) end
 end
 
 local function add_row()
@@ -398,15 +459,40 @@ local function add_row()
       target = meta.value
     end
   end
+  push_undo()
   local base = "new"
   local i = 1
   while target[base .. i] ~= nil do i = i + 1 end
   target[base .. i] = ""
   rebuild_tree(tree_node, data)
   edit_id = nil
-  if status_node then
-    status_node:set("text", "Added entry. Entries: " .. count_items(data))
-  end
+  update_status("Added entry. Entries: " .. count_items(data))
+  if redo_btn then redo_btn:set("enabled", #redo_stack > 0 and 1 or 0) end
+  if undo_btn then undo_btn:set("enabled", #undo_stack > 0 and 1 or 0) end
+end
+
+local function undo_action()
+  if #undo_stack == 0 then return end
+  table.insert(redo_stack, table_deepcopy(data))
+  data = table.remove(undo_stack)
+  rebuild_tree(tree_node, data)
+  edit_id = nil
+  if editor_key then editor_key:set("value", "") end
+  if redo_btn then redo_btn:set("enabled", 1) end
+  if undo_btn then undo_btn:set("enabled", #undo_stack > 0 and 1 or 0) end
+  update_status("Undo. Entries: " .. count_items(data))
+end
+
+local function redo_action()
+  if #redo_stack == 0 then return end
+  table.insert(undo_stack, table_deepcopy(data))
+  data = table.remove(redo_stack)
+  rebuild_tree(tree_node, data)
+  edit_id = nil
+  if editor_key then editor_key:set("value", "") end
+  if undo_btn then undo_btn:set("enabled", 1) end
+  if redo_btn then redo_btn:set("enabled", #redo_stack > 0 and 1 or 0) end
+  update_status("Redo. Entries: " .. count_items(data))
 end
 
 local function export_table()
@@ -415,17 +501,106 @@ local function export_table()
   print("=== End ===\n")
 end
 
+local function export_to_file_via_browser()
+  local fb = bui.Node("filebrowser")
+  fb:set("mode", 1)
+  local default_name = (current_demo or "export"):gsub("%s+", "_") .. ".lua"
+  fb:set("file", default_name)
+  local fbx = bui.Context(fb)
+  if not fbx then return end
+  local fbw = bui.Window(fbx, "Export: " .. current_demo, 800, 500)
+  if not fbw then
+    fbx:free()
+    return
+  end
+  fbw:show()
+  while fb:get("state") == 0 and fbw:is_open() do
+    bui.pump()
+  end
+  local state = fb:get("state")
+  local result_path = nil
+  if state > 0 then
+    local r = fb:strs("result")
+    result_path = r and r[1]
+  end
+  if fbw:is_open() then fbw:close() end
+  fbx:free()
+  if result_path then
+    local fh, err = io.open(result_path, "w")
+    if fh then
+      fh:write(serialize(data))
+      fh:close()
+      update_status("Exported to " .. result_path)
+    else
+      update_status("Export error: " .. tostring(err))
+    end
+  end
+end
+
+local function search_filter()
+  if not tree_node or not search_node then return end
+  local query = search_node:get("value") or ""
+  if query == "" then
+    rebuild_tree(tree_node, data)
+    return
+  end
+  local q = query:lower()
+  local function matches(key, val)
+    return tostring(key):lower():find(q, 1, true) or
+           fmt_val(val):lower():find(q, 1, true)
+  end
+  local function should_include(t, path)
+    for k, v in pairs(t) do
+      if matches(k, v) then return true end
+      if type(v) == "table" and should_include(v, path) then return true end
+    end
+    return false
+  end
+  id_counter = 1000
+  item_meta = {}
+  local items = {}
+  for k, v in sorted_pairs(data) do
+    if matches(k, v) or (type(v) == "table" and should_include(v, {})) then
+      local key_str = tostring(k)
+      local vt = lua_type_name(v)
+      local item = bui.TreeItem(key_str, 0)
+      item:set_values({key_str, vt, fmt_val(v)})
+      local id = next_id()
+      item:set("_id", id)
+      item_meta[id] = {
+        type   = vt,
+        key    = k,
+        value  = v,
+        parent = data,
+        id     = id,
+        item   = item,
+      }
+      if type(v) == "table" then
+        build_subtree(item, v, v)
+      end
+      items[#items + 1] = item
+    end
+  end
+  tree_node:set_roots(items)
+  tree_node:relayout()
+  update_status("Search: " .. #items .. " matches | Entries: " .. count_items(data))
+end
+
 local function switch_demo(name, t)
   current_demo = name
   data = t
   item_meta = {}
+  undo_stack = {}
+  redo_stack = {}
   rebuild_tree(tree_node, data)
-  if status_node then
-    status_node:set("text", "Loaded: " .. name .. " | Entries: " .. count_items(data))
-  end
+  if undo_btn then undo_btn:set("enabled", 0) end
+  if redo_btn then redo_btn:set("enabled", 0) end
+  if search_node then search_node:set("value", "") end
+  update_status("Loaded: " .. name .. " | Entries: " .. count_items(data))
   edit_id = nil
   if editor_key then editor_key:set("value", "") end
-  if editor_val then editor_val:set("value", "") end
+  if editor_val_str then editor_val_str:set("value", "") end
+  if editor_val_num then editor_val_num:set("value", 0) end
 end
 
 -- ============================================================
@@ -444,7 +619,6 @@ local function build_ui()
   title_lbl:set("text", "Lua Table Editor")
   tb:add(title_lbl)
 
-  -- Demo selector dropdown
   local demo_dd = bui.Node("dropdown")
   local demo_names = {}
   for name in pairs(DEMOS) do demo_names[#demo_names + 1] = name end
@@ -457,6 +631,17 @@ local function build_ui()
   end)
   tb:add(demo_dd)
   demo_dd:geom(bui.GEOM_PACK, {fill = 1, side = 1})
+
+  local search = bui.Node("text")
+  search:set("placeholder", "Search...")
+  search:on(bui.EV_CHANGE, function()
+    search_filter()
+  end)
+  tb:add(search)
+  search:geom(bui.GEOM_PACK, {fill = 1, side = 1})
+  search_node = search
+
+  tb:add(bui.Node("separator"))
 
   local add_btn = bui.Node("button")
   add_btn:set("text", "+ Add")
@@ -476,6 +661,30 @@ local function build_ui()
   tb:add(exp_btn)
   exp_btn:geom(bui.GEOM_PACK, {side = 1})
 
+  local expf_btn = bui.Node("button")
+  expf_btn:set("text", "Save...")
+  expf_btn:on(bui.EV_CLICK, export_to_file_via_browser)
+  tb:add(expf_btn)
+  expf_btn:geom(bui.GEOM_PACK, {side = 1})
+
+  tb:add(bui.Node("separator"))
+
+  local ub = bui.Node("button")
+  ub:set("text", "Undo")
+  ub:set("enabled", 0)
+  ub:on(bui.EV_CLICK, undo_action)
+  tb:add(ub)
+  ub:geom(bui.GEOM_PACK, {side = 1})
+  undo_btn = ub
+
+  local rb = bui.Node("button")
+  rb:set("text", "Redo")
+  rb:set("enabled", 0)
+  rb:on(bui.EV_CLICK, redo_action)
+  tb:add(rb)
+  rb:geom(bui.GEOM_PACK, {side = 1})
+  redo_btn = rb
+
   root:add(tb)
 
   -- === Main: tree + editor side panel ===
@@ -491,61 +700,84 @@ local function build_ui()
   main_row:add(tree)
   tree_node = tree
 
-  -- Editor side panel
-  local ep = bui.Node("column")
-  ep:set("padding", 6)
+  -- Editor side panel (collapsible)
+  local ep = bui.Node("panel")
+  ep:set("text", "Edit Entry")
+  ep:set("collapsed", 0)
 
-  local ep_header = bui.Node("label")
-  ep_header:set("text", "Edit Entry")
-  ep:add(ep_header)
+  local body = ep:child(0)
+  if not body then
+    body = bui.Node("column")
+    body:set("padding", 4)
+    ep:add(body)
+  end
+  body:set("padding", 4)
 
   -- Key
   local kl = bui.Node("label")
   kl:set("text", "Key:")
-  ep:add(kl)
+  body:add(kl)
   editor_key = bui.Node("text")
   editor_key:set("placeholder", "key name")
-  ep:add(editor_key)
+  body:add(editor_key)
+
+  -- Numeric key toggle
+  local num_key_row = bui.Node("row")
+  num_key_row:set("padding", 2)
+  local nkl = bui.Node("label")
+  nkl:set("text", "Numeric key:")
+  num_key_row:add(nkl)
+  key_num_toggle = bui.Node("toggle")
+  key_num_toggle:set("value", 0)
+  key_num_toggle:on(bui.EV_CHANGE, function()
+    key_numeric = key_num_toggle:get("value") > 0
+  end)
+  num_key_row:add(key_num_toggle)
+  body:add(num_key_row)
 
   -- Type
   local tl = bui.Node("label")
   tl:set("text", "Type:")
-  ep:add(tl)
+  body:add(tl)
   editor_type = bui.Node("dropdown")
   editor_type:set_strs("items", {"string", "number", "boolean", "table", "array", "nil"})
   editor_type:on(bui.EV_CHANGE, function()
-    -- Refresh the value widget when type changes
     refresh_editor()
   end)
-  ep:add(editor_type)
+  body:add(editor_type)
 
-  -- Value
+  -- Value — type-aware widgets
   val_label = bui.Node("label")
   val_label:set("text", "Value:")
-  ep:add(val_label)
+  body:add(val_label)
 
-  editor_val = bui.Node("text")
-  editor_val:set("placeholder", "value")
-  editor_val:on(bui.EV_SUBMIT, function()
-    -- Press Enter in value field → apply
+  editor_val_str = bui.Node("text")
+  editor_val_str:set("placeholder", "value")
+  editor_val_str:on(bui.EV_SUBMIT, function()
     apply_edit()
   end)
-  ep:add(editor_val)
+  body:add(editor_val_str)
+
+  editor_val_num = bui.Node("number")
+  editor_val_num:set("min", -1e15)
+  editor_val_num:set("max", 1e15)
+  editor_val_num:set("enabled", 0)
+  body:add(editor_val_num)
 
   -- Boolean toggle
   local bl = bui.Node("label")
   bl:set("text", "Toggle:")
-  ep:add(bl)
+  body:add(bl)
   editor_bool = bui.Node("toggle")
   editor_bool:set("text", "Enabled")
   editor_bool:set("value", 0)
-  ep:add(editor_bool)
+  body:add(editor_bool)
 
   -- Apply
   local apply_btn = bui.Node("button")
   apply_btn:set("text", "Apply")
   apply_btn:on(bui.EV_CLICK, apply_edit)
-  ep:add(apply_btn)
+  body:add(apply_btn)
   apply_btn:geom(bui.GEOM_PACK, {fill = 1, pady0 = 4})
 
   local clear_btn = bui.Node("button")
@@ -554,10 +786,11 @@ local function build_ui()
     edit_id = nil
     editor_key:set("value", "")
     editor_type:set("value", 0)
-    editor_val:set("value", "")
+    editor_val_str:set("value", "")
+    editor_val_num:set("value", 0)
     editor_bool:set("value", 0)
   end)
-  ep:add(clear_btn)
+  body:add(clear_btn)
   clear_btn:geom(bui.GEOM_PACK, {fill = 1, pady0 = 2})
 
   main_row:add(ep)
@@ -571,21 +804,26 @@ local function build_ui()
   local first_name = demo_names[1]
   switch_demo(first_name, DEMOS[first_name])
   if demo_dd then demo_dd:set("value", 0) end
+  if search_node then search_node:set("value", "") end
 
-  return root
+  return root, tree
 end
 
 -- ============================================================
 -- MAIN
 -- ============================================================
 
-print("Lua Table Editor v0.1")
+print("Lua Table Editor v0.2")
 print("3 demos: Person Record, Project Config, Game State")
 print("Select a demo from the dropdown, then edit entries.")
-print("Export prints serialized Lua to stdout.\n")
+print("Export to stdout | Save... to file | Ctrl+Z / Ctrl+Shift+Z for undo/redo\n")
 
 local ui_root = build_ui()
 local ctx = bui.Context(ui_root)
+
+ctx:bind("ctrl+z", undo_action)
+ctx:bind("ctrl+shift+z", redo_action)
+
 local win = bui.Window(ctx, "Lua Table Editor", 800, 550)
 
 if win then

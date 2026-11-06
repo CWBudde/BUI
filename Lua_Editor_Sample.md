@@ -255,15 +255,37 @@ Demonstrates arrays of primitives, deeply nested stat blocks, empty tables (`fai
 
 ---
 
-## Limitations & Future Work
+## Other Lua Examples
 
-| Limitation | Future Enhancement |
-|------------|-------------------|
-| Single text field for string+number | Type-aware widget swap (number → `number` node, boolean → `toggle`) |
-| Editor panel fixed on right | Collapsible/resizable panel |
-| No undo/redo | Leverage `BK_undo` / `BK_redo` |
-| Export only to stdout | Write to file via `bui.filebrowser` |
-| Tree rebuilt on every edit | Targeted subtree replacement |
-| Key rename uses text parse | Proper numeric vs string key detection in editor |
-| Object type is always plain table | Add metatable awareness |
-| No search/filter | Add search field that filters tree items |
+For parity with other BUI binding examples, these Lua examples have been
+ported alongside the editor:
+
+| Example | Ported From | Demonstrates |
+|---------|------------|-------------|
+| `bindings/lua/examples/hello.lua` | Rust `hello.rs`, Python `hello` | Minimal app, `bui.run()` |
+| `bindings/lua/examples/counter.lua` | Rust `counter.rs`, Node `counter.js` | Stateful callbacks, `bui.EV_CLICK` |
+| `bindings/lua/examples/todos.lua` | Rust `site_components.rs` | List management, text input |
+| `bindings/lua/examples/gallery.lua` | Rust `showcase.rs` (widgets) | Widget showcase: button, toggle, checkbox, text, search, number, slider, dropdown, progress, label |
+| `bindings/lua/examples/forms.lua` | Rust `forms.rs`, Python `components_demo.py` | All major widget types: button, toggle, checkbox, text, search, hotkey, number, slider, dropdown, enum, radio, swatch, progress, meter, color swatch/picker, decorator |
+| `bindings/lua/examples/dashboard.lua` | Rust `site_dashboard.rs` | Complex layout: tabs, panels, progress bars, tab switching via `node:remove()`/`node:add()`, settings forms |
+| `bindings/lua/examples/anim.lua` | Rust `site_animation.rs` | Pump-driven frame loop (progress sine wave, HSV color cycling, wave slider, frame counter), toggle play/pause, reset |
+| `bindings/lua/examples/lua_table_editor.lua` | Original | Full table editor (see below) |
+
+---
+
+## Implementation Status
+
+All limitations from the original design have been addressed in the current
+implementation (`bindings/lua/examples/lua_table_editor.lua`):
+
+| Feature | Implementation | Status |
+|---------|---------------|--------|
+| Type-aware widget swap | Dynamic swap between `text`, `number`, and `toggle` widgets per entry type | ✅ |
+| Collapsible editor panel | Uses BUI `panel` node with native collapse support | ✅ |
+| Undo/redo | Lua-side snapshot stack with Ctrl+Z / Ctrl+Shift+Z + toolbar buttons | ✅ |
+| Export to file | File browser dialog via `bui.Node("filebrowser")` blocking pump loop (same pattern as C `BK_file_dialog`) | ✅ |
+| Targeted subtree replacement | In-place `set_values()` for scalar edits; full rebuild only for structural changes | ✅ |
+| Numeric/string key detection | Auto-detection (pure integer → number) + explicit "Numeric key" toggle | ✅ |
+| Metatable awareness | `lua_type_name()` and `fmt_val()` check `getmetatable()` for `__name`/`__type` | ✅ |
+| Search/filter | Real-time text search via `bui.EV_CHANGE` on a `text` node; filters tree by key/value | ✅ |
+| Keyboard shortcuts | `ctx:bind("ctrl+z", ...)` and `ctx:bind("ctrl+shift+z", ...)` | ✅ |

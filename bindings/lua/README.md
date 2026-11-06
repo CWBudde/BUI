@@ -84,8 +84,25 @@ ctx:key("a", "a", 0)
 ## Examples
 
 ```sh
-./bui-lua bindings/lua/examples/hello.lua
-./bui-lua bindings/lua/examples/counter.lua
-./bui-lua bindings/lua/examples/todos.lua
-./bui-lua bindings/lua/examples/gallery.lua
+./bui-lua bindings/lua/examples/hello.lua         # minimal button (entry point)
+./bui-lua bindings/lua/examples/counter.lua       # counter with increment/decrement/reset
+./bui-lua bindings/lua/examples/todos.lua         # todo list manager
+./bui-lua bindings/lua/examples/gallery.lua       # widget gallery (button, toggle, checkbox,
+                                                   #   text, search, number, slider, dropdown,
+                                                   #   progress, label)
+./bui-lua bindings/lua/examples/forms.lua          # full form controls (ALL widget types:
+                                                   #   button, toggle, checkbox, text, search,
+                                                   #   hotkey, number, slider, dropdown, enum,
+                                                   #   radio, swatch, progress, meter, color,
+                                                   #   decorator)
+./bui-lua bindings/lua/examples/dashboard.lua     # render-farm dashboard with tabs, panels,
+                                                   #   progress bars, node status, settings
+./bui-lua bindings/lua/examples/anim.lua           # pump-driven animation loop (progress,
+                                                   #   color cycling, wave slider, frame
+                                                   #   counter)
+./bui-lua bindings/lua/examples/lua_table_editor.lua  # full-featured interactive Lua table
+                                                       # editor (tree view, type-aware editing,
+                                                       # collapsible panel, undo/redo,
+                                                       # search/filter, export, metatable
+                                                       # display, Ctrl+Z / Ctrl+Shift+Z)
 ```
