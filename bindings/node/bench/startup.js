@@ -55,7 +55,8 @@ for (const [name, file, args, sized] of variants) {
   console.log(JSON.stringify({
     framework: svelte ? 'svelte' : 'react',
     runtime: name,
-    launch_to_exit_ms: { median: +median(wall).toFixed(0), best: +Math.min(...wall).toFixed(0) },
+    // null: every launch failed at exit
+    launch_to_exit_ms: wall.length ? { median: +median(wall).toFixed(0), best: +Math.min(...wall).toFixed(0) } : null,
     first_frame_ms: { median: +median(first).toFixed(0), best: +Math.min(...first).toFixed(0) },
     rss_at_first_frame_mb: +median(rss).toFixed(1),
     size_mb: sized ? +(fs.statSync(file).size / 1048576).toFixed(1) : null,
