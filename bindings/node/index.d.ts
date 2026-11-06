@@ -43,22 +43,50 @@ export class BuiEvent {
   timeStamp: number
   preventDefault (): void
   stopPropagation (): void
+  stopImmediatePropagation (): void
+  /** Set by stopPropagation(). */
+  cancelBubble: boolean
+  /** The target and its ancestors, innermost first. */
+  composedPath (): Element[]
 }
 
+/** A node lives in a window (`ownerWindow`) or is detached (made by
+ *  `document` or `cloneNode`): it is created natively, with its subtree, when
+ *  inserted into a window's tree. */
 export class Node {
-  readonly ownerWindow: Window
+  readonly ownerWindow: Window | null
+  /** The native id (-1 while detached). */
   readonly id: number
-  parentNode: Element | null
-  childNodes: Node[]
+  readonly nodeType: number
+  readonly nodeName: string
+  readonly parentNode: Element | DocumentFragment | null
+  readonly parentElement: Element | DocumentFragment | null
+  /** The children (a new array each time). */
+  readonly childNodes: Node[]
   readonly firstChild: Node | null
   readonly lastChild: Node | null
   readonly nextSibling: Node | null
+  readonly previousSibling: Node | null
+  /** Under a window's body. */
+  readonly isConnected: boolean
+  readonly ownerDocument: Document
   textContent: string
   appendChild<T extends Node> (child: T): T
   insertBefore<T extends Node> (child: T, before: Node | null): T
   removeChild<T extends Node> (child: T): T
+  replaceChild<T extends Node> (child: Node, old: T): T
   remove (): void
-  /** Free the node and its subtree natively (after removing it). */
+  before (...nodes: (Node | string)[]): void
+  after (...nodes: (Node | string)[]): void
+  append (...nodes: (Node | string)[]): void
+  prepend (...nodes: (Node | string)[]): void
+  replaceWith (...nodes: (Node | string)[]): void
+  contains (other: Node | null): boolean
+  hasChildNodes (): boolean
+  /** A detached copy (and its subtree when `deep`); listeners aren't copied. */
+  cloneNode (deep?: boolean): this
+  /** Free the node and its subtree natively (after removing it). Nodes made
+   *  by `document` are freed for you once removed and dropped. */
   destroy (): void
 }
 
@@ -68,32 +96,101 @@ export class TextNode extends Node {
   nodeValue: string
 }
 
+/** A comment (an anchor for DOM frameworks): natively an empty text node. */
+export class Comment extends Node {
+  data: string
+  nodeValue: string
+}
+
+/** Nodes inserted together: inserting the fragment moves its children. */
+export class DocumentFragment extends Node {}
+
+/** `el.style`: the inline style. */
+export interface Style {
+  cssText: string
+  getPropertyValue (name: string): string
+  setProperty (name: string, value: string | null, priority?: string): void
+  removeProperty (name: string): string
+}
+
+export interface ClassList {
+  readonly value: string
+  readonly length: number
+  add (...names: string[]): void
+  remove (...names: string[]): void
+  toggle (name: string, force?: boolean): boolean
+  contains (name: string): boolean
+}
+
+type StyleValue = string | Record<string, string | number | null | undefined>
+
 export class Element extends Node {
   readonly tagName: string
   readonly localName: string
+  readonly namespaceURI: string
+  readonly children: Element[]
   className: string
-  /** CSS text, or an object such as `{ backgroundColor: 'red', width: 40 }`. */
-  style: string | Record<string, string | number | null | undefined> | ReadSignal<string | Record<string, string | number | null | undefined>>
-  /** Form controls: the latest value from input / change events. */
-  value?: string
-  checked?: boolean
+  readonly classList: ClassList
+  /** Reads the inline style; takes CSS text, an object such as
+   *  `{ backgroundColor: 'red', width: 40 }`, or a signal of either. */
+  get style (): Style
+  set style (v: StyleValue | ReadSignal<StyleValue> | null)
   /** A value, or a signal: the attribute then follows it (null / false removes it). */
   setAttribute (name: string, value: unknown): void
   getAttribute (name: string): string | null
   hasAttribute (name: string): boolean
   removeAttribute (name: string): void
-  addEventListener (type: EventType, listener: (event: BuiEvent) => void): void
-  removeEventListener (type: EventType, listener: (event: BuiEvent) => void): void
+  toggleAttribute (name: string, force?: boolean): boolean
+  getAttributeNames (): string[]
+  /** Any type; BUI's own (`EventType`) arrive from the UI thread. */
+  addEventListener (type: EventType | (string & {}), listener: (event: BuiEvent) => void, options?: unknown): void
+  removeEventListener (type: EventType | (string & {}), listener: (event: BuiEvent) => void, options?: unknown): void
+  /** Run the listeners for `event.type` here (and up, if it bubbles). */
+  dispatchEvent (event: { type: string, bubbles?: boolean }): boolean
+  /** Web Animations aren't run: the animation finishes at once. */
+  animate (keyframes?: unknown, options?: unknown): { onfinish: (() => void) | null, cancel (): void, finished: Promise<unknown> }
   getBoundingClientRect (): Promise<{ x: number, y: number, width: number, height: number } | null>
 }
+
+/** An HTML element: its DOM properties reflect attributes. */
+export class HTMLElement extends Element {
+  /** Form controls: the latest value from input / change events, else the attribute. */
+  value: string
+  checked: boolean
+  disabled: boolean
+  hidden: boolean
+  type: string
+}
+
+/** The window-less document: its nodes are detached until inserted into a
+ *  window's tree. DOM frameworks use it through `@blender-ui/native/globals`. */
+export class Document {
+  readonly head: HTMLElement
+  /** Capitalized tags are Blender's widgets. */
+  createElement (tag: string): HTMLElement
+  createElementNS (ns: string, tag: string): HTMLElement
+  createTextNode (text: string | ReadSignal<unknown>): TextNode
+  createComment (data?: string): Comment
+  createDocumentFragment (): DocumentFragment
+  importNode<T extends Node> (node: T, deep?: boolean): T
+}
+export const document: Document
+
+/** BUI's event types and their native bits. */
+export const EVENT_BITS: Record<EventType, number>
+/** Capitalized Blender widgets: [HTML tag, input type]. */
+export const BLENDER_COMPONENTS: Record<string, [string, string?]>
 
 export class Window {
   readonly app: App
   readonly id: number
-  readonly body: Element
+  readonly body: HTMLElement
   closed: boolean
-  createElement (tag: string): Element
+  /** Capitalized tags are Blender's widgets (`Button`, `NumberSlider` ...). */
+  createElement (tag: string): HTMLElement
   createTextNode (text: string | ReadSignal<unknown>): TextNode
+  createComment (data?: string): Comment
+  createDocumentFragment (): DocumentFragment
   /** Send pending changes now (they are otherwise sent once per tick). */
   flush (): void
   /** Run `cb` before the next frame, paced by the display. */

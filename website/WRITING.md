@@ -566,6 +566,7 @@ Already written: `start/introduction`, `start/installation`,
 | --- | --- | --- |
 | `native-api.mdx` | 10 | `@blender-ui/native`: `App`, windows, `createElement`, attributes, events, `requestAnimationFrame`, headless mode. Source: `docs/javascript.md#plain-javascript` |
 | `react.mdx` | 20 | `@blender-ui/react`: `render`, JSX setup (`jsxImportSource`), host components, Blender components, Suspense and transitions. Source: `docs/javascript.md#react` |
+| `svelte.mdx` | 25 | `@blender-ui/svelte`: `render`, `register` (Node.js, Bun), elements and events, Blender components, scoped styles, signals as stores, `bui build`. Source: `docs/javascript.md#svelte` |
 | `signals.mdx` | 30 | Hooks that hold signals: pass `{count}` to update one node, read `count.value` to re-render; the conformance suite. Source: `docs/javascript.md#hooks-and-signals` |
 | `standalone-executables.mdx` | 40 | `bui build` (QuickJS, ~5 MB), `--bun`, `--console`, `--dev`, `bui run`. Source: `docs/javascript.md#standalone-apps` |
 

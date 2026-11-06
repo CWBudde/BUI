@@ -1,0 +1,75 @@
+{
+  "name": "@blender-ui/svelte",
+  "version": "0.1.0",
+  "description": "Svelte 5 for BUI: Blender's UI in native windows from Svelte components, runes and snippets. Node.js and Bun.",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "svelte": "index.js",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./internal": "./internal.js",
+    "./register": "./register.js",
+    "./plugin": "./plugin.js",
+    "./compile": "./compile.js",
+    "./package.json": "./package.json"
+  },
+  "bui": {
+    "bunPlugin": "./plugin.js"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "events.js",
+    "internal.js",
+    "Widget.svelte",
+    "compile.js",
+    "plugin.js",
+    "register.js",
+    "runtime.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --import ./register.js --test test/*.test.js",
+    "prepublishOnly": "node --import ./register.js --test test/*.test.js",
+    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\"",
+    "postpack": "node -e \"require('fs').rmSync('LICENSE', { force: true })\""
+  },
+  "engines": {
+    "node": ">=22.15"
+  },
+  "dependencies": {
+    "@blender-ui/native": "^0.2.1"
+  },
+  "peerDependencies": {
+    "svelte": "^5.57.0"
+  },
+  "devDependencies": {
+    "svelte": "5.57.3"
+  },
+  "license": "GPL-2.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ppmpreetham/BUI.git",
+    "directory": "bindings/svelte"
+  },
+  "homepage": "https://bui.preetham.top",
+  "bugs": {
+    "url": "https://github.com/ppmpreetham/BUI/issues"
+  },
+  "keywords": [
+    "svelte",
+    "svelte5",
+    "runes",
+    "blender",
+    "ui",
+    "desktop",
+    "native",
+    "tailwind",
+    "bun"
+  ]
+}

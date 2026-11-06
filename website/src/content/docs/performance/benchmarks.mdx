@@ -101,6 +101,21 @@ More results, at 100 and 1,000 cells:
 - **Signals make React as cheap as the plain API:** the component doesn't re-render.
 - **QuickJS** starts fastest and uses the least memory, from a 7 MB file. It has no JIT, so re-rendering a 3,000-element list every frame drops it to 20 FPS. Keep big lists on signals, or build with `--bun`.
 
+### React and Svelte, side by side
+
+**What was measured:** the same scenes from `@blender-ui/react` and `@blender-ui/svelte`, in one session, runs interleaved (`bench/cells.js --react | --svelte [--signals]`, `bench/startup.js [--svelte]`). This session's machine ran every variant at 26–29 FPS, so compare these rows with each other, not with the tables above. Besides CPU per frame (mostly BUI's own rendering here), `cells.js` reports the JavaScript cost of one update alone.
+
+<BenchChart id="js-frameworks-update" />
+
+<BenchTable id="jsFrameworksBefore" />
+
+<BenchTable id="jsFrameworksStartup" />
+
+- **Svelte with signals costs what React with signals does:** a BUI signal passed as a value binds its node, so an update skips Svelte entirely (17–36 µs, against 17–40 µs for React).
+- **Svelte with runes** pays Svelte's flush, which walks the component's effects: 65–76 µs on Node.js and Bun, 790 µs on QuickJS (no JIT) for 3,000 cells. Per frame, that's within the noise of BUI's rendering.
+- **Memory:** Svelte keeps 10–17 MB more than React with signals at 3,000 cells. A heap snapshot puts it in Svelte's own effects, closures and each-block items (about 1.9 KB per cell); BUI's nodes are the same objects for both.
+- **Startup:** with its runtime bundled, a Svelte app reaches its first frame within 10–15 ms of a React one on Node.js and Bun (it was 0.1–0.3 s later), and as fast as React's when built with `bui build`.
+
 <Callout type="joke">
 Unlike a Cycles render, these numbers don't get any less noisy if you leave them running overnight. Run each benchmark a few times instead.
 </Callout>

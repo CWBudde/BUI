@@ -10,7 +10,7 @@ export const sections = [
   { label: "Tutorials", blurb: "Build a first app, one language at a time", icon: "graduation-cap" },
   { label: "Python", blurb: "tkinter, Qt syntax and Blender components", icon: "file-py" },
   { label: "Rust", blurb: "HTML, CSS, Tailwind, rsx! and hooks, natively", icon: "file-rs" },
-  { label: "JavaScript & React", blurb: "Node.js, Bun, React and standalone apps", icon: "file-js" },
+  { label: "JavaScript & React", blurb: "Node.js, Bun, React, Svelte and standalone apps", icon: "file-js" },
   { label: "Dear ImGui", blurb: "The real Dear ImGui, in Blender's theme", icon: "squares-four" },
   { label: "C & C++", blurb: "The C kit and embedding BUI in your host", icon: "file-c" },
   { label: "Concepts", blurb: "How BUI works under the hood", icon: "lightbulb-filament" },

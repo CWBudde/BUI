@@ -1,4 +1,4 @@
-# JavaScript and React
+# JavaScript, React and Svelte
 
 BUI runs from JavaScript through a native addon built with napi-rs, much as
 [GPUIX](https://www.npmjs.com/package/@gpuix/react) drives GPUI. You get native
@@ -12,6 +12,7 @@ engine ([Standalone apps](#standalone-apps)).
 |---|---|
 | [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native) (`bindings/node`) | A DOM-like API (`createElement`, `setAttribute`, `appendChild`, `addEventListener`, `requestAnimationFrame`) and signals |
 | [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react) (`bindings/react`) | A React 19.3 renderer; React's hooks by React's names, backed by signals |
+| [`@blender-ui/svelte`](https://www.npmjs.com/package/@blender-ui/svelte) (`bindings/svelte`) | Svelte 5 components (runes, snippets, scoped styles) on the DOM-like API |
 
 **Platforms:** prebuilt for Windows x64. On Linux, build the addon from
 source (see [Building](#building)); windows are native X11 windows, on the CPU or
@@ -72,6 +73,14 @@ The tree behaves like the DOM:
 - **Errors:** inserting a node into itself, or before a node that isn't a
   child, throws.
 - **Freeing nodes:** `destroy()` frees a removed subtree natively.
+- **DOM methods:** `before`, `after`, `append`, `prepend`, `replaceWith`,
+  `cloneNode`, `contains`, `dispatchEvent`, `el.style.setProperty`,
+  `el.classList`, and DOM properties that reflect attributes (`disabled`,
+  `hidden`, `value`, `checked`, `type` ...). Siblings are a linked list.
+- **`document`** makes detached nodes, which are created natively (with their
+  subtree) when inserted into a window's tree; fragments and comments work as
+  in the DOM, and a removed node made by `document` that isn't reinserted by
+  the end of the tick is freed for you.
 
 ## React
 
@@ -111,6 +120,71 @@ Host components are HTML elements, as in React DOM:
 `<Suspense>`, `<Activity>`, transitions, actions and `<ViewTransition>` work;
 view transitions commit without animating. `createRoot(window)` renders into a
 window you opened yourself, and closing the window unmounts its root.
+
+## Svelte
+
+```svelte
+<!-- Counter.svelte -->
+<script>
+  import { Button } from '@blender-ui/svelte'
+  let count = $state(0)
+</script>
+
+<main class="p-6 flex flex-col gap-3">
+  <span>Clicks: {count}</span>
+  <Button onclick={() => count++}>Add one</Button>
+</main>
+```
+
+```js
+// app.js: node --import @blender-ui/svelte/register app.js
+//         (or bun --preload @blender-ui/svelte/register app.js, or npx bui build app.js)
+import { render } from '@blender-ui/svelte'
+import Counter from './Counter.svelte'
+
+render(Counter, { title: 'BUI + Svelte', width: 420, height: 220, gpu: true })
+```
+
+`@blender-ui/svelte` mirrors `@blender-ui/react`: `render(Component, { props,
+context, ...windowOptions })`, `createRoot(window)`, `act(fn)` (Svelte's
+`flushSync`), Blender's widgets as components and BUI's signals, each of which
+is a Svelte store (`$count`). Svelte 5.57 or newer; Node.js 22.15 or newer.
+
+- **How it renders.** Svelte has no custom-renderer API: compiled components
+  call the DOM. `@blender-ui/native/globals` provides it (`document`,
+  `window`, the node classes), on the same retained tree React uses, so only
+  each tick's changes cross to the UI thread. Components compile with
+  `fragments: 'tree'` (templates from `createElement`, no HTML parser).
+- **`register`** compiles `.svelte` and `.svelte.js` files on import (cached in
+  `node_modules/.cache/@blender-ui/svelte`) and resolves `svelte` to its
+  browser build; `bui build` finds the same plugin by itself.
+- **Events:** Svelte delegates `onclick` and friends to the window's body; an
+  element with a delegated handler listens natively, so BUI sends it its
+  events, and Svelte bubbles them through `event.composedPath()`.
+- **Styles:** a component's scoped `<style>` is added to each window once.
+- **Not yet:** transitions run their start and end without animating in
+  between; `{@html}` and size bindings (`bind:clientWidth`) aren't there.
+
+## Bindings for other frameworks
+
+React and Svelte are thin adapters over one shared layer, and a new binding
+(Vue, Solid, Lit ...) plugs in the same way:
+
+| Shared piece | What it gives a binding |
+|---|---|
+| `@blender-ui/native` (`dom.js`) | The tree: elements, text, comments, fragments, events, `document` |
+| `@blender-ui/native/host` | `open(options)`: the App and window behind `render(..., options)`; `blenderWidgets(wrap)`: Blender's widgets as the framework's components; `applyProps(el, prev, next)`: JSX-style props (`className`, `style` objects, `onClick`, signals) |
+| `@blender-ui/native/globals` | `document`, `window`, the node classes and `requestAnimationFrame` as globals, for frameworks whose compiled code calls the DOM |
+| `bui build` | Bundles with the Bun plugin of every `@blender-ui/*` package whose `package.json` has `"bui": { "bunPlugin": "./plugin.js" }` |
+
+- **A prop-based renderer** (React's reconciler, Vue's `createRenderer`,
+  Solid's `universal` renderer) maps its node operations to
+  `window.createElement` / `insertBefore` / `removeChild` and its props to
+  `applyProps`.
+- **A DOM-based framework** (Svelte, Solid's DOM output, Lit) imports
+  `@blender-ui/native/globals` and mounts into `window.body`.
+- **A compiler** (Svelte's, Vue's single-file components) ships a Bun plugin and
+  declares it in `package.json`, and `bui build` picks it up.
 
 ## Hooks and signals
 
@@ -236,7 +310,10 @@ Options:
 - `-o <file>`: the output file.
 - `--console`: keep a console window for logs. By default, Windows builds open
   no console.
-- `--dev`: use React's development build.
+- `--dev`: development builds (React's, Svelte's dev mode).
+
+Framework packages add their bundler plugins: with `@blender-ui/svelte`
+installed, `.svelte` files bundle as they are.
 
 **The default build** is `bui-runtime`, BUI with an embedded
 [QuickJS](https://github.com/quickjs-ng/quickjs) engine (7.1 MB), with your
@@ -310,8 +387,10 @@ autoplay, `autoPlay={false}` holds the first frame); no media events yet.
   JavaScript makes in its callback join that frame, so there is one rebuild
   per frame.
 - **Freeing.** Nodes that React removes, or creates in a render it throws away
-  (an interrupted or suspended concurrent render), are freed natively. So is
-  a closed window's tree: its bindings and listeners are released.
+  (an interrupted or suspended concurrent render), are freed natively. Nodes
+  Svelte drops (removed from a window and not reinserted by the end of the
+  tick) are freed too. So is a closed window's tree: its bindings and
+  listeners are released.
 
 ## Performance
 
@@ -411,15 +490,61 @@ Where the memory goes, for plain JS on Node at 3,000 cells:
   its own copy of the tree.
 - **JavaScript objects:** a few MB live.
 
+### React and Svelte
+
+The same scenes from `@blender-ui/react` and `@blender-ui/svelte`
+(`bench/cells.js 3000 --gpu --react|--svelte [--signals]`, `bench/startup.js
+[--svelte]`), on the Ryzen 7 5800U laptop, Windows 11, Node.js 26.13, Bun
+1.4.4, in one session (2026-11-06): cells runs interleaved, medians of 3, with
+the previous Svelte binding (`Svelte before`) in the same session.
+
+| 3,000 cells, one session (Node 26 / Bun 1.4 / QuickJS) | CPU per frame         | RAM              | JavaScript per update   |
+| ----------------------------------------------------- | --------------------: | ---------------: | ----------------------: |
+| Plain JS                                              | 37.0 / 37.4 / 38.6 ms | 92 / 81 / 59 MB  | 14 / 13 / 28 µs         |
+| React with signals                                    | 37.6 / 38.4 / 37.8 ms | 100 / 87 / 60 MB | 23 / 17 / 40 µs         |
+| Svelte with signals (as values)                       | 39.0 / 36.8 / 38.5 ms | 116 / 97 / 75 MB | 17 / 19 / 36 µs         |
+| Svelte with runes                                     | 39.4 / 35.9 / 37.0 ms | 117 / 98 / 75 MB | 65 / 76 / 790 µs        |
+| React with state                                      | 38.1 ms on Node       | 166 MB on Node   | 5.2 / 8.6 / 76 ms       |
+
+| First frame, median of 12        | React  | Svelte | Svelte before | RAM (React / Svelte) |
+| -------------------------------- | -----: | -----: | ------------: | -------------------: |
+| QuickJS executable (`bui build`) | 93 ms  | 89 ms  | 81 ms         | 20.4 / 20.4 MB       |
+| Bun executable (`--bun`)         | 106 ms | 90 ms  | 94 ms         | 37.8 / 38.8 MB       |
+| Bun (`--preload …/register`)     | 107 ms | 121 ms | 203 ms        | 36.5 / 40.2 MB       |
+| Node.js (`--import …/register`)  | 125 ms | 135 ms | 393 ms        | 52.1 / 55.4 MB       |
+
+- **Every variant ran at 26–29 FPS** in this session (the machine, not the
+  code), so CPU per frame is mostly BUI's own rendering and differs within
+  noise. "JavaScript per update" is the cost of one update alone: 500 back to
+  back, each applied by the framework and sent to the UI thread.
+- **Svelte with signals costs what React with signals does:** a BUI signal
+  passed as a value (`{label}`, `style={style}`) binds its node, so an
+  update skips Svelte. Before this release's work it went through Svelte as a
+  store: 86–87 µs on Node.js and Bun, 793 µs on QuickJS.
+- **Svelte with runes** pays Svelte's flush, which walks the component's
+  effects (3,000 here): 65–76 µs, 790 µs on QuickJS (85 / 78 / 790 before).
+- **Memory:** Svelte keeps 10–17 MB more than React with signals (6 MB less
+  than before on Node). A heap snapshot puts the rest in Svelte's own effects,
+  closures and each-block items, about 1.9 KB per cell; BUI's nodes are the
+  same for both.
+- **Startup:** `register` serves Svelte's runtime bundled (once, with Bun,
+  into `node_modules/.cache`), which brought Node.js from 393 to 135 ms and
+  Bun from 203 to 121 ms. React and Svelte ran one after the other here.
+- **React with state** on Bun and QuickJS: the 500 back-to-back re-renders
+  overran the warm-up, so only its per-update cost is valid from this session.
+  Bun also sometimes crashes when a React app quits (after its first frame), a
+  bug that predates this work.
+
 ## Building
 
 ```sh
 cd bindings
 npm install                 # links the two packages (npm workspaces)
 npm run build               # cargo build -p blenderui-node --release, copies the .node file
-npm test                    # both packages' tests (headless)
+npm test                    # every package's tests (headless)
 node node/examples/counter.js
 node react/examples/counter.js
+node --import ./svelte/register.js svelte/examples/counter.js
 bun node/bench/cells.js 3000 --gpu --react --signals   # Bun works too
 ```
 
@@ -429,8 +554,9 @@ MinGW, put its `bin` folder on `PATH`.
 ## Publishing
 
 The packages are published under the [`@blender-ui`](https://www.npmjs.com/org/blender-ui)
-npm organization. `@blender-ui/react` depends on `@blender-ui/native`
-(`^0.2.0`), so publish the native package first, whenever it has changed.
+npm organization. `@blender-ui/react` and `@blender-ui/svelte` depend on
+`@blender-ui/native`, so publish the native package first, whenever it has
+changed.
 
 ```sh
 npm login                                  # an account in the blender-ui org
@@ -438,6 +564,7 @@ cd bindings
 npm install                                # link the workspace
 cd node  && npm publish --access public    # @blender-ui/native (builds the addon and runtime, runs the tests)
 cd ../react && npm publish --access public # @blender-ui/react (runs the tests)
+cd ../svelte && npm publish --access public # @blender-ui/svelte (runs the tests)
 ```
 
 - **`prepublishOnly`** runs the tests before uploading. For the native

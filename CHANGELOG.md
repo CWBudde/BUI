@@ -79,6 +79,51 @@ All notable changes to **blenderui** (BUI). The format follows
   256 MiB. The parity test compares them with the CPU raster, whole and tiled.
 - `BKImageStats.decode_ms` (time the workers spent decoding) and `MEM_get_allocations_total`.
 - `bench/images`: `bui_image_bench <dir> anim <count>`, many animations at once.
+- **Svelte** (new npm package `@blender-ui/svelte` 0.1.0, Svelte 5.57): Svelte 5 components in
+  native windows, with feature parity with `@blender-ui/react`: `render(Component, options)`,
+  `createRoot(window)`, `act(fn)`, Blender's ten widgets as components, BUI's signals (each a
+  Svelte store, `$count`), headless tests and screenshots, Node.js (`--import
+  @blender-ui/svelte/register`), Bun (`--preload`) and `bui build` / `bui run`. Runes, snippets,
+  bindings, keyed `{#each}`, `{#await}`, `{#key}`, context, lifecycle and scoped `<style>`
+  blocks work; transitions run their start and end without animating in between. Svelte has
+  no custom-renderer API, so its compiled components run on `@blender-ui/native`'s DOM.
+- **`@blender-ui/native`, a fuller DOM:** a window-less `document` whose nodes are detached until
+  inserted into a window's tree (then created natively with their subtree), `DocumentFragment`,
+  `Comment` (an anchor that takes no space), `cloneNode`, `before` / `after` / `append` /
+  `prepend` / `replaceWith`, `contains`, `isConnected`, `el.style` with `cssText` /
+  `setProperty` / `removeProperty`, `el.classList`, DOM properties that reflect attributes
+  (`disabled`, `hidden`, `value`, `checked`, `type` ...) on `HTMLElement`, `dispatchEvent`,
+  `event.composedPath()` and `cancelBubble`. Nodes made by `document` are freed natively once
+  removed and dropped.
+- **A shared layer for framework bindings:** `@blender-ui/native/host` (`open`, `blenderWidgets`,
+  `applyProps`: what React's binding did on its own), `@blender-ui/native/globals` (the browser
+  globals DOM frameworks read), and `bui build` bundling with the Bun plugin of every
+  `@blender-ui/*` package that declares one (`"bui": { "bunPlugin" }`). A binding for another
+  framework is a thin adapter over these.
+- **Benchmarks:** `bench/cells.js --svelte [--signals]` and `bench/startup.js --svelte`;
+  `cells.js` also reports `js_us_per_update` (500 updates back to back, each applied by the
+  framework and sent to the UI thread: the JavaScript cost of an update alone) and `heap_mb`.
+- **Svelte, faster updates:** compiled components import `@blender-ui/svelte/internal`, which
+  serves Svelte's runtime with `set_text`, `set_attribute`, `set_class`, `set_style` and `clsx`
+  writing straight into BUI's nodes (each used only while Svelte's own has the shape it was
+  written for; a test compares them on the same inputs). A BUI signal passed as a value
+  (`{label}`, `style={style}`, `class={cls}`) binds its node: a write updates it without Svelte
+  running, as React's signal props do.
+- **Svelte, faster start on Node.js and Bun:** with Bun installed, `register` bundles Svelte's
+  client runtime once (per Svelte version) into `node_modules/.cache/@blender-ui/svelte` and
+  serves it from there; the compile cache is found from the working directory up, and cache
+  keys no longer load `node:crypto`.
+- **`@blender-ui/native`, slimmer nodes:** attributes are a flat array made by the first one
+  (not a `Map` per element), `tagName` is derived from `localName`, and children, signal
+  bindings, listeners and form state live on the prototype until a node has them; a text node
+  is five fields. About 0.7 MB less JavaScript heap for a 3,000-cell grid, in React and Svelte
+  alike.
+- **Measured** (3,000 cells, one session, Node 26 / Bun 1.4 / QuickJS): an update costs 17 / 19 /
+  36 µs of JavaScript in Svelte with signals (was 87 / 86 / 793; React with signals 23 / 17 / 40),
+  65 / 76 / 790 µs with runes (was 85 / 78 / 790); a Svelte app's first frame is 135 ms on Node.js
+  and 121 ms on Bun (was 393 / 203; React 125 / 107). Svelte still keeps 10–17 MB more than React
+  with signals at 3,000 cells: its own effects and each-block items. Details in
+  docs/javascript.md.
 
 ### Changed
 - `BUI_raster_image` takes a `BuiPixmap` (premultiplied pixels with a key), a source
@@ -99,6 +144,19 @@ All notable changes to **blenderui** (BUI). The format follows
   made with `bui build` is about 7 MB (the docs said about 5 MB; that figure predated the
   image decoders). The Node test now checks that `bui build` adds only the bundle and
   holds the runtime to its measured size plus 5 %.
+- **`@blender-ui/native`:** siblings are a linked list (insert, remove and `nextSibling` are
+  O(1); `childNodes` returns a new array), and listener maps are made on the first listener.
+  Re-rendering 3,000 cells per frame from React costs a little less CPU.
+- **`@blender-ui/native`:** reading `el.style` returns the inline style object (its `cssText`
+  is the old string); setting it still takes a string, an object or a signal.
+  `addEventListener` accepts any event type (those BUI doesn't report only fire through
+  `dispatchEvent`) instead of throwing.
+- **`@blender-ui/react`** uses `@blender-ui/native/host` for its props, events, widgets and
+  window options; its API and behaviour are unchanged.
+- **`bui build`** bundles with `Bun.build` (and the framework plugins it finds) instead of the
+  `bun build` command line.
+- **`bench/startup.js`** counts launches that fail at exit (after their first frame, a
+  sporadic crash on Bun at quit) instead of aborting.
 
 ### Removed
 - The `png` crate as a dependency of `blenderui` (the website-screenshot examples still use

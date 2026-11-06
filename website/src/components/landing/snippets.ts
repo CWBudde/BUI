@@ -235,6 +235,35 @@ render(<Counter />, { title: "Counter", width: 360, height: 200, gpu: true })`,
   source: "README.md",
 };
 
+const svelte: Syntax = {
+  id: "svelte",
+  label: "Svelte",
+  title: "Svelte 5, in a native window",
+  blurb:
+    "Runes, snippets, bindings and scoped styles, unchanged. Svelte's compiled components run on BUI's DOM, so a $state change updates the one node that shows it.",
+  lang: "svelte",
+  file: "Counter.svelte",
+  code: `<script>
+  import { Button, NumberSlider } from "@blender-ui/svelte"
+  let count = $state(0)
+</script>
+
+<main styled class="p-6 flex flex-col gap-3">
+  <span>Clicks: {count}</span>
+  <Button onclick={() => count++}>Add one</Button>
+  <NumberSlider min={0} max={10} />
+</main>
+
+<!-- app.js: render(Counter, { title: "Counter", gpu: true }) -->`,
+  install: "npm install @blender-ui/svelte svelte",
+  shot: "js-svelte-tasks",
+  fallback: "images/shots/js-svelte-tasks-dark.png",
+  alt: "A task list in Svelte on BUI: a Blender text field and button, checkboxes and a progress bar",
+  caption: "examples/site/js/TodoSvelte.svelte, Svelte on BUI",
+  docs: "docs/javascript/svelte/",
+  source: "bindings/svelte/README.md",
+};
+
 const dom: Syntax = {
   id: "dom",
   label: "DOM-like API",
@@ -431,7 +460,7 @@ int main(void)
 export const languages: Language[] = [
   { id: "python", tab: "Python", icon: "file-py", syntaxes: [tkinter, qt] },
   { id: "rust", tab: "Rust", icon: "file-rs", syntaxes: [rsx, gpui, htmlBuilder] },
-  { id: "javascript", tab: "JavaScript", icon: "file-js", syntaxes: [react, dom] },
+  { id: "javascript", tab: "JavaScript", icon: "file-js", syntaxes: [react, svelte, dom] },
   { id: "imgui", tab: "Dear ImGui", icon: "squares-four", syntaxes: [imguiCpp, imguiC, imguiPy, imguiRust] },
   { id: "c", tab: "C", icon: "file-c", syntaxes: [c] },
 ];
