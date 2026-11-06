@@ -104,6 +104,13 @@ def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
 
     put(PY_VERSION, re.sub(r'(__version__\s*=\s*")[^"]+(")', rf"\g<1>{new}\g<2>", read(PY_VERSION)))
 
+    header = ROOT / "kit" / "include" / "BUI_kit.h"
+    htext = read(header)
+    for part, value in zip(("MAJOR", "MINOR", "PATCH"), new.split(".")):
+        htext = re.sub(rf"(#define BUI_KIT_VERSION_{part}\s+)\d+", rf"\g<1>{value}", htext)
+    htext = re.sub(r'(#define BUI_KIT_VERSION_STRING\s+")[^"]+(")', rf"\g<1>{new}\g<2>", htext)
+    put(header, htext)
+
     ws = RUST / "Cargo.toml"
     text = read(ws)
     m = re.search(r"\[workspace\.package\](.*?)(?=^\[|\Z)", text, re.S | re.M)

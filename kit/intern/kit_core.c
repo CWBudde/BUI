@@ -1490,6 +1490,16 @@ int BK_set_theme(const char *name)
   return 1;
 }
 
+int BK_version(void)
+{
+  return BUI_KIT_VERSION;
+}
+
+const char *BK_version_string(void)
+{
+  return BUI_KIT_VERSION_STRING;
+}
+
 const char *BK_theme_name(void)
 {
   bk_theme_env_init();

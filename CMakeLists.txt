@@ -87,6 +87,10 @@ if(BUI_BUILD_TESTS)
   add_executable(bui_theme_test tests/theme_test.c)
   target_link_libraries(bui_theme_test PRIVATE bui::kit)
   add_test(NAME bui_theme_test COMMAND bui_theme_test)
+  # the kit's version: header macros and the library agree
+  add_executable(bui_version_test tests/version_test.c)
+  target_link_libraries(bui_version_test PRIVATE bui::kit)
+  add_test(NAME bui_version_test COMMAND bui_version_test)
   # images: every format, decode at size, the cache and loader, no leaks
   add_executable(bui_image_test tests/image_test.c)
   target_link_libraries(bui_image_test PRIVATE bui::kit)
