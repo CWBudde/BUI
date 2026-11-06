@@ -6,6 +6,15 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Added
+- **Lua bindings** (`BUI_BUILD_LUA_BINDINGS`, off by default). A standalone `bui-lua`
+  executable and a `bui.so`/`bui.dll` loadable module for stock Lua 5.4, LuaJIT or
+  LuaRocks. Every BUI widget, event, tree view, file browser and node editor is
+  available from `require("bui")`. The bindings check the kit version at load time
+  and expose `bui._VERSION`. 9 example scripts under `bindings/lua/examples/`:
+  `hello.lua`, `counter.lua`, `todos.lua`, `gallery.lua`, `forms.lua`, `dashboard.lua`,
+  `anim.lua`, `lua_table_editor.lua`, `editor_screenshot.lua`.
+
 ### Changed
 - **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
   pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus

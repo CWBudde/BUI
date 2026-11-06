@@ -74,31 +74,32 @@ more to say.
 25. [JavaScript and React](#25-javascript-and-react)
 26. [Dear ImGui](#26-dear-imgui)
 27. [C and embedding](#27-c-and-embedding)
-28. [Where the docs live](#28-where-the-docs-live)
+28. [Lua](#28-lua)
+29. [Where the docs live](#29-where-the-docs-live)
 
 **[Part V: Performance](#part-v-performance)**
 
-29. [Before you read the numbers](#29-before-you-read-the-numbers)
-30. [Start time and battery](#30-start-time-and-battery)
-31. [Frame times](#31-frame-times)
-32. [JavaScript and React: startup and animation](#32-javascript-and-react-startup-and-animation)
-33. [Run the benchmarks yourself](#33-run-the-benchmarks-yourself)
+30. [Before you read the numbers](#30-before-you-read-the-numbers)
+31. [Start time and battery](#31-start-time-and-battery)
+32. [Frame times](#32-frame-times)
+33. [JavaScript and React: startup and animation](#33-javascript-and-react-startup-and-animation)
+34. [Run the benchmarks yourself](#34-run-the-benchmarks-yourself)
 
 **[Part VI: Reference](#part-vi-reference)**
 
-34. [Platforms](#34-platforms)
-35. [Environment variables](#35-environment-variables)
-36. [Building from source and CMake options](#36-building-from-source-and-cmake-options)
-37. [Coverage](#37-coverage)
-38. [Repository layout](#38-repository-layout)
-39. [Examples](#39-examples)
+35. [Platforms](#35-platforms)
+36. [Environment variables](#36-environment-variables)
+37. [Building from source and CMake options](#37-building-from-source-and-cmake-options)
+38. [Coverage](#38-coverage)
+39. [Repository layout](#39-repository-layout)
+40. [Examples](#40-examples)
 
 **[Part VII: The project](#part-vii-the-project)**
 
-40. [Status and roadmap](#40-status-and-roadmap)
-41. [FAQ](#41-faq)
-42. [Contributing and publishing](#42-contributing-and-publishing)
-43. [License and credits](#43-license-and-credits)
+41. [Status and roadmap](#41-status-and-roadmap)
+42. [FAQ](#42-faq)
+43. [Contributing and publishing](#43-contributing-and-publishing)
+44. [License and credits](#44-license-and-credits)
 
 ---
 
@@ -1330,7 +1331,48 @@ it (as `bui.qt.BuiCanvas` does inside Qt). A separate, lower-level layer,
 the immediate-mode GPU seam to your renderer; the Qt/QPainter backend and the
 SVG recorder use it. Guide: [INTEGRATION.md](INTEGRATION.md).
 
-## 28. Where the docs live
+## 28. Lua
+
+A standalone executable and a loadable module that embeds Lua 5.4 and exposes the
+full BUI kit API — every widget, every event. Use the `bui-lua` binary or drop
+`bui.so`/`bui.dll` into any Lua 5.4, LuaJIT or LuaRocks install.
+
+```sh
+cmake -S . -B build -DBUI_BUILD_LUA_BINDINGS=ON
+cmake --build build --target bui-lua
+./bui-lua app.lua
+./bui-lua
+```
+
+```lua
+local bui = require("bui")
+local root = bui.Node("frame")
+root:set("padding", 8)
+local btn = bui.Node("button")
+btn:set("text", "Click Me")
+btn:on(bui.EV_CLICK, function(self) print("Clicked!") end)
+root:add(btn)
+btn:geom(bui.GEOM_PACK, {fill = 1})
+local ctx = bui.Context(root)
+local win = bui.Window(ctx, "Lua BUI", 320, 120)
+win:show()
+bui.run()
+```
+
+**Widgets**: `frame`, `column`, `row`, `grid`, `box`, `panel`, `tabs`, `sidetabs`,
+`scroll`, `label`, `separator`, `progress`, `button`, `toggle`, `checkbox`,
+`decorator`, `text`, `search`, `hotkey`, `number`, `slider`, `dropdown`, `enum`,
+`swatch`, `popover`, `menubutton`, `menubar`, `image`, `video`, `textarea`,
+`custom`, `canvas`, `list`, `tree`, `gridview`, `ramp`, `curve`, `normal`,
+`histogram`, `radio`, `meter`, `filebrowser`.
+
+**Examples** (9 scripts, `bindings/lua/examples/`): `hello.lua`, `counter.lua`,
+`todos.lua`, `gallery.lua`, `forms.lua`, `dashboard.lua`, `anim.lua`,
+`lua_table_editor.lua`, `editor_screenshot.lua`.
+
+---
+
+## 29. Where the docs live
 
 | Guide                                      | What's inside                                                                               |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
@@ -1343,6 +1385,7 @@ SVG recorder use it. Guide: [INTEGRATION.md](INTEGRATION.md).
 | [JavaScript, React and Svelte](docs/javascript.md) | `@blender-ui/native`, `@blender-ui/react`, `@blender-ui/svelte`, adding a framework, how changes cross to the UI thread, performance  |
 | [Dear ImGui](docs/imgui.md)                | Dear ImGui on BUI from C++, C, Python and Rust; the Blender-widgets build; coverage         |
 | [C API](docs/c-api.md)                     | The C kit (`BUI_kit.h`)                                                                     |
+| [Lua](bindings/lua/README.md)              | Standalone `bui-lua` or loadable module; every widget, tree view, file browser, node editor |
 | [Integration](INTEGRATION.md)              | Embedding BUI drawing in C, C++, Qt or PySide hosts                                         |
 | [Architecture](ARCHITECTURE.md)            | Modules and what was taken from Blender                                                     |
 | [Syntax coverage](SYNTAX_COVERAGE.md)      | The Qt and tkinter surface, exactly                                                         |
@@ -1354,7 +1397,7 @@ SVG recorder use it. Guide: [INTEGRATION.md](INTEGRATION.md).
 
 # Part V: Performance
 
-## 29. Before you read the numbers
+## 30. Before you read the numbers
 
 These numbers were measured on a Ryzen 7 5800U laptop (Windows 11, on AC
 power) **before the latest features landed**: Dear ImGui, the Linux GPU
@@ -1362,7 +1405,7 @@ renderer, the light theme, and the Blender search and expression code. They
 show the shape of things, not a promise for your machine. Rerun them with the
 tools in [Run the benchmarks yourself](#33-run-the-benchmarks-yourself).
 
-## 30. Start time and battery
+## 31. Start time and battery
 
 The same small settings window (a label, text field, checkbox, slider and
 button) written each of the five ways, from [`bench/apps`](bench/apps), on
@@ -1407,7 +1450,7 @@ uses more memory (the GPU device), and pays off on large, animated scenes
 (below). Node's event loop accounts for the JavaScript idle figure, Python's
 times include starting the interpreter, and memory doesn't count GPU memory.
 
-## 31. Frame times
+## 32. Frame times
 
 Python and C, on the full component demo (520×900):
 
@@ -1461,7 +1504,7 @@ gpui-fast's heavy-scene frame rate varies between sessions on this laptop
 [bindings/rust/bench/README.md](bindings/rust/bench/README.md).
 </details>
 
-## 32. JavaScript and React: startup and animation
+## 33. JavaScript and React: startup and animation
 
 **Startup.** These launch a small React app (the counter above) that quits once
 its first frame is on screen. Each figure is the median of 12 launches after a
@@ -1555,7 +1598,7 @@ What this means:
 Method, the memory breakdown and how to rerun:
 [docs/javascript.md](docs/javascript.md#performance).
 
-## 33. Run the benchmarks yourself
+## 34. Run the benchmarks yourself
 
 Every number above comes from a tool in this repo. Build in release mode, close
 other heavy apps, and plug the laptop in. Run one benchmark (and one build) at
@@ -1628,7 +1671,7 @@ py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
 
 # Part VI: Reference
 
-## 34. Platforms
+## 35. Platforms
 
 |                              | Windows                          | Linux                                                                    | macOS                        |
 | ---------------------------- | -------------------------------- | ------------------------------------------------------------------------ | ---------------------------- |
@@ -1668,7 +1711,7 @@ and on an NVIDIA GPU.
 | `@blender-ui/native`, `@blender-ui/react`, `@blender-ui/svelte` on npm | Windows x64                                | Node.js 18+ (22.15+ for Svelte) or Bun. Elsewhere, build the addon from source.   |
 | C and C++ (CMake)                                | Windows, Linux, macOS                                            | CMake 3.20+, a C11 and C++20 compiler.                                            |
 
-## 35. Environment variables
+## 36. Environment variables
 
 Most are read by the C library, so they work the same from every language.
 On/off variables look at the first character: `1`, `y`, `Y`, `t` or `T` is on.
@@ -1701,7 +1744,7 @@ Every variable, with defaults and where it's read:
 [Environment variables](https://bui.preetham.top/docs/reference/environment-variables/)
 and [docs/getting-started.md](docs/getting-started.md#environment-variables).
 
-## 36. Building from source and CMake options
+## 37. Building from source and CMake options
 
 You need **CMake 3.20+**, a **C11 / C++20 compiler** (MSVC, GCC/MinGW or
 Clang) and **Python 3.11+** with headers. On Linux, also the X11 headers.
@@ -1736,7 +1779,7 @@ Rebuild the docs screenshots with `python tools/gen_doc_images.py` (and the
 website's dark and light shots with `--site`). More:
 [CMake options](https://bui.preetham.top/docs/reference/cmake-options/).
 
-## 37. Coverage
+## 38. Coverage
 
 | API                               | Coverage                                                                                                                      | Status   |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------- |
@@ -1755,7 +1798,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md), [docs/rust.md](docs/rust.md#coverage),
 [docs/imgui.md](docs/imgui.md#coverage).
 
-## 38. Repository layout
+## 39. Repository layout
 
 | Path                                | Contents                                                                                                                                                                                                                                                                                                                                     |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1773,7 +1816,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | `examples/`, `tools/`               | Demos, the website's screenshot programs (`examples/site/`), the icon and theme generators, the docs screenshot generator                                                                                                                                                                                                                    |
 | `website/`                          | The documentation website, [bui.preetham.top](https://bui.preetham.top)                                                                                                                                                                                                                                                                      |
 
-## 39. Examples
+## 40. Examples
 
 | File                                                                                                                                                                                                                          | Shows                                                                                                                                                                                                                                                   |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1801,7 +1844,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 
 # Part VII: The project
 
-## 40. Status and roadmap
+## 41. Status and roadmap
 
 **Done**
 
@@ -1846,7 +1889,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 Our roadmap has no dates on it. Like a good render, it's done when the noise
 goes away.
 
-## 41. FAQ
+## 42. FAQ
 
 <details>
 <summary><b>Do I need Blender installed?</b></summary>
@@ -1957,7 +2000,7 @@ ship. (This is a summary, not legal advice.)
  </picture>
 </a>
 
-## 42. Contributing and publishing
+## 43. Contributing and publishing
 
 Contributions are welcome: bug reports, missing tkinter/Qt behavior, CSS
 features, platform hosts and docs. If you have a Mac, running the Cocoa host
@@ -1970,7 +2013,7 @@ Releases go to PyPI (`blenderui`, wheels built by CI on a `v*` tag), crates.io
 (the eight Rust crates, in dependency order) and npm (`@blender-ui/native`, `@blender-ui/react`). The steps are
 in [docs/publishing.md](docs/publishing.md).
 
-## 43. License and credits
+## 44. License and credits
 
 **License.** BUI is derived from Blender sources and is licensed
 **GPL-2.0-or-later**. The SPDX header is kept in every file. Third-party parts

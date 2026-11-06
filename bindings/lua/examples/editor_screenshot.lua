@@ -124,7 +124,8 @@ if not px_data then
 end
 
 -- Write as PPM (BGRA premultiplied -> RGB)
-local f = io.open("/tmp/bui_editor_demo.ppm", "wb")
+local out_path = arg and arg[1] or "/tmp/bui_editor_demo.ppm"
+local f = io.open(out_path, "wb")
 f:write("P6\n" .. rw .. " " .. rh .. "\n255\n")
 for y = 0, rh - 1 do
   for x = 0, rw - 1 do
