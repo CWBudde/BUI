@@ -588,7 +588,7 @@ impl App {
                 Some(n) if w.animation_frame => {
                     w.animation_frame = false;
                     w.frame_pending = true;
-                    unsafe { sys::BK_window_request_frame(n, w.vsync as c_int) };
+                    unsafe { sys::BK_window_request_frame(n, c_int::from(w.vsync)) };
                 }
                 // the requested frame rebuilds the window at its paced time
                 Some(n) if !w.timer_pending && !w.frame_pending => {
