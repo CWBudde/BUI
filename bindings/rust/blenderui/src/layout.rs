@@ -237,6 +237,8 @@ pub(crate) enum Replaced {
     /// `<img src>`: decoded on the kit's workers when shown; animations
     /// play, or hold the frame of the `frame` attribute.
     File(ImageFile, Option<u32>),
+    /// `<video>`: its player (yours, or the window's for `src`).
+    Video(std::rc::Rc<crate::video::Video>),
     Painted(PaintFn),
     Placeholder(&'static str),
 }
@@ -802,6 +804,18 @@ impl<'a> Builder<'a> {
         &self.styles[self.nodes[i].style]
     }
 
+    /// `<video src>`'s player: muted autoplay unless `autoplay="false"`;
+    /// `loop`, `poster` (the HTML attributes).
+    fn video_src(&mut self, i: usize) -> Option<std::rc::Rc<crate::video::Video>> {
+        let attrs = crate::video::VideoAttrs {
+            autoplay: self.attr(i, "autoplay") != Some("false"),
+            looped: self.attr(i, "loop").is_some_and(|v| v != "false"),
+            poster: self.attr(i, "poster").map(str::to_owned),
+        };
+        let src = self.attr(i, "src")?.to_owned();
+        self.images.videos.get(&src, attrs)
+    }
+
     fn attr(&self, i: usize, name: &str) -> Option<&str> {
         el_attr(&self.nodes, &self.els, i, name)
     }
@@ -1191,6 +1205,10 @@ impl<'a> Builder<'a> {
                     Replaced::Painted(f)
                 } else if let Some(img) = div.image.take() {
                     Replaced::Image(img)
+                } else if let Some(v) = div.video.take() {
+                    Replaced::Video(v)
+                } else if div.tag == "video" && let Some(v) = self.video_src(i) {
+                    Replaced::Video(v)
                 } else if let Some(file) = self.attr(i, "src").map(str::to_owned).and_then(|s| self.images.load(&s)) {
                     Replaced::File(file, self.attr(i, "frame").and_then(|v| v.trim().parse().ok()))
                 } else {
@@ -1750,6 +1768,7 @@ impl<'a> Builder<'a> {
                 let (iw, ih) = match r {
                     Replaced::Image(img) => (img.width as f32, img.height as f32),
                     Replaced::File(file, _) => (file.width as f32, file.height as f32),
+                    Replaced::Video(v) => v.size().map_or((300.0, 150.0), |(w, h)| (w as f32, h as f32)),
                     _ => (300.0, 150.0),
                 };
                 let attr = |n: &str| self.attr(i, n).and_then(|v| v.trim_end_matches("px").parse::<f32>().ok());

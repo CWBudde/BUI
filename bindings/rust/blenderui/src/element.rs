@@ -77,6 +77,7 @@ pub struct Div {
     pub(crate) listeners: Option<Box<Listeners>>,
     pub(crate) paint: Option<PaintFn>,
     pub(crate) image: Option<Arc<crate::paint::Image>>,
+    pub(crate) video: Option<std::rc::Rc<crate::video::Video>>,
     /// Runs before layout with the window and app (see [`Div::defer`]).
     pub(crate) deferred: Option<Deferred>,
 }
@@ -140,6 +141,7 @@ impl Div {
             listeners: None,
             paint: None,
             image: None,
+            video: None,
             deferred: None,
         }
     }
@@ -285,6 +287,13 @@ impl Div {
     /// Show shared image pixels (cheap to pass every frame).
     pub fn image(mut self, image: Arc<crate::paint::Image>) -> Self {
         self.image = Some(image);
+        self
+    }
+
+    /// `<video>` with a player you keep (play, pause, seek, events): cheap
+    /// to pass every frame. Without it, `<video src>` makes its own.
+    pub fn video(mut self, video: std::rc::Rc<crate::video::Video>) -> Self {
+        self.video = Some(video);
         self
     }
 

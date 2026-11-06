@@ -211,6 +211,18 @@ pub enum ObjectFit {
     ScaleDown,
 }
 
+impl ObjectFit {
+    /// The kit's `BK_FIT_*`; a video's default (fill) letterboxes, as browsers do.
+    pub(crate) const fn kit_video(self) -> i32 {
+        match self {
+            Self::Fill | Self::Contain => blenderui_sys::BK_FIT_CONTAIN,
+            Self::Cover => blenderui_sys::BK_FIT_COVER,
+            Self::None => blenderui_sys::BK_FIT_NONE,
+            Self::ScaleDown => blenderui_sys::BK_FIT_SCALE_DOWN,
+        }
+    }
+}
+
 /// `background-size`: a size is a fraction of the box plus pixels; `None` = auto.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum BgSize {

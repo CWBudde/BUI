@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 DEST = ROOT / "bindings" / "rust" / "blenderui-sys" / "csrc"
 DIRS = ["core", "types", "gpu", "compat", "kit", "api", "bindings/imgui"]
-FILES = ["CMakeLists.txt", "LICENSE", "bindings/python/bui/_version.py", "ui/CMakeLists.txt"]
+FILES = ["CMakeLists.txt", "features.json", "features.cmake", "LICENSE", "bindings/python/bui/_version.py", "ui/CMakeLists.txt"]
 # relative directories (from ROOT) never needed by the crate's CMake configuration
 SKIP_DIRS = {"core/tests", "gpu/tests", "bindings/imgui/gen"}
 SKIP_NAMES = shutil.ignore_patterns("__pycache__", "*.pyc", "*.py", "build*", "*.o", "*.obj")

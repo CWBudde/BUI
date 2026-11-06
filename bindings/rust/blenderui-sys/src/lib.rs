@@ -114,7 +114,23 @@ pub struct BKCanvasItem {
     pub fit: c_int,
     /// Animated `src`: 0 plays; n > 0 shows frame n - 1 (paused).
     pub frame: c_int,
+    /// Images: a video's current frame (borrowed, as `imbuf`).
+    pub video: *mut BKVideo,
 }
+
+/// A `<video>` (`BKVideo`): the kit's player (OS decoders; frames in one GPU
+/// texture). UI-thread object.
+#[repr(C)]
+pub struct BKVideo {
+    _private: [u8; 0],
+}
+
+/// `BK_VIDEO_*` states.
+pub const BK_VIDEO_LOADING: c_int = 0;
+pub const BK_VIDEO_PLAYING: c_int = 1;
+pub const BK_VIDEO_PAUSED: c_int = 2;
+pub const BK_VIDEO_ENDED: c_int = 3;
+pub const BK_VIDEO_ERROR: c_int = 4;
 
 /// An animation stepped by the caller (`BKAnim`): GIF, animated WebP.
 #[repr(C)]
@@ -252,6 +268,31 @@ unsafe extern "C" {
     pub fn BK_image_poll() -> c_int;
     pub fn BK_image_clear_cache();
     pub fn BK_image_exit();
+
+    // video (kit/intern/image/video.c: one player for every binding)
+    pub fn BK_video_new(src: *const c_char) -> *mut BKVideo;
+    pub fn BK_video_free(v: *mut BKVideo);
+    pub fn BK_video_play(v: *mut BKVideo);
+    pub fn BK_video_pause(v: *mut BKVideo);
+    pub fn BK_video_seek(v: *mut BKVideo, seconds: c_double);
+    pub fn BK_video_set_rate(v: *mut BKVideo, rate: c_double);
+    pub fn BK_video_set_loop(v: *mut BKVideo, on: c_int);
+    pub fn BK_video_set_poster(v: *mut BKVideo, src: *const c_char);
+    pub fn BK_video_set_controls(v: *mut BKVideo, on: c_int);
+    pub fn BK_video_state(v: *const BKVideo) -> c_int;
+    pub fn BK_video_time(v: *const BKVideo) -> c_double;
+    pub fn BK_video_duration(v: *const BKVideo) -> c_double;
+    pub fn BK_video_size(v: *const BKVideo, r_w: *mut c_int, r_h: *mut c_int) -> c_int;
+    pub fn BK_video_set_listener(
+        v: *mut BKVideo,
+        f: Option<unsafe extern "C" fn(v: *mut BKVideo, state: c_int, data: *mut c_void)>,
+        data: *mut c_void,
+    );
+    pub fn BK_video_texture(v: *mut BKVideo, tex: c_int, max_w: c_int, max_h: c_int) -> c_int;
+    pub fn BK_node_set_video(node: *mut BKNode, v: *mut BKVideo, fit: c_int);
+    pub fn BK_video_backends() -> *const c_char;
+    /// Allocations made through MEM_* so far (allocations per frame, in benchmarks).
+    pub fn MEM_get_allocations_total() -> usize;
     /// Blender's allocator counters (bui_core): bytes and blocks held through MEM_*.
     pub fn MEM_get_memory_in_use() -> usize;
     pub fn MEM_get_memory_blocks_in_use() -> u32;

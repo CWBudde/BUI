@@ -4,6 +4,15 @@
 
 use std::path::PathBuf;
 
+/// One row of features.json (one feature per line): its name and CMake option.
+fn feature_row(line: &str) -> Option<(&str, &str)> {
+    let field = |key: &str| {
+        let at = line.find(&format!("\"{key}\": \""))? + key.len() + 5;
+        line[at..].split('"').next()
+    };
+    Some((field("name")?, field("option")?))
+}
+
 fn main() {
     // docs.rs: rustdoc links nothing, so skip the C build (its sandbox may lack
     // the toolchain, and the build takes long)
@@ -28,7 +37,21 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BUI_TEXT_GDI");
     // `imgui`: Dear ImGui on BUI + its C API (C++), built by the same CMake project
     let imgui = std::env::var("CARGO_FEATURE_IMGUI").is_ok();
-    let dst = cmake::Config::new(&root)
+    let mut config = cmake::Config::new(&root);
+    // The optional parts (features.json, the one table): each cargo feature is
+    // its CMake option, ON exactly when the feature is.
+    let table = std::fs::read_to_string(root.join("features.json")).expect("features.json");
+    let manifest_toml = std::fs::read_to_string(manifest.join("Cargo.toml")).expect("Cargo.toml");
+    for (name, option) in table.lines().filter_map(feature_row) {
+        assert!(
+            manifest_toml.lines().any(|l| l.starts_with(name) && l[name.len()..].trim_start().starts_with('=')),
+            "features.json has `{name}`: add it to blenderui-sys's (and blenderui's) [features]"
+        );
+        let on = std::env::var_os(format!("CARGO_FEATURE_{}", name.to_uppercase().replace('-', "_"))).is_some();
+        config.define(option, if on { "ON" } else { "OFF" });
+    }
+    println!("cargo:rerun-if-changed={}", root.join("features.json").display());
+    let dst = config
         .define("BUI_TEXT_GDI", if gdi { "ON" } else { "OFF" })
         .define("BUI_SLUG", if std::env::var("CARGO_FEATURE_SLUG").is_ok() { "ON" } else { "OFF" })
         .define("BUI_BUILD_TESTS", "OFF")
@@ -36,7 +59,6 @@ fn main() {
         .define("BUI_BUILD_PYTHON_BINDINGS", "OFF")
         .define("BUI_BUILD_UI", "OFF")
         .define("BUI_BUILD_QT_BACKEND", "OFF")
-        .define("BUI_BUILD_IMGUI", if imgui { "ON" } else { "OFF" })
         .define("BUI_IMGUI_BLENDER_WIDGETS", if std::env::var("CARGO_FEATURE_IMGUI_BLENDER_WIDGETS").is_ok() { "ON" } else { "OFF" })
         // Always optimized; on MSVC also the release C runtime Rust links.
         .profile("Release")
@@ -82,6 +104,12 @@ fn main() {
             // libraries don't carry CMake's framework links to rustc
             for fw in ["Cocoa", "CoreGraphics"] {
                 println!("cargo:rustc-link-lib=framework={fw}");
+            }
+            // video (movie_avf.m): weak, so a system without them still starts
+            if std::env::var_os("CARGO_FEATURE_VIDEO").is_some() {
+                for fw in ["AVFoundation", "CoreMedia", "CoreVideo"] {
+                    println!("cargo:rustc-link-arg=-Wl,-weak_framework,{fw}");
+                }
             }
             println!("cargo:rustc-link-lib=objc");
         }

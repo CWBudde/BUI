@@ -23,7 +23,26 @@ gdi-text = []
 # GPU text drawn with Slug (glyph outlines in the pixel shader) by default;
 # without it, the per-glyph atlas. Switchable at runtime either way.
 slug = []
-default = ["slug"]
+default = ["slug", "png", "gif", "bmp", "tga", "qoi", "jpeg", "webp", "hdr", "pnm", "svg", "video", "gpu", "freetype", "filebrowser"]
+# The optional parts of the C kit: features.json (the one table CMake and
+# `bui build` read too; build.rs maps each to its CMake option and checks this
+# list has them all). Off, a part costs no binary size; its API stays.
+png = [] # PNG images
+gif = [] # GIF images and animations
+bmp = [] # BMP images
+tga = [] # TGA images
+qoi = [] # QOI images
+jpeg = [] # JPEG images
+webp = [] # WebP images and animations
+hdr = [] # Radiance HDR images
+pnm = [] # PNM (PGM, PPM) images
+svg = [] # SVG images
+video = [] # <video> through the OS decoders
+video-dav1d = ["video"] # AV1 video with dav1d
+video-ffmpeg = ["video"] # Every format FFmpeg reads (LGPL or GPL, by its build)
+gpu = [] # GPU renderers: Direct3D 11 (Windows), OpenGL 3.3 (Linux)
+freetype = [] # Text through the vendored FreeType like Blender's BLF
+filebrowser = [] # Blender's File Browser
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = []
 # Also build and link Dear ImGui on BUI and its C API (bindings/imgui: bui_cimgui,

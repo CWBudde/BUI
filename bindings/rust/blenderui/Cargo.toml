@@ -32,7 +32,25 @@ gdi-text = ["blenderui-sys/gdi-text"]
 # GPU text with Slug by default (else the per-glyph atlas); see
 # `Application::slug` / `blenderui::set_slug` to switch at runtime.
 slug = ["blenderui-sys/slug"]
-default = ["slug"]
+default = ["slug", "png", "gif", "bmp", "tga", "qoi", "jpeg", "webp", "hdr", "pnm", "svg", "video", "gpu", "freetype", "filebrowser"]
+# The C kit's optional parts (features.json; see blenderui-sys): each costs
+# binary size only when on. tests/features.rs checks this list has them all.
+png = ["blenderui-sys/png"]
+gif = ["blenderui-sys/gif"]
+bmp = ["blenderui-sys/bmp"]
+tga = ["blenderui-sys/tga"]
+qoi = ["blenderui-sys/qoi"]
+jpeg = ["blenderui-sys/jpeg"]
+webp = ["blenderui-sys/webp"]
+hdr = ["blenderui-sys/hdr"]
+pnm = ["blenderui-sys/pnm"]
+svg = ["blenderui-sys/svg"]
+video = ["blenderui-sys/video"]
+video-dav1d = ["blenderui-sys/video-dav1d"]
+video-ffmpeg = ["blenderui-sys/video-ffmpeg"]
+gpu = ["blenderui-sys/gpu"]
+freetype = ["blenderui-sys/freetype"]
+filebrowser = ["blenderui-sys/filebrowser"]
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = ["blenderui-sys/portable-text"]
 

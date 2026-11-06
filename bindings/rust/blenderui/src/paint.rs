@@ -205,6 +205,8 @@ impl ImageFile {
 #[derive(Default)]
 pub(crate) struct ImageCache {
     files: HashMap<String, Option<ImageFile>>,
+    /// `<video src>` players
+    pub(crate) videos: crate::video::VideoCache,
 }
 
 impl ImageCache {
@@ -233,6 +235,8 @@ enum Kind {
     /// into the box by `fit` (`sys::BK_FIT_*`); animations play (`frame` 0)
     /// or hold frame `frame - 1`.
     File { start: u32, fit: i32, frame: i32 },
+    /// A video's current frame, fitted by `fit`.
+    Video(std::rc::Rc<crate::video::Video>, i32),
 }
 
 /// Coordinates: up to four inline (rects, ovals, text, images), more on the heap.
@@ -400,6 +404,12 @@ impl Painter {
         self.file(bounds, src, sys::BK_FIT_FILL, frame);
     }
 
+    /// A video's current frame fitted into `bounds` (`fit`: `sys::BK_FIT_*`); it
+    /// plays while drawn, and nothing decodes while it isn't.
+    pub fn video(&mut self, bounds: Bounds<f32>, video: &std::rc::Rc<crate::video::Video>, fit: i32) {
+        self.push(Kind::Video(video.clone(), fit), Self::corners(bounds), Rgba::TRANSPARENT);
+    }
+
     fn file(&mut self, bounds: Bounds<f32>, src: &str, fit: i32, frame: Option<u32>) {
         if !src.is_empty() {
             let start = self.text.len() as u32;
@@ -474,6 +484,11 @@ impl Painter {
                 ci.type_ = sys::BK_ITEM_IMAGE;
                 ci.imbuf = img.as_ptr();
                 ci.fit = sys::BK_FIT_FILL;
+            }
+            Kind::Video(v, fit) => {
+                ci.type_ = sys::BK_ITEM_IMAGE;
+                ci.video = v.as_ptr();
+                ci.fit = *fit;
             }
             Kind::File { start, fit, frame } => {
                 ci.type_ = sys::BK_ITEM_IMAGE;
@@ -567,6 +582,7 @@ impl Painter {
                 }
                 Kind::Image(img) => (6u8, Arc::as_ptr(img) as usize).hash(h),
                 Kind::File { start, fit, frame } => (7u8, self.arena_str(*start), fit, frame).hash(h),
+                Kind::Video(v, fit) => (8u8, std::rc::Rc::as_ptr(v) as usize, fit).hash(h),
             }
             if let Some(c) = it.clip {
                 (c.origin.x.to_bits(), c.origin.y.to_bits(), c.size.width.to_bits(), c.size.height.to_bits()).hash(h);
@@ -1090,6 +1106,8 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
                         }
                         _ => p.image_file_frame(inner, &file.src, *frame),
                     },
+                    Replaced::Video(v) => p.with_clip(inner, |p| p.video(inner, v, c.images.as_ref().map_or(
+                        sys::BK_FIT_CONTAIN, |st| st.object_fit.kit_video()))),
                     Replaced::Painted(f) => p.with_clip(inner, |p| f(inner, p, app)),
                     Replaced::Placeholder(tag) => {
                         p.fill(inner, crate::color::rgb(0x282828));

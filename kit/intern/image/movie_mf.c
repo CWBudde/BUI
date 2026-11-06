@@ -141,6 +141,12 @@ static bool mf_ready(void)
 /** \name The codec
  * \{ */
 
+/* declared without DEFINE_GUID by the Windows SDK's mfobjects.h: defined here */
+static const GUID k_IID_IMF2DBuffer = {
+    0x7dc9d5f9, 0x9ed9, 0x44ec, {0x9b, 0xbf, 0x06, 0x00, 0xbb, 0x58, 0x9f, 0xbb}};
+static const GUID k_IID_IMFDXGIBuffer = {
+    0xe7174cfa, 0x1c9e, 0x48b1, {0x88, 0x66, 0x62, 0x62, 0x26, 0xbf, 0xc2, 0x58}};
+
 typedef struct MFMovie {
   IMFSourceReader *reader;
   int w, h;         /* output frame (NV12) */
@@ -313,7 +319,7 @@ static bool copy_frame(MFMovie *m, IMFSample *sample, BKImBuf *dst)
   LONG pitch = 0;
   int plane_h = m->h;
   bool locked2d = false;
-  if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buf, &IID_IMFDXGIBuffer, (void **)&dx))) {
+  if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buf, &k_IID_IMFDXGIBuffer, (void **)&dx))) {
     ID3D11Texture2D *tex = NULL;
     if (SUCCEEDED(IMFDXGIBuffer_GetResource(dx, &IID_ID3D11Texture2D, (void **)&tex))) {
       D3D11_TEXTURE2D_DESC td;
@@ -323,7 +329,7 @@ static bool copy_frame(MFMovie *m, IMFSample *sample, BKImBuf *dst)
     }
     IMFDXGIBuffer_Release(dx);
   }
-  if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buf, &IID_IMF2DBuffer, (void **)&b2))) {
+  if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buf, &k_IID_IMF2DBuffer, (void **)&b2))) {
     locked2d = SUCCEEDED(IMF2DBuffer_Lock2D(b2, &scan0, &pitch));
   }
   DWORD len = 0;

@@ -112,6 +112,7 @@ pub(crate) mod sink;
 pub mod vlist;
 pub(crate) mod layout;
 pub mod paint;
+pub mod video;
 pub(crate) mod prof;
 mod selector;
 pub mod hooks;
@@ -132,6 +133,7 @@ pub use list::{uniform_list, UniformList};
 pub use events::*;
 pub use geometry::{point, px, relative, rems, size, Bounds, Length, Pixels, Point, Rems, Size};
 pub use paint::{image_stats, set_image_budget, Animation, Image, Painter};
+pub use video::{Video, VideoState};
 pub use styled::{FontWeight, StyleBlock, Styled};
 pub use window::*;
 
