@@ -85,8 +85,10 @@ if(BUI_VIDEO)
     target_sources(bui_kit PRIVATE intern/image/movie_avf.m)
     set_source_files_properties(intern/image/movie_avf.m PROPERTIES COMPILE_OPTIONS "-fno-objc-arc")
     target_compile_definitions(bui_kit PRIVATE BUI_VIDEO_AVF)
-    target_link_libraries(bui_kit PUBLIC "-weak_framework AVFoundation" "-weak_framework CoreMedia"
-                                         "-weak_framework CoreVideo")
+    # weak: a system without them still starts (one argument each for the linker)
+    target_link_libraries(bui_kit PUBLIC "-Wl,-weak_framework,AVFoundation"
+                                         "-Wl,-weak_framework,CoreMedia"
+                                         "-Wl,-weak_framework,CoreVideo")
   else()
     target_sources(bui_kit PRIVATE intern/image/movie_gst.c)
     target_compile_definitions(bui_kit PRIVATE BUI_VIDEO_GST)
