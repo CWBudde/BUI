@@ -44,6 +44,9 @@ add_library(bui_kit STATIC
   intern/image/cache.c
   intern/image/loader.c
   intern/image/draw.c
+  intern/image/video.c
+  intern/image/movie.c
+  intern/image/movie_mf.c
   # Blender's UI sources copied and edited for the kit (C++; see blender/bk_blender.h)
   intern/blender/interface_string_search.cc
   intern/blender/interface_utils.cc
@@ -61,6 +64,9 @@ add_library(bui::kit ALIAS bui_kit)
 option(BUI_IMAGE_SVG "SVG images through the kit's nanosvg (no extra code: the icons use it)" ON)
 if(BUI_IMAGE_SVG)
   target_compile_definitions(bui_kit PRIVATE BUI_IMAGE_SVG)
+endif()
+if(WIN32)
+  target_compile_definitions(bui_kit PRIVATE BUI_VIDEO_MF)
 endif()
 set(_bui_quiet "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 # Wuffs: one translation unit (format_wuffs.c includes wuffs-v0.4.c)

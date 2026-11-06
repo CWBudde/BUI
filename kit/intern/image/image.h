@@ -40,7 +40,9 @@
 struct BKImBuf {
   int x, y;       /* size in pixels (ImBuf::x, ::y) */
   int frames;     /* >= 1 */
-  int ftype;      /* BK_IMAGE_* it was decoded from */
+  int ftype;      /* BK_IMAGE_* it was decoded from (BK_IMAGE_VIDEO: a movie frame) */
+  int format;     /* BUI_PIXMAP_*: ARGB, or NV12 (one frame; `rect` holds its planes) */
+  uint64_t stream; /* frames of one playing movie share it (one GPU texture); 0 else */
   int src_x, src_y; /* intrinsic size of the source (after EXIF orientation) */
   float crop[4];    /* the part to draw (x, y, w, h in these pixels): the visible
                      * region of a fitted decode, sub-pixel exact; else all */
@@ -56,6 +58,16 @@ struct BKImBuf {
 /* One block: header, delays, pixels (uninitialized). NULL when the size is
  * out of range or allocation fails. */
 BKImBuf *imb_alloc(int x, int y, int frames);
+/* One NV12 frame (`format` BUI_PIXMAP_NV12_*; x and y even): luma, then chroma. */
+BKImBuf *imb_alloc_nv12(int x, int y, int format);
+/* A fresh unique key (BKImBuf keys, movie streams). */
+uint64_t imb_new_key(void);
+/* What the GPU renderers draw for `ib`. */
+static inline BuiPixmap imb_pixmap(const BKImBuf *ib)
+{
+  const BuiPixmap pm = {ib->rect, ib->x, ib->y, ib->key, ib->format, ib->stream};
+  return pm;
+}
 static inline uint32_t *imb_frame(const BKImBuf *ib, int frame)
 {
   return ib->rect + (size_t)frame * ib->x * ib->y;
@@ -72,6 +84,8 @@ void imb_rekey(BKImBuf *ib);
 /* Straight RGBA (8 bits, any stride) <-> premultiplied 0xAARRGGBB rows. */
 void imb_premultiply_rgba(uint32_t *dst, const uint8_t *rgba, int n);
 void imb_unpremultiply(uint8_t *rgba, const uint32_t *src, int n);
+/* Rows y0 .. y0 + rows of a frame as straight RGBA (any format). */
+bool imb_rgba_rows(const BKImBuf *ib, int frame, int y0, int rows, uint8_t *dst);
 
 /* Where an image of intrinsic size iw x ih shows in a bw x bh box (CSS
  * object-fit / object-position): `dst` is the visible rect inside the box
@@ -122,31 +136,71 @@ BKImBuf *imb_load(const uint8_t *mem, size_t size, const BKImageFit *target);
 /* Reads a whole file (MEM_mallocN'd), or its first `max` bytes (0: all). */
 uint8_t *imb_read_file(const char *path, size_t max, size_t *r_size);
 
-/* -- anim.c: animations, one frame at a time ---------------------------------------- */
+/* -- anim.c: animated media, one frame at a time --------------------------------------
+ * GIF, animated WebP and video share one codec interface (Blender's anim /
+ * MovieReader: open, next frame, seek, close) and one player (play.c). */
 
-/* What a format provides for animations: frames composited (disposal,
- * blending) into a full-size premultiplied canvas copy. */
+typedef struct BKImAnimInfo {
+  int w, h;          /* the frames' size: the canvas (in-memory codecs) or what a
+                      * streamed codec decodes to (about the size asked, even) */
+  int src_w, src_h;  /* intrinsic (display) size */
+  int format;        /* BUI_PIXMAP_* of the frames */
+  int loops;         /* plays the file asks for, 0 = forever */
+  double duration;   /* seconds, 0 when unknown */
+} BKImAnimInfo;
+
 typedef struct BKImAnimCodec {
-  void *(*open)(const uint8_t *mem, size_t size, int *r_w, int *r_h, int *r_loops);
-  /* 1 with the next frame in `dst` (w * h), 0 past the last, -1 on errors */
-  int (*next)(void *state, uint32_t *dst, int *r_delay_ms);
-  void (*rewind)(void *state);
-  size_t (*bytes)(const void *state);
+  const char *name;
+  /* Streamed codecs (video) read the file themselves, by path, as it plays:
+   * nothing is loaded whole. Others get the whole file in memory. */
+  bool streamed;
+  /* The file starts like one this codec reads (a few dozen bytes). */
+  bool (*is_a)(const uint8_t *head, size_t size);
+  /* `path` (streamed) or `mem` (kept by the caller while open). want_w x
+   * want_h is the size frames are drawn at: a hint (video scales to it on
+   * the decoder, in hardware where there is one). */
+  void *(*open)(const char *path, const uint8_t *mem, size_t size, int want_w, int want_h,
+                BKImAnimInfo *r_info);
+  /* 1 with the next frame in `dst` (the info's size and format), its time
+   * and duration in seconds (pts < 0: unknown, frames follow each other);
+   * 0 past the last; -1 on errors. */
+  int (*next)(void *state, BKImBuf *dst, double *r_pts, double *r_dur);
+  /* The next frame is the one showing at `t`, or one before it (a keyframe;
+   * in-memory codecs restart): anim.c skips forward to `t`. */
+  bool (*seek)(void *state, double t);
+  size_t (*bytes)(const void *state); /* decoder state (estimate for OS decoders) */
   void (*close)(void *state);
 } BKImAnimCodec;
 extern const BKImAnimCodec imb_gif_codec, imb_webp_codec;
-/* The codec for an animation (GIF always, animated WebP). */
+/* Video backends (movie_*.c), each compiled when the build has it. */
+extern const BKImAnimCodec imb_movie_mf, imb_movie_avf, imb_movie_gst, imb_movie_dav1d,
+    imb_movie_ffmpeg;
+/* Those compiled in (movie.c: the build's choice), tried in order; NULL-ended. */
+extern const BKImAnimCodec *const imb_movie_codecs[];
+/* The first bytes look like a movie container (MP4/MOV, WebM/MKV, AVI, ASF,
+ * Ogg, MPEG-PS/TS, FLV). */
+bool imb_is_a_movie(const uint8_t *head, size_t size);
+/* The in-memory codec for an animation (GIF always, animated WebP). */
 const BKImAnimCodec *imb_anim_codec(const uint8_t *mem, size_t size);
 
 typedef struct BKImAnim BKImAnim;
 /* Takes `file` (MEM-allocated; freed with the animation, or now on failure). */
 BKImAnim *imb_anim_open(uint8_t *file, size_t size, const BKImageFit *target);
+/* A movie (streamed codecs; NULL when none reads the file). */
+BKImAnim *imb_movie_open(const char *path, const BKImageFit *target);
 void imb_anim_free(BKImAnim *a);
-int imb_anim_loops(const BKImAnim *a);
+const BKImAnimInfo *imb_anim_info(const BKImAnim *a);
 int imb_anim_frames(const BKImAnim *a); /* from the header (at least what was decoded) */
 size_t imb_anim_bytes(const BKImAnim *a); /* its decoder state and file */
-/* The next frame at the target size, wrapping (`r_wrapped`) after the last. */
-BKImBuf *imb_anim_next(BKImAnim *a, int *r_delay_ms, bool *r_wrapped);
+/* Frames to `target` from now on (a movie reopens its decoder at the new
+ * size, where it was). False when it can't (the old size stays). */
+bool imb_anim_retarget(BKImAnim *a, const BKImageFit *target);
+/* The next frame at the target size, wrapping (`r_wrapped`) after the last.
+ * `reuse` (taken; NULL for none): a frame no longer shown, which a movie
+ * decodes into when it fits (no allocation per frame). */
+BKImBuf *imb_anim_next(BKImAnim *a, BKImBuf *reuse, double *r_pts, double *r_dur, bool *r_wrapped);
+/* The next imb_anim_next returns the frame showing at `t` seconds. */
+void imb_anim_seek(BKImAnim *a, double t);
 /* Frame `frame` alone, or every frame (synchronous API; at most 128 MiB). */
 BKImBuf *imb_anim_frame(const uint8_t *mem, size_t size, const BKImageFit *target, int frame);
 BKImBuf *imb_anim_all(const uint8_t *mem, size_t size, const BKImageFit *target);
@@ -218,20 +272,60 @@ double bk_image_next_due(BKContext *ctx);
 const BKImBuf *bk_image_cache_get(BKImageSource *s, const BKImageFit *target, const int rect[4]);
 void bk_image_cache_prefetch(BKImageSource *s, const BKImageFit *target);
 
-/* play.c: the frame clock of a playing animation (owned by its cache entry). */
-typedef struct BKImPlay BKImPlay;
-BKImPlay *imb_play_new(BKImAnim *anim, int delay); /* takes `anim`; shows its first frame */
+/* A private entry: one player's (a <video>), outside the shared table and
+ * the LRU (never evicted), freed by its owner (video.c). It loads at its
+ * first draw, with `play` (taken) as its clock; `notify` hears every state
+ * change of the clock (loaded, ended, error) on the UI thread. */
+typedef struct BKImEntry BKImEntry;
+typedef struct BKImPlay BKImPlay; /* play.c */
+BKImEntry *bk_image_entry_new(BKImageSource *s, BKImPlay *play, void (*notify)(void *owner),
+                              void *owner);
+void bk_image_entry_free(BKImEntry *e);
+/* As bk_image_cache_get; the entry follows the size it is drawn at. */
+const BKImBuf *bk_image_entry_get(BKImEntry *e, const BKImageFit *target, const int rect[4]);
+BKImPlay *bk_image_entry_play(BKImEntry *e);
+/* A control changed the clock: step now, redraw where it shows. */
+void bk_image_entry_changed(BKImEntry *e);
+
+/* play.c: the one clock of everything that plays (GIF, WebP, video), owned
+ * by its cache entry. Frames advance only after the shown one was drawn. */
+typedef enum BKImPlayState {
+  BK_PLAY_LOADING = 0, /* no frame yet */
+  BK_PLAY_PLAYING,
+  BK_PLAY_PAUSED,
+  BK_PLAY_ENDED, /* the last play's last frame shows */
+  BK_PLAY_ERROR,
+} BKImPlayState;
+/* `loops` overrides the file's play count (-1: the file's; 0: forever). */
+BKImPlay *imb_play_new(bool paused, int loops);
 void imb_play_free(BKImPlay *p);
 size_t imb_play_bytes(const BKImPlay *p);
-/* The decoder for the next step request (NULL: nothing to decode now). */
-BKImAnim *imb_play_take_step(BKImPlay *p);
+/* The first frame arrived with its decoder (taken). */
+void imb_play_start(BKImPlay *p, BKImAnim *anim, double pts, double dur);
+void imb_play_fail(BKImPlay *p); /* the file didn't open */
+/* A step request to make: the decoder (NULL: nothing to decode now), the
+ * buffer to decode into (or NULL) and where to seek first (< 0: no seek).
+ * The step owns them until it comes back (step_done / step_cancelled). */
+BKImAnim *imb_play_take_step(BKImPlay *p, BKImBuf **r_reuse, double *r_seek);
 /* The step came back: the decoder, and the next frame (NULL: an error). */
-void imb_play_step_done(BKImPlay *p, BKImAnim *anim, BKImBuf *next, int delay, bool wrapped);
-void imb_play_step_cancelled(BKImPlay *p, BKImAnim *anim); /* the decoder back, no frame */
+void imb_play_step_done(BKImPlay *p, BKImAnim *anim, BKImBuf *next, double pts, double dur,
+                        bool wrapped);
+void imb_play_step_cancelled(BKImPlay *p, BKImAnim *anim, BKImBuf *reuse); /* nothing decoded */
 void imb_play_drawn(BKImPlay *p, double now); /* the shown frame reached the screen */
 double imb_play_due(const BKImPlay *p);       /* when to advance (0: not waiting on time) */
-/* The frame to show from `now` (the caller frees the old one), or NULL. */
+/* The frame to show from `now`, or NULL; the one it replaces goes back
+ * through imb_play_recycle. */
 BKImBuf *imb_play_advance(BKImPlay *p, double now);
+void imb_play_recycle(BKImPlay *p, BKImBuf *old); /* kept for a movie's next decode, else freed */
+/* Controls (the <video> element's). */
+void imb_play_pause(BKImPlay *p, bool paused);
+void imb_play_seek(BKImPlay *p, double t);
+void imb_play_set_rate(BKImPlay *p, double rate); /* > 0 */
+void imb_play_set_loops(BKImPlay *p, int loops);  /* 0: forever, -1: the file's */
+BKImPlayState imb_play_state(const BKImPlay *p);
+double imb_play_time(const BKImPlay *p);     /* seconds, of the frame shown */
+double imb_play_duration(const BKImPlay *p); /* seconds, 0 when unknown */
+bool imb_play_size(const BKImPlay *p, int *r_w, int *r_h); /* intrinsic, once loaded */
 
 /* draw.c: what a node or canvas item shows. One of an owned copy (set from
  * RGBA), a borrowed BKImBuf (the host keeps it alive) or a source decoded
@@ -241,6 +335,7 @@ typedef enum BKImageRefKind {
   BK_IMREF_OWNED,
   BK_IMREF_BORROWED,
   BK_IMREF_SOURCE,
+  BK_IMREF_VIDEO, /* a BKVideo (borrowed: its owner frees it) */
 } BKImageRefKind;
 typedef struct BKImageRef {
   BKImageRefKind kind;
@@ -248,6 +343,7 @@ typedef struct BKImageRef {
     BKImBuf *owned;
     const BKImBuf *borrowed;
     BKImageSource *source;
+    BKVideo *video;
   } u;
 } BKImageRef;
 void bk_image_ref_clear(BKImageRef *ref);
@@ -255,6 +351,12 @@ void bk_image_ref_clear(BKImageRef *ref);
 void bk_image_ref_set_rgba(BKImageRef *ref, const unsigned char *rgba, int w, int h);
 void bk_image_ref_set_imbuf(BKImageRef *ref, const BKImBuf *ib);
 void bk_image_ref_set_source(BKImageRef *ref, const char *src);
+void bk_image_ref_set_video(BKImageRef *ref, BKVideo *v);
+
+/* video.c: a BKVideo's frame for drawing at `target` (NULL until the first
+ * frame; then its poster, if any, is what shows), and its intrinsic size. */
+const BKImBuf *bk_video_frame(BKVideo *v, const BKImageFit *target, const int rect[4]);
+bool bk_video_size(const BKVideo *v, int *r_w, int *r_h);
 /* Intrinsic size (a source reads its header once). */
 bool bk_image_ref_size(const BKImageRef *ref, int *r_w, int *r_h);
 
@@ -284,9 +386,13 @@ struct BKImRequest {
   BKImBuf *result;  /* NULL when decoding failed */
   void *entry;      /* the cache entry waiting for it (cache.c) */
   BKImAnim *anim;   /* a step: the animation to decode the next frame of; a
-                     * first load: set when the file plays (frames > 1) */
-  int delay;        /* the result's delay (ms) and whether it starts a new play */
-  bool wrapped;
+                     * first load: set when the file plays (frames > 1, movies) */
+  BKImBuf *reuse;   /* a step: the frame to decode into (taken) */
+  double seek;      /* a step: seek there first (seconds; < 0: no seek) */
+  bool step;        /* the next frame of something playing (else a first load) */
+  bool movie;       /* a first load of a movie (streamed codecs, imb_movie_open) */
+  double pts, dur;  /* the result's time and duration (seconds), and whether */
+  bool wrapped;     /* it starts a new play */
 };
 enum { BK_IMREQ_QUEUED, BK_IMREQ_RUNNING, BK_IMREQ_DONE, BK_IMREQ_CANCELLED };
 /* Queue `req` (ownership moves to the loader until it comes back). */

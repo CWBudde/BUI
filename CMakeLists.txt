@@ -99,6 +99,15 @@ if(BUI_BUILD_TESTS)
     BUI_TEST_TMP="${CMAKE_CURRENT_BINARY_DIR}/image_test_files")
   add_test(NAME bui_image_test COMMAND bui_image_test)
   set_tests_properties(bui_image_test PROPERTIES TIMEOUT 120)
+  # video: play, pause, seek, rate, loop, off screen, malformed files, no leaks
+  # (exits 77, skipped, without a backend that decodes the H.264 clip)
+  add_executable(bui_video_test tests/video_test.c)
+  target_link_libraries(bui_video_test PRIVATE bui::kit)
+  target_compile_definitions(bui_video_test PRIVATE
+    BUI_TEST_VIDEOS="${CMAKE_CURRENT_SOURCE_DIR}/tests/videos"
+    BUI_TEST_TMP="${CMAKE_CURRENT_BINARY_DIR}")
+  add_test(NAME bui_video_test COMMAND bui_video_test)
+  set_tests_properties(bui_video_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
   if(WIN32) # the thumbnail-grid benchmark (bench/images/image_grid.c; not a test)
     add_executable(bui_image_bench bench/images/image_grid.c)
     target_link_libraries(bui_image_bench PRIVATE bui::kit psapi)

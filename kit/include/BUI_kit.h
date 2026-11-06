@@ -260,6 +260,7 @@ enum {
   BK_IMAGE_HDR,
   BK_IMAGE_PNM,
   BK_IMAGE_SVG,
+  BK_IMAGE_VIDEO, /* a frame of a BKVideo */
 };
 /* CSS object-fit */
 enum { BK_FIT_FILL = 0, BK_FIT_CONTAIN, BK_FIT_COVER, BK_FIT_NONE, BK_FIT_SCALE_DOWN };
@@ -302,6 +303,48 @@ BKImBuf *BK_anim_next(BKAnim *anim, int *r_delay_ms);
 /* Intrinsic size and loop count (0 = forever); returns the frame count. */
 int BK_anim_info(const BKAnim *anim, int *r_w, int *r_h, int *r_loops);
 void BK_anim_free(BKAnim *anim);
+
+/* -- video (kit/intern/image: one player for GIF, WebP and video) ---------------------
+ * A <video>: decoded by the OS (Media Foundation, AVFoundation, GStreamer) or
+ * an optional built-in decoder (dav1d, FFmpeg), streamed from the file at
+ * the size it is drawn, frames in one GPU texture updated in place (NV12:
+ * YCbCr converted in the shader; the CPU raster converts what it draws).
+ * It loads when first drawn and plays only while it shows: off screen,
+ * clipped, in a hidden window, nothing is decoded. Muted (no audio yet).
+ * UI-thread API; the state listener runs on the UI thread. */
+typedef struct BKVideo BKVideo;
+enum { BK_VIDEO_LOADING = 0, BK_VIDEO_PLAYING, BK_VIDEO_PAUSED, BK_VIDEO_ENDED, BK_VIDEO_ERROR };
+/* Autoplays (a muted autoplay, as browsers allow); BK_video_pause before the
+ * first draw shows the first frame instead. NULL for an empty src. */
+BKVideo *BK_video_new(const char *src);
+void BK_video_free(BKVideo *v);
+void BK_video_play(BKVideo *v); /* an ended video starts over */
+void BK_video_pause(BKVideo *v);
+void BK_video_seek(BKVideo *v, double seconds); /* the frame there shows, paused or not */
+void BK_video_set_rate(BKVideo *v, double rate); /* playback speed, 1/16 .. 16 */
+void BK_video_set_loop(BKVideo *v, int loop);
+/* An image file shown until the first frame (HTML poster); NULL: none. */
+void BK_video_set_poster(BKVideo *v, const char *src);
+/* Blender-style controls over it (play/pause, scrubber, time) in "video" nodes. */
+void BK_video_set_controls(BKVideo *v, int on);
+int BK_video_state(const BKVideo *v);        /* BK_VIDEO_* */
+double BK_video_time(const BKVideo *v);      /* seconds */
+double BK_video_duration(const BKVideo *v);  /* seconds; 0 until loaded or unknown */
+int BK_video_size(const BKVideo *v, int *r_w, int *r_h); /* intrinsic; 0 until loaded */
+/* Called on every state change (loaded, playing, paused, ended, error). */
+void BK_video_set_listener(BKVideo *v, void (*fn)(BKVideo *v, int state, void *data), void *data);
+/* Dear ImGui and textured meshes: the current frame in a BUI_texture (RGBA),
+ * created when `tex` is 0 (or the size changed: the old one is freed) and
+ * updated in place when a new frame came; returns the texture (0 before
+ * the first frame). Calling it each frame is what keeps it playing: the
+ * host keeps rendering while BK_video_state is BK_VIDEO_PLAYING. */
+int BK_video_texture(BKVideo *v, int tex, int max_w, int max_h);
+/* Shown on a "video" node (fitted, with its controls) or an "image" node; the
+ * node borrows it (free the video after the node lets go: set NULL). */
+void BK_node_set_video(BKNode *node, BKVideo *v, int fit);
+/* The backends this build reads video with ("mf", "avfoundation", "gstreamer",
+ * "dav1d", "ffmpeg"), comma-separated; "" when built without video. */
+const char *BK_video_backends(void);
 
 /* The shared cache and loader. Sources (file paths) decode on a few worker
  * threads at the size they are drawn, visible first; results arrive on the UI
@@ -355,6 +398,7 @@ typedef struct BKCanvasItem {
   int fit;   /* BK_FIT_* */
   int frame; /* animated src: 0 plays (each frame for its delay, looping as the file
               * says; paused while off screen); n > 0 shows frame n - 1 */
+  BKVideo *video; /* images: a video's current frame (borrowed, as imbuf) */
 } BKCanvasItem;
 void BK_canvas_set_item(BKNode *canvas, const BKCanvasItem *item); /* insert or replace by id */
 void BK_canvas_add_item(BKNode *canvas, const BKCanvasItem *item);

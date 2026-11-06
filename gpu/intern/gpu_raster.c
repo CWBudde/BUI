@@ -1300,6 +1300,23 @@ static inline uint32_t yuv_argb(const int *k, int y, int u, int v)
   return 0xFF000000u | (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b;
 }
 
+void BUI_pixmap_read(const BuiPixmap *img, int y0, int rows, uint32_t *dst)
+{
+  if (img->format == BUI_PIXMAP_ARGB) {
+    memcpy(dst, img->px + (size_t)y0 * img->w, sizeof(uint32_t) * (size_t)img->w * rows);
+    return;
+  }
+  const int *k = k_yuv[img->format == BUI_PIXMAP_NV12_BT709];
+  const uint8_t *yp = (const uint8_t *)img->px, *uvp = yp + (size_t)img->w * img->h;
+  for (int y = y0; y < y0 + rows; y++) {
+    const uint8_t *yr = yp + (size_t)y * img->w, *cr = uvp + (size_t)(y >> 1) * img->w;
+    for (int x = 0; x < img->w; x++) {
+      const uint8_t *c = cr + (x & ~1);
+      *dst++ = yuv_argb(k, yr[x], c[0], c[1]);
+    }
+  }
+}
+
 /* 8-bit bilinear of four samples (fx, fy: 0..256). */
 static inline int lerp2(int a, int b, int c, int d, int fx, int fy)
 {

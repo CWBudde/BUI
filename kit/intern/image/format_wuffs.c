@@ -272,8 +272,12 @@ static void gif_close(void *state)
   MEM_freeN(g);
 }
 
-static void *gif_open(const uint8_t *mem, size_t size, int *r_w, int *r_h, int *r_loops)
+static void *gif_open(const char *path, const uint8_t *mem, size_t size, int want_w, int want_h,
+                      BKImAnimInfo *r_info)
 {
+  (void)path;
+  (void)want_w;
+  (void)want_h;
   GifAnim *g = (GifAnim *)MEM_callocN(sizeof(GifAnim), "GifAnim");
   g->mem = mem;
   g->size = size;
@@ -292,8 +296,9 @@ static void *gif_open(const uint8_t *mem, size_t size, int *r_w, int *r_h, int *
     gif_close(g);
     return NULL;
   }
-  *r_w = g->w;
-  *r_h = g->h;
+  r_info->w = r_info->src_w = g->w;
+  r_info->h = r_info->src_h = g->h;
+  r_info->format = BUI_PIXMAP_ARGB;
   /* plays (0: forever): known once the frames were seen (no NETSCAPE block:
    * one play), so ask a decoder that skipped through them */
   wuffs_base__io_buffer src;
@@ -301,19 +306,21 @@ static void *gif_open(const uint8_t *mem, size_t size, int *r_w, int *r_h, int *
   wuffs_base__image_decoder *count = open_image(mem, size, &src, &ic);
   if (count) {
     count_frames(count, &src);
-    *r_loops = (int)wuffs_base__image_decoder__num_animation_loops(count);
+    r_info->loops = (int)wuffs_base__image_decoder__num_animation_loops(count);
     MEM_freeN(count);
   }
   return g;
 }
 
-static void gif_rewind(void *state)
+static bool gif_seek(void *state, double t)
 {
-  gif_start((GifAnim *)state);
+  (void)t; /* from the top: anim.c skips to t */
+  return gif_start((GifAnim *)state);
 }
 
-static int gif_next(void *state, uint32_t *dst, int *r_delay)
+static int gif_next(void *state, BKImBuf *dst, double *r_pts, double *r_dur)
 {
+  (void)r_pts;
   GifAnim *g = (GifAnim *)state;
   if (!g->dec) {
     return -1;
@@ -343,10 +350,10 @@ static int gif_next(void *state, uint32_t *dst, int *r_delay)
   if (frame.repr && g->index == 0) {
     return -1; /* a bad first frame: no image (later bad frames end the animation) */
   }
-  *r_delay = (int)(wuffs_base__frame_config__duration(&fc) / WUFFS_BASE__FLICKS_PER_MILLISECOND);
+  *r_dur = (double)wuffs_base__frame_config__duration(&fc) / (double)WUFFS_BASE__FLICKS_PER_SECOND;
   g->prev = fc;
   g->index++;
-  memcpy(dst, g->canvas, sizeof(uint32_t) * (size_t)g->w * g->h);
+  memcpy(dst->rect, g->canvas, sizeof(uint32_t) * (size_t)g->w * g->h);
   return 1;
 }
 
@@ -356,6 +363,6 @@ static size_t gif_bytes(const void *state)
   return sizeof(*g) + (size_t)g->wl + 2 * sizeof(uint32_t) * (size_t)g->w * g->h;
 }
 
-const BKImAnimCodec imb_gif_codec = {gif_open, gif_next, gif_rewind, gif_bytes, gif_close};
+const BKImAnimCodec imb_gif_codec = {"gif", false, imb_is_a_gif, gif_open, gif_next, gif_seek, gif_bytes, gif_close};
 
 /** \} */

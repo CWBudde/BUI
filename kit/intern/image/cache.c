@@ -10,6 +10,9 @@
  *    two generations (they are on screen): visible images can exceed the
  *    budget, the rest can't.
  *  - Deterministic: BK_image_exit frees everything; MEM counts all of it.
+ *  - Private entries (a <video> each, video.c) use the same requests,
+ *    clock and visibility tracking, outside the table and the LRU: their
+ *    owner frees them.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -31,23 +34,32 @@ typedef struct Waiter {
   unsigned pass; /* the drawing pass that last asked */
 } Waiter;
 
-typedef struct Entry {
-  struct Entry *lru_prev, *lru_next;   /* most recently used first */
-  struct Entry *pend_prev, *pend_next; /* while a request is out */
+typedef struct BKImEntry Entry;
+struct BKImEntry {
+  Entry *lru_prev, *lru_next;   /* most recently used first */
+  Entry *pend_prev, *pend_next; /* while a request is out */
   BKImageSource *source;               /* referenced */
   BKImageFit target;
   BKImBuf *ib;       /* NULL while pending or after a failed decode */
   BKImRequest *req;  /* the request out (NULL when settled) */
+  BKImRequest *spare; /* a step's request, kept for the next step (no allocation per frame) */
   unsigned used;     /* generation of the last use */
   size_t bytes;      /* counted in C.bytes: ib, and play's decoder and next frame */
   BKImPlay *play;    /* a playing animation (NULL for stills) */
-  struct Entry *play_prev, *play_next; /* C.playing */
+  Entry *play_prev, *play_next; /* C.playing */
+  /* private entries (owned: video.c): who hears state changes, and the
+   * last state it heard; orphaned when the owner let go with a request out */
+  bool owned, orphan;
+  unsigned hosted; /* C.gen + 1 when a host loop last showed it without a rect (textures) */
+  void (*notify)(void *owner);
+  void *owner;
+  BKImPlayState heard;
   /* where it shows (window rects per context): while pending, what redraws
    * on arrival; for animations, what redraws on every frame (a context
    * that redraws a rect without asking drops it: off screen, paused) */
   int nwaiters;
   Waiter waiters[MAX_WAITERS];
-} Entry;
+};
 
 struct BKImageSource {
   int refs;
@@ -190,8 +202,10 @@ static void entry_account(Entry *e)
 
 static void entry_free(Entry *e)
 {
-  BLI_ghash_remove(C.entries, e, NULL, NULL);
-  lru_unlink(e);
+  if (!e->owned) {
+    BLI_ghash_remove(C.entries, e, NULL, NULL);
+    lru_unlink(e);
+  }
   if (e->play) {
     *(e->play_prev ? &e->play_prev->play_next : &C.playing) = e->play_next;
     if (e->play_next) {
@@ -202,15 +216,29 @@ static void entry_free(Entry *e)
   C.bytes -= e->bytes;
   BK_imbuf_free(e->ib);
   bk_image_source_release(e->source);
+  MEM_freeN(e->spare);
   MEM_freeN(e);
   C.count--;
 }
 
-/* `anim`: a step of a playing animation (its next frame), else a first load. */
-static void request(Entry *e, int priority, BKImAnim *anim)
+/* A first load, or (`step`) the next frame of what plays when it has one to decode. */
+static void request(Entry *e, int priority, bool step)
 {
-  BKImRequest *req = (BKImRequest *)MEM_callocN(sizeof(BKImRequest), "BKImRequest");
+  BKImBuf *reuse = NULL;
+  double seek = -1.0;
+  BKImAnim *anim = step ? imb_play_take_step(e->play, &reuse, &seek) : NULL;
+  if (step && !anim) {
+    return; /* nothing to decode now */
+  }
+  BKImRequest *req = e->spare && step ? e->spare :
+                                       (BKImRequest *)MEM_mallocN(sizeof(BKImRequest), "BKImRequest");
+  e->spare = req == e->spare ? NULL : e->spare;
+  memset(req, 0, sizeof(*req));
+  req->step = step;
   req->anim = anim;
+  req->reuse = reuse;
+  req->seek = seek;
+  req->movie = e->owned && !step;
   req->source = e->source;
   e->source->refs++; /* the worker reads its path */
   req->target = e->target;
@@ -276,7 +304,7 @@ static Entry *lookup(BKImageSource *s, const BKImageFit *target, bool create, in
     BLI_ghash_insert(C.entries, e, e);
     lru_front(e);
     C.count++;
-    request(e, priority, NULL);
+    request(e, priority, false);
   }
   else if (e) {
     if (e != C.lru_head) {
@@ -337,18 +365,38 @@ static void arm(const Entry *e)
   }
 }
 
+/* A private entry's owner hears every state change (loaded, ended, error). */
+static void heard(Entry *e)
+{
+  const BKImPlayState st = e->play ? imb_play_state(e->play) : BK_PLAY_LOADING;
+  if (e->notify && st != e->heard) {
+    e->heard = st;
+    e->notify(e->owner);
+  }
+}
+
+static void playing_link(Entry *e)
+{
+  e->play_next = C.playing;
+  if (C.playing) {
+    C.playing->play_prev = e;
+  }
+  C.playing = e;
+}
+
 /* A step of a playing animation came back. */
 static void step_done(Entry *e, BKImRequest *req)
 {
   if (req->state == BK_IMREQ_CANCELLED) {
-    imb_play_step_cancelled(e->play, req->anim);
+    imb_play_step_cancelled(e->play, req->anim, req->reuse);
   }
   else {
-    imb_play_step_done(e->play, req->anim, req->result, req->delay, req->wrapped);
+    imb_play_step_done(e->play, req->anim, req->result, req->pts, req->dur, req->wrapped);
     req->result = NULL;
     C.stats.decoded++;
   }
   req->anim = NULL;
+  req->reuse = NULL;
   entry_account(e);
   arm(e);
 }
@@ -360,34 +408,45 @@ int BK_image_poll(void)
   while (req) {
     BKImRequest *next = req->next;
     Entry *e = (Entry *)req->entry;
-    if (e && req->state == BK_IMREQ_CANCELLED && e->nwaiters > 0) {
+    Entry *keeper = NULL; /* keeps a step's request for its next step */
+    if (e && !e->orphan && req->state == BK_IMREQ_CANCELLED && e->nwaiters > 0 && !req->step) {
       bk_loader_push(req); /* asked for again after the cancel: still wanted */
       req = next;
       continue;
     }
-    if (e && e->play) {
+    if (e && e->orphan) { /* its owner let go while this was out */
+      e->req = NULL;
+      pend_unlink(e);
+      entry_free(e);
+    }
+    else if (e && req->step) {
       e->req = NULL;
       pend_unlink(e);
       step_done(e, req);
+      keeper = e->spare ? NULL : e;
     }
     else if (e) {
       e->req = NULL;
       pend_unlink(e);
       if (req->state == BK_IMREQ_CANCELLED) {
-        entry_free(e);
+        if (!e->owned) {
+          entry_free(e);
+        }
         C.stats.cancelled++;
       }
       else {
         e->ib = req->result;
         req->result = NULL;
         if (e->ib && req->anim) { /* it plays: keep the decoder, show where it is */
-          e->play = imb_play_new(req->anim, req->delay);
-          req->anim = NULL;
-          e->play_next = C.playing;
-          if (C.playing) {
-            C.playing->play_prev = e;
+          if (!e->play) {
+            e->play = imb_play_new(false, -1);
+            playing_link(e);
           }
-          C.playing = e;
+          imb_play_start(e->play, req->anim, req->pts, req->dur);
+          req->anim = NULL;
+        }
+        else if (e->play) {
+          imb_play_fail(e->play); /* a video that didn't open */
         }
         entry_account(e);
         if (e->ib) {
@@ -404,13 +463,20 @@ int BK_image_poll(void)
         if (!e->play) {
           e->nwaiters = 0; /* a still: nothing more to redraw */
         }
+        heard(e);
         n++;
       }
     }
     BK_imbuf_free(req->result);
+    BK_imbuf_free(req->reuse);
     imb_anim_free(req->anim); /* a first load whose entry is gone */
     bk_image_source_release(req->source);
-    MEM_freeN(req);
+    if (keeper) {
+      keeper->spare = req;
+    }
+    else {
+      MEM_freeN(req);
+    }
     req = next;
   }
   return n;
@@ -423,23 +489,21 @@ void bk_image_tick(void)
   }
   const double now = bk_time() + 0.002; /* timers fire a little early */
   for (Entry *e = C.playing; e; e = e->play_next) {
-    if (e->nwaiters == 0) {
+    if (e->nwaiters == 0 && !(e->hosted && C.gen + 1 - e->hosted <= 1)) {
       continue; /* nobody shows it: paused, no decoding */
     }
     BKImBuf *frame = imb_play_advance(e->play, now);
     if (frame) {
-      BK_imbuf_free(e->ib);
+      imb_play_recycle(e->play, e->ib); /* a movie decodes its next frame into it */
       e->ib = frame;
       entry_account(e);
       damage(e); /* only its rectangles redraw */
     }
     if (!e->req) {
-      BKImAnim *a = imb_play_take_step(e->play);
-      if (a) {
-        request(e, BK_IMAGE_PRIORITY_VISIBLE, a); /* the one after, while this shows */
-      }
+      request(e, BK_IMAGE_PRIORITY_VISIBLE, true); /* the one after, while this shows */
     }
     arm(e);
+    heard(e);
   }
 }
 
@@ -558,6 +622,91 @@ void bk_image_forget_context(BKContext *ctx)
   if (C.pass.ctx == ctx) {
     C.pass.ctx = NULL;
   }
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Private entries (video.c)
+ * \{ */
+
+BKImEntry *bk_image_entry_new(BKImageSource *s, BKImPlay *play, void (*notify)(void *owner),
+                              void *owner)
+{
+  Entry *e = (Entry *)MEM_callocN(sizeof(Entry), "image private entry");
+  e->owned = true;
+  e->source = s;
+  s->refs++;
+  e->play = play;
+  e->notify = notify;
+  e->owner = owner;
+  playing_link(e);
+  C.count++;
+  entry_account(e);
+  return e;
+}
+
+void bk_image_entry_free(BKImEntry *e)
+{
+  if (!e) {
+    return;
+  }
+  if (e->req) {
+    e->orphan = true; /* freed when the request comes back (BK_image_poll) */
+    e->notify = NULL;
+    e->nwaiters = 0;
+    bk_loader_cancel(e->req);
+    return;
+  }
+  entry_free(e);
+}
+
+/* Decoding at about the size drawn: a box much bigger, or much smaller, than
+ * what the decoder makes asks for another size (resizing within that is
+ * scaled when drawn, so a window resize doesn't reopen the decoder). */
+static bool retarget_wanted(const BKImageFit *had, const BKImageFit *want)
+{
+  return had->fit != want->fit || want->box_w * 4 > had->box_w * 5 ||
+         want->box_h * 4 > had->box_h * 5 || want->box_w * 2 < had->box_w ||
+         want->box_h * 2 < had->box_h;
+}
+
+const BKImBuf *bk_image_entry_get(BKImEntry *e, const BKImageFit *target, const int rect[4])
+{
+  const bool loaded = imb_play_state(e->play) != BK_PLAY_LOADING;
+  if ((!loaded && !e->req && imb_play_state(e->play) != BK_PLAY_ERROR) ||
+      retarget_wanted(&e->target, target))
+  {
+    e->target = *target; /* the first load, or the next step, decodes at this size */
+  }
+  if (!loaded && !e->req && imb_play_state(e->play) != BK_PLAY_ERROR) {
+    request(e, BK_IMAGE_PRIORITY_VISIBLE, false);
+  }
+  if (rect) {
+    add_waiter(e, rect);
+  }
+  else {
+    e->hosted = C.gen + 1;
+  }
+  if (e->ib) {
+    imb_play_drawn(e->play, bk_time());
+  }
+  return e->ib;
+}
+
+BKImPlay *bk_image_entry_play(BKImEntry *e)
+{
+  return e->play;
+}
+
+void bk_image_entry_changed(BKImEntry *e)
+{
+  if (!e->req) {
+    request(e, BK_IMAGE_PRIORITY_VISIBLE, true); /* a seek decodes now */
+  }
+  damage(e);
+  arm(e);
+  heard(e);
 }
 
 /** \} */

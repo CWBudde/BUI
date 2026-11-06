@@ -95,8 +95,12 @@ static void webp_close(void *state)
   MEM_freeN(a);
 }
 
-static void *webp_open(const uint8_t *mem, size_t size, int *r_w, int *r_h, int *r_loops)
+static void *webp_open(const char *path, const uint8_t *mem, size_t size, int want_w, int want_h,
+                       BKImAnimInfo *r_info)
 {
+  (void)path;
+  (void)want_w;
+  (void)want_h;
   WebPAnimDecoderOptions opt;
   if (!WebPAnimDecoderOptionsInit(&opt)) {
     return NULL;
@@ -114,14 +118,16 @@ static void *webp_open(const uint8_t *mem, size_t size, int *r_w, int *r_h, int 
     webp_close(a);
     return NULL;
   }
-  *r_w = a->w = (int)info.canvas_width;
-  *r_h = a->h = (int)info.canvas_height;
-  *r_loops = (int)info.loop_count;
+  r_info->w = r_info->src_w = a->w = (int)info.canvas_width;
+  r_info->h = r_info->src_h = a->h = (int)info.canvas_height;
+  r_info->format = BUI_PIXMAP_ARGB;
+  r_info->loops = (int)info.loop_count;
   return a;
 }
 
-static int webp_next(void *state, uint32_t *dst, int *r_delay)
+static int webp_next(void *state, BKImBuf *dst, double *r_pts, double *r_dur)
 {
+  (void)r_pts;
   WebpAnim *a = (WebpAnim *)state;
   uint8_t *buf;
   int ts;
@@ -131,17 +137,19 @@ static int webp_next(void *state, uint32_t *dst, int *r_delay)
   if (!WebPAnimDecoderGetNext(a->dec, &buf, &ts)) {
     return -1;
   }
-  memcpy(dst, buf, sizeof(uint32_t) * (size_t)a->w * a->h);
-  *r_delay = ts - a->prev_ts; /* timestamps are frame ends */
+  memcpy(dst->rect, buf, sizeof(uint32_t) * (size_t)a->w * a->h);
+  *r_dur = (ts - a->prev_ts) / 1000.0; /* timestamps (ms) are frame ends */
   a->prev_ts = ts;
   return 1;
 }
 
-static void webp_rewind(void *state)
+static bool webp_seek(void *state, double t)
 {
+  (void)t; /* from the top: anim.c skips to t */
   WebpAnim *a = (WebpAnim *)state;
   WebPAnimDecoderReset(a->dec);
   a->prev_ts = 0;
+  return true;
 }
 
 static size_t webp_bytes(const void *state)
@@ -150,6 +158,6 @@ static size_t webp_bytes(const void *state)
   return sizeof(*a) + 2 * sizeof(uint32_t) * (size_t)a->w * a->h; /* its canvas and previous */
 }
 
-const BKImAnimCodec imb_webp_codec = {webp_open, webp_next, webp_rewind, webp_bytes, webp_close};
+const BKImAnimCodec imb_webp_codec = {"webp", false, imb_webp_animated, webp_open, webp_next, webp_seek, webp_bytes, webp_close};
 
 /** \} */

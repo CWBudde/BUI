@@ -19,7 +19,7 @@
 /** \name Allocation
  * \{ */
 
-static uint64_t next_key(void)
+uint64_t imb_new_key(void)
 {
   static volatile uint64_t key = 0;
 #ifdef _MSC_VER
@@ -48,7 +48,7 @@ BKImBuf *imb_alloc(int x, int y, int frames)
   ib->x = ib->src_x = x;
   ib->y = ib->src_y = y;
   ib->frames = frames;
-  ib->key = next_key();
+  ib->key = imb_new_key();
   ib->size = size;
   ib->delays = frames > 1 ? (int *)(ib + 1) : NULL;
   ib->rect = (uint32_t *)((char *)ib + head);
@@ -57,9 +57,33 @@ BKImBuf *imb_alloc(int x, int y, int frames)
   return ib;
 }
 
+BKImBuf *imb_alloc_nv12(int x, int y, int format)
+{
+  if (x <= 0 || y <= 0 || (x | y) & 1 || x > BK_IMB_MAX_SIDE || y > BK_IMB_MAX_SIDE) {
+    return NULL;
+  }
+  const size_t head = (sizeof(BKImBuf) + 15) & ~(size_t)15;
+  const size_t size = head + ((size_t)x * y * 3 / 2 + 3) / 4 * 4;
+  BKImBuf *ib = (BKImBuf *)MEM_mallocN(size, "BKImBuf NV12");
+  if (!ib) {
+    return NULL;
+  }
+  memset(ib, 0, sizeof(*ib));
+  ib->x = ib->src_x = x;
+  ib->y = ib->src_y = y;
+  ib->frames = 1;
+  ib->format = format;
+  ib->key = imb_new_key();
+  ib->size = size;
+  ib->rect = (uint32_t *)((char *)ib + head);
+  ib->crop[2] = (float)x;
+  ib->crop[3] = (float)y;
+  return ib;
+}
+
 void imb_rekey(BKImBuf *ib)
 {
-  ib->key = next_key();
+  ib->key = imb_new_key();
 }
 
 /* A new buffer of w x h carrying `ib`'s metadata (frames, delays, source). */
@@ -80,8 +104,8 @@ static BKImBuf *imb_alloc_like(const BKImBuf *ib, int w, int h)
 
 void BK_imbuf_free(BKImBuf *ib)
 {
-  if (ib && (ib->x > BUI_IMAGE_ATLAS_MAX || ib->y > BUI_IMAGE_ATLAS_MAX)) {
-    BUI_image_forget(ib->key); /* its own GPU texture goes with it */
+  if (ib && !ib->stream && (ib->x > BUI_IMAGE_ATLAS_MAX || ib->y > BUI_IMAGE_ATLAS_MAX)) {
+    BUI_image_forget(ib->key); /* its own GPU texture goes with it (a stream's, with its movie) */
   }
   MEM_freeN(ib); /* one block (MEM_freeN(NULL) is a no-op) */
 }
@@ -401,7 +425,9 @@ int BK_imbuf_format(const BKImBuf *ib)
 
 const uint32_t *BK_imbuf_pixels(const BKImBuf *ib, int frame)
 {
-  return ib && frame >= 0 && frame < ib->frames ? imb_frame(ib, frame) : NULL;
+  return ib && ib->format == BUI_PIXMAP_ARGB && frame >= 0 && frame < ib->frames ?
+             imb_frame(ib, frame) :
+             NULL;
 }
 
 int BK_imbuf_delay(const BKImBuf *ib, int frame)
@@ -414,14 +440,31 @@ int BK_imbuf_loops(const BKImBuf *ib)
   return ib ? ib->loops : 0;
 }
 
+bool imb_rgba_rows(const BKImBuf *ib, int frame, int y0, int rows, uint8_t *dst)
+{
+  if (ib->format == BUI_PIXMAP_ARGB) {
+    imb_unpremultiply(dst, imb_frame(ib, frame) + (size_t)y0 * ib->x, ib->x * rows);
+    return true;
+  }
+  /* a video frame: converted a band of rows at a time (no allocation) */
+  const BuiPixmap pm = imb_pixmap(ib);
+  uint32_t band[8192];
+  const int cap = (int)(sizeof(band) / sizeof(band[0]));
+  if (ib->x > cap) {
+    return false; /* wider than a band: not a size movies decode to */
+  }
+  const int step = cap / ib->x;
+  for (int y = y0; y < y0 + rows; y += step) {
+    const int n = BK_MIN(step, y0 + rows - y);
+    BUI_pixmap_read(&pm, y, n, band);
+    imb_unpremultiply(dst + (size_t)(y - y0) * ib->x * 4, band, ib->x * n);
+  }
+  return true;
+}
+
 int BK_imbuf_rgba(const BKImBuf *ib, int frame, unsigned char *dst)
 {
-  const uint32_t *px = BK_imbuf_pixels(ib, frame);
-  if (!px || !dst) {
-    return 0;
-  }
-  imb_unpremultiply(dst, px, ib->x * ib->y);
-  return 1;
+  return ib && dst && frame >= 0 && frame < ib->frames && imb_rgba_rows(ib, frame, 0, ib->y, dst);
 }
 
 BKImBuf *BK_imbuf_from_rgba(const unsigned char *rgba, int w, int h, int stride)

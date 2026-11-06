@@ -1,7 +1,8 @@
 /* Images on nodes and canvas items: what a BKImageRef shows, fitted into a
  * box (CSS object-fit, the same bk_image_fit the decoder used), drawn with
  * BUI_raster_image. Sources go through the cache: drawn when decoded,
- * requested at the box size otherwise (the box redraws on arrival).
+ * requested at the box size otherwise (the box redraws on arrival). Videos
+ * (video.c) show their current frame the same way.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -71,6 +72,18 @@ void bk_image_ref_set_imbuf(BKImageRef *ref, const BKImBuf *ib)
   }
 }
 
+void bk_image_ref_set_video(BKImageRef *ref, BKVideo *v)
+{
+  if (ref->kind == BK_IMREF_VIDEO && ref->u.video == v) {
+    return;
+  }
+  bk_image_ref_clear(ref);
+  if (v) {
+    ref->kind = BK_IMREF_VIDEO;
+    ref->u.video = v;
+  }
+}
+
 void bk_image_ref_set_source(BKImageRef *ref, const char *src)
 {
   if (ref->kind == BK_IMREF_SOURCE && src &&
@@ -102,6 +115,9 @@ bool bk_image_ref_size(const BKImageRef *ref, int *r_w, int *r_h)
     *r_h = ib->y;
     return true;
   }
+  if (ref->kind == BK_IMREF_VIDEO) {
+    return bk_video_size(ref->u.video, r_w, r_h);
+  }
   if (ref->kind == BK_IMREF_SOURCE && bk_image_source_info(ref->u.source, &info)) {
     *r_w = info.width;
     *r_h = info.height;
@@ -116,10 +132,11 @@ bool bk_image_ref_resolve(const BKImageRef *ref, int fit, int frame, const float
 {
   const BKImageFit target = {fit, BK_MAX(1, (int)lroundf(box[2])), BK_MAX(1, (int)lroundf(box[3])),
                              0.5f, 0.5f, BK_MAX(0, frame)};
-  if (ref->kind == BK_IMREF_SOURCE) {
+  if (ref->kind == BK_IMREF_SOURCE || ref->kind == BK_IMREF_VIDEO) {
     const int rect[4] = {(int)floorf(box[0]), (int)floorf(box[1]), (int)ceilf(box[0] + box[2]),
                          (int)ceilf(box[1] + box[3])};
-    r->ib = bk_image_cache_get(ref->u.source, &target, rect);
+    r->ib = ref->kind == BK_IMREF_VIDEO ? bk_video_frame(ref->u.video, &target, rect) :
+                                          bk_image_cache_get(ref->u.source, &target, rect);
     if (!r->ib) {
       return false;
     }
@@ -142,7 +159,7 @@ bool bk_image_ref_resolve(const BKImageRef *ref, int fit, int frame, const float
 
 void bk_image_draw_resolved(BuiRaster *r, const BKImageDraw *d, float alpha)
 {
-  const BuiPixmap pm = {d->ib->rect, d->ib->x, d->ib->y, d->ib->key};
+  const BuiPixmap pm = imb_pixmap(d->ib);
   BUI_raster_image(r, d->dst[0], d->dst[1], d->dst[2], d->dst[3], &pm, d->src, alpha, 0);
 }
 
@@ -156,7 +173,7 @@ void bk_image_ref_draw(const BKImageRef *ref, int fit, int frame, const float bo
 
 void bk_imbuf_draw(const BKImBuf *ib, float x, float y, float w, float h, float alpha)
 {
-  const BuiPixmap pm = {ib->rect, ib->x, ib->y, ib->key};
+  const BuiPixmap pm = imb_pixmap(ib);
   BUI_raster_image(bk_draw.r, x, y, w, h, &pm, NULL, alpha, 0);
 }
 
@@ -246,20 +263,29 @@ const BKClass bk_cls_image = {.name = "image", .measure = image_measure, .draw =
  * holds straight RGBA (Dear ImGui's convention). */
 static int texture_put(const BKImBuf *ib, int frame, int tex)
 {
-  const uint32_t *px = BK_imbuf_pixels(ib, frame);
   int tw, th;
-  if (!px || (tex && (!BUI_texture_size(tex, &tw, &th) || tw != ib->x || th != ib->y))) {
+  if (!ib || frame < 0 || frame >= ib->frames ||
+      (tex && (!BUI_texture_size(tex, &tw, &th) || tw != ib->x || th != ib->y)))
+  {
     return 0;
   }
-  unsigned char *rgba = (unsigned char *)MEM_mallocN((size_t)ib->x * ib->y * 4, "texture rgba");
-  if (!rgba) {
+  /* bands of rows through the stack: no allocation per frame (video textures) */
+  uint8_t band[64 * 1024];
+  const int step = (int)sizeof(band) / (ib->x * 4);
+  if (step < 1) {
     return 0;
   }
-  imb_unpremultiply(rgba, px, ib->x * ib->y);
-  const int ok = tex ? BUI_texture_update(tex, 0, 0, ib->x, ib->y, rgba, 0) :
-                       BUI_texture_create(ib->x, ib->y, rgba, 0);
-  MEM_freeN(rgba);
-  return ok;
+  const int t = tex ? tex : BUI_texture_create(ib->x, ib->y, NULL, 0);
+  for (int y = 0; t && y < ib->y; y += step) {
+    const int n = BK_MIN(step, ib->y - y);
+    if (!imb_rgba_rows(ib, frame, y, n, band) || !BUI_texture_update(t, 0, y, ib->x, n, band, 0)) {
+      if (!tex) {
+        BUI_texture_free(t);
+      }
+      return 0;
+    }
+  }
+  return t;
 }
 
 int BK_imbuf_texture(const BKImBuf *ib, int frame)

@@ -81,8 +81,25 @@ void bk_loader_notify(void)
 /* What a request decodes (on a worker). */
 static BKImBuf *decode(BKImRequest *req)
 {
-  if (req->anim) { /* the next frame of a playing animation */
-    return imb_anim_next(req->anim, &req->delay, &req->wrapped);
+  if (req->anim) { /* the next frame of what plays: at the size now drawn, sought first */
+    imb_anim_retarget(req->anim, &req->target);
+    if (req->seek >= 0.0) {
+      imb_anim_seek(req->anim, req->seek);
+    }
+    BKImBuf *reuse = req->reuse;
+    req->reuse = NULL;
+    return imb_anim_next(req->anim, reuse, &req->pts, &req->dur, &req->wrapped);
+  }
+  if (req->movie) { /* a video: streamed from the file, the decoder kept */
+    BKImAnim *a = imb_movie_open(bk_image_source_path(req->source), &req->target);
+    BKImBuf *ib = a ? imb_anim_next(a, NULL, &req->pts, &req->dur, &req->wrapped) : NULL;
+    if (ib) {
+      req->anim = a;
+    }
+    else {
+      imb_anim_free(a);
+    }
+    return ib;
   }
   size_t size;
   uint8_t *mem = imb_read_file(bk_image_source_path(req->source), 0, &size);
@@ -94,7 +111,7 @@ static BKImBuf *decode(BKImRequest *req)
   /* an animation that plays: its first frame now, the decoder kept (it owns
    * the file) for the next ones; one frame is just a still */
   BKImAnim *a = imb_anim_open(mem, size, &req->target);
-  BKImBuf *ib = a ? imb_anim_next(a, &req->delay, &req->wrapped) : NULL;
+  BKImBuf *ib = a ? imb_anim_next(a, NULL, &req->pts, &req->dur, &req->wrapped) : NULL;
   if (ib && imb_anim_frames(a) > 1) {
     req->anim = a;
   }

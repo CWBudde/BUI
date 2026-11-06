@@ -824,9 +824,13 @@ static void citem_assign(CItem *c, const BKCanvasItem *item)
     memcpy(c->text, item->text, (size_t)tl);
   }
   /* one pixel source per image item (validated here, at the boundary) */
-  const int sources = (item->rgba != NULL) + (item->imbuf != NULL) + (item->src != NULL);
+  const int sources = (item->rgba != NULL) + (item->imbuf != NULL) + (item->src != NULL) +
+                      (item->video != NULL);
   if (item->type != BK_ITEM_IMAGE || sources != 1) {
     bk_image_ref_clear(&c->img);
+  }
+  else if (item->video) {
+    bk_image_ref_set_video(&c->img, item->video);
   }
   else if (item->imbuf) {
     bk_image_ref_set_imbuf(&c->img, item->imbuf);
@@ -843,6 +847,7 @@ static void citem_assign(CItem *c, const BKCanvasItem *item)
   c->it.rgba = NULL;
   c->it.src = NULL;
   c->it.imbuf = NULL;
+  c->it.video = NULL;
 }
 
 /* An image item's box in canvas space: x0 y0 x1 y1 with 4 coordinates,

@@ -158,7 +158,7 @@ static const BKClass *const g_classes[] = {
     &bk_cls_menubutton, &bk_cls_menubar, &bk_cls_list,       &bk_cls_tree,
     &bk_cls_gridview, &bk_cls_ramp,      &bk_cls_curve,      &bk_cls_normal,
     &bk_cls_histogram, &bk_cls_frame,     &bk_cls_radio,      &bk_cls_canvas,
-    &bk_cls_textarea,  &bk_cls_image,     &bk_cls_meter,      &bk_cls_custom,
+    &bk_cls_textarea,  &bk_cls_image,     &bk_cls_meter,      &bk_cls_custom,      &bk_cls_video,
     &bk_cls_filebrowser,
 };
 

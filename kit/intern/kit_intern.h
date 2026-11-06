@@ -31,6 +31,11 @@ static inline BKRect bk_rect(int x, int y, int w, int h)
   BKRect r = {x, y, x + w, y + h};
   return r;
 }
+/* BLI_rcti_isect_pt */
+static inline bool bk_rect_inside(const BKRect *r, int x, int y)
+{
+  return x >= r->xmin && x < r->xmax && y >= r->ymin && y < r->ymax;
+}
 
 /* Corner flags (Blender's CNR_*; "top" = screen top). */
 enum { CNR_TL = 1, CNR_TR = 2, CNR_BR = 4, CNR_BL = 8, CNR_ALL = 15 };
@@ -551,6 +556,7 @@ void bk_theme_env_init(void);
 /* Custom nodes (kit_custom.c). The host timer that wakes them. */
 #define BK_TIMER_CUSTOM (-1)
 extern const BKClass bk_cls_custom;
+extern const BKClass bk_cls_video; /* image/video.c */
 #define BK_IS_CUSTOM(n) ((n) && (n)->cls == &bk_cls_custom)
 /* Delivers an event (fills x, y relative to the node); returns its result. */
 int bk_custom_event(BKNode *n, BKCustomEvent *e, int wx, int wy);

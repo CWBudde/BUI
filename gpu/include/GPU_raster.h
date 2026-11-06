@@ -146,6 +146,9 @@ enum {
 enum {
   BUI_IMAGE_NEAREST = 1 << 0, /* nearest texel (CSS image-rendering: pixelated); else bilinear */
 };
+/* Rows y0 .. y0 + rows of `img` as premultiplied 0xAARRGGBB (`dst`: w per
+ * row): a copy, or NV12 converted the way drawing converts it. */
+void BUI_pixmap_read(const BuiPixmap *img, int y0, int rows, uint32_t *dst);
 /* Draws the `src` part of `img` (x, y, w, h in image pixels; NULL = all of
  * it) into x, y, w, h, filtered, times `alpha`, premultiplied source-over.
  * 1:1 on whole pixels is an exact copy. */
