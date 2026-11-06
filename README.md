@@ -36,6 +36,9 @@ jump to the chapter you need. Every chapter links to a longer guide in
 [`docs/`](docs/) or on the [website](https://bui.preetham.top) when there's
 more to say.
 
+<a href="https://github.com/ppmpreetham/fastrapi"><img src="public/Advertisement.png" alt="FastRAPI"></a>
+
+
 ## Contents
 
 **[Part I: Welcome](#part-i-welcome)**
