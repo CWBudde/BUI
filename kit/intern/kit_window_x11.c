@@ -493,6 +493,9 @@ static void render_window(BKWindow *win)
     win->want_frame = 0;
     win->frame_start = now_ms();
     win->cb.on_frame(win->cb.data, win);
+    if (!win->xid) { /* the frame callback can close the window */
+      return;
+    }
   }
   win->render_pending = 0;
   do_render(win);
