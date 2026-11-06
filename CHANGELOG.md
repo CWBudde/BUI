@@ -7,7 +7,13 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Changed
+- **Linux frame pacing:** an animation frame is due one refresh after the previous frame started, at the screen's refresh rate (XRandR). Before, the X11 loop slept 16.7 ms after each frame.
+- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU.
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
+
+### Fixed
+- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
+- **X11:** a frame callback that closes its window no longer renders into the closed window.
 
 ## [0.4.0] - 2026-11-06
 

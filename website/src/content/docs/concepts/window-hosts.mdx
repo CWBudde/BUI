@@ -41,7 +41,7 @@ A plain Win32 window. Redraw requests coalesce into one render message, and the 
 
 ### Linux (X11)
 
-The same API on Xlib. Button and key mapping follow Blender's `GHOST_SystemX11`. Damaged rectangles go to the window with `XPutImage`, or through GLX with the [GPU renderer](../rendering/). Timers, cross-thread wakes and frame pacing all run in one `select()` loop.
+The same API on Xlib. Button and key mapping follow Blender's `GHOST_SystemX11`. Damaged rectangles go to the window with `XPutImage`, or through GLX with the [GPU renderer](../rendering/). Timers, cross-thread wakes and frame pacing all run in one `select()` loop. An animation frame is due one refresh after the previous frame started, at the screen's refresh rate (XRandR).
 
 Wayland sessions run it through XWayland, which every mainstream desktop provides.
 
