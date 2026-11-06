@@ -2,7 +2,9 @@
  *  - offscreen: the GPU device starts on a worker thread, BUI_raster_gpu_pending
  *    reports it, and BUI_raster_gpu_poll switches the raster when it is ready;
  *  - an idle window (no input, no animation) switches to the GPU;
- *  - a frame callback that closes its window ends the loop without an X error.
+ *  - a frame callback that closes its window ends the loop without an X error;
+ *  - a window that closes while its GPU device starts releases the device first, so
+ *    Mesa prints no "failed to create drawable" (CMakeLists.txt fails the test on it).
  * Each check passes, fails or is skipped (no GPU, no display). Exits 77 when
  * all checks are skipped.
  *
@@ -117,6 +119,26 @@ static int close_in_frame_callback(void)
   return open ? FAIL : PASS;
 }
 
+static int close_before_gpu_ready(void)
+{
+  BKNode *root = BK_node_new("column");
+  BKContext *ctx = BK_context_new(root);
+  BKWindow *win = BK_window_new(ctx, "BUI close before GPU", 320, 200);
+  if (!win) {
+    BK_context_free(ctx);
+    BK_node_free(root);
+    return FAIL;
+  }
+  BK_window_set_gpu(win, 1);
+  BK_window_show(win);
+  BK_window_close(win); /* the device is still starting on its worker thread */
+  const int open = BK_window_is_open(win);
+  BK_window_free(win);
+  BK_context_free(ctx);
+  BK_node_free(root);
+  return open ? FAIL : PASS;
+}
+
 int main(void)
 {
   const int display = BK_window_supported();
@@ -125,13 +147,16 @@ int main(void)
       offscreen,
       offscreen == PASS && display ? idle_window_switch() : SKIP,
       display ? close_in_frame_callback() : SKIP,
+      offscreen == PASS && display ? close_before_gpu_ready() : SKIP,
   };
-  const char *names[] = {"offscreen start", "idle window switch", "close in frame callback"};
+  const char *names[] = {"offscreen start", "idle window switch", "close in frame callback",
+                         "close before GPU ready"};
+  const int count = (int)(sizeof(results) / sizeof(results[0]));
   int failed = 0, skipped = 0;
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < count; i++) {
     printf("%-24s %s\n", names[i], results[i] == PASS ? "pass" : results[i] == SKIP ? "skip" : "FAIL");
     failed += results[i] == FAIL;
     skipped += results[i] == SKIP;
   }
-  return failed ? 1 : skipped == 3 ? SKIP : PASS;
+  return failed ? 1 : skipped == count ? SKIP : PASS;
 }

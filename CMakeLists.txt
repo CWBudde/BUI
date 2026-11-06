@@ -87,7 +87,8 @@ if(BUI_BUILD_TESTS)
   add_executable(bui_gpu_start_test tests/gpu_start_test.c)
   target_link_libraries(bui_gpu_start_test PRIVATE bui::kit)
   add_test(NAME bui_gpu_start_test COMMAND bui_gpu_start_test)
-  set_tests_properties(bui_gpu_start_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+  set_tests_properties(bui_gpu_start_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60
+                       FAIL_REGULAR_EXPRESSION "failed to create drawable")
   # themes: Blender's Dark / Light presets (BK_set_theme), dark stays pixel-identical
   add_executable(bui_theme_test tests/theme_test.c)
   target_link_libraries(bui_theme_test PRIVATE bui::kit)
