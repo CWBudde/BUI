@@ -608,7 +608,7 @@ end
 -- ============================================================
 
 local function build_ui()
-  local root = bui.Node("column")
+  local root = bui.Node("frame")
   root:set("padding", 6)
 
   -- === Toolbar ===

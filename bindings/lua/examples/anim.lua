@@ -2,7 +2,7 @@
 -- Shows animated progress, color cycling, and a moving indicator
 local bui = require("bui")
 
-local root = bui.Node("column")
+local root = bui.Node("frame")
 root:set("padding", 12)
 
 local title = bui.Node("label")
