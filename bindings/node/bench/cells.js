@@ -1,7 +1,9 @@
 // The Rust benchmark's "one" mode from JavaScript: a 1000x800 window with a
 // grid of N cells; every frame (16 ms) cell 0 changes colour and label.
-//   node bench/cells.js [cells=3000] [--react [--signals]] [--gpu] [--seconds=5]
+//   node bench/cells.js [cells=3000] [--react | --svelte] [--signals] [--gpu] [--seconds=5]
 // --signals: cell 0's style and label are BUI signals; the grid renders once.
+// --svelte: bench/Grid.svelte (run with `node --import @blender-ui/svelte/register`,
+// `bun --preload @blender-ui/svelte/register`, or `bui run`); cell 0 follows a rune.
 // --dev: React's development build. Runs on Node, Bun (`bun bench/cells.js`) or
 // the QuickJS runtime (`node cli.js run bench/cells.js -- 3000 --gpu`).
 // Prints frames per second, CPU per frame (the whole process: JavaScript,
@@ -14,6 +16,7 @@ const env = process.env
 if (!args.includes('--dev')) env.NODE_ENV = 'production'
 const cells = Number(args.find(a => /^\d+$/.test(a)) ?? 3000)
 const useReact = args.includes('--react')
+const useSvelte = args.includes('--svelte')
 const useSignals = args.includes('--signals')
 const gpu = args.includes('--gpu')
 const seconds = Number((args.find(a => a.startsWith('--seconds=')) ?? '--seconds=5').split('=')[1])
@@ -61,6 +64,22 @@ if (useReact) {
     return h('div', { style: gridStyle }, kids)
   }
   const r = render(h(Grid), { title: 'BUI bench (React)', width: W, height: H, gpu })
+  app = r.app
+  win = r.window
+  r.window.body.style = 'margin: 0'
+  tick = useSignals
+    ? (t) => batch(() => { style0.value = cellStyle(0, t); label0.value = label(0, t) })
+    : (t) => setT(t)
+} else if (useSvelte) {
+  const { render, signal, batch } = require('../../svelte')
+  const Grid = require('./Grid.svelte').default
+  let setT
+  const style0 = useSignals ? signal(cellStyle(0, 0)) : null
+  const label0 = useSignals ? signal(label(0, 0)) : null
+  const r = render(Grid, {
+    props: { cells, cellStyle, label, gridStyle, style0, label0, expose: (set) => { setT = set } },
+    title: 'BUI bench (Svelte)', width: W, height: H, gpu,
+  })
   app = r.app
   win = r.window
   r.window.body.style = 'margin: 0'
@@ -131,7 +150,7 @@ setTimeout(() => {
   running = false
   clearInterval(sampler)
   console.log(JSON.stringify({
-    app: useReact ? (useSignals ? 'blenderui-react-signals' : 'blenderui-react') : 'blenderui-js',
+    app: useReact || useSvelte ? `blenderui-${useReact ? 'react' : 'svelte'}${useSignals ? '-signals' : ''}` : 'blenderui-js',
     runtime: globalThis.__BUI_NATIVE__ ? 'quickjs (bui-runtime)' : typeof Bun !== 'undefined' ? `bun ${Bun.version}` : `node ${process.versions.node}`,
     gpu,
     cells,
