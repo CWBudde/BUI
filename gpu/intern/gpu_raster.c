@@ -1342,6 +1342,23 @@ static void raster_nv12(BuiRaster *r, float x, float y, float w, float h, const 
       uint32_t *row = r->pix + (size_t)py * r->w;
       const int ty = py + oy;
       const uint8_t *yr = yp + (size_t)ty * iw, *cr = uvp + (size_t)(ty >> 1) * iw;
+      if (ga >= 256) {
+        /* opaque (every video frame): the chroma terms once per pair, stored */
+        for (int px = x0; px < x1; px++) {
+          const int tx = px + ox;
+          const uint8_t *c = cr + (tx & ~1);
+          const int u = c[0] - 128, v = c[1] - 128;
+          const int rv = k[1] * v + 32768, gu = 32768 - k[2] * u - k[3] * v, bu = k[4] * u + 32768;
+          for (int n = (tx & 1) ? 1 : imin(2, x1 - px); n > 0; n--, px++) {
+            const int l = (yr[px + ox] - 16) * k[0];
+            row[px] = (uint32_t)clampi((l + rv) >> 16, 0, 255) << 16 |
+                      (uint32_t)clampi((l + gu) >> 16, 0, 255) << 8 |
+                      (uint32_t)clampi((l + bu) >> 16, 0, 255);
+          }
+          px--;
+        }
+        continue;
+      }
       for (int px = x0; px < x1; px++) {
         const int tx = px + ox;
         const uint8_t *c = cr + (tx & ~1);
@@ -1367,12 +1384,16 @@ static void raster_nv12(BuiRaster *r, float x, float y, float w, float h, const 
     const uint8_t *yb = yp + (size_t)clampi(ty + 1, iy0, iy1) * iw;
     const uint8_t *ca = uvp + (size_t)clampi(tc, iy0 >> 1, iy1 >> 1) * iw;
     const uint8_t *cb = uvp + (size_t)clampi(tc + 1, iy0 >> 1, iy1 >> 1) * iw;
-    for (int px = x0; px < x1; px++) {
-      const float u = sx + ((float)px + 0.5f - x) * kx;
-      const float uy = u - bias, uc = u * 0.5f - 0.5f;
-      const int tx = (int)floorf(uy), tcx = (int)floorf(uc);
-      const int fx = nearest ? 0 : (int)((uy - (float)tx) * 256.0f);
-      const int fcx = (int)((uc - (float)tcx) * 256.0f);
+    /* texel coordinates in 16.16 fixed point, stepped per pixel (no float
+     * floor per pixel: this is the path of every resized video frame) */
+    const int64_t du = (int64_t)(kx * 65536.0f);
+    int64_t u = (int64_t)((sx + ((float)x0 + 0.5f - x) * kx) * 65536.0f);
+    const int64_t ub = (int64_t)(bias * 65536.0f);
+    for (int px = x0; px < x1; px++, u += du) {
+      const int64_t uy = u - ub, uc = (u >> 1) - 32768;
+      const int tx = (int)(uy >> 16), tcx = (int)(uc >> 16);
+      const int fx = nearest ? 0 : (int)((uy >> 8) & 255);
+      const int fcx = (int)((uc >> 8) & 255);
       const int xa = clampi(tx, ix0, ix1), xb = clampi(tx + 1, ix0, ix1);
       const int ca0 = clampi(tcx, ix0 >> 1, ix1 >> 1) * 2, cb0 = clampi(tcx + 1, ix0 >> 1, ix1 >> 1) * 2;
       const int Y = lerp2(ya[xa], ya[xb], yb[xa], yb[xb], fx, fy);
