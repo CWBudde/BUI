@@ -489,6 +489,7 @@ static void render_window(BKWindow *win)
 {
   const double start = now_ms();
   const int animation = win->want_frame || BK_animating(win->ctx);
+  const int uncapped = win->want_frame && !win->frame_vsync;
   if (win->want_frame && win->cb.on_frame) {
     win->want_frame = 0;
     win->frame_start = now_ms();
@@ -511,10 +512,10 @@ static void render_window(BKWindow *win)
     win->render_pending = 1;
   }
   /* The next frame is due one refresh after this animation frame started, so the render time is
-   * part of the interval. A host can request the next frame after this frame. An uncapped frame
-   * request does not wait. */
+   * part of the interval. A host can request the next frame after this frame. Only a frame request
+   * without vsync does not wait. */
   if (animation) {
-    win->frame_due = win->frame_vsync ? start + refresh_ms() : 0.0;
+    win->frame_due = uncapped ? 0.0 : start + refresh_ms();
   }
 }
 
