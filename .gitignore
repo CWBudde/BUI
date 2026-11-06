@@ -15,3 +15,5 @@ wheelhouse/
 # C sources vendored into the published Rust crate (scripts/vendor_c.py)
 bindings/rust/blenderui-sys/csrc/
 /.claude/worktrees/
+__pycache__/
+*.pyc

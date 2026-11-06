@@ -18,8 +18,9 @@ Where the version lives (one source of truth per registry, all moved together):
 * Python: `bindings/python/bui/_version.py` (the wheel reads it).
 * Rust: `[workspace.package]` in `bindings/rust/Cargo.toml`, and the `version = "..."` of every
   sibling path dependency (`blenderui-sys = { path = "...", version = "..." }`).
-* npm (only with `--npm`): every package in `bindings/package.json`'s workspaces moves to the
-  same version, and their dependency on `@blender-ui/native` with it. npm versions are otherwise independent of the tag.
+* npm (only with `--npm`): every already-published package in `bindings/package.json`'s workspaces
+  moves to the same version; a package not on npm yet keeps its own first version. All of them
+  follow `@blender-ui/native` in their dependency range. npm versions are otherwise independent of the tag.
 * `CHANGELOG.md`: `[Unreleased]` becomes a dated section and a fresh `[Unreleased]` opens.
 * The lock files (`Cargo.lock`, `bindings/package-lock.json`) are refreshed (best effort).
 
@@ -32,6 +33,8 @@ import json
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from check_versions import npm_packages
@@ -76,6 +79,17 @@ def next_version(cur: str, what: str) -> str:
     sys.exit(f"'{what}' is not major, minor, patch or X.Y.Z")
 
 
+def on_npm(name: str) -> bool:
+    """Whether the package is already published. A new package keeps its own first version."""
+    try:
+        with urllib.request.urlopen(f"https://registry.npmjs.org/{name.replace('/', '%2F')}", timeout=20):
+            return True
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False
+        raise
+
+
 def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
     """Every file's new text, keyed by path. Nothing is written here."""
     edits: dict[Path, str] = {}
@@ -108,7 +122,8 @@ def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
         for pkg in npm_packages():
             path = ROOT / "bindings" / pkg / "package.json"
             text = read(path)
-            text = re.sub(r'("version"\s*:\s*")[^"]+(")', rf"\g<1>{npm}\g<2>", text, count=1)
+            if on_npm(json.loads(text)["name"]):
+                text = re.sub(r'("version"\s*:\s*")[^"]+(")', rf"\g<1>{npm}\g<2>", text, count=1)
             text = re.sub(r'("@blender-ui/native"\s*:\s*"\^)[^"]+(")', rf"\g<1>{npm}\g<2>", text)
             put(path, text)
 
