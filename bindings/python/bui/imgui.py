@@ -38,9 +38,17 @@ from __future__ import annotations
 
 import ctypes
 
-import _buiimgui
-from _buiimgui import *  # noqa: F401,F403  (functions, types, constants)
-from _buiimgui import App
+import buipy
+
+try:
+    # Dear ImGui lives inside buipy (one kit per process); this is its `_buiimgui` module
+    _buiimgui = buipy.imgui_module()
+except AttributeError:
+    raise ImportError(
+        "this buipy was built without Dear ImGui (CMake option BUI_BUILD_IMGUI)") from None
+
+from _buiimgui import *  # noqa: E402,F401,F403  (functions, types, constants)
+from _buiimgui import App  # noqa: E402
 
 __all__ = [n for n in dir(_buiimgui) if not n.startswith("_")] + [
     "run", "HeadlessApp", "im_col32", "payload_data", "BK_SHIFT", "BK_CTRL", "BK_ALT"]

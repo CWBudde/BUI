@@ -21,23 +21,18 @@ set_target_properties(buipy PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
 )
 
-# Dear ImGui (bindings/imgui) for Python: the _buiimgui extension behind blenderui.imgui /
-# bui.imgui. Its API is generated from imgui.h (src/buiimgui_gen.inc, bindings/imgui/gen).
+# Dear ImGui (bindings/imgui) for Python: blenderui.imgui / bui.imgui. Its API is generated from
+# imgui.h (src/buiimgui_gen.inc, bindings/imgui/gen). It is compiled INTO buipy rather than built
+# as a second extension: every Python extension links the kit statically, and two copies in one
+# process means two sets of state and, on macOS, the Objective-C classes of kit_window_cocoa.m
+# registered twice ("Class BUIKitView is implemented in both ..."). buipy.imgui_module() hands
+# out the module; with ImGui off nothing of it is in buipy. (CMake links as C++ for the .cpp.)
 if(TARGET bui_cimgui)
-  Python3_add_library(_buiimgui MODULE WITH_SOABI src/buiimgui_module.cpp)
-  target_link_libraries(_buiimgui PRIVATE bui_cimgui)
+  target_sources(buipy PRIVATE src/buiimgui_module.cpp)
+  target_link_libraries(buipy PRIVATE bui_cimgui)
+  target_compile_definitions(buipy PRIVATE BUI_PY_IMGUI=1)
   if(MSVC)
-    target_compile_options(_buiimgui PRIVATE /bigobj)
-  endif()
-  set_target_properties(_buiimgui PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bindings/python$<0:>
-  )
-  if(MINGW)  # Python 3.8+ does not look on PATH for a module's DLLs: carry the MinGW runtime inside
-    target_link_options(_buiimgui PRIVATE -static-libgcc -static)
-  endif()
-  if(SKBUILD)
-    install(TARGETS _buiimgui LIBRARY DESTINATION . RUNTIME DESTINATION .)
+    set_source_files_properties(src/buiimgui_module.cpp PROPERTIES COMPILE_OPTIONS /bigobj)
   endif()
 endif()
 
@@ -130,7 +125,7 @@ if(BUI_BUILD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_video.py
   )
   set_tests_properties(buipy_video PROPERTIES ENVIRONMENT "PYTHONPATH=${BUIPY_TEST_PYTHONPATH}")
-  if(TARGET _buiimgui)
+  if(TARGET bui_cimgui)
     add_test(
       NAME buipy_imgui
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_imgui.py

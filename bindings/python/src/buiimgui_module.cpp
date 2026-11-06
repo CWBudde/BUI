@@ -3,6 +3,10 @@
 // HeadlessApp). The API itself is generated from imgui.h (buiimgui_gen.inc); this file
 // adds the BUI app (window or headless) and the module init.
 //
+// This is not a separate extension: it is compiled into `buipy` so the process holds ONE copy
+// of the kit (one set of Cocoa classes, one NSApp, one theme). buipy.imgui_module() creates
+// the `_buiimgui` module object on first use.
+//
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "buiimgui_rt.h"
@@ -318,7 +322,7 @@ static PyObject* bi_set_scale(PyObject*, PyObject* args)
     Py_RETURN_NONE;
 }
 
-// This extension carries its own copy of the kit: bui.set_theme() forwards here.
+// The kit is shared with buipy: this is the same theme bui.set_theme() sets.
 extern "C" int BK_set_theme(const char* name);
 extern "C" const char* BK_theme_name(void);
 
@@ -383,7 +387,10 @@ static struct PyModuleDef bi_moduledef = {
     -1, nullptr,
 };
 
-PyMODINIT_FUNC PyInit__buiimgui(void)
+// The `_buiimgui` module object, created once (its types are process-wide).
+static PyObject* bi_module = nullptr;
+
+static PyObject* bi_create_module(void)
 {
     PyObject* m = PyModule_Create(&bi_moduledef);
     if (m == nullptr)
@@ -410,4 +417,36 @@ PyMODINIT_FUNC PyInit__buiimgui(void)
     for (int i = 0; bi_str_consts[i][0]; i++)
         PyModule_AddStringConstant(m, bi_str_consts[i][0], bi_str_consts[i][1]);
     return m;
+}
+
+// buipy.imgui_module(): the `_buiimgui` module, created on first call (a program that never
+// touches Dear ImGui does not pay for its 400 functions and types) and registered in
+// sys.modules so `import _buiimgui` keeps working.
+static PyObject* bi_imgui_module(PyObject*, PyObject*)
+{
+    if (bi_module == nullptr)
+    {
+        PyObject* m = bi_create_module();
+        if (m == nullptr)
+            return nullptr;
+        if (PyDict_SetItemString(PyImport_GetModuleDict(), "_buiimgui", m) < 0)
+        {
+            Py_DECREF(m);
+            return nullptr;
+        }
+        bi_module = m;
+    }
+    Py_INCREF(bi_module);
+    return bi_module;
+}
+
+static PyMethodDef bi_buipy_methods[] = {
+    { "imgui_module", bi_imgui_module, METH_NOARGS, "imgui_module() -> the Dear ImGui module (bui.imgui)" },
+    { nullptr, nullptr, 0, nullptr },
+};
+
+// Called by PyInit_buipy (BUI_PY_IMGUI: the build has Dear ImGui).
+extern "C" int buipy_imgui_init(PyObject* buipy)
+{
+    return PyModule_AddFunctions(buipy, bi_buipy_methods);
 }
