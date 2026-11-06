@@ -6,6 +6,8 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-06
+
 ### Added
 - **The C API is versioned.** `BUI_kit.h` has `BUI_KIT_VERSION_MAJOR` / `_MINOR` / `_PATCH`,
   `BUI_KIT_VERSION_STRING`, `BUI_KIT_VERSION` (0.4.0 is 400) and `BUI_KIT_VERSION_AT_LEAST`, the library
