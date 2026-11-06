@@ -1,0 +1,27 @@
+{
+  "about": "The optional parts of BUI: one table read by CMake (features.cmake: an option each), cargo (blenderui-sys/build.rs maps cargo features to those options and checks Cargo.toml lists them all) and `bui build` (bindings/node/features.js: which runtime an app needs). A part that is off costs no binary size; its API stays (it reports the part missing). One feature per line: build.rs reads it line by line.",
+  "features": [
+    {"name": "png", "option": "BUI_IMAGE_PNG", "default": true, "group": "images", "ext": ["png"], "doc": "PNG images (Wuffs)"},
+    {"name": "gif", "option": "BUI_IMAGE_GIF", "default": true, "group": "images", "ext": ["gif"], "doc": "GIF images and animations (Wuffs)"},
+    {"name": "bmp", "option": "BUI_IMAGE_BMP", "default": true, "group": "images", "ext": ["bmp"], "doc": "BMP images (Wuffs)"},
+    {"name": "tga", "option": "BUI_IMAGE_TGA", "default": true, "group": "images", "ext": ["tga"], "doc": "TGA images (Wuffs)"},
+    {"name": "qoi", "option": "BUI_IMAGE_QOI", "default": true, "group": "images", "ext": ["qoi"], "doc": "QOI images (Wuffs)"},
+    {"name": "jpeg", "option": "BUI_IMAGE_JPEG", "default": true, "group": "images", "ext": ["jpg", "jpeg", "jfif"], "doc": "JPEG images (libjpeg-turbo)"},
+    {"name": "webp", "option": "BUI_IMAGE_WEBP", "default": true, "group": "images", "ext": ["webp"], "doc": "WebP images and animations (libwebp)"},
+    {"name": "hdr", "option": "BUI_IMAGE_HDR", "default": true, "group": "images", "ext": ["hdr"], "doc": "Radiance HDR images"},
+    {"name": "pnm", "option": "BUI_IMAGE_PNM", "default": true, "group": "images", "ext": ["pnm", "ppm", "pgm"], "doc": "PNM (PGM, PPM) images"},
+    {"name": "svg", "option": "BUI_IMAGE_SVG", "default": true, "group": "images", "ext": ["svg"], "doc": "SVG images (nanosvg, which the icons use anyway: no extra code)"},
+    {"name": "video", "option": "BUI_VIDEO", "default": true, "group": "video", "ext": ["mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv", "ogv"], "tags": ["video"], "doc": "<video> through the OS decoders (Media Foundation, AVFoundation, GStreamer), loaded at run time"},
+    {"name": "video-dav1d", "option": "BUI_VIDEO_DAV1D", "default": false, "group": "video", "requires": ["video"], "doc": "AV1 video with dav1d (BSD-2) and a small MP4/WebM demuxer, where the OS has no AV1 decoder"},
+    {"name": "video-ffmpeg", "option": "BUI_VIDEO_FFMPEG", "default": false, "group": "video", "requires": ["video"], "doc": "Every format FFmpeg reads (libavformat/libavcodec, LGPL or GPL by its build; patent-encumbered codecs)"},
+    {"name": "gpu", "option": "BUI_GPU", "default": true, "group": "rendering", "markers": ["gpu"], "doc": "GPU renderers: Direct3D 11 (Windows), OpenGL 3.3 (Linux); without it, the software raster only"},
+    {"name": "freetype", "option": "BUI_TEXT_FREETYPE", "default": true, "group": "rendering", "always": true, "doc": "Text through the vendored FreeType like Blender's BLF (else stb_truetype); every bui build runtime has it, so text looks the same"},
+    {"name": "filebrowser", "option": "BUI_FILEBROWSER", "default": true, "group": "ui", "tags": ["filebrowser"], "markers": ["fileDialog", "file_dialog", "filebrowser"], "doc": "Blender's File Browser (the filebrowser node and BK_file_dialog)"},
+    {"name": "imgui", "option": "BUI_BUILD_IMGUI", "default": true, "cargo_default": false, "group": "ui", "doc": "Dear ImGui on BUI (C++; the blenderui-imgui crate and Python's blenderui.imgui turn it on)"}
+  ],
+  "runtimes": [
+    {"name": "base", "features": ["svg", "freetype"], "doc": "UI and text, SVG images"},
+    {"name": "media", "features": ["svg", "freetype", "png", "gif", "bmp", "tga", "qoi", "jpeg", "webp", "hdr", "pnm", "video"], "doc": "base + every image format + video"},
+    {"name": "full", "features": ["svg", "freetype", "png", "gif", "bmp", "tga", "qoi", "jpeg", "webp", "hdr", "pnm", "video", "gpu", "filebrowser"], "doc": "everything a JavaScript app can use"}
+  ]
+}

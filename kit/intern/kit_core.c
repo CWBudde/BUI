@@ -159,7 +159,9 @@ static const BKClass *const g_classes[] = {
     &bk_cls_gridview, &bk_cls_ramp,      &bk_cls_curve,      &bk_cls_normal,
     &bk_cls_histogram, &bk_cls_frame,     &bk_cls_radio,      &bk_cls_canvas,
     &bk_cls_textarea,  &bk_cls_image,     &bk_cls_meter,      &bk_cls_custom,      &bk_cls_video,
+#ifdef BUI_FILEBROWSER
     &bk_cls_filebrowser,
+#endif
 };
 
 const BKClass *bk_class_find(const char *name)

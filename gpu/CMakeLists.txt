@@ -8,11 +8,12 @@
 set(SRC
   intern/gpu_null.c
   intern/gpu_raster.c
-  intern/gpu_d3d11.c
+  intern/gpu_d3d11.c # without BUI_GPU (features.json), the stubs that keep rasters on the CPU
 )
 
 add_library(bui_gpu STATIC ${SRC})
 add_library(bui::gpu ALIAS bui_gpu)
+bui_features(bui_gpu)
 
 target_include_directories(bui_gpu PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -37,8 +38,8 @@ if(BUI_TEXT_GDI)
 endif()
 # FreeType (extern/freetype, 2.13.3 as Blender uses): loads, hints and renders
 # glyphs the way Blender's BLF does (light hinting, the variable Inter at the
-# text's optical size, gamma 1.43). Compiled into bui_gpu itself.
-option(BUI_TEXT_FREETYPE "Render text with the vendored FreeType, like Blender" ON)
+# text's optical size, gamma 1.43). Compiled into bui_gpu itself
+# (BUI_TEXT_FREETYPE, features.json).
 if(BUI_TEXT_FREETYPE AND NOT BUI_TEXT_GDI)
   set(FT ${CMAKE_CURRENT_SOURCE_DIR}/extern/freetype)
   set(FT_SRC
@@ -65,7 +66,7 @@ endif()
 if(WIN32)
   # gpu_raster.c: GDI glyph-run text engine + native window present.
   target_link_libraries(bui_gpu PUBLIC gdi32 user32)
-elseif(NOT APPLE)
+elseif(NOT APPLE AND BUI_GPU)
   # GPU renderer: OpenGL 3.3 (GLX windows, EGL offscreen) in gpu_gl.c instead
   # of Direct3D 11. libGL / libEGL / libX11 are dlopen()ed at run time, never
   # linked, so nothing GL is needed to build or import.

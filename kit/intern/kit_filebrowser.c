@@ -8,7 +8,8 @@
  * - the execute region at the bottom: file name, file-type filter, Cancel and the execute
  *   button (file_panels.cc file_panel_execution_buttons_draw).
  * This file builds the node, lays it out, maps keys and properties, and runs the blocking
- * dialog; kit_filebrowser_intern.h lists the other parts.
+ * dialog; kit_filebrowser_intern.h lists the other parts. Built without BUI_FILEBROWSER
+ * (features.json), only BK_file_dialog remains: it reports no browser (-1).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
@@ -17,6 +18,8 @@
 #include <string.h>
 
 #include "kit_filebrowser_intern.h"
+
+#ifdef BUI_FILEBROWSER
 
 static int u(void)
 {
@@ -750,3 +753,32 @@ void BK_file_dialog_free(char **paths)
 }
 
 /** \} */
+
+#else /* !BUI_FILEBROWSER */
+
+int BK_file_dialog(const char *title,
+                   int mode,
+                   const char *dir,
+                   const char *file,
+                   const char *const *filters,
+                   int nfilters,
+                   int multiple,
+                   char ***r_paths)
+{
+  (void)title;
+  (void)mode;
+  (void)dir;
+  (void)file;
+  (void)filters;
+  (void)nfilters;
+  (void)multiple;
+  *r_paths = NULL;
+  return -1; /* no file browser in this build */
+}
+
+void BK_file_dialog_free(char **paths)
+{
+  (void)paths;
+}
+
+#endif /* BUI_FILEBROWSER */

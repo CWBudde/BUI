@@ -15,7 +15,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(BUI_GPU) /* BUI_GPU: features.json */
 
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -1655,8 +1655,8 @@ int bui_gpu_read(BuiGpu *g, uint32_t *dst, int w, int h)
 
 /** \} */
 
-#elif !defined(BUI_GPU_GL) /* no GPU backend here (gpu_gl.c provides one on Linux):
-                            * every raster stays in software */
+#elif !defined(BUI_GPU_GL) /* no GPU backend here (gpu_gl.c provides one on Linux;
+                            * built without BUI_GPU): every raster stays in software */
 
 #  include "gpu_d3d11.h"
 

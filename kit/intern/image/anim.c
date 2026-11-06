@@ -33,13 +33,23 @@ struct BKImAnim {
   BKImPlan plan; /* how frames are fitted */
 };
 
+/* The in-memory animation codecs this build has (features.json). */
+static const BKImAnimCodec *const anim_codecs[] = {
+#ifdef BUI_IMAGE_GIF
+    &imb_gif_codec,
+#endif
+#ifdef BUI_IMAGE_WEBP
+    &imb_webp_codec,
+#endif
+    NULL,
+};
+
 const BKImAnimCodec *imb_anim_codec(const uint8_t *mem, size_t size)
 {
-  if (imb_is_a_gif(mem, size)) {
-    return &imb_gif_codec;
-  }
-  if (imb_webp_animated(mem, size)) {
-    return &imb_webp_codec;
+  for (int i = 0; anim_codecs[i]; i++) {
+    if (anim_codecs[i]->is_a(mem, size)) {
+      return anim_codecs[i];
+    }
   }
   return NULL;
 }

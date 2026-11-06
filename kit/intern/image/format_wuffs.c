@@ -15,16 +15,27 @@
 #define WUFFS_CONFIG__STATIC_FUNCTIONS
 #define WUFFS_CONFIG__MODULES
 #define WUFFS_CONFIG__MODULE__BASE
-#define WUFFS_CONFIG__MODULE__ADLER32
-#define WUFFS_CONFIG__MODULE__CRC32
-#define WUFFS_CONFIG__MODULE__DEFLATE
-#define WUFFS_CONFIG__MODULE__ZLIB
-#define WUFFS_CONFIG__MODULE__PNG
-#define WUFFS_CONFIG__MODULE__LZW
-#define WUFFS_CONFIG__MODULE__GIF
-#define WUFFS_CONFIG__MODULE__BMP
-#define WUFFS_CONFIG__MODULE__TARGA
-#define WUFFS_CONFIG__MODULE__QOI
+/* the modules of the formats this build has (features.json: BUI_IMAGE_*) */
+#ifdef BUI_IMAGE_PNG
+#  define WUFFS_CONFIG__MODULE__ADLER32
+#  define WUFFS_CONFIG__MODULE__CRC32
+#  define WUFFS_CONFIG__MODULE__DEFLATE
+#  define WUFFS_CONFIG__MODULE__ZLIB
+#  define WUFFS_CONFIG__MODULE__PNG
+#endif
+#ifdef BUI_IMAGE_GIF
+#  define WUFFS_CONFIG__MODULE__LZW
+#  define WUFFS_CONFIG__MODULE__GIF
+#endif
+#ifdef BUI_IMAGE_BMP
+#  define WUFFS_CONFIG__MODULE__BMP
+#endif
+#ifdef BUI_IMAGE_TGA
+#  define WUFFS_CONFIG__MODULE__TARGA
+#endif
+#ifdef BUI_IMAGE_QOI
+#  define WUFFS_CONFIG__MODULE__QOI
+#endif
 #include "wuffs-v0.4.c"
 
 /* -------------------------------------------------------------------- */
@@ -87,11 +98,21 @@ bool imb_is_a_tga(const uint8_t *mem, size_t size)
 
 static wuffs_base__image_decoder *codec_new(const uint8_t *mem, size_t size)
 {
+#ifdef BUI_IMAGE_PNG
   if (imb_is_a_png(mem, size)) CODEC_NEW(png)
+#endif
+#ifdef BUI_IMAGE_GIF
   if (imb_is_a_gif(mem, size)) CODEC_NEW(gif)
+#endif
+#ifdef BUI_IMAGE_BMP
   if (imb_is_a_bmp(mem, size)) CODEC_NEW(bmp)
+#endif
+#ifdef BUI_IMAGE_QOI
   if (imb_is_a_qoi(mem, size)) CODEC_NEW(qoi)
+#endif
+#ifdef BUI_IMAGE_TGA
   if (imb_is_a_tga(mem, size)) CODEC_NEW(targa)
+#endif
   return NULL;
 }
 
@@ -111,9 +132,11 @@ static wuffs_base__image_decoder *open_image(const uint8_t *mem,
     /* browsers ignore zlib/PNG checksums too; saves a pass over the data */
     wuffs_base__image_decoder__set_quirk(dec, WUFFS_BASE__QUIRK_IGNORE_CHECKSUM, 1);
   }
+#ifdef BUI_IMAGE_GIF
   else if (imb_is_a_gif(mem, size)) {
     wuffs_base__image_decoder__set_quirk(dec, WUFFS_GIF__QUIRK_IGNORE_TOO_MUCH_PIXEL_DATA, 1);
   }
+#endif
   *src = wuffs_base__ptr_u8__reader((uint8_t *)mem, size, true);
   memset(ic, 0, sizeof(*ic));
   const wuffs_base__status st = wuffs_base__image_decoder__decode_image_config(dec, ic, src);
@@ -229,6 +252,8 @@ BKImBuf *imb_load_wuffs(const uint8_t *mem, size_t size, int want_w, int want_h)
   }
   return ib;
 }
+
+#ifdef BUI_IMAGE_GIF
 
 /* -------------------------------------------------------------------- */
 /** \name GIF animation, one frame at a time (anim.c)
@@ -363,3 +388,5 @@ static size_t gif_bytes(const void *state)
 const BKImAnimCodec imb_gif_codec = {"gif", false, imb_is_a_gif, gif_open, NULL, gif_next, gif_seek, gif_bytes, gif_close};
 
 /** \} */
+
+#endif /* BUI_IMAGE_GIF */

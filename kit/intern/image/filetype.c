@@ -19,22 +19,42 @@
 
 #include "image.h"
 
-/* Order matters only for TGA, which has no signature: it goes last. */
+/* The formats this build has (features.json: BUI_IMAGE_*). Order matters
+ * only for TGA, which has no signature: it goes last. */
 const BKImFileType BK_IMB_FILE_TYPES[] = {
+#ifdef BUI_IMAGE_PNG
     {BK_IMAGE_PNG, "png", imb_is_a_png, imb_header_wuffs, imb_load_wuffs},
+#endif
+#ifdef BUI_IMAGE_JPEG
     {BK_IMAGE_JPEG, "jpeg", imb_is_a_jpeg, imb_header_jpeg, imb_load_jpeg},
+#endif
+#ifdef BUI_IMAGE_WEBP
     {BK_IMAGE_WEBP, "webp", imb_is_a_webp, imb_header_webp, imb_load_webp},
+#endif
+#ifdef BUI_IMAGE_GIF
     {BK_IMAGE_GIF, "gif", imb_is_a_gif, imb_header_wuffs, imb_load_wuffs},
+#endif
+#ifdef BUI_IMAGE_BMP
     {BK_IMAGE_BMP, "bmp", imb_is_a_bmp, imb_header_wuffs, imb_load_wuffs},
+#endif
+#ifdef BUI_IMAGE_QOI
     {BK_IMAGE_QOI, "qoi", imb_is_a_qoi, imb_header_wuffs, imb_load_wuffs},
+#endif
+#ifdef BUI_IMAGE_HDR
     {BK_IMAGE_HDR, "hdr", imb_is_a_hdr, imb_header_hdr, imb_load_hdr},
+#endif
+#ifdef BUI_IMAGE_PNM
     {BK_IMAGE_PNM, "pnm", imb_is_a_pnm, imb_header_pnm, imb_load_pnm},
+#endif
 #ifdef BUI_IMAGE_SVG
     {BK_IMAGE_SVG, "svg", imb_is_a_svg, imb_header_svg, imb_load_svg},
 #endif
+#ifdef BUI_IMAGE_TGA
     {BK_IMAGE_TGA, "tga", imb_is_a_tga, imb_header_wuffs, imb_load_wuffs},
+#endif
+    {BK_IMAGE_NONE, NULL, NULL, NULL, NULL}, /* the end (a build may have no formats) */
 };
-const int BK_IMB_FILE_TYPES_NUM = (int)(sizeof(BK_IMB_FILE_TYPES) / sizeof(BK_IMB_FILE_TYPES[0]));
+const int BK_IMB_FILE_TYPES_NUM = (int)(sizeof(BK_IMB_FILE_TYPES) / sizeof(BK_IMB_FILE_TYPES[0])) - 1;
 
 const BKImFileType *imb_file_type(const uint8_t *mem, size_t size)
 {
@@ -138,7 +158,11 @@ BKImBuf *imb_load(const uint8_t *mem, size_t size, const BKImageFit *target)
     return target->frame > 0 ? imb_anim_frame(mem, size, target, target->frame - 1) :
                                imb_anim_all(mem, size, target);
   }
+#ifdef BUI_IMAGE_JPEG
   const int orient = t->ftype == BK_IMAGE_JPEG ? imb_jpeg_orientation(mem, size) : 1;
+#else
+  const int orient = 1; /* EXIF orientation: JPEG only */
+#endif
   BKImPlan plan;
   if (!imb_plan(target, info.width, info.height, orient, &plan)) {
     return NULL;

@@ -29,13 +29,9 @@ option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
 option(BUI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" ON)
 option(BUI_BUILD_QT_BACKEND "Build the Qt/QPainter backend (needs Qt5/Qt6 with Widgets)" OFF)
-# Dear ImGui on BUI (bindings/imgui): ON when its sources are here (not in the
-# C-only source copies other packages vendor) and C++ builds.
-set(_bui_imgui_default OFF)
-if(CMAKE_CXX_COMPILER AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bindings/imgui/CMakeLists.txt")
-  set(_bui_imgui_default ON)
-endif()
-option(BUI_BUILD_IMGUI "Build Dear ImGui on BUI (bui_imgui, its demo and test)" ${_bui_imgui_default})
+# The optional parts (image formats, video, GPU renderers, file browser, Dear
+# ImGui on BUI, ...): one option each, from features.json.
+include(features.cmake)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
