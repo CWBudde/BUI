@@ -130,12 +130,18 @@ def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
         put(toml, "".join(out))
 
     if npm:
+        # `npm` is patch, minor, major or X.Y.Z. Each already-published package moves by that kind
+        # from its own version (native 0.3.0 -> 0.3.1, svelte 0.1.0 -> 0.1.1); a package that isn't
+        # on npm yet keeps its first version. Everyone follows native in their dependency range.
+        native_now = json.loads(read(ROOT / "bindings" / "node" / "package.json"))["version"]
+        native_new = next_version(native_now, npm)
         for pkg in npm_packages():
             path = ROOT / "bindings" / pkg / "package.json"
             text = read(path)
-            if on_npm(json.loads(text)["name"]):
-                text = re.sub(r'("version"\s*:\s*")[^"]+(")', rf"\g<1>{npm}\g<2>", text, count=1)
-            text = re.sub(r'("@blender-ui/native"\s*:\s*"\^)[^"]+(")', rf"\g<1>{npm}\g<2>", text)
+            meta = json.loads(text)
+            if on_npm(meta["name"]):
+                text = re.sub(r'("version"\s*:\s*")[^"]+(")', rf"\g<1>{next_version(meta['version'], npm)}\g<2>", text, count=1)
+            text = re.sub(r'("@blender-ui/native"\s*:\s*"\^)[^"]+(")', rf"\g<1>{native_new}\g<2>", text)
             put(path, text)
 
     log = ROOT / "CHANGELOG.md"
@@ -215,13 +221,8 @@ def main() -> int:
     new = next_version(cur, a.version)
     if new == cur:
         sys.exit(f"already at {cur}")
-    npm_new = None
-    if a.npm:
-        node = json.loads(read(ROOT / "bindings" / "node" / "package.json"))["version"]
-        npm_new = next_version(node, a.npm)
-
-    edits = plan_edits(new, npm_new)
-    print(f"{cur} -> {new}" + (f"   (npm -> {npm_new})" if npm_new else ""))
+    edits = plan_edits(new, a.npm)
+    print(f"{cur} -> {new}" + (f"   (npm packages: {a.npm})" if a.npm else ""))
     for path in edits:
         print("  edit", path.relative_to(ROOT).as_posix())
     if a.dry_run:
@@ -230,7 +231,7 @@ def main() -> int:
         write(path, text)
     touched = list(edits)
     if not a.no_lock:
-        touched += refresh_locks(bool(npm_new))
+        touched += refresh_locks(bool(a.npm))
 
     if run([sys.executable, str(ROOT / "tools" / "check_versions.py"), f"v{new}"], check=False).returncode != 0:
         print(run([sys.executable, str(ROOT / "tools" / "check_versions.py"), f"v{new}"], check=False).stdout)
