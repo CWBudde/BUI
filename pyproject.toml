@@ -12,7 +12,7 @@ dynamic = ["version"]
 description = "Blender's UI as a library: run tkinter apps unchanged, write Qt-style code, or use Blender components — all drawn by a fast C kit"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "GPL-2.0-or-later"
+license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "BUI contributors" }]
 keywords = ["gui", "ui", "blender", "tkinter", "qt", "widgets", "toolkit"]
