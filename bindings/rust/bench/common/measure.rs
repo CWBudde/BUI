@@ -284,3 +284,34 @@ pub fn start(name: &'static str, cfg: &Config) {
         std::process::exit(0);
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use std::hint::black_box;
+    use std::time::Duration;
+
+    use super::{cpu_cycles, cpu_time, memory, tsc_hz};
+
+    #[test]
+    fn cpu_time_grows_with_work() {
+        let (c0, t0) = (cpu_cycles(), cpu_time());
+        let sum = (0..20_000_000u64).fold(0u64, |a, i| black_box(a.wrapping_add(i)));
+        black_box(sum);
+        assert!(cpu_cycles() > c0, "cycles did not grow");
+        assert!(cpu_time() > t0, "CPU time did not grow");
+    }
+
+    #[test]
+    fn cycle_rate_is_positive() {
+        let hz = tsc_hz(Duration::from_millis(10));
+        assert!(hz.is_finite() && hz > 1e6, "rate {hz}");
+    }
+
+    #[test]
+    fn memory_reports_resident_set() {
+        let m = memory();
+        assert!(m.working_set > 0, "working set is 0");
+        assert!(m.peak_working_set >= m.working_set, "peak below current");
+        assert!(m.private_bytes > 0, "private bytes is 0");
+    }
+}
