@@ -83,6 +83,11 @@ if(BUI_BUILD_TESTS)
   target_link_libraries(bui_window_smoke PRIVATE bui::kit)
   add_test(NAME bui_window_smoke COMMAND bui_window_smoke)
   set_tests_properties(bui_window_smoke PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+  # GPU start on a worker thread, the idle switch, and a window closed by its frame callback
+  add_executable(bui_gpu_start_test tests/gpu_start_test.c)
+  target_link_libraries(bui_gpu_start_test PRIVATE bui::kit)
+  add_test(NAME bui_gpu_start_test COMMAND bui_gpu_start_test)
+  set_tests_properties(bui_gpu_start_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
   # themes: Blender's Dark / Light presets (BK_set_theme), dark stays pixel-identical
   add_executable(bui_theme_test tests/theme_test.c)
   target_link_libraries(bui_theme_test PRIVATE bui::kit)
