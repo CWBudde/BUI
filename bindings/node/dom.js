@@ -82,20 +82,16 @@ function toNode (parent, n) {
   return typeof n === 'string' ? parent._createText(n) : n
 }
 
+// A node holds its native id, its window and its links; children, signal
+// bindings and the `document` flag live on the prototype (defaults below)
+// until a node gets them, so a text node is five fields.
 class Node {
   constructor () {
     this.ownerWindow = null
     this.id = -1
     this.parentNode = null
-    this._first = null
-    this._last = null
     this._prev = null
     this._next = null
-    this._bindings = null
-    this._nextParent = null
-    // made by `document`: freed natively when removed and left without a
-    // parent at the end of the tick (DOM frameworks drop nodes, never free them)
-    this._auto = false
   }
 
   // accessors on the prototype, as the DOM has them (Svelte reads their getters)
@@ -152,7 +148,7 @@ class Node {
     }
     if (child === before) return child
     this._adopt(child)
-    child._detach()
+    child._detach(child.parentNode === this)
     this._link(child, before)
     const w = this.ownerWindow
     if (w !== null) {
@@ -234,13 +230,14 @@ class Node {
     child.parentNode = child._prev = child._next = null
   }
 
-  _detach () {
+  /** Leave the parent; `moving`: to the same parent, which APPEND / INSERT
+   *  reorders natively. */
+  _detach (moving) {
     const p = this.parentNode
     if (p === null) return
     p._unlink(this)
     const w = p.ownerWindow
-    // same parent: APPEND / INSERT reorders it natively
-    if (w !== null && p !== this._nextParent) w._op(OP.REMOVE, p.id, this.id)
+    if (w !== null && !moving) w._op(OP.REMOVE, p.id, this.id)
   }
 
   /** Checks before `child` moves under this node (as the DOM does); a
@@ -255,7 +252,6 @@ class Node {
       else if (w !== null) throw new Error('blenderui: the node belongs to another window')
       // else: a window's node parked in a detached node (a fragment): allowed
     }
-    child._nextParent = this
   }
 
   /** Create this detached node and its subtree in `win`. */
@@ -316,6 +312,13 @@ class Node {
     return s
   }
 }
+
+Node.prototype._first = null
+Node.prototype._last = null
+Node.prototype._bindings = null
+// made by `document`: freed natively when removed and left without a parent at
+// the end of the tick (DOM frameworks drop nodes, never free them)
+Node.prototype._auto = false
 
 class TextNode extends Node {
   constructor (text) {
@@ -381,7 +384,7 @@ class DocumentFragment extends Node {
 class Style {
   constructor (el) { this._el = el }
 
-  get cssText () { return this._el._attrs.get('style') ?? '' }
+  get cssText () { return this._el.getAttribute('style') ?? '' }
   set cssText (v) {
     if (v == null || v === '') this._el.removeAttribute('style')
     else this._el.setAttribute('style', v)
@@ -425,9 +428,9 @@ class Style {
 /** `el.classList`, over the `class` attribute. */
 class ClassList {
   constructor (el) { this._el = el }
-  _list () { return (this._el._attrs.get('class') ?? '').split(/\s+/).filter(Boolean) }
+  _list () { return this.value.split(/\s+/).filter(Boolean) }
   _write (list) { this._el.setAttribute('class', list.join(' ')) }
-  get value () { return this._el._attrs.get('class') ?? '' }
+  get value () { return this._el.getAttribute('class') ?? '' }
   get length () { return this._list().length }
   contains (name) { return this._list().includes(name) }
   add (...names) {
@@ -447,23 +450,27 @@ class ClassList {
   toString () { return this.value }
 }
 
+const UPPER = new Map() // tag -> TAG
+
 class Element extends Node {
   constructor (tag) {
     super()
-    this.tagName = tag.toUpperCase()
     this.localName = tag
-    this._attrs = new Map()
-    this._listeners = null // a Map, from the first listener
-    this._bits = 0
-    this._style = null
-    // form controls: the latest value from input / change events
-    this._value = undefined
-    this._checked = undefined
-    this.valueAsNumber = undefined
+    // [name, value, name, value ...], from the first attribute: a few
+    // attributes are cheaper in an array than in a Map
+    this._attrs = null
+  }
+
+  get tagName () {
+    let t = UPPER.get(this.localName)
+    if (t === undefined) UPPER.set(this.localName, (t = this.localName.toUpperCase()))
+    return t
   }
 
   get nodeType () { return ELEMENT_NODE }
   get nodeName () { return this.tagName }
+  /** Form controls: the number of the latest input / change event. */
+  get valueAsNumber () { return this._x?.number }
   get namespaceURI () { return XHTML }
   get children () { return this.childNodes.filter((c) => c.nodeType === ELEMENT_NODE) }
 
@@ -481,18 +488,47 @@ class Element extends Node {
 
   setAttributeNS (ns, name, value) { this.setAttribute(name, value) }
 
+  // `_setAttr` / `_removeAttr` / TextNode's `_setText` write a plain value
+  // straight through (no signal check): framework fast paths use them
+
   _setAttr (name, value) {
     value = String(value)
-    if (this._attrs.get(name) === value) return
-    this._attrs.set(name, value)
+    const a = this._attrs
+    const i = this._attrIndex(name)
+    if (i >= 0) {
+      if (a[i + 1] === value) return
+      a[i + 1] = value
+    } else if (a === null) this._attrs = [name, value]
+    else a.push(name, value)
     const w = this.ownerWindow
     if (w !== null) w._op(OP.SET_ATTR, this.id, w._s(name), w._s(value))
   }
 
-  getAttribute (name) { return this._attrs.get(name) ?? null }
-  hasAttribute (name) { return this._attrs.has(name) }
-  getAttributeNames () { return [...this._attrs.keys()] }
-  get attributes () { return [...this._attrs].map(([name, value]) => ({ name, value })) }
+  _attrIndex (name) {
+    const a = this._attrs
+    if (a !== null) for (let i = 0; i < a.length; i += 2) if (a[i] === name) return i
+    return -1
+  }
+
+  getAttribute (name) {
+    const i = this._attrIndex(name)
+    return i < 0 ? null : this._attrs[i + 1]
+  }
+
+  hasAttribute (name) { return this._attrIndex(name) >= 0 }
+  getAttributeNames () {
+    const names = []
+    const a = this._attrs ?? []
+    for (let i = 0; i < a.length; i += 2) names.push(a[i])
+    return names
+  }
+
+  get attributes () {
+    const out = []
+    const a = this._attrs ?? []
+    for (let i = 0; i < a.length; i += 2) out.push({ name: a[i], value: a[i + 1] })
+    return out
+  }
   toggleAttribute (name, force) {
     const on = force ?? !this.hasAttribute(name)
     if (on) this.setAttribute(name, '')
@@ -506,17 +542,21 @@ class Element extends Node {
   }
 
   _removeAttr (name) {
-    if (this._attrs.delete(name)) {
-      const w = this.ownerWindow
-      if (w !== null) w._op(OP.REMOVE_ATTR, this.id, w._s(name))
-    }
+    const i = this._attrIndex(name)
+    if (i < 0) return
+    this._attrs.splice(i, 2)
+    const w = this.ownerWindow
+    if (w !== null) w._op(OP.REMOVE_ATTR, this.id, w._s(name))
   }
 
-  get className () { return this._attrs.get('class') ?? '' }
+  get className () { return this.getAttribute('class') ?? '' }
   set className (v) { this.setAttribute('class', v) }
   get classList () { return new ClassList(this) }
   /** The inline style (`cssText`, `setProperty` ...). */
-  get style () { return (this._style ??= new Style(this)) }
+  get style () {
+    const x = (this._x ??= {})
+    return (x.style ??= new Style(this))
+  }
   /** A CSS declaration string, or an object (`{ backgroundColor: 'red', width: 40 }`). */
   set style (v) {
     if (v == null) return this.removeAttribute('style')
@@ -561,21 +601,23 @@ class Element extends Node {
 
   _create (win) {
     win._op(OP.CREATE, this.id, win._s(this.localName))
-    for (const [name, value] of this._attrs) win._op(OP.SET_ATTR, this.id, win._s(name), win._s(value))
+    const a = this._attrs
+    if (a !== null) for (let i = 0; i < a.length; i += 2) win._op(OP.SET_ATTR, this.id, win._s(a[i]), win._s(a[i + 1]))
     if (this._bits !== 0) win._op(OP.LISTEN, this.id, this._bits)
   }
 
   _clone () {
     const el = new HTMLElement(this.localName)
-    for (const [name, value] of this._attrs) el._attrs.set(name, value)
+    if (this._attrs !== null) el._attrs = this._attrs.slice()
     return el
   }
 
   _dispatch (raw) {
     if (raw.kind === 'input' || raw.kind === 'change') {
-      this._value = raw.value
-      this._checked = raw.checked
-      this.valueAsNumber = raw.number
+      const x = (this._x ??= {})
+      x.value = raw.value
+      x.checked = raw.checked
+      x.number = raw.number
     }
     this._propagate(new BuiEvent(raw, this))
   }
@@ -622,20 +664,28 @@ class Element extends Node {
   }
 }
 
+// listeners (a Map), their native bits, and the rarely used extras (form
+// state from events, the style object): on the prototype until an element has them
+Element.prototype._listeners = null
+Element.prototype._bits = 0
+Element.prototype._x = null
+
 /** An HTML element: its DOM properties (`disabled`, `value` ...) are setters
  *  here, below Element, where frameworks look for them (as in browsers). */
 class HTMLElement extends Element {
   /** Form controls: the latest value from input / change events, else the attribute. */
-  get value () { return this._value ?? this._attrs.get('value') ?? (this.localName === 'input' || this.localName === 'textarea' ? '' : undefined) }
+  get value () { return this._x?.value ?? this.getAttribute('value') ?? (this.localName === 'input' || this.localName === 'textarea' ? '' : undefined) }
   set value (v) {
-    this._value = v == null ? '' : String(v)
-    this.setAttribute('value', this._value)
+    const x = (this._x ??= {})
+    x.value = v == null ? '' : String(v)
+    this.setAttribute('value', x.value)
   }
 
-  get checked () { return this._checked ?? this._attrs.has('checked') }
+  get checked () { return this._x?.checked ?? this.hasAttribute('checked') }
   set checked (v) {
-    this._checked = !!v
-    this.toggleAttribute('checked', this._checked)
+    const x = (this._x ??= {})
+    x.checked = !!v
+    this.toggleAttribute('checked', x.checked)
   }
 }
 
@@ -644,7 +694,7 @@ for (const [prop, attr] of [['disabled', 'disabled'], ['hidden', 'hidden'], ['se
   ['readOnly', 'readonly'], ['required', 'required'], ['multiple', 'multiple'], ['open', 'open'],
   ['indeterminate', 'indeterminate'], ['autofocus', 'autofocus'], ['defaultChecked', 'checked']]) {
   Object.defineProperty(HTMLElement.prototype, prop, {
-    get () { return this._attrs.has(attr) },
+    get () { return this.hasAttribute(attr) },
     set (v) { this.toggleAttribute(attr, !!v) },
     configurable: true,
   })
@@ -655,7 +705,7 @@ for (const [prop, attr] of [['type', 'type'], ['name', 'name'], ['placeholder', 
   ['title', 'title'], ['min', 'min'], ['max', 'max'], ['step', 'step'], ['href', 'href'], ['src', 'src'],
   ['defaultValue', 'value'], ['tabIndex', 'tabindex'], ['htmlFor', 'for']]) {
   Object.defineProperty(HTMLElement.prototype, prop, {
-    get () { return this._attrs.get(attr) ?? '' },
+    get () { return this.getAttribute(attr) ?? '' },
     set (v) { this.setAttribute(attr, v) },
     configurable: true,
   })
@@ -683,10 +733,7 @@ function styleText (o) {
 function createElement (win, tag) {
   const blender = BLENDER_COMPONENTS[tag]
   const el = new HTMLElement(blender ? blender[0] : tag)
-  if (blender) {
-    if (blender[1]) el._attrs.set('type', blender[1])
-    el._attrs.set('bui-blender', '')
-  }
+  if (blender) el._attrs = blender[1] ? ['type', blender[1], 'bui-blender', ''] : ['bui-blender', '']
   if (win !== null) el._attach(win)
   else el._auto = true
   return el
