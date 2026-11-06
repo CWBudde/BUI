@@ -17,7 +17,10 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const VERSION = require('svelte/package.json').version
-const CACHE = path.join(process.cwd(), 'node_modules', '.cache', '@blender-ui', 'svelte')
+// in the project's node_modules (none: no cache)
+const CACHE = fs.existsSync(path.join(process.cwd(), 'node_modules'))
+  ? path.join(process.cwd(), 'node_modules', '.cache', '@blender-ui', 'svelte')
+  : null
 let compiler = null // svelte/compiler (its CommonJS build: one file), on the first cache miss
 
 /** Components (`.svelte`) and rune modules (`.svelte.js`). */
@@ -34,6 +37,7 @@ const CONDITIONS = ['browser', 'import', 'default']
 
 /** The client JavaScript of a `.svelte` / `.svelte.js` file. */
 export function compileSvelte (source, filename, dev = process.env.NODE_ENV === 'development') {
+  if (CACHE === null) return compileNow(source, filename, dev)
   const key = crypto.createHash('sha1').update(`${VERSION}\0${dev}\0${filename}\0${source}`).digest('hex')
   const cached = path.join(CACHE, `${key}.js`)
   try {
