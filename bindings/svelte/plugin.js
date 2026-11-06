@@ -5,11 +5,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import fs from 'node:fs'
 import path from 'node:path'
-import { SVELTE_FILE, BROWSER_PACKAGE, BROWSER_PACKAGE_FILE, compileSvelte, resolveBrowser, browserRedirect } from './compile.js'
+import { SVELTE_FILE, BROWSER_PACKAGE, BROWSER_PACKAGE_FILE, SELF, SELF_FILE, compileSvelte, resolveBrowser, browserRedirect } from './compile.js'
 
 export default {
   name: '@blender-ui/svelte',
   setup (build) {
+    build.onResolve({ filter: SELF }, () => ({ path: SELF_FILE }))
     build.onResolve({ filter: BROWSER_PACKAGE }, (args) =>
       ({ path: resolveBrowser(args.path, args.importer ? path.dirname(args.importer) : process.cwd()) }))
     // Bun's runtime resolves bare imports without plugins: its server build

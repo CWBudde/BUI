@@ -6,7 +6,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { SVELTE_FILE, BROWSER_PACKAGE, compileSvelte, resolveBrowser } from './compile.js'
+import { SVELTE_FILE, BROWSER_PACKAGE, SELF, SELF_FILE, compileSvelte, resolveBrowser } from './compile.js'
 import plugin from './plugin.js'
 
 if (typeof Bun !== 'undefined') {
@@ -16,6 +16,7 @@ if (typeof Bun !== 'undefined') {
   if (typeof registerHooks !== 'function') throw new Error('@blender-ui/svelte: needs Node.js 22.15 or newer (module.registerHooks), or Bun')
   registerHooks({
     resolve (specifier, context, next) {
+      if (SELF.test(specifier)) return { url: pathToFileURL(SELF_FILE).href, format: 'module', shortCircuit: true }
       if (!BROWSER_PACKAGE.test(specifier)) return next(specifier, context)
       const from = context.parentURL?.startsWith('file:') ? path.dirname(fileURLToPath(context.parentURL)) : process.cwd()
       return { url: pathToFileURL(resolveBrowser(specifier, from)).href, format: 'module', shortCircuit: true }

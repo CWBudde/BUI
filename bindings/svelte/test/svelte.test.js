@@ -9,6 +9,7 @@ import Panel from './fixtures/Panel.svelte'
 import Modes from './fixtures/Modes.svelte'
 import Show from './fixtures/Show.svelte'
 import Form from './fixtures/Form.svelte'
+import Blocks from './fixtures/Blocks.svelte'
 
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const at = (s, x, y) => { const i = (y * s.width + x) * 4; return [...s.data.subarray(i, i + 3)] }
@@ -136,6 +137,39 @@ test('Svelte: bindings, Blender widgets, snippets, context and lifecycle', async
   assert.strictEqual(typeof Button, 'function')
   window.close()
   assert.deepStrictEqual(log, ['mount', 'destroy'], 'closing the window unmounts')
+})
+
+test('Svelte: {#await}, {#key}, class objects, bind:group and a scoped <style>', async (t) => {
+  let resolve
+  let set
+  const promise = new Promise((r) => { resolve = r })
+  const { app, window } = render(Blocks, { props: { promise, expose: (s) => { set = s } }, headless: true, width: 100, height: 100 })
+  t.after(() => app.quit())
+  window.body.style = 'margin: 0; background: #000'
+  const find = finder(window)
+  await tick()
+  assert.strictEqual(find('await').textContent, 'loading')
+  resolve(42)
+  await tick()
+  assert.strictEqual(find('await').textContent, 'got 42')
+  const first = find('key')
+  act(() => set.bump())
+  await tick()
+  assert.notStrictEqual(find('key'), first, '{#key} re-created its content')
+  assert.strictEqual(find('key').textContent, 'v2')
+  assert.strictEqual(find('cls').className, 'base')
+  act(() => set.toggle())
+  assert.deepStrictEqual(find('cls').className.split(' ').sort(), ['base', 'on'])
+  find('fb')._dispatch({ kind: 'change', checked: true })
+  await tick()
+  assert.strictEqual(find('flavor').textContent, 'b', 'bind:group')
+  // (no id attribute: BUI measures elements without one)
+  const red = [...window._nodes.values()].find((n) => n.getAttribute?.('class')?.startsWith('red'))
+  assert.match(red.className, /svelte-/, 'scoped class')
+  const box = await red.getBoundingClientRect()
+  assert.deepStrictEqual([box.width, box.height], [40, 20], 'the component stylesheet applies')
+  const styles = window.body.childNodes.filter((n) => n.localName === 'style')
+  assert.strictEqual(styles.length, 1, 'one stylesheet per component, per window')
 })
 
 test('Svelte: the event-delegation symbol is found (fails when a Svelte release changes it)', () => {

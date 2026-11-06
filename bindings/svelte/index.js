@@ -22,10 +22,15 @@ import Widget from './Widget.svelte'
  *  the window closes). */
 export function createRoot (window) {
   let component = null
+  if (!styled.has(window)) {
+    styled.set(window, new Set())
+    window.on('close', () => styled.delete(window))
+  }
   const root = {
     /** Mount `Component` (replacing what this root showed); returns its exports. */
     render (Component, options = {}) {
       root.unmount()
+      addStyles(window)
       component = mount(Component, { target: window.body, props: options.props, context: options.context })
       return component
     },
@@ -37,6 +42,29 @@ export function createRoot (window) {
   }
   window.on('close', () => root.unmount())
   return root
+}
+
+// Components' scoped stylesheets (their <style> blocks): each one is added to
+// a window once, as a <style> element, however many instances it shows.
+const styles = new Map() // key (the component's file) -> CSS
+const styled = new Map() // window with a root -> the keys added to it
+
+/** Called by compiled components that have a <style> block (compile.js). */
+export function addStyle (key, css) {
+  if (styles.has(key)) return
+  styles.set(key, css)
+  for (const window of styled.keys()) addStyles(window)
+}
+
+function addStyles (window) {
+  const added = styled.get(window)
+  for (const [key, css] of styles) {
+    if (added.has(key)) continue
+    added.add(key)
+    const el = window.createElement('style')
+    el.textContent = css
+    window.body.insertBefore(el, window.body.firstChild)
+  }
 }
 
 /** Open a window (and an App, unless `options.app` is given) and mount `Component` in it. */

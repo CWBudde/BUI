@@ -3,45 +3,95 @@
 // parser), and Svelte's browser build (the `browser` export condition). One
 // place for both, used by the Node.js hooks and the Bun plugin.
 //
+// Compiled files are cached (node_modules/.cache/@blender-ui/svelte, by
+// content, Svelte version and mode): an app starts without loading Svelte's
+// compiler unless a component changed.
+//
 // SPDX-License-Identifier: GPL-2.0-or-later
-import { compile, compileModule } from 'svelte/compiler'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const require = createRequire(import.meta.url)
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const VERSION = require('svelte/package.json').version
+const CACHE = path.join(process.cwd(), 'node_modules', '.cache', '@blender-ui', 'svelte')
+let compiler = null // svelte/compiler (its CommonJS build: one file), on the first cache miss
 
 /** Components (`.svelte`) and rune modules (`.svelte.js`). */
 export const SVELTE_FILE = /\.svelte(\.js)?$/
 /** Packages whose browser build a BUI app needs (Svelte's runtime, and the
  *  `esm-env` flags it reads). */
 export const BROWSER_PACKAGE = /^(svelte|esm-env)(\/.*)?$/
+/** This package, as compiled components import it: always this copy (one
+ *  event patch, one stylesheet registry), installed next to them or not. */
+export const SELF = /^@blender-ui\/svelte$/
+export const SELF_FILE = path.join(HERE, 'index.js')
 
 const CONDITIONS = ['browser', 'import', 'default']
-let warnedCss = false
 
 /** The client JavaScript of a `.svelte` / `.svelte.js` file. */
 export function compileSvelte (source, filename, dev = process.env.NODE_ENV === 'development') {
-  if (!filename.endsWith('.svelte')) return compileModule(source, { filename, generate: 'client', dev }).js.code
-  const r = compile(source, { filename, generate: 'client', fragments: 'tree', css: 'external', dev })
-  if (r.css && !warnedCss) {
-    warnedCss = true
-    console.warn(`@blender-ui/svelte: ${path.basename(filename)}: <style> blocks aren't applied; style with class (Tailwind) and style`)
+  const key = crypto.createHash('sha1').update(`${VERSION}\0${dev}\0${filename}\0${source}`).digest('hex')
+  const cached = path.join(CACHE, `${key}.js`)
+  try {
+    return fs.readFileSync(cached, 'utf8')
+  } catch {
+    const code = compileNow(source, filename, dev)
+    try {
+      fs.mkdirSync(CACHE, { recursive: true })
+      fs.writeFileSync(cached, code)
+    } catch {} // a read-only place: no cache
+    return code
   }
-  return r.js.code
+}
+
+function compileNow (source, filename, dev) {
+  compiler ??= require('svelte/compiler')
+  if (!filename.endsWith('.svelte')) return compiler.compileModule(source, { filename, generate: 'client', dev }).js.code
+  const r = compiler.compile(source, { filename, generate: 'client', fragments: 'tree', css: 'external', dev })
+  if (r.css === null) return r.js.code
+  // the scoped stylesheet: added to each window once (index.js), not per instance
+  const key = crypto.createHash('sha1').update(filename).digest('hex').slice(0, 12)
+  return `${r.js.code}\nimport { addStyle as __buiAddStyle } from '@blender-ui/svelte'\n` +
+    `__buiAddStyle(${JSON.stringify(key)}, ${JSON.stringify(r.css.code)})\n`
 }
 
 /** The file `specifier` (`svelte`, `svelte/store` ...) names in its package's
  *  browser build, resolved from `fromDir`. */
 export function resolveBrowser (specifier, fromDir) {
+  const key = `${fromDir}\0${specifier}`
+  let file = resolved.get(key)
+  if (file === undefined) resolved.set(key, (file = findBrowser(specifier, fromDir)))
+  return file
+}
+
+const resolved = new Map() // fromDir + specifier -> file
+const exportsByRoot = new Map() // package root -> its package.json's exports
+
+function packageExports (root) {
+  let e = exportsByRoot.get(root)
+  if (e === undefined) exportsByRoot.set(root, (e = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).exports ?? {}))
+  return e
+}
+
+function findBrowser (specifier, fromDir) {
   const slash = specifier.indexOf('/')
   const name = slash < 0 ? specifier : specifier.slice(0, slash)
   const sub = slash < 0 ? '.' : '.' + specifier.slice(slash)
   for (let dir = fromDir; ; dir = path.dirname(dir)) {
     const root = path.join(dir, 'node_modules', name)
     if (fs.existsSync(path.join(root, 'package.json'))) {
-      const target = pick(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).exports?.[sub])
+      const target = pick(packageExports(root)[sub])
       if (target === null) throw new Error(`@blender-ui/svelte: ${specifier}: no browser export`)
       return path.join(root, target)
     }
-    if (path.dirname(dir) === dir) throw new Error(`@blender-ui/svelte: cannot find ${name} from ${fromDir}`)
+    if (path.dirname(dir) === dir) {
+      if (fromDir !== HERE) return findBrowser(specifier, HERE) // not installed there: as this package sees it
+      throw new Error(`@blender-ui/svelte: cannot find ${name}`)
+    }
   }
 }
 
@@ -57,8 +107,7 @@ export function browserRedirect (file) {
   let map = redirects.get(m[1])
   if (map === undefined) {
     map = new Map()
-    const exports = JSON.parse(fs.readFileSync(path.join(m[1], 'package.json'), 'utf8')).exports ?? {}
-    for (const entry of Object.values(exports)) {
+    for (const entry of Object.values(packageExports(m[1]))) {
       const browser = pick(entry)
       const fallback = typeof entry === 'object' && entry !== null ? pickFrom(entry, ['default']) : null
       if (browser && fallback && browser !== fallback) map.set(path.join(m[1], fallback), path.join(m[1], browser))
