@@ -18,10 +18,5 @@ bindings/rust/blenderui-sys/csrc/
 __pycache__/
 *.pyc
 
-# Lua distribution extras (not needed for the embedding build)
-bindings/lua/lua-5.4.7/Makefile
-bindings/lua/lua-5.4.7/README
-bindings/lua/lua-5.4.7/doc/
-bindings/lua/lua-5.4.7/src/Makefile
-bindings/lua/lua-5.4.7/src/lua.c
-bindings/lua/lua-5.4.7/src/luac.c
+# Lua 5.4 is fetched by FetchContent at build time
+bindings/lua/lua-5.4.7/
