@@ -31,6 +31,7 @@ import argparse
 import datetime
 import json
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -56,7 +57,10 @@ def write(path: Path, text: str) -> None:
 
 
 def run(cmd: list[str], cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check)
+    exe = shutil.which(cmd[0])  # npm is npm.cmd on Windows, which CreateProcess cannot find by name
+    if exe is None:
+        return subprocess.CompletedProcess(cmd, 127, "", f"{cmd[0]}: not found")
+    return subprocess.run([exe, *cmd[1:]], cwd=cwd, text=True, capture_output=True, check=check)
 
 
 def current_version() -> str:
