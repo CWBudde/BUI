@@ -2,7 +2,7 @@
 local bui = require("bui")
 
 -- Build the layout
-local root = bui.Node("column")
+local root = bui.Node("frame")
 root:set("padding", 8)
 
 local header = bui.Node("label")

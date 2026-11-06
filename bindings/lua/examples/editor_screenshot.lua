@@ -11,7 +11,7 @@ local bui = require("bui")
 -- Build the editor scene: uses the same tree/person-record layout
 -- as the full editor, rendered headless into a raster.
 
-local root = bui.Node("column")
+local root = bui.Node("frame")
 root:set("padding", 6)
 
 -- Toolbar

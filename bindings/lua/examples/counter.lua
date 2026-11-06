@@ -1,7 +1,7 @@
 -- Interactive counter example
 local bui = require("bui")
 
-local root = bui.Node("column")
+local root = bui.Node("frame")
 root:set("padding", 12)
 
 -- Create the count label

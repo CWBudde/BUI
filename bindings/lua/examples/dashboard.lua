@@ -1,7 +1,7 @@
 -- Render farm dashboard: tabs, panels, progress, and status widgets
 local bui = require("bui")
 
-local root = bui.Node("column")
+local root = bui.Node("frame")
 root:set("padding", 0)
 
 -- Header
