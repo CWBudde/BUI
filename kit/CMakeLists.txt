@@ -101,7 +101,7 @@ if(BUI_IMAGE_JPEG) # libjpeg-turbo 3.1.2: the 8-bit decompressor, no SIMD (it ne
   add_library(bui_jpeg OBJECT ${_bui_jpeg_src}
     extern/libjpeg-turbo/bui/jmem_bui.c extern/libjpeg-turbo/bui/jdecode_8bit_only.c)
   target_include_directories(bui_jpeg PRIVATE extern/libjpeg-turbo/bui extern/libjpeg-turbo/src
-    ${CMAKE_SOURCE_DIR}/core/include)
+    ${BUI_SOURCE_DIR}/core/include)
   target_compile_options(bui_jpeg PRIVATE ${_bui_quiet} $<$<NOT:$<C_COMPILER_ID:MSVC>>:-O2>)
   target_sources(bui_kit PRIVATE intern/image/format_jpeg.c $<TARGET_OBJECTS:bui_jpeg>)
   target_include_directories(bui_kit PRIVATE extern/libjpeg-turbo/bui extern/libjpeg-turbo/src)

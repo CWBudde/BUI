@@ -9,8 +9,8 @@ add_library(bui::compat ALIAS bui_compat)
 
 target_include_directories(bui_compat PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_SOURCE_DIR}/types/dna/include
-  ${CMAKE_SOURCE_DIR}/gpu/include
-  ${CMAKE_SOURCE_DIR}/core/include
+  ${BUI_SOURCE_DIR}/types/dna/include
+  ${BUI_SOURCE_DIR}/gpu/include
+  ${BUI_SOURCE_DIR}/core/include
 )
 target_link_libraries(bui_compat PUBLIC bui::core bui::types bui::gpu)

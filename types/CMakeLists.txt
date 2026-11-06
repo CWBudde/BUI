@@ -11,7 +11,7 @@ add_library(bui::types ALIAS bui_types)
 
 target_include_directories(bui_types INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}/dna/include
-  ${CMAKE_SOURCE_DIR}/core/include
+  ${BUI_SOURCE_DIR}/core/include
 )
 
 target_link_libraries(bui_types INTERFACE bui::core)
