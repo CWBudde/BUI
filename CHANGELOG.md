@@ -6,6 +6,19 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Changed
+- **License, following Blender's own wording:** BUI as a whole is under the GNU GPL, version 3 or
+  later (the `LICENSE` file was already the GPLv3 text), and individual files keep their compatible
+  `GPL-2.0-or-later` header, as Blender's do. The Python package, the Rust crates, the npm packages,
+  the README and the website said `GPL-2.0-or-later` for the whole; they now say `GPL-3.0-or-later`.
+- **README:** a lead-in sentence before each screenshot that isn't the output of the snippet above it,
+  plainer headings ("Pick your language", "Python", "Rust: HTML and CSS, without a browser"), and a
+  corrected "Who wrote it?" (the code is written by agents, a human directs and reviews it).
+- **Limitations, said plainly:** a list in the README (Status and roadmap) and a new website page,
+  covering accessibility (none yet), text and input methods, the non-native look, GPU backends,
+  platforms, retained mode with no visual editor, and that the numbers come from one machine. The
+  FAQ answers "is it immediate mode?" and "is it accessible?"; accessibility joins the roadmap.
+
 ### Fixed
 - **Backspace over a Blender value resets it to its default, not to zero** (number fields, sliders,
   vector fields, checkboxes; the right-click "Reset to Default Value" already did, and the docs always

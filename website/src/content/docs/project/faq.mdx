@@ -59,11 +59,21 @@ BUI is young: its version is still 0.x. Much of it is complete and tested (the C
 
 ## Who wrote it?
 
-The README says it plainly: the repository is built entirely using LLMs, with no human-written code. The drawing and interaction code is ported from Blender's sources, and the behaviour is checked by tests (C, Python, Rust and JavaScript suites, the tkinter side-by-side programs and the GPU parity test).
+All of the code was written by LLM coding agents. None was typed by hand. A human directs the work, sets the rules the agents follow (`AGENTS.md` in the repository) and reviews the results.
+
+The method matters. Instead of asking an agent to write a UI toolkit from scratch, the maintainer started from Blender's own UI sources and asked it to remove everything that isn't UI logic. Agents are much more reliable at removing than at generating, and what stays is Blender's code. The drawing and interaction code is ported from Blender's sources, and the behaviour is checked by tests (C, Python, Rust and JavaScript suites, the tkinter side-by-side programs and the GPU parity test).
 
 ## Why GPL?
 
-BUI is derived from Blender's source code, which is licensed GPL-2.0-or-later, so BUI is too.
+BUI is derived from Blender's source code, so it follows Blender's licensing: the whole is under the GNU GPL, version 3 or later, and individual files keep their own compatible license (`GPL-2.0-or-later` for the files that come from Blender).
+
+## Is it immediate mode? Is there a visual UI editor?
+
+BUI is retained-mode: it keeps a tree of nodes, like Blender's own UI, and redraws only what changed. There is no visual UI editor yet; you write the UI in code (tkinter, Qt-style, Blender components, Rust, JavaScript or C).
+
+## Is BUI accessible to screen readers?
+
+Not yet. BUI draws its own widgets and doesn't talk to the platform's accessibility APIs. See [Limitations](../limitations/).
 
 ## Can I use BUI in a commercial app?
 
