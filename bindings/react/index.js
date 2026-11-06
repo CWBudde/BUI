@@ -16,7 +16,8 @@ const Reconciler = require('react-reconciler')
 const { ConcurrentRoot, DefaultEventPriority, DiscreteEventPriority, NoEventPriority } =
   require('react-reconciler/constants')
 const native = require('@blender-ui/native')
-const { App, TextNode, Signal, Memo, isSignal } = native
+const { TextNode, Signal, Memo, isSignal } = native
+const { open, blenderWidgets, applyProps, isText, NO_PROPS } = require('@blender-ui/native/host')
 const hooks = require('./hooks')
 
 // A signal rendered as a child (`<span>{count}</span>`) becomes this host
@@ -33,85 +34,6 @@ for (const C of [Signal, Memo]) {
     _store: { get () { return { validated: 1 } }, configurable: true },
     props: { get () { return (this._reactProps ??= { signal: this }) }, configurable: true },
   })
-}
-
-// React prop -> BUI event; onChange is per keystroke on text fields, as in React DOM.
-const EVENTS = {
-  onClick: 'click', onMouseDown: 'mousedown', onMouseUp: 'mouseup', onMouseMove: 'mousemove',
-  onMouseEnter: 'mouseenter', onMouseLeave: 'mouseleave', onWheel: 'wheel',
-  onKeyDown: 'keydown', onKeyUp: 'keyup', onInput: 'input', onChange: 'change',
-}
-const TEXT_INPUTS = new Set(['textarea'])
-const ATTR_ALIASES = { className: 'class', htmlFor: 'for', tabIndex: 'tabindex' }
-const SKIP = new Set(['children', 'key', 'ref', 'dangerouslySetInnerHTML', 'suppressHydrationWarning',
-  'suppressContentEditableWarning'])
-const NO_PROPS = {}
-
-function eventName (el, prop) {
-  if (prop === 'onChange') {
-    // text fields report every edit as `input`; checkboxes, selects: `change`
-    const type = el.getAttribute('type')
-    if (TEXT_INPUTS.has(el.localName) || (el.localName === 'input' &&
-        !['checkbox', 'radio', 'range', 'color', 'file'].includes(type))) return 'input'
-  }
-  return EVENTS[prop]
-}
-
-/** Listen with `fn` (or stop, when it isn't a function) for React prop `k`.
- *  The DOM event is remembered with it: onChange's depends on `type`. */
-function listen (el, k, fn) {
-  const cur = el._react[k]
-  const type = typeof fn === 'function' ? eventName(el, k) : null
-  if (cur !== undefined && cur.fn === fn && cur.type === type) return
-  if (cur !== undefined) el.removeEventListener(cur.type, cur.fn)
-  if (type === null) delete el._react[k]
-  else {
-    el.addEventListener(type, fn)
-    el._react[k] = { type, fn }
-  }
-}
-
-function isText (children) {
-  return typeof children === 'string' || typeof children === 'number' || typeof children === 'bigint'
-}
-
-/** Apply the difference between two prop objects to an element. Hot: React
- *  calls it for every element of a re-rendered list, mostly with equal props. */
-function applyProps (el, prev, next) {
-  if (prev !== NO_PROPS) {
-    for (const k in prev) {
-      if (k in next || SKIP.has(k)) continue
-      if (k in EVENTS) {
-        listen(el, k, null)
-      } else {
-        el.removeAttribute(ATTR_ALIASES[k] ?? k)
-      }
-    }
-  }
-  let events = false
-  for (const k in next) {
-    const v = next[k]
-    if (prev[k] === v || SKIP.has(k)) continue
-    if (k in EVENTS) {
-      events = true // after the attributes: onChange's event depends on `type`
-    } else if (k === 'style') {
-      if (v == null) el.removeAttribute('style')
-      else el.style = v // a string, an object or a signal of either
-    } else if (v == null || v === false) {
-      el.removeAttribute(ATTR_ALIASES[k] ?? k)
-    } else if (isSignal(v)) {
-      el.setAttribute(ATTR_ALIASES[k] ?? k, v) // bound: updates without a re-render
-    } else {
-      el.setAttribute(ATTR_ALIASES[k] ?? k, v === true ? '' : v)
-    }
-  }
-  if (events || (next.onChange !== undefined && prev.type !== next.type)) {
-    for (const k in next) if (k in EVENTS) listen(el, k, next[k])
-  }
-  // text children; text -> elements is React's resetTextContent (before it
-  // inserts them), so nothing to clear here
-  const c = next.children
-  if (c !== prev.children && isText(c)) el.textContent = String(c)
 }
 
 // Nodes a render created. React may throw a render away (an interrupted or
@@ -162,7 +84,6 @@ const host = {
   createInstance (type, props, container) {
     if (type === SIGNAL_TEXT) return created(container, container.window.createTextNode(props.signal))
     const el = container.window.createElement(type)
-    el._react = {}
     applyProps(el, NO_PROPS, props)
     return created(container, el)
   },
@@ -317,12 +238,11 @@ function createRoot (window) {
  * Open a window and render `element` into it.
  * @param {React.ReactNode} element
  * @param {{ title?: string, width?: number, height?: number, resizable?: boolean,
- *           gpu?: boolean, slug?: boolean, headless?: boolean, app?: App }} [options]
- * @returns {{ app: App, window: import('@blender-ui/native').Window, root: ReturnType<typeof createRoot> }}
+ *           gpu?: boolean, slug?: boolean, headless?: boolean, app?: import('@blender-ui/native').App }} [options]
+ * @returns {{ app: import('@blender-ui/native').App, window: import('@blender-ui/native').Window, root: ReturnType<typeof createRoot> }}
  */
 function render (element, options = {}) {
-  const app = options.app ?? new App({ gpu: options.gpu, slug: options.slug, headless: options.headless, theme: options.theme })
-  const window = app.window(options)
+  const { app, window } = open(options)
   const root = createRoot(window)
   root.render(element)
   return { app, window, root }
@@ -342,12 +262,7 @@ for (const k of Object.keys(React)) if (/^use([A-Z]|$)/.test(k)) reactHooks[k] =
 // Blender's widgets as components: `<NumberSlider min={0} max={10} />`,
 // `<Button onClick={..}>Apply</Button>`. Always Blender widgets; their
 // lowercase HTML counterparts look like a browser's (Blender's inside `styled`).
-const blenderComponents = {}
-for (const name of Object.keys(native.BLENDER_COMPONENTS)) {
-  const C = (props) => React.createElement(name, props)
-  Object.defineProperty(C, 'name', { value: name })
-  blenderComponents[name] = C
-}
+const blenderComponents = blenderWidgets((name) => (props) => React.createElement(name, props))
 
 module.exports = {
   ...blenderComponents,

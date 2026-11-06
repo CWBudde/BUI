@@ -13,13 +13,19 @@
       "default": "./index.js"
     },
     "./signals": "./signals.js",
+    "./host": {
+      "types": "./host.d.ts",
+      "default": "./host.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
     "dom.js",
+    "host.js",
     "signals.js",
     "index.d.ts",
+    "host.d.ts",
     "cli.js",
     "blenderui.*.node",
     "bui-runtime.*",
