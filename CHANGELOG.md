@@ -6,6 +6,12 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Changed
+- **README and website:** the FAQ says macOS has been tried by hand on two Apple Silicon Macs (it said nobody
+  had checked), and a new FAQ entry and the roadmap list what people asked for: Vue and Angular (adapters
+  over `@blender-ui/native`), and Lua (a community pull request is in review), Ruby and Go through cgo
+  (over the C kit). None of them exists yet.
+
 ## [0.4.1] - 2026-11-06
 
 ### Added

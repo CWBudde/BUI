@@ -47,7 +47,11 @@ Yes, in the ways people notice. An idle window uses no CPU, because BUI redraws 
 
 ## Which platforms does it run on?
 
-Windows and Linux fully; macOS with caveats. The macOS window host is written but hasn't been run on a Mac yet ([help test it](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md)), JavaScript runs headless there, and there's no GPU renderer on macOS yet. See [Platforms](../../reference/platforms/).
+Windows and Linux fully; macOS with caveats. The macOS window host is experimental: CI tests it, and two people have tried it by hand on Apple Silicon Macs (the bugs they found are fixed). Nobody has tried an Intel Mac by hand yet ([help test it](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md)), JavaScript runs headless there, and there's no GPU renderer on macOS yet. See [Platforms](../../reference/platforms/).
+
+## Can I use BUI from Vue, Angular, Ruby, Go or Lua?
+
+Not yet, but people have asked and they are on the [roadmap](../roadmap/). Vue and Angular would be thin adapters over `@blender-ui/native`, the layer React and Svelte already share ([how to add a framework](../../javascript/native-api/)). Ruby and Go (through cgo) would call the C kit, `BUI_kit.h`, which has been versioned since 0.4.1. A Lua binding is in review as a community pull request. If you want one sooner, open an issue or a pull request; the [contributing guide](../contributing/) says how.
 
 ## Can I change the colors?
 
