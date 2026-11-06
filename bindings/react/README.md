@@ -7,6 +7,8 @@ React 19 for the desktop, drawn by [BUI](https://github.com/ppmpreetham/BUI),
 Blender's UI toolkit. You write JSX with HTML elements, CSS and Tailwind
 classes, and BUI renders it in native windows on the CPU or the GPU. There's
 no browser, no webview and no Electron.
+Prefer Svelte? [`@blender-ui/svelte`](https://www.npmjs.com/package/@blender-ui/svelte)
+is the same engine for Svelte 5.
 
 - **React's hooks, by React's names, holding signals.** A change updates the
   one node that shows it, without re-rendering the component.

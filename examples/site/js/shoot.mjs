@@ -58,4 +58,7 @@ await save(dom.build(app), 'js-dom-tasks')
 const react = require('./todo_react.js')
 const r = react.build({ app })
 await save(r.window, 'js-react-tasks')
+await import('../../../bindings/svelte/register.js') // .svelte files import as components
+const svelte = await import('./todo_svelte.mjs')
+await save(svelte.build({ app }).window, 'js-svelte-tasks')
 app.quit()

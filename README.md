@@ -9,7 +9,7 @@
     BUI
   </h1>
 
-**Blender's user interface, as a library you can use from Python, Rust, JavaScript/React, C, C++ and Dear ImGui.**
+**Blender's user interface, as a library you can use from Python, Rust, JavaScript (React, Svelte), C, C++ and Dear ImGui.**
 
 People spent decades building and optimizing Blender's GUI. It's battery and memory efficient, and super duper fast. We decoupled it, to give everyone a chance to build their own products with it. It supports multiple languages and frameworks, so you won't miss a beat!
 
@@ -164,7 +164,7 @@ all get the same widgets and interactions:
 | **Qt-style** Python (`QWidget`, layouts, `clicked.connect`)                                                                                              | The common subset of Qt widgets                                                                                                                 | Partial               |
 | **Blender components** (`Panel`, `NumberSlider`, `PieMenu`, the node editor ...)                                                                         | 45 native Blender widgets and editors, from Python; ten of them also from Rust and JavaScript                                                   | Complete              |
 | **Rust**: HTML + CSS + Tailwind, HTML-like markup (`rsx!` / `view!`), hooks, or [gpui](https://www.gpui.rs) / [zopra](https://zopra.preetham.top) syntax | A web-like framework: HTML that looks like a browser's, Blender's look with `styled`, and Blender components (`<NumberSlider>`, `<Button>` ...) | Working               |
-| **JavaScript / React** on Node.js or Bun: a DOM-like API or JSX                                                                                          | The same engine and components in native windows, over napi-rs; React's hooks backed by signals                                                 | Working               |
+| **JavaScript / React / Svelte** on Node.js or Bun: a DOM-like API, JSX or Svelte components                                                              | The same engine and components in native windows, over napi-rs; React's hooks backed by signals; Svelte 5 components                         | Working               |
 | **Dear ImGui** from C++, C, Python or Rust                                                                                                               | The real Dear ImGui on BUI windows in Blender's theme, or a build where ImGui's widgets _are_ Blender's widgets                                 | Working               |
 | **C** (`BUI_kit.h`)                                                                                                                                      | The kit itself: nodes, widgets, windows                                                                                                         | Working               |
 | **MyGo**                                                                                                                                                 | MyGo                                                                                                                                            | Not yet (coming soon) |
@@ -215,7 +215,8 @@ If you're starting fresh in Python, the Blender components are the friendliest.
 
 - **React 19.3** renders to BUI: HTML host components, CSS and Tailwind, events, Suspense, transitions, actions, and Blender components (`<NumberSlider>`, `<Button>` ...). BUI draws them, on the CPU or the GPU; there's no browser and no webview.
 - **React's hooks, by React's names**, holding signals: pass one into JSX (`{count}`) and a change updates that one node without re-rendering; read it while rendering (`count.value`) and the component re-renders, as with React. A conformance suite checks each hook against React's own.
-- **`@blender-ui/native`**: a DOM-like API (`createElement`, `appendChild`, `addEventListener`) with the same signals, for apps without React.
+- **Svelte 5** (`@blender-ui/svelte`): components with runes, snippets, bindings and scoped styles, mounted into native windows; Svelte's compiled code runs on BUI's DOM, so a `$state` change updates the one node that shows it.
+- **`@blender-ui/native`**: a DOM-like API (`createElement`, `appendChild`, `addEventListener`) with the same signals, for apps without a framework, and the shared layer the React and Svelte bindings are thin adapters over.
 - **Node.js and Bun**, through a napi-rs addon, with headless mode for tests.
 
 ### Small standalone apps
@@ -359,6 +360,7 @@ default MSVC target), and on Linux the X11 headers (`libx11-dev` or
 
 ```sh
 npm install @blender-ui/react react     # or: bun add @blender-ui/react react
+npm install @blender-ui/svelte svelte   # Svelte 5
 npm install @blender-ui/native          # the DOM-like API, without React
 ```
 
@@ -1254,6 +1256,10 @@ transforms, OpenType features, multi-column layout. Guide:
   Hooks keep React's names but hold signals: pass one into JSX and a change
   updates that node without re-rendering. README:
   [bindings/react](bindings/react/README.md).
+- **`@blender-ui/svelte`**: Svelte 5 components (runes, snippets, bindings,
+  keyed blocks, context, scoped `<style>`) and the Blender components, on
+  Node.js (`--import @blender-ui/svelte/register`), Bun and `bui build`.
+  README: [bindings/svelte](bindings/svelte/README.md).
 - **`@blender-ui/native`**: a DOM-like API (`createElement`, `appendChild`,
   `addEventListener`, `className` with Tailwind, `style`) with signals,
   `memo`, `effect` and `batch`. README: [bindings/node](bindings/node/README.md).
@@ -1322,7 +1328,7 @@ SVG recorder use it. Guide: [INTEGRATION.md](INTEGRATION.md).
 | [Qt syntax](docs/qt.md)                    | Classes, signals, layouts, painting, coverage                                               |
 | [Components](docs/components.md)           | The `bui.components` reference                                                              |
 | [Rust](docs/rust.md)                       | `rsx!`, hooks, HTML, CSS and Tailwind coverage, effects, animations, events, headless tests |
-| [JavaScript and React](docs/javascript.md) | `@blender-ui/native`, `@blender-ui/react`, how changes cross to the UI thread, performance  |
+| [JavaScript, React and Svelte](docs/javascript.md) | `@blender-ui/native`, `@blender-ui/react`, `@blender-ui/svelte`, adding a framework, how changes cross to the UI thread, performance  |
 | [Dear ImGui](docs/imgui.md)                | Dear ImGui on BUI from C++, C, Python and Rust; the Blender-widgets build; coverage         |
 | [C API](docs/c-api.md)                     | The C kit (`BUI_kit.h`)                                                                     |
 | [Integration](INTEGRATION.md)              | Embedding BUI drawing in C, C++, Qt or PySide hosts                                         |
@@ -1494,6 +1500,38 @@ What this means:
   has no JIT, so re-rendering a 3,000-element list every frame drops it to
   20 FPS. Keep big lists on signals, or build with `--bun`.
 
+**React and Svelte, side by side** (one session, runs interleaved, medians of
+3; `--svelte` in the commands below):
+
+| 3,000 cells, one session                    | FPS         | CPU per frame     | RAM            |
+| ------------------------------------------- | ----------: | ----------------: | -------------: |
+| Node 26: React with state / with signals    | 27.6 / 27.6 | 42.5 / 36.9 ms    | 150 / 98 MB    |
+| Node 26: Svelte (runes) / with signals      | 24.8 / 26.6 | 41.5 / 38.6 ms    | 119 / 118 MB   |
+| Bun 1.4: React with state / with signals    | 24.0 / 25.0 | 55.8 / 40.8 ms    | 111 / 86 MB    |
+| Bun 1.4: Svelte (runes) / with signals      | 26.4 / 27.0 | 39.3 / 38.2 ms    | 100 / 100 MB   |
+| QuickJS: React with state / with signals    |  8.5 / 27.0 | 117 / 37.3 ms     | 67 / 62 MB     |
+| QuickJS: Svelte (runes) / with signals      | 26.9 / 25.9 | 37.5 / 38.7 ms    | 76 / 76 MB     |
+
+| First frame, median of 12 (React / Svelte)  | First frame   | RAM at first frame |
+| ------------------------------------------- | ------------: | -----------------: |
+| QuickJS executable (`bui build`, 6.9 MB)    | 94 / 89 ms    | 20.5 / 19.8 MB     |
+| Bun executable (`bui build --bun`)          | 111 / 107 ms  | 37.8 / 38.3 MB     |
+| Bun (`--preload …/register` for Svelte)     | 130 / 243 ms  | 36.4 / 46.6 MB     |
+| Node.js (`--import …/register` for Svelte)  | 147 / 440 ms  | 46.8 / 64.1 MB     |
+
+- **Svelte needs no signals to stay cheap:** runes update the one cell that
+  changes, so Svelte costs what React with signals does on every runtime, and
+  holds 27 FPS on QuickJS where React re-rendering the grid falls to 8.5.
+- **Memory:** Svelte keeps 14–21 MB more than React with signals at 3,000
+  cells (its effects and each-block items).
+- **Startup:** built with `bui build`, both reach the first frame in about
+  90 ms. On Node.js and Bun, Svelte's runtime loads from about 90 source files
+  first (components come from the compile cache).
+- **This session ran at about 27 FPS** for every variant (the machine, not the
+  code), so compare these rows with each other, not with the tables above.
+  React with state cost 45.8 ms and 190 MB on Node in the same session before
+  this release's DOM changes (linked siblings, lazy listener maps).
+
 Method, the memory breakdown and how to rerun:
 [docs/javascript.md](docs/javascript.md#performance).
 
@@ -1546,10 +1584,12 @@ cd bindings/node
 node bench/cells.js 3000                       # DOM-like API, one cell changing per frame
 node bench/cells.js 3000 --react               # React re-rendering the grid
 node bench/cells.js 3000 --react --signals     # React with signals: no re-render
+node --import ../svelte/register.js bench/cells.js 3000 --svelte   # Svelte, runes
 node bench/cells.js 3000 --gpu                 # on the GPU renderer
 bun bench/cells.js 3000                        # on Bun
 node cli.js run bench/cells.js -- 3000         # on the 5 MB QuickJS runtime
 node bench/startup.js                          # launch to first frame: Node, Bun and both executables
+node bench/startup.js --svelte                 # the same for the Svelte app
 ```
 
 **tkinter: canvas frame cost** (headless, any platform):
@@ -1605,7 +1645,7 @@ and on an NVIDIA GPU.
 | ------------------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `blenderui` on PyPI                              | Windows x86_64, Linux x86_64 (manylinux), macOS arm64 and x86_64 | CPython 3.11 to 3.14. No musllinux or 32-bit wheels.                              |
 | `blenderui` on crates.io                         | Any platform with CMake and a C compiler                         | Rust 1.88+. `blenderui-imgui` (Dear ImGui) is on crates.io too. |
-| `@blender-ui/native`, `@blender-ui/react` on npm | Windows x64                                                      | Node.js 18+ or Bun. Elsewhere, build the addon from source.                       |
+| `@blender-ui/native`, `@blender-ui/react`, `@blender-ui/svelte` on npm | Windows x64                                | Node.js 18+ (22.15+ for Svelte) or Bun. Elsewhere, build the addon from source.   |
 | C and C++ (CMake)                                | Windows, Linux, macOS                                            | CMake 3.20+, a C11 and C++20 compiler.                                            |
 
 ## 35. Environment variables
@@ -1703,7 +1743,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | `api/`                              | Stable C ABI for render-sink hosts                                                                                                                                                                                                                                                                                                           |
 | `bindings/python/`                  | The `buipy` extension and the `bui` / `blenderui` packages (tkinter, Qt, components, ImGui)                                                                                                                                                                                                                                                  |
 | `bindings/rust/`                    | `blenderui`, `blenderui-sys`, `blenderui-macros`, `blenderui-tailwind`, `blenderui-imgui`, `blenderui-jsview`, `blenderui-node`, `blenderui-qjs`, and the benchmark                                                                                                                                                                          |
-| `bindings/node/`, `bindings/react/` | `@blender-ui/native` and `@blender-ui/react`                                                                                                                                                                                                                                                                                                 |
+| `bindings/node/`, `bindings/react/`, `bindings/svelte/` | `@blender-ui/native`, `@blender-ui/react` and `@blender-ui/svelte`                                                                                                                                                                                                                                                                                                 |
 | `bindings/imgui/`                   | Dear ImGui (vendored), the BUI backend, Blender style, the C API and its generator, the Blender-widgets build                                                                                                                                                                                                                                |
 | `backends/qt/`                      | C++ Qt/QPainter render-sink backend                                                                                                                                                                                                                                                                                                          |
 | `bench/`                            | The start time and battery benchmark                                                                                                                                                                                                                                                                                                         |
@@ -1722,7 +1762,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | [`examples/imgui_demo.cpp`](examples/imgui_demo.cpp)                                                                                                                                                                          | Dear ImGui's demo window on BUI, from C++                                                                                                                                                                                                               |
 | [`examples/imgui_demo_c.c`](examples/imgui_demo_c.c)                                                                                                                                                                          | The same from C (`cimgui.h`)                                                                                                                                                                                                                            |
 | [`examples/imgui_blender_compare.cpp`](examples/imgui_blender_compare.cpp)                                                                                                                                                    | ImGui widgets next to BUI's native Blender widgets                                                                                                                                                                                                      |
-| [`examples/site/`](examples/site/)                                                                                                                                                                                            | The website's screenshot programs: a Render Properties editor and a node editor (Python components), tkinter and ttk dialogs, a Qt material editor, an ImGui inspector (C++ and Python), a C modifier stack, and a JavaScript task list (DOM and React) |
+| [`examples/site/`](examples/site/)                                                                                                                                                                                            | The website's screenshot programs: a Render Properties editor and a node editor (Python components), tkinter and ttk dialogs, a Qt material editor, an ImGui inspector (C++ and Python), a C modifier stack, and a JavaScript task list (DOM, React and Svelte) |
 | [`hello.rs`](bindings/rust/blenderui/examples/hello.rs)                                                                                                                                                                       | Rust: a component, hooks, Tailwind attributes and a Blender slider                                                                                                                                                                                      |
 | [`showcase.rs`](bindings/rust/blenderui/examples/showcase.rs)                                                                                                                                                                 | Rust: HTML, a stylesheet, flex/grid, tables, Blender form widgets                                                                                                                                                                                       |
 | [`forms.rs`](bindings/rust/blenderui/examples/forms.rs)                                                                                                                                                                       | Rust: form controls as plain HTML, inside `styled`, and as Blender components                                                                                                                                                                           |
@@ -1732,6 +1772,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | [`blenderui-imgui` demo](bindings/rust/blenderui-imgui/examples/demo.rs)                                                                                                                                                      | Dear ImGui from Rust (`cargo run -p blenderui-imgui --example demo`)                                                                                                                                                                                    |
 | [`bindings/node/examples/counter.js`](bindings/node/examples/counter.js)                                                                                                                                                      | JavaScript: the DOM-like API                                                                                                                                                                                                                            |
 | [`bindings/react/examples/counter.jsx`](bindings/react/examples/counter.jsx)                                                                                                                                                  | React in JSX (`bun examples/counter.jsx`)                                                                                                                                                                                                               |
+| [`bindings/svelte/examples/Counter.svelte`](bindings/svelte/examples/Counter.svelte) | Svelte 5 (`node --import ./bindings/svelte/register.js bindings/svelte/examples/counter.js`) |
 
 ---
 

@@ -6,12 +6,12 @@ section: JavaScript & React
 order: 10
 languages: ["javascript"]
 badges: ["Node.js", "Bun"]
-sources: ["docs/javascript.md", "bindings/node/README.md", "bindings/node/index.js", "bindings/node/index.d.ts", "bindings/node/examples/counter.js", "bindings/node/package.json"]
+sources: ["docs/javascript.md", "bindings/node/README.md", "bindings/node/index.js", "bindings/node/dom.js", "bindings/node/host.js", "bindings/node/globals.js", "bindings/node/index.d.ts", "bindings/node/examples/counter.js", "bindings/node/package.json"]
 ---
 
 If you've ever written `document.createElement`, you already know this API. **`@blender-ui/native` gives you the DOM's shape, Tailwind classes and signals, and draws the result in a native window** with BUI's engine. There's no browser underneath and no webview: just your script, Node.js or Bun, and a small native addon.
 
-It's also the layer the [React renderer](../react/) is built on, so everything here works there too.
+It's also the layer the [React renderer](../react/) and the [Svelte binding](../svelte/) are built on, so everything here works there too.
 
 <Callout type="note" title="Before you start">
 You need Node.js 18 or newer, or Bun. Install with `npm install @blender-ui/native` (or `bun add @blender-ui/native`). The addon is prebuilt for Windows x64; on Linux, build it from source. The [installation page](../../start/installation/) has the details.
@@ -67,7 +67,7 @@ A window gives you `body`, `createElement(tag)`, `createTextNode(text)`, `reques
 
 ## Elements and attributes
 
-The tree behaves like the DOM: `appendChild`, `insertBefore`, `removeChild`, `remove()`, `parentNode`, `childNodes`, `firstChild`, `nextSibling` and friends.
+The tree behaves like the DOM: `appendChild`, `insertBefore`, `removeChild`, `remove()`, `before`, `after`, `append`, `replaceWith`, `cloneNode`, `parentNode`, `childNodes`, `firstChild`, `nextSibling` and friends. Siblings are a linked list, so inserting, removing and walking siblings cost the same however long the list is.
 
 - **Moving a node:** `appendChild` or `insertBefore` on a node that already has a parent moves it.
 - **Mistakes throw:** inserting a node into itself, or before a node that isn't a child, throws an error, as in a browser.
@@ -76,8 +76,8 @@ The tree behaves like the DOM: `appendChild`, `insertBefore`, `removeChild`, `re
 Elements are HTML elements (`div`, `span`, `button`, `input`, `h1` …), laid out with CSS and drawn natively by BUI. They take the usual attributes:
 
 - **`class` / `className`**, including Tailwind classes: `'p-4 flex gap-2 bg-[#4772b3]'`.
-- **`style`**, as a CSS string (`'color: red'`) or an object (`{ backgroundColor: 'red', width: 40 }`).
-- **`id`, `href`, `value`, `src`** and the rest, through `setAttribute`.
+- **`style`**, as a CSS string (`'color: red'`) or an object (`{ backgroundColor: 'red', width: 40 }`). Reading `el.style` gives the inline style, with `cssText`, `setProperty` and `removeProperty`; `el.classList` edits `class`.
+- **`id`, `href`, `value`, `src`** and the rest, through `setAttribute`. DOM properties such as `disabled`, `hidden`, `checked`, `value` and `type` reflect their attribute. (`el.id` is the node's native id, so set the `id` attribute with `setAttribute`.)
 
 Any attribute, `style` and `textContent` can be a **signal**: the node then follows it. Setting a plain value later unbinds the signal.
 
@@ -115,6 +115,23 @@ The events are `click`, `mousedown`, `mouseup`, `mousemove`, `mouseenter`, `mous
 - **`event.target`** is the deepest element listening for that event type.
 - **`preventDefault()` only marks the event.** Events reach JavaScript after BUI has already handled them, so it can't cancel what BUI did.
 - **Form controls** keep their latest value: read `el.value` or `el.checked` after an `input` or `change` event.
+
+## Detached nodes and `document`
+
+`document` (`require('@blender-ui/native').document`) is a window-less document, as DOM frameworks expect one. Its `createElement`, `createTextNode`, `createComment` and `createDocumentFragment` make **detached** nodes: they live in JavaScript until you insert them into a window's tree, which then creates them and their subtree natively in one go. So one template can be cloned (`cloneNode(true)`) into any window.
+
+- **Fragments** insert their children, as in the DOM.
+- **Comments** are anchors: natively an empty text node, which takes no space in layout.
+- **Freeing:** a node made by `document` that you remove and don't reinsert by the end of the tick is freed natively for you. Nodes made by `win.createElement` keep the explicit `destroy()`.
+- **`dispatchEvent(event)`** runs an element's listeners (and its ancestors', if the event bubbles); `event.composedPath()` lists the target and its ancestors. Listeners for event types BUI doesn't report are accepted, and only fire through `dispatchEvent`.
+
+## Framework bindings
+
+The React and Svelte packages are thin adapters over this API, and a binding for another framework plugs in the same way:
+
+- **`@blender-ui/native/host`** holds what every binding shares: `open(options)` (the `App` and window behind a `render(..., options)`), `blenderWidgets(wrap)` (Blender's widgets as the framework's components) and `applyProps(el, prev, next)` (JSX-style props such as `className`, `style` objects, `onClick` and signals, onto an element). A renderer that works with props (React's reconciler; Vue's or Solid's custom renderers) calls these.
+- **`@blender-ui/native/globals`** installs `document`, `window`, the node classes and `requestAnimationFrame` as globals, for frameworks whose compiled code calls the DOM (Svelte; Solid's or Lit's DOM output too).
+- **`bui build`** bundles with the Bun plugin of every `@blender-ui/*` package that declares one in its `package.json` (`"bui": { "bunPlugin": "./plugin.js" }`). That's how `.svelte` files compile into a standalone app.
 
 ## Frames and measuring
 
@@ -172,6 +189,9 @@ The numbers, with their context, are on the [standalone executables](../standalo
 <CardGrid>
   <Card title="React" href="docs/javascript/react/" icon="layers" kicker="JavaScript">
     The same engine, written as JSX components with React's hooks.
+  </Card>
+  <Card title="Svelte" href="docs/javascript/svelte/" icon="layers" kicker="JavaScript">
+    Svelte 5 components, runes and snippets on the same engine.
   </Card>
   <Card title="Signals" href="docs/javascript/signals/" icon="zap" kicker="JavaScript">
     How a signal updates one node without re-rendering anything.

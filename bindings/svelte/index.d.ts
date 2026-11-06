@@ -22,6 +22,10 @@ export function createRoot (window: Window): Root
 export function render<P extends Record<string, any>> (Component: Component<P>, options?: RenderOptions & MountOptions<P>):
   { app: App, window: Window, root: Root, component: Record<string, any> }
 
+/** @internal Compiled components with a `<style>` block call it: the stylesheet
+ *  is added to each window once. */
+export function addStyle (key: string, css: string): void
+
 /** Run `fn` and apply Svelte's pending updates now (tests). */
 export function act<R> (fn?: () => R): R
 

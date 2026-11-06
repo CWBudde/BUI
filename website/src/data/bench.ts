@@ -193,6 +193,34 @@ const tablesBase = {
     ],
     note: "Plain JS uses @blender-ui/native; React with signals renders the grid once; React with state re-renders it every frame. React's production build throughout.",
   },
+  jsFrameworksStartup: {
+    caption:
+      "React vs Svelte, startup: the same small counter app (bench/first-frame.js, bench/first-frame-svelte.js) quits after its first frame; median of 12 launches after a warm-up, one session (2026-11-06)",
+    columns: ["First frame (React / Svelte)", "React", "Svelte", "RAM at first frame (React / Svelte)"],
+    numeric: [1, 2, 3],
+    rows: [
+      ["<strong>QuickJS executable</strong> (bui build, 6.9 MB either way)", "94 ms", "<strong>89 ms</strong>", "20.5 / <strong>19.8 MB</strong>"],
+      ["Bun executable (bui build --bun)", "111 ms", "107 ms", "37.8 / 38.3 MB"],
+      ["Bun (bun --preload …/register app.js)", "<strong>130 ms</strong>", "243 ms", "<strong>36.4</strong> / 46.6 MB"],
+      ["Node.js (node --import …/register app.js)", "<strong>147 ms</strong>", "440 ms", "<strong>46.8</strong> / 64.1 MB"],
+    ],
+    note: "On Node.js and Bun, Svelte's runtime loads from its source files (about 90 modules) and components come from the compile cache; bui build bundles both frameworks ahead of time.",
+  },
+  jsFrameworks3000: {
+    caption:
+      "React vs Svelte, 3,000 animated cells (bench/cells.js): one cell changes per frame, GPU renderer, medians of 3 interleaved runs, one session (2026-11-06)",
+    columns: ["3,000 cells", "FPS", "CPU per frame", "RAM"],
+    numeric: [1, 2, 3],
+    rows: [
+      ["Node 26: React with state / React with signals", "27.6 / 27.6", "42.5 / 36.9 ms", "150 / <strong>98 MB</strong>"],
+      ["Node 26: Svelte (runes) / Svelte with signals", "24.8 / 26.6", "41.5 / 38.6 ms", "119 / 118 MB"],
+      ["Bun 1.4: React with state / React with signals", "24.0 / 25.0", "55.8 / 40.8 ms", "111 / <strong>86 MB</strong>"],
+      ["Bun 1.4: Svelte (runes) / Svelte with signals", "26.4 / 27.0", "39.3 / <strong>38.2 ms</strong>", "100 / 100 MB"],
+      ["QuickJS: React with state / React with signals", "8.5 / 27.0", "117 / <strong>37.3 ms</strong>", "67 / <strong>62 MB</strong>"],
+      ["QuickJS: Svelte (runes) / Svelte with signals", "26.9 / 25.9", "37.5 / 38.7 ms", "76 / 76 MB"],
+    ],
+    note: "This session ran at about 27 FPS for every variant, so the absolute numbers aren't comparable with the tables above; compare the rows with each other. Svelte with runes needs no signals: only the cell that changes updates. Svelte with signals passes BUI signals as stores ($style). The same session's React with state cost 45.8 ms and 190 MB on Node before this release's DOM changes.",
+  },
   jsAnim1000: {
     caption: "JavaScript animation, 1,000 cells",
     columns: ["1,000 cells", "FPS", "CPU per frame", "RAM"],
@@ -639,6 +667,21 @@ export const charts = {
     ],
     table: "jsStartup",
     source: sources.readme,
+  },
+  "js-frameworks-cpu-3000": {
+    kind: "groups",
+    title: "React vs Svelte: CPU per frame, 3,000 cells",
+    subtitle: "One cell changes per frame; GPU renderer; one session, interleaved runs",
+    unit: "ms",
+    better: "lower",
+    series: [{ name: "React + signals", ours: true }, { name: "React + state" }, { name: "Svelte (runes)", ours: true }, { name: "Svelte + signals", ours: true }],
+    groups: [
+      { label: "QuickJS", values: [37.3, 117, 37.5, 38.7] },
+      { label: "Bun 1.4", values: [40.8, 55.8, 39.3, 38.2] },
+      { label: "Node 26", values: [36.9, 42.5, 41.5, 38.6] },
+    ],
+    table: "jsFrameworks3000",
+    source: sources.js,
   },
   "js-cpu-3000": {
     kind: "groups",

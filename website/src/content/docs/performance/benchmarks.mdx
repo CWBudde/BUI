@@ -101,6 +101,18 @@ More results, at 100 and 1,000 cells:
 - **Signals make React as cheap as the plain API:** the component doesn't re-render.
 - **QuickJS** starts fastest and uses the least memory, from a 5 MB file. It has no JIT, so re-rendering a 3,000-element list every frame drops it to 20 FPS. Keep big lists on signals, or build with `--bun`.
 
+### React and Svelte, side by side
+
+**What was measured:** the same scenes from `@blender-ui/react` and `@blender-ui/svelte`, in one session, runs interleaved (`bench/cells.js --react | --svelte [--signals]`, `bench/startup.js [--svelte]`). This session's machine ran every variant at about 27 FPS, so compare these rows with each other, not with the tables above.
+
+<BenchChart id="js-frameworks-cpu-3000" />
+
+<BenchTable id="jsFrameworksStartup" />
+
+- **Svelte needs no signals to stay cheap:** its runes update the one cell that changes, so it costs what React with signals does, on every runtime. React with state re-renders the grid and falls to 8.5 FPS on QuickJS; Svelte holds 27.
+- **Memory:** Svelte keeps more per element than React with signals (its effects and each-block items), 14–21 MB more at 3,000 cells.
+- **Startup:** built into an executable, both start in about 90 ms. On Node.js and Bun, Svelte's runtime loads from about 90 source files, which costs 0.1–0.3 s; `bui build` bundles it.
+
 <Callout type="joke">
 Unlike a Cycles render, these numbers don't get any less noisy if you leave them running overnight. Run each benchmark a few times instead.
 </Callout>

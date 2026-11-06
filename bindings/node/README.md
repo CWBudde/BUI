@@ -10,8 +10,9 @@ classes, Blender components (`NumberSlider`, `Button` ...), and signals. It runs
 Bun through a napi-rs addon, and `bui build` turns an app into a single
 executable of about 5 MB. There's no browser and no webview.
 
-For React, use [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react),
-which is built on this package.
+For React, use [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react);
+for Svelte, [`@blender-ui/svelte`](https://www.npmjs.com/package/@blender-ui/svelte).
+Both are built on this package.
 
 ```sh
 npm install @blender-ui/native        # or: bun add @blender-ui/native
@@ -39,11 +40,25 @@ win.body.appendChild(button)
 - **A DOM-like tree:** `createElement`, `createTextNode`, `appendChild`,
   `insertBefore`, `removeChild`, `setAttribute`, `className` (Tailwind
   classes included), `style` (a string or an object), `textContent`.
-  - Moving nodes and the error cases behave as in the DOM.
+  - Moving nodes and the error cases behave as in the DOM; siblings are a
+    linked list.
+  - `before` / `after` / `append` / `replaceWith`, `cloneNode`,
+    `dispatchEvent`, `el.style.setProperty`, `el.classList`, and DOM
+    properties that reflect attributes (`disabled`, `value`, `checked` ...).
   - `destroy()` frees a removed subtree natively.
+- **`document`:** a window-less document whose nodes are detached until
+  inserted into a window's tree; fragments, and comments as anchors. A removed
+  node made by `document` is freed natively at the end of the tick unless it
+  was reinserted.
+- **For framework bindings:** `@blender-ui/native/host` (`open`,
+  `blenderWidgets`, `applyProps`: what React's and Svelte's bindings share),
+  `@blender-ui/native/globals` (`document`, `window` and the node classes as
+  globals, for DOM-based frameworks), and `bui build` bundling with the Bun
+  plugin a `@blender-ui/*` package declares (`"bui": { "bunPlugin" }`).
 - **Events:** `addEventListener` for `click`, `mousedown`, `mouseup`,
   `mousemove`, `mouseenter`, `mouseleave`, `wheel`, `keydown`, `keyup`, `input`
-  and `change`.
+  and `change` arrive from the UI thread; other types fire through
+  `dispatchEvent`.
   - They bubble through the tree, and `stopPropagation()` works.
   - They arrive after BUI has handled them, so `preventDefault()` only marks
     the event.
@@ -78,7 +93,7 @@ Options:
 
 - `-o <file>`: the output file.
 - `--console`: keep a console window for logs (Windows builds open none).
-- `--dev`: React's development build.
+- `--dev`: development builds (React's, Svelte's dev mode).
 
 Bundling uses [Bun](https://bun.sh), so it must be installed.
 

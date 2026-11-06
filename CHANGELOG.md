@@ -6,6 +6,45 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Added
+- **Svelte** (new npm package `@blender-ui/svelte` 0.1.0, Svelte 5.57): Svelte 5 components in
+  native windows, with feature parity with `@blender-ui/react`: `render(Component, options)`,
+  `createRoot(window)`, `act(fn)`, Blender's ten widgets as components, BUI's signals (each a
+  Svelte store, `$count`), headless tests and screenshots, Node.js (`--import
+  @blender-ui/svelte/register`), Bun (`--preload`) and `bui build` / `bui run`. Runes, snippets,
+  bindings, keyed `{#each}`, `{#await}`, `{#key}`, context, lifecycle and scoped `<style>`
+  blocks work; transitions run their start and end without animating in between. Svelte has
+  no custom-renderer API, so its compiled components run on `@blender-ui/native`'s DOM.
+- **`@blender-ui/native`, a fuller DOM:** a window-less `document` whose nodes are detached until
+  inserted into a window's tree (then created natively with their subtree), `DocumentFragment`,
+  `Comment` (an anchor that takes no space), `cloneNode`, `before` / `after` / `append` /
+  `prepend` / `replaceWith`, `contains`, `isConnected`, `el.style` with `cssText` /
+  `setProperty` / `removeProperty`, `el.classList`, DOM properties that reflect attributes
+  (`disabled`, `hidden`, `value`, `checked`, `type` ...) on `HTMLElement`, `dispatchEvent`,
+  `event.composedPath()` and `cancelBubble`. Nodes made by `document` are freed natively once
+  removed and dropped.
+- **A shared layer for framework bindings:** `@blender-ui/native/host` (`open`, `blenderWidgets`,
+  `applyProps`: what React's binding did on its own), `@blender-ui/native/globals` (the browser
+  globals DOM frameworks read), and `bui build` bundling with the Bun plugin of every
+  `@blender-ui/*` package that declares one (`"bui": { "bunPlugin" }`). A binding for another
+  framework is a thin adapter over these.
+- **Benchmarks:** `bench/cells.js --svelte [--signals]` and `bench/startup.js --svelte`.
+
+### Changed
+- **`@blender-ui/native`:** siblings are a linked list (insert, remove and `nextSibling` are
+  O(1); `childNodes` returns a new array), and listener maps are made on the first listener.
+  Re-rendering 3,000 cells per frame from React costs a little less CPU.
+- **`@blender-ui/native`:** reading `el.style` returns the inline style object (its `cssText`
+  is the old string); setting it still takes a string, an object or a signal.
+  `addEventListener` accepts any event type (those BUI doesn't report only fire through
+  `dispatchEvent`) instead of throwing.
+- **`@blender-ui/react`** uses `@blender-ui/native/host` for its props, events, widgets and
+  window options; its API and behaviour are unchanged.
+- **`bui build`** bundles with `Bun.build` (and the framework plugins it finds) instead of the
+  `bun build` command line.
+- **`bench/startup.js`** counts launches that fail at exit (after their first frame, a
+  sporadic crash on Bun at quit) instead of aborting.
+
 ## [0.3.0] - 2026-11-06
 
 ### Added
