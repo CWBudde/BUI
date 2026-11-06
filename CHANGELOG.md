@@ -6,6 +6,8 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-06
+
 ### Added
 - **Video, in every language** (`kit/intern/image`: `video.c`, `movie*.c`). One codec
   interface for GIF, WebP and video (Blender's MovieReader shape: open, output size, next,

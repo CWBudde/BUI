@@ -1,6 +1,6 @@
 {
   "name": "@blender-ui/react",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "React renderer for BUI: Blender's UI in native windows from JSX, with React's hooks backed by signals. Node.js and Bun.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -40,7 +40,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@blender-ui/native": "^0.2.1",
+    "@blender-ui/native": "^0.3.0",
     "react-reconciler": "0.34.0"
   },
   "peerDependencies": {
