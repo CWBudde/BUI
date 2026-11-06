@@ -36,6 +36,8 @@ jump to the chapter you need. Every chapter links to a longer guide in
 [`docs/`](docs/) or on the [website](https://bui.preetham.top) when there's
 more to say.
 
+<a href="https://github.com/ppmpreetham/fastrapi"><img src="public/Advertisement.png" alt="FastRAPI"></a>
+
 ## Contents
 
 **[Part I: Welcome](#part-i-welcome)**
@@ -1901,7 +1903,8 @@ ship. The tables below have the details.
 | **More GPU backends**                | Vulkan / WebGPU drawing the same instance stream as Direct3D 11 and OpenGL                                                                             |
 | **Accessibility**                    | Screen-reader support through UI Automation (Windows), AT-SPI (Linux) and NSAccessibility (macOS)                                                      |
 | **Qt parity**                        | Measure against PySide6, run the same programs on Qt and BUI, fill in the missing classes, then `install()` so `import PySide6` programs run unchanged |
-| **More languages**                   | MyGo, C#, Go, Zig, Swift, Kotlin and Lua over the same C header; Godot, Unity and Bevy; Flutter                                                        |
+| **More JavaScript frameworks**       | Vue and Angular, as thin adapters over `@blender-ui/native` (the layer React and Svelte share)                                                         |
+| **More languages**                   | Lua (a community pull request is in review), Ruby, Go (through cgo), C#, Zig, Swift, Kotlin and MyGo over the same C header; Godot, Unity and Bevy; Flutter|
 
 Our roadmap has no dates on it. Like a good render, it's done when the noise
 goes away.
@@ -1971,10 +1974,25 @@ Loading any other Blender theme file is coming soon.
 
 <details>
 <summary><b>Does it run on my Mac?</b></summary>
-Probably, but nobody has checked yet: the Cocoa host is written and
-experimental. Python can always fall back to the Tk window
+Yes, with caveats. The Cocoa host is experimental, but it has been tried by hand
+on two Apple Silicon Macs (the bugs they found are fixed) and CI builds and tests
+it on Apple Silicon and Intel runners. Nobody has tried an Intel Mac by hand yet,
+it draws on the CPU (there is no Metal renderer), and JavaScript windows are
+headless there. Python can always fall back to the Tk window
 (<code>BUI_HOST=tk</code>). If you try it, the notes in
 <a href="docs/macos-testing.md">docs/macos-testing.md</a> say what to report.
+</details>
+
+<details>
+<summary><b>Can I use BUI from Vue, Angular, Ruby, Go or Lua?</b></summary>
+Not yet, but people have asked and they are on the
+<a href="#40-status-and-roadmap">roadmap</a>. Vue and Angular would be thin
+adapters over <code>@blender-ui/native</code>, the layer React and Svelte already
+share (<a href="docs/javascript.md">how to add a framework</a>). Ruby and Go
+(through cgo) would call the C kit, <code>BUI_kit.h</code>, which has been
+versioned since 0.4.1. A Lua binding is in review as a community pull request. If
+you want one sooner, open an issue or a pull request:
+<a href="CONTRIBUTING.md">CONTRIBUTING.md</a> says how.
 </details>
 
 <details>
@@ -1988,17 +2006,7 @@ you ship.
 
 <details>
 <summary><b>Who wrote it?</b></summary>
-All of the code was written by LLM coding agents. None was typed by hand. A
-human directs the work, sets the rules the agents follow (`AGENTS.md`) and
-reviews the results.
-
-The method matters. Instead of asking an agent to write a UI toolkit from
-scratch, the maintainer started from Blender's own UI sources and asked it to
-remove everything that isn't UI logic. Agents are much more reliable at
-removing than at generating, and what stays is Blender's code. The drawing and
-interaction code is ported from Blender's sources, and the behavior is checked
-by tests: C, Python, Rust and JavaScript suites, the tkinter side-by-side
-programs and the GPU parity test.
+LLMs. Not in the way you think. Instead of porting it, we asked an LLM to remove everything that isn't UI logic, and then ported the drawing and interaction code from Blender's sources. Turns out LLMs are better at removing than at generating. We call it Vibe-Pruning.
 </details>
 
 <details>
