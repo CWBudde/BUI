@@ -4,12 +4,20 @@ import test from 'node:test'
 import assert from 'node:assert'
 import { render, act, signal, Button } from '../index.js'
 import { HANDLERS } from '../events.js'
+import * as internal from '../internal.js'
+import * as svelteInternal from 'svelte/internal/client'
+import { compileSvelte } from '../compile.js'
+import native from '@blender-ui/native'
+
+const { REDIRECTS, redirected } = internal
+const { document } = native
 import Counter from './fixtures/Counter.svelte'
 import Panel from './fixtures/Panel.svelte'
 import Modes from './fixtures/Modes.svelte'
 import Show from './fixtures/Show.svelte'
 import Form from './fixtures/Form.svelte'
 import Blocks from './fixtures/Blocks.svelte'
+import Bound from './fixtures/Bound.svelte'
 
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const at = (s, x, y) => { const i = (y * s.width + x) * 4; return [...s.data.subarray(i, i + 3)] }
@@ -60,6 +68,31 @@ test('Svelte: BUI signals are stores; writes update their nodes without re-runni
   await tick()
   assert.strictEqual(find('ext').textContent, 'ext 5')
   assert.strictEqual(renders, 1, 'Panel ran once: signal writes went straight to the nodes')
+})
+
+test('Svelte: a BUI signal passed as a value binds its node; writes skip Svelte', async (t) => {
+  const style = signal('width: 80px; height: 30px; background-color: #0000ff')
+  const label = signal('one')
+  const cls = signal('a')
+  let renders = 0
+  const { app, window } = render(Bound, { props: { style, label, cls, onrender: () => renders++ }, headless: true, width: 200, height: 120 })
+  t.after(() => app.quit())
+  window.body.style = 'margin: 0; background: #000'
+  await tick()
+  const el = finder(window)('bound')
+  assert.strictEqual(el.textContent, 'one')
+  assert.strictEqual(el.getAttribute('title'), 'one')
+  assert.match(el.className, /^a svelte-/, 'the scoping hash follows the signal')
+  assert.deepStrictEqual(at(await window.screenshot(), 70, 20), [0, 0, 255])
+  label.value = 'two'
+  style.value = 'width: 80px; height: 30px; background-color: #00ff00'
+  cls.value = 'b'
+  // synchronously: the bindings wrote the nodes, no Svelte flush in between
+  assert.strictEqual(el.textContent, 'two')
+  assert.strictEqual(el.getAttribute('title'), 'two')
+  assert.match(el.className, /^b svelte-/)
+  assert.deepStrictEqual(at(await window.screenshot(), 70, 20), [0, 255, 0])
+  assert.strictEqual(renders, 1)
 })
 
 test('Svelte: text and elements take turns; keyed lists reorder; dropped nodes are freed', async (t) => {
@@ -168,10 +201,40 @@ test('Svelte: {#await}, {#key}, class objects, bind:group and a scoped <style>',
   assert.match(red.className, /svelte-/, 'scoped class')
   const box = await red.getBoundingClientRect()
   assert.deepStrictEqual([box.width, box.height], [40, 20], 'the component stylesheet applies')
-  const styles = window.body.childNodes.filter((n) => n.localName === 'style')
+  const styles = window.body.childNodes.filter((n) => n.localName === 'style' && n.textContent.includes('.red'))
   assert.strictEqual(styles.length, 1, 'one stylesheet per component, per window')
 })
 
-test('Svelte: the event-delegation symbol is found (fails when a Svelte release changes it)', () => {
+test('Svelte internals: the event-delegation symbol is found (fails when a Svelte release changes it)', () => {
   assert.strictEqual(typeof HANDLERS, 'symbol')
+})
+
+test('Svelte internals: every redirected update function matches Svelte\'s (fails when a release changes one)', () => {
+  // Svelte still has each one, with the shape internal.js was written for
+  // (otherwise internal.js falls back to Svelte's own, and this fails loudly)
+  assert.deepStrictEqual(redirected, Object.keys(REDIRECTS), 'a redirected function changed shape in this Svelte release')
+  // compiled templates still call them
+  const code = compileSvelte('<script>let { a, b } = $props()</script><p class={a} style={b} title={a}>{a}</p>', 'Probe.svelte')
+  assert.match(code, /from '@blender-ui\/svelte\/internal'/)
+  for (const name of Object.keys(REDIRECTS)) assert.match(code, new RegExp(`\\$\\.${name}\\(`), `compiled code no longer calls ${name}`)
+  // and each does what Svelte's does, on the same inputs
+  const make = () => {
+    const el = document.createElement('div')
+    el.append(document.createTextNode(' '))
+    return el
+  }
+  const state = (el) => [el.getAttributeNames().sort().map((n) => [n, el.getAttribute(n)]), el.firstChild.data]
+  const cases = [
+    ['set_text', (el) => [el.firstChild, 42]], ['set_text', (el) => [el.firstChild, null]],
+    ['set_attribute', (el) => [el, 'title', 'hi']], ['set_attribute', (el) => [el, 'title', null]],
+    ['set_style', (el) => [el, 'color: red']], ['set_style', (el) => [el, '']], ['set_style', (el) => [el, null]],
+    ['set_class', (el) => [el, 1, 'a b', 'svelte-x']], ['set_class', (el) => [el, 1, null, undefined]],
+  ]
+  for (const v of ['a', { b: true, c: false }, ['d', { e: 1 }], null]) assert.deepStrictEqual(internal.clsx(v), svelteInternal.clsx(v), 'clsx')
+  for (const [name, args] of cases) {
+    const ours = make(), theirs = make()
+    internal[name](...args(ours))
+    svelteInternal[name](...args(theirs))
+    assert.deepStrictEqual(state(ours), state(theirs), `${name}${JSON.stringify(args(make()).slice(1))}`)
+  }
 })
