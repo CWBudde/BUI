@@ -48,8 +48,9 @@ typedef struct {
 #define LUABUI_TREEITEM_MT  "bui.TreeItem"
 #define LUABUI_IMBUF_MT     "bui.ImBuf"
 #define LUABUI_VIDEO_MT     "bui.Video"
-#define LUABUI_NODE_MAP     "bui._node_map"
-#define LUABUI_TIMER_QUEUE  "bui._timer_queue"
+#define LUABUI_NODE_MAP      "bui._node_map"
+#define LUABUI_TREEITEM_MAP  "bui._treeitem_map"
+#define LUABUI_TIMER_QUEUE   "bui._timer_queue"
 
 /* ------------------------------------------------------------------ */
 /* Macros                                                             */
@@ -85,6 +86,17 @@ void *luabui_lookup_node(lua_State *L, BKNode *node);
 
 /* Remove a node from the map. */
 void luabui_unmap_node(lua_State *L, BKNode *node);
+
+/* ------------------------------------------------------------------ */
+/* Tree item map helpers (BKTreeItem* <-> Lua userdata)               */
+/* ------------------------------------------------------------------ */
+
+void luabui_map_treeitem(lua_State *L, BKTreeItem *item, int ud_idx);
+void *luabui_lookup_treeitem(lua_State *L, BKTreeItem *item);
+void luabui_unmap_treeitem(lua_State *L, BKTreeItem *item);
+
+/* Nullify all tree item userdata whose C pointer has been freed. */
+void luabui_nullify_treeitem(lua_State *L, BKTreeItem *item);
 
 /* ------------------------------------------------------------------ */
 /* Host callbacks (implemented in bui_context.c)                      */

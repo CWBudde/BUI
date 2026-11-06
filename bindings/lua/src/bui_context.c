@@ -345,9 +345,28 @@ static int l_ctx_redo(lua_State *L) {
   return 1;
 }
 
+/* Nullify all node userdata pointers in the node map. Called before freeing
+ * a context so that node __gc (which runs later) sees ud->node == NULL and
+ * does not try to access freed C memory. */
+static void nullify_node_map(lua_State *L) {
+  lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_NODE_MAP);
+  /* Iterate the weak-keyed node map: key = lightuserdata(BKNode*), value = userdata */
+  lua_pushnil(L);
+  while (lua_next(L, -2)) {
+    /* stack: map, key, value */
+    if (lua_isuserdata(L, -1) && luaL_testudata(L, -1, LUABUI_NODE_MT)) {
+      luabui_Node *ud = (luabui_Node *)lua_touserdata(L, -1);
+      ud->node = NULL;
+    }
+    lua_pop(L, 1); /* pop value */
+  }
+  lua_pop(L, 1); /* pop map */
+}
+
 static int l_ctx_free(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (cud->ctx) {
+    nullify_node_map(L);
     BK_context_free(cud->ctx);
     cud->ctx = NULL;
   }
@@ -357,6 +376,7 @@ static int l_ctx_free(lua_State *L) {
 static int l_ctx_gc(lua_State *L) {
   luabui_Context *cud = (luabui_Context *)luaL_checkudata(L, 1, LUABUI_CONTEXT_MT);
   if (cud->ctx) {
+    nullify_node_map(L);
     BK_context_free(cud->ctx);
     cud->ctx = NULL;
   }

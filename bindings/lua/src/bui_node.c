@@ -605,19 +605,89 @@ void luabui_register_node(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
+/* TreeItem map helpers                                               */
+/* ------------------------------------------------------------------ */
+
+void luabui_map_treeitem(lua_State *L, BKTreeItem *item, int ud_idx) {
+  lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
+  lua_pushlightuserdata(L, item);
+  lua_pushvalue(L, ud_idx < 0 ? ud_idx - 1 : ud_idx);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
+}
+
+void *luabui_lookup_treeitem(lua_State *L, BKTreeItem *item) {
+  lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
+  lua_pushlightuserdata(L, item);
+  lua_rawget(L, -2);
+  void *ud = lua_touserdata(L, -1);
+  lua_pop(L, 2);
+  return ud;
+}
+
+void luabui_unmap_treeitem(lua_State *L, BKTreeItem *item) {
+  lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
+  lua_pushlightuserdata(L, item);
+  lua_pushnil(L);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
+}
+
+/* Recursively nullify all children of a tree item in the map. */
+void luabui_nullify_treeitem(lua_State *L, BKTreeItem *item) {
+  if (!item) return;
+  int n = BK_tree_item_child_count(item);
+  for (int i = 0; i < n; i++) {
+    BKTreeItem *child = BK_tree_item_child(item, i);
+    /* Look up this child's Lua wrapper and nullify its C pointer */
+    lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
+    lua_pushlightuserdata(L, child);
+    lua_rawget(L, -2);
+    if (lua_isuserdata(L, -1) && luaL_testudata(L, -1, LUABUI_TREEITEM_MT)) {
+      ((luabui_TreeItem *)lua_touserdata(L, -1))->item = NULL;
+    }
+    lua_pop(L, 2);
+    /* Also nullify the child's children recursively before the child is freed */
+    luabui_nullify_treeitem(L, child);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* TreeItem methods                                                    */
 /* ------------------------------------------------------------------ */
 
 static int l_treeitem_add(lua_State *L) {
   luabui_TreeItem *parent = CHECK_TREEITEM(L, 1);
   luabui_TreeItem *child  = CHECK_TREEITEM(L, 2);
-  if (parent->item && child->item) BK_tree_item_add(parent->item, child->item);
+  if (!parent->item || !child->item) return 0;
+  BK_tree_item_add(parent->item, child->item);
   return 0;
 }
 
 static int l_treeitem_clear(lua_State *L) {
   luabui_TreeItem *tud = CHECK_TREEITEM(L, 1);
-  if (tud->item) BK_tree_item_clear(tud->item);
+  if (!tud->item) return 0;
+  int n = BK_tree_item_child_count(tud->item);
+  /* Re-parent each child to null (detach) */
+  BKTreeItem **children = NULL;
+  if (n > 0) {
+    children = (BKTreeItem **)lua_newuserdata(L, n * sizeof(BKTreeItem *));
+    for (int i = 0; i < n; i++) {
+      children[i] = BK_tree_item_child(tud->item, i);
+    }
+  }
+  BK_tree_item_clear(tud->item);
+  /* Nullify each child's Lua wrapper (they are detached, still alive) */
+  for (int i = 0; i < n; i++) {
+    BKTreeItem *child = children[i];
+    lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
+    lua_pushlightuserdata(L, child);
+    lua_rawget(L, -2);
+    if (lua_isuserdata(L, -1) && luaL_testudata(L, -1, LUABUI_TREEITEM_MT)) {
+      ((luabui_TreeItem *)lua_touserdata(L, -1))->item = NULL;
+    }
+    lua_pop(L, 2);
+  }
   return 0;
 }
 
@@ -633,10 +703,14 @@ static int l_treeitem_child(lua_State *L) {
   int i = (int)luaL_checkinteger(L, 2);
   BKTreeItem *item = BK_tree_item_child(tud->item, i);
   if (!item) return 0;
+  /* Check if we already have a Lua wrapper */
+  void *existing = luabui_lookup_treeitem(L, item);
+  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
   luabui_TreeItem *cud = (luabui_TreeItem *)lua_newuserdata(L, sizeof(luabui_TreeItem));
   cud->item = item;
   luaL_getmetatable(L, LUABUI_TREEITEM_MT);
   lua_setmetatable(L, -2);
+  luabui_map_treeitem(L, item, -1);
   return 1;
 }
 
@@ -679,19 +753,65 @@ static int l_treeitem_set_values(lua_State *L) {
   return 0;
 }
 
+static void treeitem_free_safe(lua_State *L, luabui_TreeItem *tud) {
+  if (!tud->item) return;
+
+  /* WARNING: tree items use parent-ownership semantics. The C parent retains
+   * child pointers. Freeing a child while it is still attached to a parent
+   * leaves a dangling pointer in the parent. Therefore we MUST always free
+   * from the root down (parent first, which cascades to children). */
+
+  /* Step 1: detach and free all children recursively */
+  int n = BK_tree_item_child_count(tud->item);
+  BKTreeItem **children = NULL;
+  if (n > 0) {
+    children = (BKTreeItem **)lua_newuserdata(L, n * sizeof(BKTreeItem *));
+    for (int i = 0; i < n; i++) {
+      children[i] = BK_tree_item_child(tud->item, i);
+    }
+  }
+  BK_tree_item_clear(tud->item);
+  for (int i = 0; i < n; i++) {
+    BKTreeItem *child = children[i];
+    /* Nullify child's Lua wrapper */
+    lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
+    lua_pushlightuserdata(L, child);
+    lua_rawget(L, -2);
+    if (lua_isuserdata(L, -1) && luaL_testudata(L, -1, LUABUI_TREEITEM_MT)) {
+      ((luabui_TreeItem *)lua_touserdata(L, -1))->item = NULL;
+    }
+    lua_pop(L, 2);
+    BK_tree_item_free(child);
+  }
+
+  /* Step 2: unmap and free self */
+  luabui_unmap_treeitem(L, tud->item);
+  BK_tree_item_free(tud->item);
+  tud->item = NULL;
+}
+
 static int l_treeitem_free(lua_State *L) {
   luabui_TreeItem *tud = CHECK_TREEITEM(L, 1);
-  if (tud->item) {
-    BK_tree_item_free(tud->item);
-    tud->item = NULL;
-  }
+  treeitem_free_safe(L, tud);
   return 0;
 }
 
 static int l_treeitem_gc(lua_State *L) {
   luabui_TreeItem *tud = (luabui_TreeItem *)luaL_checkudata(L, 1, LUABUI_TREEITEM_MT);
+  /* Tree items require explicit lifecycle management (add/remove from parent).
+   * __gc does NOT free the C item — that's the caller's responsibility via :free().
+   * We just remove from the map if it's still there. */
   if (tud->item) {
-    BK_tree_item_free(tud->item);
+    /* Check if still in the map before trying to unmap */
+    lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
+    lua_pushlightuserdata(L, tud->item);
+    lua_rawget(L, -2);
+    if (!lua_isnil(L, -1)) {
+      lua_pop(L, 1);
+      luabui_unmap_treeitem(L, tud->item);
+    } else {
+      lua_pop(L, 1);
+    }
     tud->item = NULL;
   }
   return 0;

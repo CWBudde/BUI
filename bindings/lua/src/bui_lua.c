@@ -162,6 +162,7 @@ static int l_new_treeitem(lua_State *L) {
   tud->item = item;
   luaL_getmetatable(L, LUABUI_TREEITEM_MT);
   lua_setmetatable(L, -2);
+  luabui_map_treeitem(L, item, -1);
   return 1;
 }
 
@@ -197,6 +198,14 @@ LUAMOD_API int luaopen_bui(lua_State *L) {
   lua_setfield(L, -2, "__mode");
   lua_setmetatable(L, -2);
   lua_setfield(L, LUA_REGISTRYINDEX, LUABUI_NODE_MAP);
+
+  /* Weak-keyed tree item map in registry */
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushstring(L, "k");
+  lua_setfield(L, -2, "__mode");
+  lua_setmetatable(L, -2);
+  lua_setfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
 
   /* Register types */
   luabui_register_node(L);
