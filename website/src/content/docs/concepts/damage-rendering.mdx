@@ -62,7 +62,7 @@ On the full components demo (520×900, Ryzen 7 5800U laptop), that's the differe
 
 Some things do need frames over time: a panel collapsing, a CSS transition, a React app calling `requestAnimationFrame`. BUI renders frames **only while something animates**, and stops as soon as it's done.
 
-- **Paced to the display.** On Windows, animation frames wait for the display's next refresh (`DwmFlush`), at its refresh rate. On Linux, the next frame is due one refresh after the previous frame started, at the screen's refresh rate (XRandR), and the event loop waits for it. On macOS, the event loop paces them with a timer.
+- **Paced to the display.** On Windows, animation frames wait for the display's next refresh (`DwmFlush`), at its refresh rate. On Linux, the next frame is due 16.7 ms (60 Hz) after the previous frame started, and the event loop waits for it. On macOS, the event loop paces them with a timer.
 - **Late frames don't wait.** A frame that's already late starts right away instead of waiting for another refresh.
 - **One rebuild per frame.** Rust and JavaScript rebuild the scene right before the render (`BK_window_request_frame` in C), so changes made in an animation callback join that same frame.
 - **Damage still applies.** If one cell of a grid animates, only that cell is redrawn each frame.

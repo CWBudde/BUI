@@ -458,31 +458,9 @@ static void do_render(BKWindow *win)
   }
 }
 
-/* The screen refresh interval in ms. XRandR is optional. Without it, use 60 Hz. */
 static double refresh_ms(void)
 {
-  static double ms = 0.0;
-  if (ms <= 0.0) {
-    int hz = 0;
-    void *lib = dlopen("libXrandr.so.2", RTLD_NOW | RTLD_LOCAL);
-    if (lib) {
-      typedef void *(*InfoFn)(Display *, Window);
-      typedef short (*RateFn)(void *);
-      typedef void (*FreeFn)(void *);
-      const InfoFn info_get = (InfoFn)dlsym(lib, "XRRGetScreenInfo");
-      const RateFn rate = (RateFn)dlsym(lib, "XRRConfigCurrentRate");
-      const FreeFn info_free = (FreeFn)dlsym(lib, "XRRFreeScreenConfigInfo");
-      void *info = (info_get && rate && info_free) ? info_get(g_dpy, DefaultRootWindow(g_dpy)) :
-                                                     NULL;
-      if (info) {
-        hz = rate(info);
-        info_free(info);
-      }
-      dlclose(lib);
-    }
-    ms = 1000.0 / (hz > 1 ? hz : 60);
-  }
-  return ms;
+  return 1000.0 / 60.0;
 }
 
 static void render_window(BKWindow *win)

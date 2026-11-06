@@ -34,7 +34,7 @@ All notable changes to **blenderui** (BUI). The format follows
   `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
   `buipy.imgui_module()`). The public API is unchanged.
 - **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
-- **Linux frame pacing:** an animation frame is due one refresh after the previous frame started, at the screen's refresh rate (XRandR). Before, the X11 loop slept 16.7 ms after each frame.
+- **Linux frame pacing:** an animation frame is due 16.7 ms (60 Hz) after the previous frame started, so the render time is part of the interval. Before, the X11 loop slept 16.7 ms after each frame.
 - **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU.
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
 
