@@ -22,6 +22,8 @@ People spent decades building and optimizing Blender's GUI. It's battery and mem
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/MWXZfdyM3D)
 
+<a href="https://hackergit.org/r/ppmpreetham/BUI"><img src="https://hackergit.org/badge/ppmpreetham/BUI.svg?style=card" alt="Hacker News" width="250" height="55"></a>
+
 **Website and full documentation: [bui.preetham.top](https://bui.preetham.top)** · **Chat: [Discord](https://discord.gg/MWXZfdyM3D)**
 
 <img src="https://raw.githubusercontent.com/ppmpreetham/BUI/main/docs/images/components.png" width="330" alt="BUI's Blender components: panels, number sliders, vector fields, checkboxes and a color swatch">
