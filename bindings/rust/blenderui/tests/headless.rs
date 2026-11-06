@@ -302,3 +302,37 @@ fn incremental_frames_match_fresh_renders() {
         }
     });
 }
+
+struct Number {
+    number: Option<f64>,
+}
+
+impl Render for Number {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        body().m_0().child(NumberField().id("n").attr("value", "5").on_change(cx.listener(
+            |this, e: &ChangeEvent, _, cx| {
+                this.number = Some(e.number);
+                cx.notify();
+            },
+        )))
+    }
+}
+
+/// Backspace over a Blender field goes back to the value it was made with (not to zero).
+#[test]
+fn backspace_resets_to_the_value_the_field_was_made_with() {
+    Application::headless().run(|cx| {
+        let win = open(cx, 300.0, 100.0, Number { number: None });
+        let id = win.id;
+        cx.draw(id);
+        let n = cx.element_bounds(id, "n").unwrap();
+        let (x, y) = (n.origin.x + n.size.width / 2.0, n.origin.y + n.size.height / 2.0);
+        cx.simulate_drag(id, (x, y), (x + 60.0, y));
+        let moved = win.root().read(cx).number.expect("the drag changes the value");
+        assert!((moved - 5.0).abs() > 0.01, "the drag should change the value, got {moved}");
+        cx.simulate_mouse_move(id, x, y);
+        cx.simulate_key(id, "", "BackSpace");
+        let back = win.root().read(cx).number.unwrap();
+        assert!((back - 5.0).abs() < 1e-9, "Backspace should give 5, got {back}");
+    });
+}

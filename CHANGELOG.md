@@ -7,6 +7,14 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Backspace over a Blender value resets it to its default, not to zero** (number fields, sliders,
+  vector fields, checkboxes; the right-click "Reset to Default Value" already did, and the docs always
+  said Backspace resets to the default). A widget's default is the value it was made with, or an
+  explicit `default`, in every language: the kit records the first value a widget gets as its default
+  (`NF_DEFAULT_SET`) and the dead "zero" flag of `reset` is gone. Text fields still clear.
+- **Website:** the interactive panel on the home page is labelled as a browser sketch, and it now does
+  what the text next to it says: dragging down across X, Y and Z edits all three, and Ctrl+C / Ctrl+V
+  over a field copy and paste a value.
 - **macOS:** Python printed `objc: Class BUIKitView is implemented in both buipy... and
   _buiimgui...` (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both
   extensions were loaded: each linked the whole kit, Cocoa host included, so the classes were
