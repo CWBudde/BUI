@@ -126,6 +126,21 @@ class Node {
     return false
   }
 
+  /** The DOM's bits: 2 `other` precedes this node, 4 follows it, 8 contains
+   *  it, 16 is inside it; 1 in different trees. */
+  compareDocumentPosition (other) {
+    if (other === this) return 0
+    const path = (n) => { const a = []; for (; n !== null; n = n.parentNode) a.unshift(n); return a }
+    const a = path(this), b = path(other)
+    if (a[0] !== b[0]) return 1
+    let i = 0
+    while (i < a.length && i < b.length && a[i] === b[i]) i++
+    if (i === a.length) return 4 | 16 // other is inside this node
+    if (i === b.length) return 2 | 8 // other contains this node
+    for (let n = a[i]._next; n !== null; n = n._next) if (n === b[i]) return 4
+    return 2
+  }
+
   appendChild (child) { return this.insertBefore(child, null) }
 
   insertBefore (child, before) {
@@ -438,7 +453,7 @@ class Element extends Node {
     this.tagName = tag.toUpperCase()
     this.localName = tag
     this._attrs = new Map()
-    this._listeners = new Map()
+    this._listeners = null // a Map, from the first listener
     this._bits = 0
     this._style = null
     // form controls: the latest value from input / change events
@@ -522,20 +537,21 @@ class Element extends Node {
 
   /** Any event type; those BUI reports (`EVENT_BITS`) arrive from the UI thread. */
   addEventListener (type, fn) {
-    let set = this._listeners.get(type)
-    if (!set) this._listeners.set(type, (set = new Set()))
+    const listeners = (this._listeners ??= new Map())
+    let set = listeners.get(type)
+    if (!set) listeners.set(type, (set = new Set()))
     set.add(fn)
     this._listen()
   }
 
   removeEventListener (type, fn) {
-    this._listeners.get(type)?.delete(fn)
+    this._listeners?.get(type)?.delete(fn)
     this._listen()
   }
 
   _listen () {
     let bits = 0
-    for (const [type, set] of this._listeners) if (set.size) bits |= EVENT_BITS[type] ?? 0
+    if (this._listeners !== null) for (const [type, set] of this._listeners) if (set.size) bits |= EVENT_BITS[type] ?? 0
     if (bits !== this._bits) {
       this._bits = bits
       const w = this.ownerWindow
@@ -682,7 +698,6 @@ class Document {
   constructor () {
     this.head = createElement(null, 'head')
     this.activeElement = null
-    this._listeners = new Map()
   }
 
   get nodeType () { return 9 }
