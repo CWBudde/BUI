@@ -93,6 +93,47 @@ class Image(Component):
         self.set_image_source(self._src or None, self.FITS[self._fit])
 
 
+VIDEO_ENDED = 3  # buipy.Video.state
+
+
+class Video(Component):
+    """A video file (MP4, WebM, MOV, ... whatever the OS decodes: Media
+    Foundation, AVFoundation, GStreamer), fitted like CSS ``object-fit``.
+    Muted autoplay unless ``autoplay=False``; it decodes at the size drawn
+    and only while it shows. ``controls=True`` draws Blender's play/pause
+    button and a scrubber with the time. ``player`` is the
+    :class:`bui.Video` (play, pause, seek, rate, time, duration, on_state)."""
+
+    TYPE = "video"
+    FITS = Image.FITS
+
+    def __init__(self, src: str, *, autoplay: bool = True, loop: bool = False,
+                 controls: bool = False, poster: Optional[str] = None, fit: str = "contain",
+                 on_ended: Optional[Callable[[], None]] = None, **kw):
+        super().__init__(**kw)
+        if fit not in self.FITS:
+            raise ValueError(f"fit must be one of {sorted(self.FITS)}, not {fit!r}")
+        self.player = buipy.Video(str(src))  # kept by the node: it borrows the player
+        self.player.loop = loop
+        self.player.controls = controls
+        if poster:
+            self.player.poster = str(poster)
+        if not autoplay:
+            self.player.pause()
+        if on_ended is not None:
+            self.player.on_state = lambda s: on_ended() if s == VIDEO_ENDED else None
+        self.player.attach(self, self.FITS[fit])
+
+    def play(self) -> None:
+        self.player.play()
+
+    def pause(self) -> None:
+        self.player.pause()
+
+    def seek(self, seconds: float) -> None:
+        self.player.seek(seconds)
+
+
 class Separator(Component):
     """Vertical space (``factor`` widget units), optionally with a line."""
 

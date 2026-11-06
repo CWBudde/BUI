@@ -38,7 +38,7 @@ from bui.components.views import GridView, ListView, TreeItem, TreeView
 from bui.components.widgets import (Button, Checkbox, ColorSwatch, Decorator, Dropdown,
                                     EnumRow, HotkeyField, IconButton, Image, Label, NumberField,
                                     NumberSlider, ProgressBar, SearchField, Separator, Spacer,
-                                    TextField, Toggle, eval_number)
+                                    TextField, Toggle, Video, eval_number)
 
 __all__ = [
     "App", "Component", "ValueComponent", "unit",
@@ -46,7 +46,7 @@ __all__ = [
     "Column", "Row", "Split", "Grid", "Box", "Panel", "Tabs", "SideTabs", "Sidebar", "ScrollView", "Area", "AreaHeader",
     "VectorField",
     # widgets
-    "Label", "Image", "Separator", "Spacer", "ProgressBar", "Button", "IconButton", "Toggle",
+    "Label", "Image", "Video", "Separator", "Spacer", "ProgressBar", "Button", "IconButton", "Toggle",
     "Checkbox", "Decorator", "TextField", "SearchField", "HotkeyField", "NumberField",
     "NumberSlider", "Dropdown", "EnumRow", "ColorSwatch", "eval_number",
     # views

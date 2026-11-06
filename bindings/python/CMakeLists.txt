@@ -10,7 +10,7 @@ endif()
 
 message(STATUS "BUI: building buipy Python bindings for Python ${Python3_VERSION}")
 
-Python3_add_library(buipy MODULE WITH_SOABI src/buipy_module.c src/buipy_kit.c)
+Python3_add_library(buipy MODULE WITH_SOABI src/buipy_module.c src/buipy_kit.c src/buipy_video.c)
 target_link_libraries(buipy PRIVATE bui_api bui_gpu bui_kit)
 
 # ($<0:> keeps multi-config generators from adding a Release/ subdirectory.)
@@ -124,6 +124,12 @@ if(BUI_BUILD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_images.py
   )
   set_tests_properties(buipy_images PROPERTIES ENVIRONMENT "PYTHONPATH=${BUIPY_TEST_PYTHONPATH}")
+  # video: the component and player, playing, seeking, ending, its controls
+  add_test(
+    NAME buipy_video
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_video.py
+  )
+  set_tests_properties(buipy_video PROPERTIES ENVIRONMENT "PYTHONPATH=${BUIPY_TEST_PYTHONPATH}")
   if(TARGET _buiimgui)
     add_test(
       NAME buipy_imgui

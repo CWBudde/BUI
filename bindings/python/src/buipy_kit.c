@@ -123,6 +123,16 @@ static int kitnode_init(KitNodeObject *self, PyObject *args, PyObject *kw)
   return 0;
 }
 
+/* The node of a KitNode (buipy_video.c attaches videos); NULL with an error. */
+BKNode *buipy_kit_node(PyObject *obj)
+{
+  if (!obj || !PyObject_TypeCheck(obj, &KitNode_Type) || !((KitNodeObject *)obj)->node) {
+    PyErr_SetString(PyExc_TypeError, "expected a live KitNode");
+    return NULL;
+  }
+  return ((KitNodeObject *)obj)->node;
+}
+
 static void kitnode_dealloc(KitNodeObject *self)
 {
   PyObject_GC_UnTrack(self);

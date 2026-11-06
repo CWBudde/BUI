@@ -199,9 +199,9 @@ void imb_play_pause(BKImPlay *p, bool paused)
 {
   if (p->paused && !paused) {
     p->due = 0.0; /* resumed: the frame gets its time again */
-    if (p->finished) { /* playing an ended video starts it over */
-      imb_play_seek(p, 0.0);
-    }
+  }
+  if (!paused && p->finished) { /* playing an ended video starts it over */
+    imb_play_seek(p, 0.0);
   }
   p->paused = paused;
 }

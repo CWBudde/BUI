@@ -138,6 +138,15 @@ image_stats = buipy.image_stats
 set_image_budget = buipy.image_set_budget
 image_decode_frame = buipy.image_decode_frame
 
+# Video: the kit's <video> player (one for every binding). Video(src) plays
+# (muted autoplay) where it is attached and drawn; state is one of the
+# VIDEO_* below; video_backends names the decoders this build has ("mf",
+# "avfoundation", "gstreamer", ...; "" without video). The component is
+# bui.components.Video.
+Video = buipy.Video
+video_backends = buipy.video_backends
+VIDEO_LOADING, VIDEO_PLAYING, VIDEO_PAUSED, VIDEO_ENDED, VIDEO_ERROR = range(5)
+
 
 class AnimatedTexture:
     """A GIF or animated WebP as a BUI texture (a Dear ImGui ``ImTextureID``)
