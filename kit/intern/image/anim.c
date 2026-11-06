@@ -3,7 +3,7 @@
  * MovieReader shape, open / next / seek / close). In-memory codecs composite
  * frames (GIF disposal and blending, WebP's canvas) into a full-size
  * premultiplied canvas, fitted here with the plan of stills (imb_plan /
- * imb_finish); streamed codecs (movie.c: the OS decoders, dav1d, FFmpeg)
+ * imb_finish); streamed codecs (movie.c: the OS decoders)
  * read the file as they go and decode NV12 at about the size drawn into a
  * recycled frame (no allocation per frame).
  *

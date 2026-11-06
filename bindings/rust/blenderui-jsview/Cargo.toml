@@ -11,4 +11,5 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-blenderui = { path = "../blenderui" }
+# the kit features are the app's choice (blenderui-node: all; bui-runtime: per runtime)
+blenderui = { path = "../blenderui", default-features = false }

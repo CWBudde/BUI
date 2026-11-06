@@ -20,6 +20,8 @@
     "signals.js",
     "index.d.ts",
     "cli.js",
+    "features.js",
+    "features.json",
     "blenderui.*.node",
     "bui-runtime.*",
     "README.md",
@@ -29,8 +31,8 @@
     "build": "node scripts/build.js",
     "test": "node --test",
     "prepublishOnly": "node scripts/build.js && node --test",
-    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\"",
-    "postpack": "node -e \"require('fs').rmSync('LICENSE', { force: true })\""
+    "prepack": "node -e \"const fs=require('fs');fs.copyFileSync('../../LICENSE','LICENSE');fs.copyFileSync('../../features.json','features.json')\"",
+    "postpack": "node -e \"const fs=require('fs');fs.rmSync('LICENSE',{force:true});fs.rmSync('features.json',{force:true})\""
   },
   "engines": {
     "node": ">=18"

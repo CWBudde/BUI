@@ -2,3 +2,5 @@
 node_modules/
 LICENSE
 bui-runtime.*
+bui-runtime-*
+features.json

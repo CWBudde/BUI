@@ -15,6 +15,11 @@ name = "bui-runtime"
 path = "src/main.rs"
 
 [dependencies]
-blenderui = { path = "../blenderui" }
+# the kit features: blenderui's defaults, or a runtime's list from features.json
+# (bindings/node/scripts/build.js: --no-default-features --features blenderui/...)
+blenderui = { path = "../blenderui", default-features = false }
 blenderui-jsview = { path = "../blenderui-jsview" }
 rquickjs = { version = "0.14", features = ["classes", "properties", "array-buffer"] }
+
+[features]
+default = ["blenderui/default"]

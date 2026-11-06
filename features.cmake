@@ -24,7 +24,7 @@ foreach(_i RANGE ${_bui_last})
   set(_bui_option_of_${_name} ${_opt})
 endforeach()
 
-# a part that needs another (video-dav1d needs video): checked here, at the boundary
+# a part that needs another ("requires"): checked here, at the boundary
 foreach(_i RANGE ${_bui_last})
   string(JSON _opt GET "${_bui_features_json}" features ${_i} option)
   string(JSON _nreq ERROR_VARIABLE _noreq LENGTH "${_bui_features_json}" features ${_i} requires)

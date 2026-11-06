@@ -10,6 +10,9 @@
 //   --bun              compile with `bun build --compile` instead of QuickJS
 //   --console          keep a console window (Windows; default: none, for apps)
 //   --dev              React's development build (default: production)
+//   --features a,b     the kit features the app uses (default: package.json
+//                      "bui": {"features": [...]}, else detected in the bundle);
+//                      the smallest runtime with them is linked (features.js)
 //
 // Bundling uses Bun (https://bun.sh), which must be installed.
 // SPDX-License-Identifier: GPL-2.0-or-later
@@ -18,6 +21,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
+const features = require('./features.js')
 
 const MAGIC = Buffer.from('BUIAPP01')
 const TAG = `${process.platform}-${process.arch}`
@@ -29,7 +33,7 @@ function fail (msg) {
 }
 
 function parse (argv) {
-  const o = { cmd: argv[0], entry: null, out: null, bun: false, console: false, dev: false, rest: [] }
+  const o = { cmd: argv[0], entry: null, out: null, bun: false, console: false, dev: false, features: null, rest: [] }
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i]
     if (o.cmd === 'run' && o.entry !== null) o.rest.push(a)
@@ -37,21 +41,38 @@ function parse (argv) {
     else if (a === '--bun') o.bun = true
     else if (a === '--console') o.console = true
     else if (a === '--dev') o.dev = true
+    else if (a === '--features') o.features = argv[++i].split(',').map((s) => s.trim()).filter(Boolean)
     else if (a.startsWith('-')) fail(`unknown option ${a}`)
     else o.entry = a
   }
   return o
 }
 
-/** The QuickJS runtime shipped in this package (or the workspace build). */
-function runtimePath () {
-  const shipped = path.join(__dirname, `bui-runtime.${TAG}${EXE}`)
+/** The QuickJS runtime `name` (features.json runtimes; "full" is bui-runtime
+ *  itself) shipped in this package, or the workspace build's full one. */
+function runtimePath (name = 'full') {
+  const file = name === 'full' ? `bui-runtime.${TAG}${EXE}` : `bui-runtime-${name}.${TAG}${EXE}`
+  const shipped = path.join(__dirname, file)
   if (fs.existsSync(shipped)) return shipped
   for (const profile of ['dist', 'release']) { // npm run build, or a plain cargo build
     const built = path.join(__dirname, '../rust/target', profile, `bui-runtime${EXE}`)
-    if (fs.existsSync(built)) return built
+    if (name === 'full' && fs.existsSync(built)) return built
   }
+  if (name !== 'full') return runtimePath('full') // a smaller one wasn't built: the full one works
   fail(`no bui-runtime for ${TAG}: prebuilt for Windows x64; run \`npm run build\` in bindings/node to build it`)
+}
+
+/** The runtime an app needs: explicit features, else detected ones. */
+function chooseRuntime (o, js) {
+  try {
+    const explicit = o.features ?? features.configured(o.entry)
+    const needed = explicit ? new Set(explicit) : new Set(features.detect(js.toString('latin1')).keys())
+    const rt = features.pickRuntime(needed)
+    console.log(`bui: runtime "${rt.name}" for ${needed.size ? [...needed].join(', ') : 'no optional features'}${explicit ? '' : ' (detected)'}`)
+    return rt.name
+  } catch (e) {
+    fail(e.message)
+  }
 }
 
 /** Bun's executable: this process when running on Bun; otherwise asked once
@@ -109,7 +130,7 @@ function build (o) {
     bun(args)
   } else {
     const js = bundle(o.entry, o.dev)
-    const runtime = fs.readFileSync(runtimePath())
+    const runtime = fs.readFileSync(runtimePath(chooseRuntime(o, js)))
     if (process.platform === 'win32' && !o.console) setGuiSubsystem(runtime)
     const trailer = Buffer.alloc(16)
     MAGIC.copy(trailer, 0)
@@ -132,7 +153,7 @@ function run (o) {
 
 const o = parse(process.argv.slice(2))
 if (!['build', 'run'].includes(o.cmd) || !o.entry) {
-  console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 14).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'))
+  console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 17).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'))
   process.exit(o.cmd ? 1 : 0)
 }
 if (!fs.existsSync(o.entry)) fail(`no such file: ${o.entry}`)

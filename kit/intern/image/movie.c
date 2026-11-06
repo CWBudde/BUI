@@ -5,8 +5,6 @@
  *  movie_mf.c     Windows Media Foundation (the OS decoders, DXVA)
  *  movie_avf.m    macOS AVFoundation / VideoToolbox
  *  movie_gst.c    Linux GStreamer (VA-API through its plugins)
- *  movie_dav1d.c  AV1 with dav1d and a small MP4 / WebM demuxer (optional)
- *  movie_ffmpeg.c FFmpeg (optional)
  *
  * Every backend loads its system libraries at run time (LoadLibrary /
  * dlopen / weak frameworks): a machine without them starts normally and
@@ -34,9 +32,6 @@ bool imb_is_a_movie(const uint8_t *m, size_t n)
 }
 
 const BKImAnimCodec *const imb_movie_codecs[] = {
-#ifdef BUI_VIDEO_DAV1D
-    &imb_movie_dav1d, /* AV1 in software, before the OS (which may lack AV1) */
-#endif
 #ifdef BUI_VIDEO_MF
     &imb_movie_mf,
 #endif
@@ -45,9 +40,6 @@ const BKImAnimCodec *const imb_movie_codecs[] = {
 #endif
 #ifdef BUI_VIDEO_GST
     &imb_movie_gst,
-#endif
-#ifdef BUI_VIDEO_FFMPEG
-    &imb_movie_ffmpeg,
 #endif
     NULL,
 };

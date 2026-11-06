@@ -306,7 +306,7 @@ void BK_anim_free(BKAnim *anim);
 
 /* -- video (kit/intern/image: one player for GIF, WebP and video) ---------------------
  * A <video>: decoded by the OS (Media Foundation, AVFoundation, GStreamer) or
- * an optional built-in decoder (dav1d, FFmpeg), streamed from the file at
+ * streamed from the file at
  * the size it is drawn, frames in one GPU texture updated in place (NV12:
  * YCbCr converted in the shader; the CPU raster converts what it draws).
  * It loads when first drawn and plays only while it shows: off screen,
@@ -342,8 +342,8 @@ int BK_video_texture(BKVideo *v, int tex, int max_w, int max_h);
 /* Shown on a "video" node (fitted, with its controls) or an "image" node; the
  * node borrows it (free the video after the node lets go: set NULL). */
 void BK_node_set_video(BKNode *node, BKVideo *v, int fit);
-/* The backends this build reads video with ("mf", "avfoundation", "gstreamer",
- * "dav1d", "ffmpeg"), comma-separated; "" when built without video. */
+/* The backends this build reads video with ("mf", "avfoundation", "gstreamer"),
+ * comma-separated; "" when built without video. */
 const char *BK_video_backends(void);
 
 /* The shared cache and loader. Sources (file paths) decode on a few worker

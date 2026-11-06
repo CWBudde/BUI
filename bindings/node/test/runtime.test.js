@@ -26,10 +26,13 @@ function check (stdout, runtime) {
   return r
 }
 
-/** The runtime `bui build` copies (as cli.js finds it). */
-function runtimeFile () {
+/** The runtime `bui build` copies (as cli.js finds it): `name` from features.json. */
+function runtimeFile (name = 'full') {
   const exe = process.platform === 'win32' ? '.exe' : ''
-  const shipped = path.join(__dirname, '..', `bui-runtime.${process.platform}-${process.arch}${exe}`)
+  const tag = `${process.platform}-${process.arch}`
+  const small = path.join(__dirname, '..', `bui-runtime-${name}.${tag}${exe}`)
+  if (name !== 'full' && fs.existsSync(small)) return small
+  const shipped = path.join(__dirname, '..', `bui-runtime.${tag}${exe}`)
   if (fs.existsSync(shipped)) return shipped
   for (const profile of ['dist', 'release']) {
     const built = path.join(__dirname, '../../rust/target', profile, `bui-runtime${exe}`)
@@ -59,10 +62,13 @@ test('bui build: a QuickJS executable of a few MB runs the React app', { skip: !
   const trailer = exe.subarray(exe.length - 16)
   assert.strictEqual(trailer.subarray(0, 8).toString(), 'BUIAPP01')
   const bundle = Number(trailer.readBigUInt64LE(8))
-  const runtime = fs.statSync(runtimeFile()).size
+  // an app without images or video gets the smallest runtime (features.json)
+  const chosen = /runtime "(\w+)"/.exec(b.stdout)[1]
+  assert.strictEqual(chosen, 'base', b.stdout)
+  const runtime = fs.statSync(runtimeFile(chosen)).size
   assert.strictEqual(exe.length, runtime + bundle + 16)
   const budget = RUNTIME_BUDGET[`${process.platform}-${process.arch}`]
-  if (budget && runtimeFile().endsWith(`bui-runtime.${process.platform}-${process.arch}.exe`)) {
+  if (budget && runtimeFile(chosen).includes(`.${process.platform}-${process.arch}.exe`)) {
     assert.ok(runtime <= budget, `runtime ${runtime} bytes, budget ${budget}`)
   }
   check(exec(out), 'quickjs')

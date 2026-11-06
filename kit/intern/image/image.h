@@ -175,8 +175,7 @@ typedef struct BKImAnimCodec {
 } BKImAnimCodec;
 extern const BKImAnimCodec imb_gif_codec, imb_webp_codec;
 /* Video backends (movie_*.c), each compiled when the build has it. */
-extern const BKImAnimCodec imb_movie_mf, imb_movie_avf, imb_movie_gst, imb_movie_dav1d,
-    imb_movie_ffmpeg;
+extern const BKImAnimCodec imb_movie_mf, imb_movie_avf, imb_movie_gst;
 /* Those compiled in (movie.c: the build's choice), tried in order; NULL-ended. */
 extern const BKImAnimCodec *const imb_movie_codecs[];
 /* The first bytes look like a movie container (MP4/MOV, WebM/MKV, AVI, ASF,
