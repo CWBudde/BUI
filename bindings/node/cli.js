@@ -9,7 +9,7 @@
 //   -o, --out <file>   output file (default: the entry's name, .exe on Windows)
 //   --bun              compile with `bun build --compile` instead of QuickJS
 //   --console          keep a console window (Windows; default: none, for apps)
-//   --dev              React's development build (default: production)
+//   --dev              development builds (React's, Svelte's dev mode)
 //
 // Bundling uses Bun (https://bun.sh), which must be installed.
 // SPDX-License-Identifier: GPL-2.0-or-later
@@ -72,17 +72,16 @@ ${r.stderr}` : ''}`)
   return r
 }
 
+/** Bundle with Bun (bundle.js: the framework bindings' plugins included). */
+function bundleWith (options) {
+  bun([path.join(__dirname, 'bundle.js'), JSON.stringify(options)], { quiet: true })
+}
+
 /** One script for QuickJS: the app and its packages, React in production mode. */
 function bundle (entry, dev) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bui-'))
-  // an ES module importing the entry: Bun's IIFE output runs a CommonJS
-  // entry only when something imports it
-  const wrapper = path.join(dir, 'entry.mjs')
-  fs.writeFileSync(wrapper, `import ${JSON.stringify(path.resolve(entry).split(path.sep).join('/'))}\n`)
   const out = path.join(dir, 'app.js')
-  bun(['build', wrapper, '--target=browser', '--format=iife', '--minify',
-    `--define=process.env.NODE_ENV="${dev ? 'development' : 'production'}"`,
-    '--external=node:*', '--external=*.node', `--outfile=${out}`], { quiet: true })
+  bundleWith({ entry: path.resolve(entry), out, dev })
   const js = fs.readFileSync(out)
   fs.rmSync(dir, { recursive: true, force: true })
   return js
@@ -101,10 +100,7 @@ function build (o) {
   const out = path.resolve(o.out ?? `${name}${EXE}`)
   const t0 = Date.now()
   if (o.bun) {
-    const args = ['build', '--compile', '--minify', o.entry, `--outfile=${out}`,
-      `--define=process.env.NODE_ENV="${o.dev ? 'development' : 'production'}"`]
-    if (process.platform === 'win32' && !o.console) args.push('--windows-hide-console')
-    bun(args)
+    bundleWith({ entry: path.resolve(o.entry), out, bun: true, dev: o.dev, console: o.console || process.platform !== 'win32' })
   } else {
     const js = bundle(o.entry, o.dev)
     const runtime = fs.readFileSync(runtimePath())

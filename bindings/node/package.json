@@ -23,6 +23,7 @@
     "index.js",
     "dom.js",
     "host.js",
+    "bundle.js",
     "signals.js",
     "index.d.ts",
     "host.d.ts",
