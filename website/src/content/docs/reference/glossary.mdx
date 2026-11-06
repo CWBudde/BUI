@@ -1,0 +1,266 @@
+---
+title: Glossary
+description: Every BUI and Blender term you'll meet in these docs, explained in a sentence or two, from atlas to zopra.
+section: Reference
+order: 50
+sources: ["README.md", "ARCHITECTURE.md", "docs/getting-started.md", "docs/components.md", "docs/rust.md", "docs/javascript.md", "docs/imgui.md", "INTEGRATION.md", "kit/include/BUI_kit.h", "kit/intern/kit_draw.c", "kit/intern/kit_core.c", "gpu/include/GPU_raster.h", "gpu/intern/gpu_d3d11.h", "CHANGELOG.md"]
+---
+
+New words slow everyone down. Here's every term these docs use, in plain language. If you meet one that's missing, [tell us](https://github.com/ppmpreetham/BUI/issues): it belongs here.
+
+## A to C
+
+### Atlas
+
+One big GPU texture that holds many small images: glyphs, icons or masks. Drawing from one atlas is much faster than switching between many small textures. BUI's GPU renderer keeps one 8-bit atlas for text and masks and one color atlas for images.
+
+### Binding
+
+The thin layer that lets a language use BUI's C core: `blenderui` for Python and Rust, `@blender-ui/native` for JavaScript, and the Dear ImGui backends. Bindings keep only what their syntax needs and pass everything else to the [kit](#kit).
+
+### Blender component
+
+A widget that *is* one of Blender's: `Panel`, `NumberSlider`, `PieMenu`, the node editor … In Python, `blenderui.components` has 45. In Rust and JavaScript, ten of them (`<NumberSlider>`, `<Button>` …) are written with a capital letter, to tell them apart from plain HTML elements.
+
+### BLF
+
+Blender's font library (`blenfont`). BUI renders text with BLF's settings: FreeType with light hinting, gamma 1.43 and Inter's optical size.
+
+### blenderui, bui and buipy
+
+`blenderui` is BUI's Python package (on PyPI) and Rust crate, and the name to import in Python. `bui` is the same Python package under its original name. `buipy` is the compiled Python extension underneath both.
+
+### blenlib
+
+Blender's library of basic building blocks: color math, rectangles, strings, the fuzzy string search and the expression evaluator. BUI copies the parts it needs into `core/` and `kit/intern/blender/`.
+
+### Canvas
+
+A widget you draw on yourself, with items like rectangles, lines, text and images. tkinter's `Canvas`, Qt's `QPainter` and the Rust crate's whole page all draw onto kit canvases.
+
+### Context
+
+`BKContext` in C: one window's worth of kit state. It holds the node tree, focus, popups, undo history and the list of dirty rectangles.
+
+## D to G
+
+### Damage, damage rendering
+
+**Damage** is the part of the screen that's out of date. **Damage rendering** means redrawing only that part. A change marks its widget's rectangle as damaged, BUI redraws only damaged rectangles, and only the pixels that really changed reach the screen. See [Damage rendering](../../concepts/damage-rendering/).
+
+### Dear ImGui
+
+A popular immediate-mode UI library for C++ by Omar Cornut. BUI runs the real Dear ImGui (1.93) on its own windows and renderer, from C++, C, Python and Rust.
+
+### Direct3D 11
+
+Microsoft's graphics API. BUI's GPU renderer uses it on Windows.
+
+### Dirty rectangle
+
+A rectangle the kit has marked for redrawing because something inside it changed. Overlapping dirty rectangles merge.
+
+### Display list
+
+A list of drawing commands (rectangle here, text there) recorded once and drawn later. The kit's canvas keeps one.
+
+### Drag-toggle
+
+Pressing a checkbox and dragging across its neighbours to set them all to the same state, in one stroke. Blender does it, so BUI does too.
+
+### Event loop
+
+The part of a program that waits for input and timers and dispatches them. `mainloop()`, `app.exec()` and `App.run()` start it. When nothing happens, BUI's event loop sleeps.
+
+### FreeType
+
+The open-source font engine Blender uses. BUI vendors FreeType 2.13.3 to render glyphs like Blender.
+
+### Frame
+
+One complete picture of a window. BUI renders a frame only when something changed, and usually redraws just part of it.
+
+### Frame pacing
+
+Timing animation frames to the display's refresh, so motion is smooth and no frames are wasted.
+
+### Geometry manager
+
+Code that decides where widgets go. BUI's kit includes C ports of Tk's three: **pack** (stack along a side), **grid** (rows and columns) and **place** (exact positions). The tkinter and Qt syntaxes use them.
+
+### GHOST
+
+Blender's window-system layer: the code that opens windows and reads input on each operating system. BUI's X11 and Cocoa window hosts follow GHOST's code.
+
+### GPU renderer
+
+BUI's optional renderer that draws on the graphics card: Direct3D 11 on Windows, OpenGL 3.3 on Linux. It draws the same pixels as the [software raster](#software-raster). Turn it on with `BUI_GPU=1`.
+
+### gpui
+
+The UI framework of the Zed editor, in Rust. BUI's Rust crate accepts gpui-style code (`div().flex()`, `Render`, `cx.listener`), and the benchmarks compare against gpui and its fork gpui-fast.
+
+## H to M
+
+### Headless
+
+Running without a window: BUI lays out, handles input and draws into memory. Used for tests, screenshots and servers.
+
+### HiDPI
+
+High-density displays, where a "pixel" in the UI is several physical pixels. BUI scales its widgets to match: per-monitor DPI on Windows, `Xft.dpi` on Linux, Retina on macOS.
+
+### Hooks
+
+Functions like `use_state` and `useState` that give a component its own state. BUI's hooks, in Rust and React, are backed by [signals](#signal).
+
+### Host (window host)
+
+The piece of BUI that talks to the operating system: it opens the window, shows frames and forwards input. BUI has native hosts for Win32, X11 and Cocoa, a Tk host for Python, and a headless mode. See [Window hosts](../../concepts/window-hosts/).
+
+### IME
+
+Input Method Editor: how people type Chinese, Japanese, Korean and other scripts with many characters. BUI doesn't support IMEs yet.
+
+### Instance
+
+On the GPU, one copy of a shape drawn by a shared shader with its own parameters. BUI records each rectangle, widget or glyph as one 128-byte instance and draws thousands in a few calls.
+
+### Inter
+
+The typeface Blender uses for its interface, by Rasmus Andersson. BUI embeds it, so text looks the same everywhere.
+
+### Kit
+
+BUI's runtime, written in C (`kit/`). It holds every widget in one tree, lays them out, handles input with Blender's rules and draws Blender's widgets. Every language uses the same kit. API: `kit/include/BUI_kit.h`.
+
+### Menu search
+
+Typing in an open menu to find an item. BUI uses Blender's fuzzy string search: "ad cu" finds "Add Cube".
+
+## N to R
+
+### napi-rs
+
+The Rust library that builds Node.js addons. `@blender-ui/native` uses it to run BUI from Node.js and Bun.
+
+### Node
+
+One widget in the kit's tree: a button, a slider, a panel, a canvas. Not to be confused with Node.js, or with nodes in Blender's node editor.
+
+### Number field
+
+Blender's numeric input. Drag it sideways to change the value ("scrub"), click to type, or type math such as `2*pi`.
+
+### OpenGL 3.3
+
+A cross-platform graphics API. BUI's GPU renderer uses its 3.3 core profile on Linux, loading `libGL` at run time.
+
+### Panel
+
+Blender's collapsible box with a title bar, the building block of its properties editor.
+
+### Pie menu
+
+A Blender menu that opens in a circle around the pointer. You pick an item by flicking toward it.
+
+### Present
+
+Putting a finished frame on screen. BUI presents only the tiles that changed.
+
+### QuickJS
+
+A small JavaScript engine. `bui build` embeds it to make standalone apps of about 7 MB.
+
+### Raster, rasterize
+
+To **rasterize** is to turn shapes into pixels. A **raster** (`BuiRaster` in C) is BUI's frame buffer and the drawing calls that fill it.
+
+### Render sink
+
+A table of callbacks (`BuiGpuSink`) that receives BUI's drawing as triangles, lines and text, so another renderer (Qt's `QPainter`, SVG output, your engine) can draw BUI's UI. See [Embedding](../../c/embedding/).
+
+### Retained mode
+
+A UI style where the library keeps a tree of widgets between frames and you change it. The kit is retained-mode. Dear ImGui is **immediate-mode**: you describe the UI again every frame.
+
+### rsx!
+
+The Rust macro for writing UI as JSX-like markup: `rsx! { <div p-4>"Hello"</div> }`. `view!` is the same macro under Leptos's name.
+
+## S to Z
+
+### Scale (UI scale)
+
+How big the UI is drawn. At scale 1, a widget is 20 pixels tall. BUI follows the display's DPI, and `BUI_UI_SCALE` overrides it.
+
+### Scrub
+
+Dragging a number field sideways to change its value, with the cursor hidden and wrapping at the screen edge.
+
+### Signal
+
+A value that knows who reads it. When it changes, only the things that read it update. BUI's Rust and JavaScript hooks hold signals, so a change can update one node without re-rendering a component.
+
+### Slug
+
+Eric Lengyel's algorithm for drawing text on the GPU straight from glyph outlines, sharp at any size. It's BUI's default for GPU text. `BUI_SLUG=0` switches to a glyph atlas.
+
+### Snapping
+
+Holding <Kbd>Ctrl</Kbd> while dragging to jump to round values: whole units, 10° for angles, multiples of 10 for integers.
+
+### Software raster
+
+BUI's default renderer: it draws anti-aliased shapes into a frame buffer on the CPU. It needs no graphics card and uses the least memory.
+
+### styled
+
+An attribute in Rust and JavaScript (`<div styled>`) that gives an element and everything inside it Blender's look: Blender's theme (dark or light), the UI font and Blender's widgets.
+
+### taffy
+
+A Rust layout library for flexbox, grid and block layout. BUI's Rust crate uses it.
+
+### Theme
+
+The set of colors and sizes the widgets use. BUI uses Blender 5.x's default theme. See [Theming](../../concepts/theming/).
+
+### Tile
+
+A 64×32-pixel block of the frame. The software raster compares tiles with the previous frame to find what changed.
+
+### Uber-shader
+
+One GPU program that can draw every kind of primitive (rectangles, widgets, circles, text, images), chosen per instance. BUI's GPU renderer uses one.
+
+### wcol (widget color set)
+
+Blender's name for one widget kind's colors: outline, fill, inner item, text and their selected versions, plus roundness. BUI has twenty, from Blender's default theme.
+
+### Widget
+
+Anything you can see or use in a UI: a button, a slider, a text field, a panel.
+
+### Widget unit
+
+Blender's basic size: 20 pixels at scale 1. Heights, paddings and corner radii are all fractions or multiples of it.
+
+### X11, XWayland
+
+**X11** is the classic window system on Linux; BUI's Linux host uses it. **XWayland** runs X11 apps on Wayland desktops, so BUI windows work there too.
+
+### zopra
+
+A Rust UI framework whose component style (lowercase functions, `&str` props) BUI's `#[component]` also accepts, alongside React's and Leptos's.
+
+## Next steps
+
+<CardGrid>
+  <Card title="How BUI works" href="docs/concepts/how-it-works/" icon="layers" kicker="Concepts">
+    These terms, in the order you'd meet them.
+  </Card>
+  <Card title="FAQ" href="docs/project/faq/" icon="info" kicker="Project">
+    Short answers to common questions.
+  </Card>
+</CardGrid>

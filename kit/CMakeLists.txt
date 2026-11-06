@@ -30,6 +30,20 @@ add_library(bui_kit STATIC
   intern/kit_filelist_view.c
   intern/kit_fileops.c
   intern/kit_fsmenu.c
+  # images (Blender's imbuf design): see intern/image/image.h
+  intern/image/imbuf.c
+  intern/image/filetype.c
+  intern/image/anim.c
+  intern/image/play.c
+  intern/image/format_wuffs.c
+  intern/image/format_jpeg.c
+  intern/image/format_webp.c
+  intern/image/format_hdr.c
+  intern/image/format_pnm.c
+  intern/image/format_svg.c
+  intern/image/cache.c
+  intern/image/loader.c
+  intern/image/draw.c
   # Blender's UI sources copied and edited for the kit (C++; see blender/bk_blender.h)
   intern/blender/interface_string_search.cc
   intern/blender/interface_utils.cc
@@ -42,6 +56,43 @@ target_include_directories(bui_kit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extern/na
 set_source_files_properties(extern/nanosvg/blender_nanosvg.c extern/nanosvg/blender_raster.c
                             PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 add_library(bui::kit ALIAS bui_kit)
+
+# -- image decoders (third party, decoder parts only; see extern/*/README.bui) --
+option(BUI_IMAGE_SVG "SVG images through the kit's nanosvg (no extra code: the icons use it)" ON)
+if(BUI_IMAGE_SVG)
+  target_compile_definitions(bui_kit PRIVATE BUI_IMAGE_SVG)
+endif()
+set(_bui_quiet "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+# Wuffs: one translation unit (format_wuffs.c includes wuffs-v0.4.c)
+target_include_directories(bui_kit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extern/wuffs)
+set_source_files_properties(intern/image/format_wuffs.c PROPERTIES COMPILE_OPTIONS "${_bui_quiet}")
+# libjpeg-turbo 3.1.2: the 8-bit decompressor, no SIMD (it needs NASM)
+file(GLOB _bui_jpeg_src extern/libjpeg-turbo/src/*.c extern/libjpeg-turbo/src/wrapper/*.c)
+list(FILTER _bui_jpeg_src EXCLUDE REGEX "/(jdcolext|jdcol565|jdmrgext|jdmrg565|jstdhuff|jdapistd|jdcoefct|jdcolor|jddctmgr|jddiffct|jdlossls|jdmainct|jdmerge|jdpostct|jdsample|jidctflt|jidctfst|jidctint|jidctred|jutils)\.c$")
+add_library(bui_jpeg OBJECT ${_bui_jpeg_src}
+  extern/libjpeg-turbo/bui/jmem_bui.c extern/libjpeg-turbo/bui/jdecode_8bit_only.c)
+target_include_directories(bui_jpeg PRIVATE extern/libjpeg-turbo/bui extern/libjpeg-turbo/src
+  ${CMAKE_SOURCE_DIR}/core/include)
+target_compile_options(bui_jpeg PRIVATE ${_bui_quiet})
+# libwebp 1.6.0: decoder + demux
+file(GLOB _bui_webp_src extern/libwebp/src/dec/*.c extern/libwebp/src/dsp/*.c
+  extern/libwebp/src/utils/*.c extern/libwebp/src/demux/*.c)
+add_library(bui_webp OBJECT ${_bui_webp_src})
+target_include_directories(bui_webp PRIVATE extern/libwebp)
+# the decode threads call libwebp at once: its DSP init takes a lock with pthreads
+# (upstream's Windows path is lock-free by design)
+if(NOT WIN32)
+  target_compile_definitions(bui_webp PRIVATE WEBP_USE_THREAD)
+endif()
+target_compile_options(bui_webp PRIVATE ${_bui_quiet})
+if(NOT MSVC)
+  target_compile_options(bui_jpeg PRIVATE -O2)
+  target_compile_options(bui_webp PRIVATE -O2)
+endif()
+target_sources(bui_kit PRIVATE $<TARGET_OBJECTS:bui_jpeg> $<TARGET_OBJECTS:bui_webp>)
+target_include_directories(bui_kit PRIVATE extern/libjpeg-turbo/bui extern/libjpeg-turbo/src
+  extern/libwebp)
+# worker threads: bui_core links the platform's threads (Threads::Threads)
 target_include_directories(bui_kit PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(bui_kit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/intern)
 # bui_core: Blender's color math and UTF-8 cursor stepping; bui_gpu: raster.

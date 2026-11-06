@@ -1,0 +1,11 @@
+Project: Wuffs (Wrangling Untrusted File Formats Safely)
+URL: https://github.com/google/wuffs
+Version: release/c/wuffs-v0.4.c, "0.4.0-alpha.12+4048.20261020" (main at b36a81d3)
+License: MIT OR Apache-2.0 (see LICENSE); BUI uses it under MIT, which is
+         compatible with BUI's GPL-2.0-or-later.
+Used for: PNG, GIF (animated), BMP, TGA and QOI decoding in kit/intern/image
+          (format_wuffs.c). Wuffs is memory-safe by construction (bounds and
+          overflow checks are proven at compile time) and the fastest of the
+          decoders measured for these formats (see website bench page).
+
+Unmodified. Only the modules BUI configures in format_wuffs.c are compiled.

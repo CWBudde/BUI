@@ -5,7 +5,7 @@ BUI runs from JavaScript through a native addon built with napi-rs, much as
 windows drawn on the CPU or the GPU (Direct3D 11 / OpenGL), HTML elements, CSS and Tailwind
 classes, and the same engine as the Rust crate. There's no browser and no
 Electron. It works on **Node.js** and **Bun**, and `bui build` turns an app
-into a **single executable of about 5 MB**: BUI with an embedded QuickJS
+into a **single executable of about 7 MB**: BUI with an embedded QuickJS
 engine ([Standalone apps](#standalone-apps)).
 
 | Package | What it is |
@@ -226,7 +226,7 @@ The signals are push-pull and glitch-free:
 and needs [Bun](https://bun.sh) for bundling.
 
 ```sh
-npx bui build app.jsx                # app.exe: BUI + QuickJS, about 5 MB
+npx bui build app.jsx                # app.exe: BUI + QuickJS, about 7 MB
 npx bui build app.jsx --bun          # app.exe: a Bun executable, about 115 MB
 npx bui run app.jsx                  # run on the QuickJS runtime, no executable
 ```
@@ -239,7 +239,7 @@ Options:
 - `--dev`: use React's development build.
 
 **The default build** is `bui-runtime`, BUI with an embedded
-[QuickJS](https://github.com/quickjs-ng/quickjs) engine (4.9 MB), with your
+[QuickJS](https://github.com/quickjs-ng/quickjs) engine (7.1 MB), with your
 app's bundle appended. Your code and both packages run unchanged:
 
 - **JavaScript runs on the UI thread**, as in a browser: no Node.js, no Bun,
@@ -255,7 +255,7 @@ executable.
 
 | A small React app, Windows x64 | QuickJS (default) | `--bun` |
 |---|---:|---:|
-| Executable | **4.9 MB** | 114 MB |
+| Executable | **7.3 MB** | 114 MB |
 | First frame | **68 ms** | 79 ms |
 | Launch to exit | **104 ms** | 147 ms |
 | RAM at first frame | **19 MB** | 35 MB |
@@ -314,7 +314,7 @@ each way to run an app, after one warm-up launch, and reports the medians.
 
 | | First frame | Launch to exit | RAM at first frame | What you ship |
 |---|---:|---:|---:|---:|
-| **QuickJS executable** (`bui build`) | **68 ms** | **104 ms** | **19 MB** | **4.9 MB** |
+| **QuickJS executable** (`bui build`) | **68 ms** | **104 ms** | **19 MB** | **7.3 MB** |
 | Bun executable (`bui build --bun`) | 79 ms | 147 ms | 35 MB | 114 MB |
 | Bun (`bun app.js`) | 80 ms | 152 ms | 35 MB | Bun + the app |
 | Node.js (`node app.js`) | 108 ms | 187 ms | 45 MB | Node + the app |

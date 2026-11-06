@@ -67,6 +67,10 @@ int BK_window_pump(void)
 }
 void BK_window_quit(void) {}
 void BK_window_set_stop_check(int (*stop)(void)) {}
+int bk_window_wake_ready(void)
+{
+  return 0;
+}
 int BK_window_wake_init(void (*cb)(void))
 {
   (void)cb;

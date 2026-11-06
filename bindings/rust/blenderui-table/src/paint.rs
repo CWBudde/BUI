@@ -259,6 +259,14 @@ impl<S: CellSource + ?Sized> Frame<'_, S> {
                 CellRender::Badge => self.draw_badge(sink, at, col, &cell, self.src.badge(row, source), scratch),
                 CellRender::Progress => self.draw_progress(sink, at, pad, &cell),
                 CellRender::Actions => self.draw_dots(sink, at),
+                CellRender::Image => {
+                    let src = cell.text(buf);
+                    if !src.is_empty() {
+                        let side = (g.row_h - 2.0 * (g.row_h * 0.1).round()).min(avail).max(0.0);
+                        let ix = aligned(col, x, w, pad, || side);
+                        sink.image(Rect::new(ix, top + (g.row_h - side) / 2.0, side, side), src);
+                    }
+                }
             }
             if selected_cell.is_some_and(|(sr, _)| sr == row) {
                 sink.stroke(Rect::new(x, top, w, g.row_h), self.pal.accent, 1.5);

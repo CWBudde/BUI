@@ -49,6 +49,50 @@ class Label(Component):
         self.set("text", s)
 
 
+class Image(Component):
+    """An image file (PNG, JPEG, WebP, GIF, BMP, TGA, QOI, Radiance HDR, PNM,
+    SVG) fitted into the component like CSS ``object-fit`` (``"contain"``,
+    ``"cover"``, ``"fill"``, ``"none"``, ``"scale-down"``). Its natural size
+    comes from the file's header; the pixels decode on the kit's worker
+    threads at the size drawn and appear when ready."""
+
+    TYPE = "image"
+    FITS = {"fill": 0, "contain": 1, "cover": 2, "none": 3, "scale-down": 4}
+
+    def __init__(self, src: str = "", *, fit: str = "contain", frame: Optional[int] = None,
+                 **kw):
+        super().__init__(**kw)
+        if fit not in self.FITS:
+            raise ValueError(f"fit must be one of {sorted(self.FITS)}, not {fit!r}")
+        self._fit = fit
+        self._src = ""
+        self._frame = None
+        self.src = src
+        self.frame = frame
+
+    @property
+    def frame(self) -> Optional[int]:
+        """Animations (GIF, animated WebP): ``None`` plays them (each frame
+        for its delay, paused while off screen), a number holds that frame."""
+        return self._frame
+
+    @frame.setter
+    def frame(self, n: Optional[int]) -> None:
+        if n is not None and int(n) < 0:
+            raise ValueError("frame must be None or >= 0")
+        self._frame = None if n is None else int(n)
+        self.set_image_frame(0 if n is None else int(n) + 1)
+
+    @property
+    def src(self) -> str:
+        return self._src
+
+    @src.setter
+    def src(self, path: str) -> None:
+        self._src = str(path or "")
+        self.set_image_source(self._src or None, self.FITS[self._fit])
+
+
 class Separator(Component):
     """Vertical space (``factor`` widget units), optionally with a line."""
 

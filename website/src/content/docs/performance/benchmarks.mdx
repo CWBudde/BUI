@@ -99,7 +99,7 @@ More results, at 100 and 1,000 cells:
 
 - **JavaScript costs little over Rust:** 0.4–2.4 ms per frame, for sending changes to BUI's UI thread.
 - **Signals make React as cheap as the plain API:** the component doesn't re-render.
-- **QuickJS** starts fastest and uses the least memory, from a 5 MB file. It has no JIT, so re-rendering a 3,000-element list every frame drops it to 20 FPS. Keep big lists on signals, or build with `--bun`.
+- **QuickJS** starts fastest and uses the least memory, from a 7 MB file. It has no JIT, so re-rendering a 3,000-element list every frame drops it to 20 FPS. Keep big lists on signals, or build with `--bun`.
 
 <Callout type="joke">
 Unlike a Cycles render, these numbers don't get any less noisy if you leave them running overnight. Run each benchmark a few times instead.

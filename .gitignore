@@ -2,7 +2,7 @@ build*/
 build-ui/
 *.obj
 *.o
-reference/
+/reference/
 **/target/
 **/node_modules/
 

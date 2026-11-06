@@ -22,4 +22,13 @@ pub trait PaintSink {
     /// force). It receives the sink to draw into, which may be a different
     /// object than `self` (a framework scopes its clip with a closure).
     fn clipped(&mut self, r: Rect, f: &mut dyn FnMut(&mut dyn PaintSink));
+    /// An image file (a path) covering `r` (CSS `object-fit: cover`). Views
+    /// call it only for what is on screen, so only visible images load; a
+    /// framework decodes asynchronously and shows it when ready (blenderui:
+    /// the kit's image loader). The default is a placeholder, for frameworks
+    /// without images.
+    fn image(&mut self, r: Rect, src: &str) {
+        let _ = src;
+        self.round(r, 4.0, Rgba::new(0.5, 0.5, 0.5, 0.25));
+    }
 }

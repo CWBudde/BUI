@@ -312,10 +312,21 @@ float4 ps_quad(VOut v) : SV_Target
     return premul(v.c0, pow(cov, 1.0 / 1.45));
   }
   if (kind == K_IMAGE) {
-    const float2 isz = v.uv.zw;
-    const int2 sp = clamp((int2)((s - R.xy) * isz / R.zw), int2(0, 0), (int2)isz - 1);
-    const float4 c = rgba_tex.Load(int3((int2)v.uv.xy + sp, 0));
-    return premul(c, v.p.y);
+    // uv: the source rect in atlas texels (x, y, w, h) of a premultiplied
+    // image; p.y alpha, p.z 1 = nearest. Bilinear like gpu_raster.c (texel
+    // centers at .5), clamped to the source rect so neighbours never bleed.
+    const float2 k = v.uv.zw / R.zw;
+    const float2 lo = floor(v.uv.xy), hi = max(lo, ceil(v.uv.xy + v.uv.zw) - 1.0);
+    if (v.p.z > 0.5) {
+      const int2 t = (int2)clamp(floor(v.uv.xy + (s - R.xy) * k), lo, hi);
+      return rgba_tex.Load(int3(t, 0)) * v.p.y;
+    }
+    const float2 t = v.uv.xy + (s - R.xy) * k - 0.5;
+    const float2 t0 = floor(t), f = t - t0;
+    const int2 a = (int2)clamp(t0, lo, hi), b = (int2)clamp(t0 + 1.0, lo, hi);
+    const float4 top = lerp(rgba_tex.Load(int3(a.x, a.y, 0)), rgba_tex.Load(int3(b.x, a.y, 0)), f.x);
+    const float4 bot = lerp(rgba_tex.Load(int3(a.x, b.y, 0)), rgba_tex.Load(int3(b.x, b.y, 0)), f.x);
+    return lerp(top, bot, f.y) * v.p.y;
   }
   if (kind == K_SHADOW) {
     const float rad = v.p.y, size = v.p.z, alpha = v.p.w;

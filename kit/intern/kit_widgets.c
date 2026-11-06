@@ -1426,10 +1426,10 @@ const BKClass bk_cls_scrollbar = {.name = "scrollbar",
 
 static void label_measure(BKNode *n, int *rw, int *rh)
 {
-  const BKImage *img = (const BKImage *)n->image;
-  if (img && !(n->text && n->text[0])) {
-    *rw = img->w;
-    *rh = img->h;
+  int iw, ih;
+  if (bk_node_image_size(n, &iw, &ih) && !(n->text && n->text[0])) {
+    *rw = iw;
+    *rh = ih;
     return;
   }
   const char *s = n->text ? n->text : "";
@@ -1458,10 +1458,8 @@ static void label_draw(BKNode *n)
     c[3] /= 2;
   }
   BKRect r = bk_node_rect(n);
-  const BKImage *img = (const BKImage *)n->image;
-  if (img) { /* Tk Label(image=) / QLabel.setPixmap */
-    bk_image_draw(img, r.xmin + (bk_rw(&r) - img->w) / 2, r.ymin + (bk_rh(&r) - img->h) / 2,
-                  img->w, img->h, NODE_ENABLED(n) ? 1.0f : 0.5f);
+  if (n->image.kind != BK_IMREF_NONE) { /* Tk Label(image=) / QLabel.setPixmap */
+    bk_node_image_draw(n, &r, NODE_ENABLED(n) ? 1.0f : 0.5f);
     if (!(n->text && n->text[0])) {
       return;
     }
@@ -1530,10 +1528,10 @@ const BKClass bk_cls_progress = {
 
 static void button_measure(BKNode *n, int *rw, int *rh)
 {
-  const BKImage *img = (const BKImage *)n->image;
-  if (img) { /* Tk Button(image=): the image replaces the text */
-    *rw = img->w + bk_pad();
-    *rh = BK_MAX(u(), img->h + bk_pad() / 2);
+  int iw, ih;
+  if (bk_node_image_size(n, &iw, &ih)) { /* Tk Button(image=): the image replaces the text */
+    *rw = iw + bk_pad();
+    *rh = BK_MAX(u(), ih + bk_pad() / 2);
     return;
   }
   const char *s = n->cls == &bk_cls_button ? n->text : n->label;
@@ -1598,10 +1596,8 @@ static void button_draw(BKNode *n)
   BKWCol w;
   bk_widget_state(&w, &bk_theme.regular, st);
   draw_flat_or_embossed(n, &w, &r, st);
-  const BKImage *img = (const BKImage *)n->image;
-  if (img) {
-    bk_image_draw(img, r.xmin + (bk_rw(&r) - img->w) / 2, r.ymin + (bk_rh(&r) - img->h) / 2,
-                  img->w, img->h, NODE_ENABLED(n) ? 1.0f : 0.5f);
+  if (n->image.kind != BK_IMREF_NONE) {
+    bk_node_image_draw(n, &r, NODE_ENABLED(n) ? 1.0f : 0.5f);
     return;
   }
   bk_text_icon(&r, n->text, n->icon, (n->flags & NF_EMBOSS) ? w.text : bk_theme.text,
@@ -3509,10 +3505,10 @@ static void html_button_frame(const BKRect *r, int hs)
 
 static void html_button_measure(BKNode *n, const char *s, int *rw, int *rh)
 {
-  const BKImage *img = (const BKImage *)n->image;
-  if (img) {
-    *rw = img->w + hpi(16);
-    *rh = BK_MAX(hpi(21), img->h + hpi(6));
+  int iw, ih;
+  if (bk_node_image_size(n, &iw, &ih)) {
+    *rw = iw + hpi(16);
+    *rh = BK_MAX(hpi(21), ih + hpi(6));
     return;
   }
   /* padding 1px 6px + 2px borders; line-height normal of 13.33px = 15px */
@@ -3528,10 +3524,8 @@ static void html_button_draw(BKNode *n, const char *s, bool on)
     hs = HS_PRESSED; /* a toggle that is on looks pressed */
   }
   html_button_frame(&r, hs);
-  const BKImage *img = (const BKImage *)n->image;
-  if (img) {
-    bk_image_draw(img, r.xmin + (bk_rw(&r) - img->w) / 2, r.ymin + (bk_rh(&r) - img->h) / 2,
-                  img->w, img->h, NODE_ENABLED(n) ? 1.0f : 0.5f);
+  if (n->image.kind != BK_IMREF_NONE) {
+    bk_node_image_draw(n, &r, NODE_ENABLED(n) ? 1.0f : 0.5f);
     return;
   }
   const BKRect cr = html_inset(&r, 8, 3, 8, 3);

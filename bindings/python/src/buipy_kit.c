@@ -781,14 +781,15 @@ static int opt_rgba(PyObject *v, float out[4])
 static PyObject *kitnode_canvas_set(KitNodeObject *self, PyObject *args, PyObject *kw)
 {
   static char *kwlist[] = {"id", "type", "coords", "fill", "outline", "width", "text", "anchor",
-                           "radius", "size", "start", "extent", "image", "hidden", NULL};
-  int id, type, anchor = 0, hidden = 0;
+                           "radius", "size", "start", "extent", "image", "hidden", "src", "fit",
+                           "frame", NULL};
+  int id, type, anchor = 0, hidden = 0, fit = BK_FIT_CONTAIN, frame = 0;
   PyObject *coords, *fill = NULL, *outline = NULL, *image = NULL;
   float width = 1.0f, radius = 0.0f, size = 0.0f, start = 0.0f, extent = 90.0f;
-  const char *text = NULL;
-  if (!PyArg_ParseTupleAndKeywords(args, kw, "iiO|OOfziffffOp:canvas_set", kwlist, &id, &type,
+  const char *text = NULL, *src = NULL;
+  if (!PyArg_ParseTupleAndKeywords(args, kw, "iiO|OOfziffffOpzii:canvas_set", kwlist, &id, &type,
                                    &coords, &fill, &outline, &width, &text, &anchor, &radius,
-                                   &size, &start, &extent, &image, &hidden))
+                                   &size, &start, &extent, &image, &hidden, &src, &fit, &frame))
   {
     return NULL;
   }
@@ -804,6 +805,13 @@ static PyObject *kitnode_canvas_set(KitNodeObject *self, PyObject *args, PyObjec
   it.start = start;
   it.extent = extent;
   it.hidden = hidden;
+  it.fit = fit;
+  it.frame = frame;
+  if (src && image && image != Py_None) {
+    PyErr_SetString(PyExc_ValueError, "an image item takes image= or src=, not both");
+    return NULL;
+  }
+  it.src = src; /* a file decoded on the kit's image workers (copied) */
   if (!opt_rgba(fill, it.fill) || !opt_rgba(outline, it.outline)) {
     return NULL;
   }
@@ -887,6 +895,27 @@ static PyObject *kitnode_set_image(KitNodeObject *self, PyObject *args)
   }
   BK_node_set_image(self->node, (const unsigned char *)buf.buf, w, h);
   PyBuffer_Release(&buf);
+  Py_RETURN_NONE;
+}
+
+static PyObject *kitnode_set_image_frame(KitNodeObject *self, PyObject *arg)
+{
+  const long frame = PyLong_AsLong(arg);
+  if (frame == -1 && PyErr_Occurred()) {
+    return NULL;
+  }
+  BK_node_set_image_frame(self->node, (int)frame);
+  Py_RETURN_NONE;
+}
+
+static PyObject *kitnode_set_image_source(KitNodeObject *self, PyObject *args)
+{
+  const char *src = NULL;
+  int fit = BK_FIT_CONTAIN;
+  if (!PyArg_ParseTuple(args, "z|i:set_image_source", &src, &fit)) {
+    return NULL;
+  }
+  BK_node_set_image_source(self->node, src, fit);
   Py_RETURN_NONE;
 }
 
@@ -999,6 +1028,10 @@ static PyMethodDef kitnode_methods[] = {
     {"canvas_delete", (PyCFunction)kitnode_canvas_delete, METH_O, "Delete item (id < 0: all)."},
     {"canvas_raise", (PyCFunction)kitnode_canvas_raise, METH_VARARGS, "Raise/lower an item."},
     {"set_image", (PyCFunction)kitnode_set_image, METH_VARARGS, "set_image(w, h, rgba_bytes)"},
+    {"set_image_source", (PyCFunction)kitnode_set_image_source, METH_VARARGS,
+     "set_image_source(path, fit=1): an image file decoded off the UI thread (fit: BK_FIT_*)"},
+    {"set_image_frame", (PyCFunction)kitnode_set_image_frame, METH_O,
+     "set_image_frame(n): animations play (0) or hold frame n - 1"},
     {"ta_insert", (PyCFunction)kitnode_ta_insert, METH_VARARGS, "Insert text at a byte offset."},
     {"ta_delete", (PyCFunction)kitnode_ta_delete, METH_VARARGS, "Delete [a, b)."},
     {"ta_caret", (PyCFunction)kitnode_ta_caret, METH_VARARGS, "Get/set the caret offset."},
@@ -1897,7 +1930,251 @@ static PyObject *kit_eval_number(PyObject *m, PyObject *arg)
   return PyFloat_FromDouble(v);
 }
 
+/* -- images (kit/intern/image: the one decoder set every binding uses) ------------ */
+
+static PyObject *kit_image_probe(PyObject *mod, PyObject *arg)
+{
+  (void)mod;
+  Py_buffer buf;
+  if (PyObject_GetBuffer(arg, &buf, PyBUF_SIMPLE) < 0) {
+    return NULL;
+  }
+  BKImageInfo info;
+  const int ok = BK_image_probe(buf.buf, (size_t)buf.len, &info);
+  PyBuffer_Release(&buf);
+  if (!ok) {
+    Py_RETURN_NONE;
+  }
+  return Py_BuildValue("(siii)", BK_image_format_name(info.format), info.width, info.height,
+                       info.frames);
+}
+
+static PyObject *kit_image_decode(PyObject *mod, PyObject *args, PyObject *kw)
+{
+  (void)mod;
+  static char *kwlist[] = {"data", "max_w", "max_h", NULL};
+  Py_buffer buf;
+  int max_w = 0, max_h = 0;
+  if (!PyArg_ParseTupleAndKeywords(args, kw, "y*|ii:image_decode", kwlist, &buf, &max_w, &max_h)) {
+    return NULL;
+  }
+  BKImBuf *ib;
+  Py_BEGIN_ALLOW_THREADS; /* decoding is thread-safe and may take a while */
+  ib = BK_imbuf_decode(buf.buf, (size_t)buf.len, max_w, max_h);
+  Py_END_ALLOW_THREADS;
+  PyBuffer_Release(&buf);
+  if (!ib) {
+    PyErr_SetString(PyExc_ValueError, "not an image BUI decodes (or corrupt)");
+    return NULL;
+  }
+  int w, h;
+  const int frames = BK_imbuf_size(ib, &w, &h);
+  PyObject *list = PyList_New(frames);
+  for (int f = 0; list && f < frames; f++) {
+    PyObject *px = PyBytes_FromStringAndSize(NULL, (Py_ssize_t)w * h * 4);
+    if (!px) {
+      Py_CLEAR(list);
+      break;
+    }
+    BK_imbuf_rgba(ib, f, (unsigned char *)PyBytes_AS_STRING(px));
+    PyList_SET_ITEM(list, f, Py_BuildValue("(Ni)", px, BK_imbuf_delay(ib, f)));
+  }
+  const char *fmt = BK_image_format_name(BK_imbuf_format(ib));
+  BK_imbuf_free(ib);
+  return list ? Py_BuildValue("(siiN)", fmt, w, h, list) : NULL;
+}
+
+static PyObject *kit_image_decode_frame(PyObject *mod, PyObject *args, PyObject *kw)
+{
+  (void)mod;
+  static char *kwlist[] = {"data", "index", "max_w", "max_h", NULL};
+  Py_buffer buf;
+  int index, max_w = 0, max_h = 0;
+  if (!PyArg_ParseTupleAndKeywords(args, kw, "y*i|ii:image_decode_frame", kwlist, &buf, &index,
+                                   &max_w, &max_h))
+  {
+    return NULL;
+  }
+  BKImBuf *ib;
+  Py_BEGIN_ALLOW_THREADS;
+  ib = BK_imbuf_decode_frame(buf.buf, (size_t)buf.len, index, max_w, max_h);
+  Py_END_ALLOW_THREADS;
+  PyBuffer_Release(&buf);
+  if (!ib) {
+    PyErr_SetString(PyExc_ValueError, "no such frame, or not an image BUI decodes");
+    return NULL;
+  }
+  int w, h;
+  BK_imbuf_size(ib, &w, &h);
+  PyObject *px = PyBytes_FromStringAndSize(NULL, (Py_ssize_t)w * h * 4);
+  if (px) {
+    BK_imbuf_rgba(ib, 0, (unsigned char *)PyBytes_AS_STRING(px));
+  }
+  const char *fmt = BK_image_format_name(BK_imbuf_format(ib));
+  BK_imbuf_free(ib);
+  return px ? Py_BuildValue("(siiN)", fmt, w, h, px) : NULL;
+}
+
+/* -- animations stepped from Python (Dear ImGui textures) ---------------------------- */
+
+#define ANIM_CAPSULE "buipy.BKAnim"
+
+static void anim_capsule_free(PyObject *capsule)
+{
+  BK_anim_free((BKAnim *)PyCapsule_GetPointer(capsule, ANIM_CAPSULE));
+}
+
+static PyObject *kit_anim_open(PyObject *mod, PyObject *args, PyObject *kw)
+{
+  (void)mod;
+  static char *kwlist[] = {"data", "max_w", "max_h", NULL};
+  Py_buffer buf;
+  int max_w = 0, max_h = 0;
+  if (!PyArg_ParseTupleAndKeywords(args, kw, "y*|ii:anim_open", kwlist, &buf, &max_w, &max_h)) {
+    return NULL;
+  }
+  BKAnim *a = BK_anim_open(buf.buf, (size_t)buf.len, max_w, max_h);
+  PyBuffer_Release(&buf);
+  if (!a) {
+    PyErr_SetString(PyExc_ValueError, "not an animation BUI decodes (GIF, animated WebP)");
+    return NULL;
+  }
+  int w, h, loops;
+  const int frames = BK_anim_info(a, &w, &h, &loops);
+  PyObject *cap = PyCapsule_New(a, ANIM_CAPSULE, anim_capsule_free);
+  if (!cap) {
+    BK_anim_free(a);
+    return NULL;
+  }
+  return Py_BuildValue("(Niiii)", cap, w, h, frames, loops);
+}
+
+static PyObject *kit_anim_next(PyObject *mod, PyObject *args)
+{
+  (void)mod;
+  PyObject *cap;
+  int tex = 0;
+  if (!PyArg_ParseTuple(args, "O|i:anim_next", &cap, &tex)) {
+    return NULL;
+  }
+  BKAnim *a = (BKAnim *)PyCapsule_GetPointer(cap, ANIM_CAPSULE);
+  if (!a) {
+    return NULL;
+  }
+  int delay = 0;
+  BKImBuf *ib = BK_anim_next(a, &delay);
+  if (!ib) {
+    PyErr_SetString(PyExc_ValueError, "the animation could not be decoded further");
+    return NULL;
+  }
+  int w, h;
+  BK_imbuf_size(ib, &w, &h);
+  PyObject *out;
+  if (tex >= 0) { /* into a texture: new (0) or updated in place */
+    const int t = tex ? (BK_imbuf_texture_update(ib, 0, tex) ? tex : 0) : BK_imbuf_texture(ib, 0);
+    out = Py_BuildValue("(ii)", t, delay);
+  }
+  else { /* the straight RGBA bytes */
+    PyObject *px = PyBytes_FromStringAndSize(NULL, (Py_ssize_t)w * h * 4);
+    if (px) {
+      BK_imbuf_rgba(ib, 0, (unsigned char *)PyBytes_AS_STRING(px));
+    }
+    out = px ? Py_BuildValue("(Nii)", px, w, h) : NULL;
+    if (out) {
+      PyObject *t = Py_BuildValue("(Oi)", out, delay);
+      Py_DECREF(out);
+      out = t;
+    }
+  }
+  BK_imbuf_free(ib);
+  return out;
+}
+
+static PyObject *kit_image_stats(PyObject *mod, PyObject *unused)
+{
+  (void)mod;
+  (void)unused;
+  BKImageStats st;
+  BK_image_stats(&st);
+  return Py_BuildValue("{s:n,s:n,s:i,s:i,s:i,s:i,s:i,s:i,s:d}", "bytes", (Py_ssize_t)st.bytes,
+                       "budget", (Py_ssize_t)st.budget, "entries", st.entries, "pending",
+                       st.pending, "decoded", st.decoded, "failed", st.failed, "cancelled",
+                       st.cancelled, "evicted", st.evicted, "decode_ms", st.decode_ms);
+}
+
+static PyObject *kit_image_poll(PyObject *mod, PyObject *unused)
+{
+  (void)mod;
+  (void)unused;
+  return PyLong_FromLong(BK_image_poll());
+}
+
+static PyObject *kit_image_set_budget(PyObject *mod, PyObject *arg)
+{
+  (void)mod;
+  const Py_ssize_t n = PyNumber_AsSsize_t(arg, PyExc_OverflowError);
+  if (n < 0) {
+    return PyErr_Occurred() ? NULL : (PyErr_SetString(PyExc_ValueError, "budget >= 0"), NULL);
+  }
+  BK_image_set_budget((size_t)n);
+  Py_RETURN_NONE;
+}
+
+static PyObject *kit_image_texture(PyObject *mod, PyObject *args, PyObject *kw)
+{
+  (void)mod;
+  static char *kwlist[] = {"data", "max_w", "max_h", NULL};
+  Py_buffer buf;
+  int max_w = 0, max_h = 0;
+  if (!PyArg_ParseTupleAndKeywords(args, kw, "y*|ii:image_texture", kwlist, &buf, &max_w, &max_h)) {
+    return NULL;
+  }
+  BKImBuf *ib = BK_imbuf_decode(buf.buf, (size_t)buf.len, max_w, max_h);
+  PyBuffer_Release(&buf);
+  const int tex = ib ? BK_imbuf_texture(ib, 0) : 0;
+  int w = 0, h = 0;
+  BK_imbuf_size(ib, &w, &h);
+  BK_imbuf_free(ib);
+  if (!tex) {
+    PyErr_SetString(PyExc_ValueError, "not an image BUI decodes (or corrupt)");
+    return NULL;
+  }
+  return Py_BuildValue("(iii)", tex, w, h);
+}
+
+static PyObject *kit_texture_free(PyObject *mod, PyObject *arg)
+{
+  (void)mod;
+  const long tex = PyLong_AsLong(arg);
+  if (tex == -1 && PyErr_Occurred()) {
+    return NULL;
+  }
+  BUI_texture_free((int)tex);
+  Py_RETURN_NONE;
+}
+
 static PyMethodDef kit_functions[] = {
+    {"image_texture", (PyCFunction)(void (*)(void))kit_image_texture, METH_VARARGS | METH_KEYWORDS,
+     "image_texture(data, max_w=0, max_h=0) -> (texture_id, w, h): a decoded image as a BUI\n"
+     "texture (a Dear ImGui ImTextureID). Free it with texture_free."},
+    {"texture_free", kit_texture_free, METH_O, "Free a BUI texture (image_texture)."},
+    {"image_probe", kit_image_probe, METH_O,
+     "image_probe(data) -> (format, width, height, frames) or None: the header only."},
+    {"image_decode", (PyCFunction)(void (*)(void))kit_image_decode, METH_VARARGS | METH_KEYWORDS,
+     "image_decode(data, max_w=0, max_h=0) -> (format, w, h, [(rgba, delay_ms), ...]):\n"
+     "PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR, PNM, SVG; straight RGBA frames."},
+    {"image_decode_frame", (PyCFunction)(void (*)(void))kit_image_decode_frame,
+     METH_VARARGS | METH_KEYWORDS,
+     "image_decode_frame(data, index, max_w=0, max_h=0) -> (format, w, h, rgba): one frame."},
+    {"anim_open", (PyCFunction)(void (*)(void))kit_anim_open, METH_VARARGS | METH_KEYWORDS,
+     "anim_open(data, max_w=0, max_h=0) -> (anim, w, h, frames, loops): frame by frame."},
+    {"anim_next", kit_anim_next, METH_VARARGS,
+     "anim_next(anim, tex=-1) -> ((rgba, w, h), delay_ms), or with tex >= 0 (texture, delay_ms):\n"
+     "the next frame into a new (0) or that BUI texture."},
+    {"image_stats", kit_image_stats, METH_NOARGS, "The shared image cache: bytes, pending, ..."},
+    {"image_poll", kit_image_poll, METH_NOARGS,
+     "Hand finished decodes to the cache (hosts without the kit's window loop)."},
+    {"image_set_budget", kit_image_set_budget, METH_O, "Image cache budget in bytes."},
     {"kit_set_scale", kit_set_scale, METH_O, "UI scale (1.0 = 20 px widgets)."},
     {"kit_scale", kit_scale, METH_NOARGS, ""},
     {"kit_unit", kit_unit, METH_NOARGS, "U.widget_unit in pixels."},

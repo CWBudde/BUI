@@ -125,6 +125,60 @@ def set_backend(backend) -> None:
     buipy.set_backend(backend)
 
 
+# Images: the kit's decoders and cache (kit/intern/image), the same C code
+# every binding uses. image_decode(data, max_w=0, max_h=0) -> (format, w, h,
+# [(rgba, delay_ms), ...]); image_probe(data) -> (format, w, h, frames);
+# image_texture(data) -> (texture id for Dear ImGui, w, h), freed by
+# texture_free; image_stats() -> the shared cache; set_image_budget(bytes).
+image_decode = buipy.image_decode
+image_probe = buipy.image_probe
+image_texture = buipy.image_texture
+texture_free = buipy.texture_free
+image_stats = buipy.image_stats
+set_image_budget = buipy.image_set_budget
+image_decode_frame = buipy.image_decode_frame
+
+
+class AnimatedTexture:
+    """A GIF or animated WebP as a BUI texture (a Dear ImGui ``ImTextureID``)
+    that steps to its next frame when its delay is over: call ``update()``
+    every frame, draw ``texture`` at ``size``. Decoded one frame at a time,
+    at most ``max_w`` x ``max_h``. ``close()`` frees the texture."""
+
+    def __init__(self, data: bytes, max_w: int = 0, max_h: int = 0):
+        import time
+        self._clock = time.monotonic
+        self._anim, w, h, self.frames, self.loops = buipy.anim_open(data, max_w, max_h)
+        self.texture, delay = buipy.anim_next(self._anim, 0)
+        self.size = (w, h) if max_w == max_h == 0 else self._fitted(w, h, max_w, max_h)
+        self._due = self._clock() + delay / 1000.0
+
+    @staticmethod
+    def _fitted(w, h, max_w, max_h):
+        k = min(max_w / w if max_w else 1.0, max_h / h if max_h else 1.0, 1.0)
+        return max(1, round(w * k)), max(1, round(h * k))
+
+    def update(self) -> bool:
+        """Steps to the next frame when it is due; True when it did."""
+        now = self._clock()
+        if self.texture == 0 or now < self._due:
+            return False
+        _, delay = buipy.anim_next(self._anim, self.texture)
+        self._due = max(self._due + delay / 1000.0, now)
+        return True
+
+    def close(self) -> None:
+        if self.texture:
+            buipy.texture_free(self.texture)
+            self.texture = 0
+
+
+def set_reduced_motion(on: bool = True) -> None:
+    """Reduced motion: animated images hold their frame and Blender's panel
+    animations jump (``BK_set_animations``)."""
+    buipy.kit_set_animations(not on)
+
+
 def set_theme(name: str = "dark") -> None:
     """Switch every BUI window to Blender's ``"dark"`` (default) or
     ``"light"`` theme (its Blender_Light.xml preset); open windows redraw.

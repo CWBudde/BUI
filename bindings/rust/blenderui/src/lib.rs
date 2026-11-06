@@ -131,7 +131,7 @@ pub use element::*;
 pub use list::{uniform_list, UniformList};
 pub use events::*;
 pub use geometry::{point, px, relative, rems, size, Bounds, Length, Pixels, Point, Rems, Size};
-pub use paint::{Image, Painter};
+pub use paint::{image_stats, set_image_budget, Animation, Image, Painter};
 pub use styled::{FontWeight, StyleBlock, Styled};
 pub use window::*;
 
@@ -173,6 +173,22 @@ pub fn set_theme(name: &str) -> bool {
     let Ok(c) = std::ffi::CString::new(name) else { return false };
     // SAFETY: a NUL-terminated string; the kit copies the preset.
     unsafe { sys::BK_set_theme(c.as_ptr()) != 0 }
+}
+
+static REDUCED_MOTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Reduced motion: animated images (GIF, WebP) hold their frame and Blender's
+/// panel animations jump, and CSS `@media (prefers-reduced-motion: reduce)`
+/// matches. Off by default.
+pub fn set_reduced_motion(on: bool) {
+    REDUCED_MOTION.store(on, std::sync::atomic::Ordering::Relaxed);
+    // SAFETY: sets a global flag.
+    unsafe { sys::BK_set_animations(std::os::raw::c_int::from(!on)) }
+}
+
+/// Whether [`set_reduced_motion`] is on.
+pub fn reduced_motion() -> bool {
+    REDUCED_MOTION.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The active theme: `"dark"` or `"light"`.

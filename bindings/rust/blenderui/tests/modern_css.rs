@@ -360,19 +360,21 @@ fn object_fit_and_background_images() {
         let win = open(cx, 200.0, 200.0, DynPage { css, body: body_fn });
         let (pw, _, px) = cx.draw(win.id);
         let at = |x: usize, y: usize| px[y * pw + x] & 0xffffff;
-        // contain: a 2:1 image in 100x100 is 100x50, centred (rows 25..75)
+        // contain: a 2:1 image in 100x100 is 100x50, centred (rows 25..75).
+        // Upscaling is bilinear (CSS image-rendering: auto), so the pure
+        // colors are checked away from the red/blue seam.
         assert_eq!(at(25, 10), 0x000000, "letterbox above");
-        assert_eq!(at(25, 50), 0xff0000, "left half red");
-        assert_eq!(at(75, 50), 0x0000ff, "right half blue");
+        assert_eq!(at(10, 50), 0xff0000, "left half red");
+        assert_eq!(at(90, 50), 0x0000ff, "right half blue");
         // background: 20x10 at the bottom right of the 40x40 box (y 100..140)
         assert_eq!(at(5, 105), 0x000000);
-        assert_eq!(at(25, 135), 0xff0000);
+        assert_eq!(at(21, 135), 0xff0000);
         assert_eq!(at(35, 135), 0x0000ff);
-        // repeated 4px tiles across 40px: red, blue alternating every 2px
-        assert_eq!(at(1, 141), 0xff0000);
+        // repeated 4px tiles across 40px: red, blue (each tile's outer pixels)
+        assert_eq!(at(0, 141), 0xff0000);
         assert_eq!(at(3, 141), 0x0000ff);
-        assert_eq!(at(37, 141), 0xff0000, "tile 36..40: red half");
-        assert_eq!(at(39, 141), 0x0000ff, "tile 36..40: blue half");
+        assert_eq!(at(36, 141), 0xff0000, "tile 36..40: red side");
+        assert_eq!(at(39, 141), 0x0000ff, "tile 36..40: blue side");
     });
 }
 

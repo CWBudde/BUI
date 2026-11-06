@@ -1,8 +1,10 @@
 """tkinter images: Image, PhotoImage, BitmapImage.
 
 Pixels are RGBA bytes handed to the kit (labels, buttons, canvas items).
-PNG and PPM/PGM are decoded and encoded here (stdlib zlib); GIF goes
-through the real Tk when present.
+Every format is decoded by the kit's image module (the same C decoders as
+every BUI binding): PNG, GIF (frames by `format="gif -index n"`), PPM/PGM,
+and beyond Tk's own: JPEG, WebP, BMP, TGA, QOI, Radiance HDR, SVG. PNG and
+PPM/PGM are encoded here (stdlib zlib) for `write` and `data`.
 
 SPDX-License-Identifier: GPL-2.0-or-later
 """
@@ -16,7 +18,8 @@ import struct
 import weakref
 import zlib
 
-from bui import _realtk
+import buipy
+
 from ._core import TclError, color
 
 _image_ids = itertools.count(1)
@@ -94,7 +97,8 @@ class Image:
 
 
 class PhotoImage(Image):
-    """Widget which can display images in PGM, PPM, GIF and PNG format."""
+    """Widget which can display images in PGM, PPM, GIF and PNG format
+    (and, through the kit's decoders, JPEG, WebP, BMP, TGA, QOI, HDR, SVG)."""
 
     _TYPE = "photo"
 
@@ -112,8 +116,7 @@ class PhotoImage(Image):
         elif kw.get("data") is not None:
             data = kw["data"]
             raw = data.encode("latin-1") if isinstance(data, str) else bytes(data)
-            if not raw[:2].startswith(b"P") and not raw.startswith(b"\x89PNG") \
-                    and not raw.startswith(b"GIF"):
+            if buipy.image_probe(raw) is None:  # Tk takes base64 too
                 try:
                     raw = base64.b64decode(raw, validate=False)
                 except ValueError:
@@ -132,12 +135,7 @@ class PhotoImage(Image):
 
     # -- decoding ------------------------------------------------------------------
     def _load(self, raw: bytes, fmt=None):
-        if raw[:2] in (b"P2", b"P3", b"P5", b"P6"):
-            w, h, px = _decode_pnm(raw)
-        elif raw.startswith(b"\x89PNG"):
-            w, h, px = _decode_png(raw)
-        else:
-            w, h, px = _decode_with_tk(raw)
+        w, h, px = _decode(raw, fmt)
         if not self._opts.get("width"):
             self._w = w
         if not self._opts.get("height"):
@@ -364,95 +362,16 @@ def _pair(v):
     return int(v), int(v)
 
 
-def _decode_pnm(raw: bytes):
-    magic = raw[:2]
-    tokens, pos = [], 2
-    while len(tokens) < 3:
-        while raw[pos:pos + 1].isspace():
-            pos += 1
-        if raw[pos:pos + 1] == b"#":
-            pos = raw.index(b"\n", pos) + 1
-            continue
-        end = pos
-        while end < len(raw) and not raw[end:end + 1].isspace():
-            end += 1
-        tokens.append(int(raw[pos:end]))
-        pos = end
-    w, h, maxv = tokens
-    pos += 1
-    ch = 3 if magic in (b"P3", b"P6") else 1
-    vals = [int(v) for v in raw[pos:].split()] if magic in (b"P2", b"P3") else \
-        list(raw[pos:pos + w * h * ch])
-    px = bytearray(w * h * 4)
-    for i in range(w * h):
-        r, g, b = vals[3 * i:3 * i + 3] if ch == 3 else (vals[i],) * 3
-        px[4 * i:4 * i + 4] = bytes((r * 255 // maxv, g * 255 // maxv, b * 255 // maxv, 255))
-    return w, h, px
-
-
-def _paeth(a, b, c):
-    p = a + b - c
-    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-    return a if pa <= pb and pa <= pc else (b if pb <= pc else c)
-
-
-def _decode_png(raw: bytes):
-    pos, idat, palette, trns = 8, bytearray(), None, None
-    w = h = depth = ctype = interlace = 0
-    while pos < len(raw):
-        length, kind = struct.unpack(">I4s", raw[pos:pos + 8])
-        chunk = raw[pos + 8:pos + 8 + length]
-        pos += 12 + length
-        if kind == b"IHDR":
-            w, h, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", chunk)
-        elif kind == b"PLTE":
-            palette = chunk
-        elif kind == b"tRNS":
-            trns = chunk
-        elif kind == b"IDAT":
-            idat += chunk
-        elif kind == b"IEND":
-            break
-    if interlace or depth not in (1, 2, 4, 8):
-        return _decode_with_tk(raw)
-    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]
-    bpp = max(1, channels * depth // 8)
-    stride = (w * channels * depth + 7) // 8
-    data = zlib.decompress(bytes(idat))
-    rows, prev = [], bytearray(stride)
-    i = 0
-    for _ in range(h):
-        ftype, line = data[i], bytearray(data[i + 1:i + 1 + stride])
-        i += 1 + stride
-        for x in range(stride):
-            a = line[x - bpp] if x >= bpp else 0
-            b, c = prev[x], prev[x - bpp] if x >= bpp else 0
-            line[x] = (line[x] + (0, a, b, (a + b) // 2, _paeth(a, b, c))[ftype]) & 0xFF
-        rows.append(line)
-        prev = line
-    px = bytearray(w * h * 4)
-    for y, line in enumerate(rows):
-        if depth < 8:  # unpack sub-byte samples
-            per = 8 // depth
-            vals = [(line[k // per] >> (8 - depth * (k % per + 1))) & ((1 << depth) - 1)
-                    for k in range(w)]
-        else:
-            vals = line
-        for x in range(w):
-            o = 4 * (y * w + x)
-            if ctype == 3:
-                k = vals[x]
-                px[o:o + 3] = palette[3 * k:3 * k + 3]
-                px[o + 3] = trns[k] if trns and k < len(trns) else 255
-            elif ctype == 0:
-                v = vals[x] * 255 // ((1 << depth) - 1)
-                px[o:o + 4] = bytes((v, v, v, 255))
-            elif ctype == 4:
-                px[o:o + 4] = bytes((vals[2 * x], vals[2 * x], vals[2 * x], vals[2 * x + 1]))
-            elif ctype == 2:
-                px[o:o + 4] = bytes(vals[3 * x:3 * x + 3]) + b"\xff"
-            else:
-                px[o:o + 4] = vals[4 * x:4 * x + 4]
+def _decode(raw: bytes, fmt=None):
+    """(w, h, RGBA bytes) through the kit's decoders; `fmt` may pick a frame
+    of an animation the Tk way: "gif -index 2"."""
+    m = re.search(r"-index\s+(\d+)", str(fmt or ""))
+    if buipy.image_probe(raw) is None:
+        raise TclError("couldn't recognize image data")
+    try:  # one frame, decoded alone (an animation is not decoded whole)
+        _, w, h, px = buipy.image_decode_frame(raw, int(m.group(1)) if m else 0)
+    except ValueError:
+        raise TclError('no image data for this index') from None
     return w, h, px
 
 
@@ -463,25 +382,6 @@ def _encode_png(w, h, rgba: bytes) -> bytes:
     raw = b"".join(b"\x00" + rgba[y * w * 4:(y + 1) * w * 4] for y in range(h))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
-
-
-def _decode_with_tk(raw: bytes):
-    """GIF (and anything else Tk reads) through the real Tk."""
-    from bui import host
-    tk = _realtk.module()
-    host._tk()  # the hidden real Tk root
-    try:
-        img = tk.PhotoImage(master=host._tk(), data=base64.b64encode(raw).decode())
-    except tk.TclError as e:
-        raise TclError(str(e)) from None
-    w, h = img.width(), img.height()
-    px = bytearray(w * h * 4)
-    for y in range(h):
-        for x in range(w):
-            r, g, b = img.get(x, y)
-            a = 0 if img.transparency_get(x, y) else 255
-            px[4 * (y * w + x):4 * (y * w + x) + 4] = bytes((r, g, b, a))
-    return w, h, px
 
 
 def _decode_xbm(text: str):

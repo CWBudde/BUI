@@ -118,6 +118,12 @@ if(BUI_BUILD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tk_compat.py
   )
   set_tests_properties(buipy_tk_compat PROPERTIES ENVIRONMENT "PYTHONPATH=${BUIPY_TEST_PYTHONPATH}")
+  # images: the kit's decoders from Python, PhotoImage formats, files decoded off-thread
+  add_test(
+    NAME buipy_images
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_images.py
+  )
+  set_tests_properties(buipy_images PROPERTIES ENVIRONMENT "PYTHONPATH=${BUIPY_TEST_PYTHONPATH}")
   if(TARGET _buiimgui)
     add_test(
       NAME buipy_imgui

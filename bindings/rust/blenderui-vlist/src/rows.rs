@@ -105,7 +105,7 @@ impl ItemSource for CountSource {
             let a = page.text_mut().len();
             (self.text)(i, page.text_mut());
             let b = page.text_mut().len();
-            page.push_span(&Record { id: self.key_of(i), time: 0, sender: 0, flags: 0, media_h: 0, text: "" }, a..b);
+            page.push_span(&Record { id: self.key_of(i), time: 0, sender: 0, flags: 0, media_h: 0, text: "", media: "" }, a..b);
         }
     }
 
@@ -166,7 +166,7 @@ impl Measurer for RowStyle {
     }
 
     fn estimator(&self, list_width: f32) -> Estimator {
-        let w = f64::from(self.wrap_width(&Record { id: 0, time: 0, sender: 0, flags: 0, media_h: 0, text: "" }, list_width));
+        let w = f64::from(self.wrap_width(&Record { id: 0, time: 0, sender: 0, flags: 0, media_h: 0, text: "", media: "" }, list_width));
         Estimator::new(f64::from(2.0 * self.pad_y + 1.0), f64::from(self.line_height), f64::from(self.font_size) * 0.5, w)
     }
 }

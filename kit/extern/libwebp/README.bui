@@ -1,0 +1,12 @@
+Project: libwebp (decoder + demux subset)
+URL: https://github.com/webmproject/libwebp
+Version: 1.6.0 (b7e29b9d)
+License: BSD-3-Clause (see COPYING; PATENTS: Google's patent grant)
+Used for: WebP decoding (lossy, lossless, alpha, animated) in kit/intern/image
+          (format_webp.c), like Blender's imbuf (format_webp.cc).
+
+Copied unmodified: src/dec, src/demux/{demux,anim_decode}.c, the decoder parts
+of src/dsp (with lossless_avx2.c, which makefile.unix leaves out but
+lossless.c calls when the compiler targets AVX2) and src/utils (makefile.unix: DEC_OBJS, DSP_DEC_OBJS,
+UTILS_DEC_OBJS, DEMUX_OBJS) and the public headers in src/webp. Not copied:
+the encoder, mux, sharpyuv, examples, extras.

@@ -1,0 +1,168 @@
+---
+title: Images
+description: PNG, JPEG, WebP, GIF, BMP, TGA, QOI, Radiance HDR, PNM and SVG in every language, decoded once in C at the size they are drawn, off the UI thread, in a memory-budgeted cache. Formats, API, performance and limits.
+section: Concepts
+order: 65
+sources: ["kit/intern/image/image.h", "kit/intern/image/imbuf.c", "kit/intern/image/filetype.c", "kit/intern/image/format_wuffs.c", "kit/intern/image/format_jpeg.c", "kit/intern/image/format_webp.c", "kit/intern/image/format_hdr.c", "kit/intern/image/format_pnm.c", "kit/intern/image/format_svg.c", "kit/intern/image/cache.c", "kit/intern/image/loader.c", "kit/intern/image/draw.c", "kit/include/BUI_kit.h", "gpu/include/GPU_raster.h", "gpu/intern/gpu_raster.c", "gpu/shaders/bui_ui.hlsl", "bindings/rust/blenderui/src/paint.rs", "bindings/python/bui/tksyntax/_images.py", "bindings/python/bui/components/widgets.py", "bench/images/image_grid.c", "bench/images/decoders.c", "tests/image_test.c"]
+---
+
+BUI reads images once, in C, for every language: the same decoders behind Rust's `<img>`, React's `<img>`, a tkinter `PhotoImage`, a Blender-style `Image` component, a canvas item or a Dear ImGui texture. The design is Blender's [imbuf](https://projects.blender.org/blender/blender/src/branch/main/source/blender/imbuf): one image type (`BKImBuf`, Blender's `ImBuf`) and one table of file types (`IMB_FILE_TYPES`), without imbuf's heavy dependencies.
+
+Three things make it fast and light:
+
+- **Decoded at the size it is drawn.** A 4K photo shown as a 120 px thumbnail is decoded for 120 px: JPEGs with DCT scaling (Blender's `imb_thumbnail_jpeg`), WebPs with libwebp's scaler, the rest with one box-filter downscale. Pixels are premultiplied `0xAARRGGBB`, the layout of the frame and of the GPU atlas, so drawing never converts.
+- **Off the UI thread.** Files decode on a few worker threads, what is on screen first, then prefetches. A request scrolled away before it ran is cancelled. When an image arrives, only its rectangle redraws ([damage rendering](/docs/concepts/damage-rendering)).
+- **One cache, with a budget.** Decoded images are kept by (file, size, fit) within a memory budget (256 MiB by default); the least recently drawn go first, never what is on screen. Every byte has one owner and comes back when the cache is freed.
+
+## Formats
+
+| Format | Read with | Notes |
+|---|---|---|
+| PNG | [Wuffs](https://github.com/google/wuffs) | all bit depths, palette, transparency; checksums skipped (as browsers do) |
+| JPEG | [libjpeg-turbo](https://libjpeg-turbo.org) 3.1.2 | baseline, progressive, arithmetic, CMYK/YCCK; EXIF orientation; DCT-scaled thumbnails; 8-bit samples |
+| WebP | [libwebp](https://chromium.googlesource.com/webm/libwebp) 1.6.0 | lossy, lossless, alpha, animated |
+| GIF | Wuffs | animated (all frames, with disposal and delays) |
+| BMP, TGA, QOI | Wuffs | |
+| Radiance HDR | BUI, after Blender's `radiance_hdr` | shown like Blender's Standard view: clipped and sRGB-encoded |
+| PNM | BUI | PGM and PPM, ASCII and binary, 8 and 16 bit (what Tk reads) |
+| SVG | nanosvg (Blender's copy, already used for its icons) | rasterized at the drawn size; CMake `BUI_IMAGE_SVG` (on) |
+
+Not built in yet (planned as options, off by default): AVIF (dav1d + libavif), OpenEXR (tinyexr), TIFF, JPEG XL, and HEIC through the system (WIC on Windows, ImageIO on macOS).
+
+Licences: Wuffs (MIT, used as MIT), libjpeg-turbo (IJG, BSD-3-Clause, zlib), libwebp (BSD-3-Clause) and nanosvg (zlib) are all compatible with BUI's GPL-2.0-or-later. See [License and credits](/docs/project/license-and-credits).
+
+## Showing an image file
+
+<LangTabs>
+<Tab label="Rust">
+
+```rust
+use blenderui::prelude::*;
+
+// <img>: the natural size comes from the file's header (no layout jump);
+// the pixels decode off the UI thread at the size drawn.
+rsx! { <img src="photos/beach.jpg" class="w-40 h-40 object-cover" alt="Beach" /> }
+
+// builder syntax, and CSS background images
+img().src("photos/beach.jpg").w(px(160.0)).h(px(160.0));
+div().style("background: url(photos/tile.png) repeat; background-size: 32px 32px");
+
+// in a canvas: covered thumbnail, or scaled to the bounds
+canvas(|b, p| p.image_file_cover(b, "photos/beach.jpg"));
+
+// pixels in memory, decoded synchronously (any thread), shared cheaply
+let logo = std::sync::Arc::new(blenderui::Image::open("logo.webp").unwrap());
+img().image(logo.clone());
+```
+
+`blenderui::Image` also has `decode(bytes, max_w, max_h)`, `from_rgba`, `to_rgba` and `texture()`. The data table has an image column (`CellRender::Image`: the cell's text is a path) and the virtual list's chat messages show `Record::media`; both load only the rows on screen.
+
+</Tab>
+<Tab label="JavaScript">
+
+```jsx
+// React (and @blender-ui/native's DOM API): the same <img> as Rust
+<img src="photos/beach.jpg" style={{ width: 160, height: 160, objectFit: 'cover' }} />
+<div style={{ backgroundImage: 'url(photos/tile.png)', backgroundSize: '32px 32px' }} />
+```
+
+</Tab>
+<Tab label="Python">
+
+```py
+import blenderui as bui
+from blenderui.components import Image
+
+Image("photos/beach.jpg", fit="cover")         # a component; fit as CSS object-fit
+
+fmt, w, h, frames = bui.image_decode(open("logo.webp", "rb").read(), 256, 256)
+rgba, delay_ms = frames[0]                       # straight RGBA bytes
+bui.image_probe(data)                            # ("webp", w, h, frames): header only
+```
+
+tkinter: `PhotoImage(file=...)` reads Tk's formats (PNG, GIF with `format="gif -index n"`, PPM/PGM) through the kit, and also JPEG, WebP, BMP, TGA, QOI, HDR and SVG. A canvas item can show a file directly: `node.canvas_set(id, 6, [x0, y0, x1, y1], src="photo.jpg", fit=2)`.
+
+</Tab>
+<Tab label="C">
+
+```c
+/* an image node, a label/button image, or a canvas item */
+BKNode *n = BK_node_new("image");
+BK_node_set_image_source(n, "photos/beach.jpg", BK_FIT_COVER);
+
+BKCanvasItem it = {.type = BK_ITEM_IMAGE, .coords = (float[]){0, 0, 120, 120}, .ncoords = 4,
+                   .src = "photos/beach.jpg", .fit = BK_FIT_COVER};
+BK_canvas_set_item(canvas, &it);
+
+/* synchronous decode, any thread */
+BKImBuf *ib = BK_imbuf_load("logo.webp", 256, 256);   /* fit within, never upscaled */
+int w, h, frames = BK_imbuf_size(ib, &w, &h);
+const uint32_t *px = BK_imbuf_pixels(ib, 0);          /* premultiplied 0xAARRGGBB */
+BK_imbuf_free(ib);
+```
+
+</Tab>
+<Tab label="Dear ImGui">
+
+```py
+import blenderui as bui
+from blenderui import imgui
+
+tex, w, h = bui.image_texture(open("logo.png", "rb").read())  # an ImTextureID
+imgui.image(tex, (w, h))
+bui.texture_free(tex)                                          # when done
+```
+
+Rust: `blenderui::Image::open("logo.png").unwrap().texture()`, freed with `blenderui::sys::BUI_texture_free`. C: `BK_imbuf_texture(ib, 0)`.
+
+</Tab>
+</LangTabs>
+
+## Animations
+
+Animated GIF and WebP play wherever an image file shows: `<img>`, CSS backgrounds, `Image` components, labels, canvas items, table cells and list items.
+
+- **One frame at a time, at the size drawn.** The cache holds the frame on screen and the next one, decoded ahead on the workers, plus the decoder's own canvas; never the whole animation. Each frame shows for its own delay (GIF delays of 0 or 10 ms show for 100 ms, as browsers do), and the animation loops as many times as the file says. GIF disposal and blending and WebP's canvas are composited by the decoders.
+- **Only what is on screen moves.** A frame change redraws only the image's rectangle, on the window's own frame timer (`BK_TIMER_CUSTOM`, shared with custom nodes): no continuous redraw loop. An animation scrolled out of view, clipped away, in a list or table row that isn't shown, or in a window that isn't rendering, pauses: no decoding, no timers, no redraws. It resumes when it shows again.
+- **Pause, seek, reduced motion.** Show one frame with the `frame` attribute (`<img src="spinner.gif" frame="0">`), `Image(src, frame=2)`, `BK_node_set_image_frame(node, n + 1)` or a canvas item's `frame`; without it the animation plays. `blenderui::set_reduced_motion(true)`, `bui.set_reduced_motion()` or `BK_set_animations(0)` hold every animation on its current frame, and in Rust and JavaScript make `@media (prefers-reduced-motion: reduce)` match.
+- **Your own loop** (Dear ImGui): `BK_anim_open` / `BK_anim_next` step an animation frame by frame; Rust `blenderui::Animation`, Python `blenderui.AnimatedTexture`, which keeps a texture up to date:
+
+```py
+import blenderui as bui
+from blenderui import imgui
+
+spinner = bui.AnimatedTexture(open("spinner.gif", "rb").read(), 64, 64)
+# every frame:
+spinner.update()                      # steps when the frame's delay is over
+imgui.image(spinner.texture, spinner.size)
+```
+
+## How it works
+
+1. **Layout** needs only the size: an `<img>`, a label image or an anchored canvas item reads the file's header once (`BK_image_info`, cached), so the page never moves when the pixels arrive. Fixed-size boxes (thumbnails, `object-fit`) don't even read it.
+2. **Drawing** looks the image up in the cache by (file, box size, fit). A miss queues a decode and draws nothing there yet; the rectangle is remembered.
+3. **Workers** (cores - 1, at most 4: `BK_image_set_threads`) take the newest visible request first, read the file, decode it at the box size, crop to what shows and hand it back. The window loop wakes (`BK_window_wake`), the result enters the cache, and the remembered rectangles redraw.
+4. **Cancellation**: a pending image whose rectangle is redrawn without being asked for again (it scrolled away) loses its waiter; with none left, the request is dropped before it runs.
+5. **Eviction**: at the start of a drawn frame, while the cache is over budget, the least recently drawn images go, but never ones drawn in the last two frames.
+
+The software raster draws premultiplied pixels with bilinear filtering (exact copies at 1:1); the Direct3D 11 and OpenGL renderers upload each image once into an atlas (keyed by the image, not hashed per frame) and sample it the same way, so a grid of hundreds of thumbnails is one draw call. Images over 2047 px on a side get a texture of their own (up to 256 MiB of them, freed when the kit frees the image or after 120 frames unused), tiled only past the device's texture limit (Direct3D feature level 10: 8192 px). A parity test draws them on the CPU and on the GPU, whole and tiled: no pixel differs by more than 2 levels.
+
+## Performance
+
+<BenchChart id="image-jpeg-thumb" />
+
+<BenchChart id="image-grid-frames" />
+
+<BenchChart id="image-grid-memory" />
+
+<BenchChart id="image-anim" />
+
+<BenchTable id="imageSize" />
+
+## Limits
+
+- Many large thumbnails on screen at once can overflow the 2048 x 2048 GPU atlas; it is then rebuilt each frame.
+- An animation inside a CSS effect layer (filters, masks, 3D transforms) is drawn once, on its first frame. The synchronous APIs that return every frame (`BK_imbuf_decode`, `image_decode`) stop at 128 MiB of frames; playback has no such limit.
+- GIF and WebP delays of 10 ms or less play at 100 ms, as in browsers.
+- Decoding is limited to 16384 pixels on a side; 12- and 16-bit JPEGs are not read.
+- There is no on-disk thumbnail cache yet (Blender's `IMB_thumb`), and no encoder: `PhotoImage.write` encodes PNG and PPM in Python.

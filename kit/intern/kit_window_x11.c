@@ -973,6 +973,7 @@ static void drain_wake(void)
   char buf[64];
   while (g_wake_pipe[0] >= 0 && read(g_wake_pipe[0], buf, sizeof(buf)) > 0) {
   }
+  BK_image_poll(); /* decoded images: damage what shows them */
   if (g_wake_cb) {
     g_wake_cb();
   }
@@ -1054,14 +1055,19 @@ int BK_window_pump(void)
   return g_open;
 }
 
-int BK_window_wake_init(void (*cb)(void))
+int bk_window_wake_ready(void)
 {
-  g_wake_cb = cb;
   if (g_wake_pipe[0] < 0 && pipe(g_wake_pipe) == 0) {
     fcntl(g_wake_pipe[0], F_SETFL, O_NONBLOCK);
     fcntl(g_wake_pipe[1], F_SETFL, O_NONBLOCK);
   }
   return g_wake_pipe[0] >= 0;
+}
+
+int BK_window_wake_init(void (*cb)(void))
+{
+  g_wake_cb = cb;
+  return bk_window_wake_ready();
 }
 
 /* Thread-safe: wakes the loop, which calls the wake callback. */

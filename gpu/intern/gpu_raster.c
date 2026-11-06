@@ -1114,46 +1114,248 @@ void BUI_raster_widget_base(BuiRaster *r, const BuiWidgetBase *p)
   }
 }
 
+/* Premultiplied source over the frame (whose alpha byte is unused). */
+static inline uint32_t premul_over(uint32_t d, uint32_t s)
+{
+  const uint32_t ia = 255u - (s >> 24);
+  uint32_t rb = (d & 0xFF00FFu) * ia + 0x800080u;
+  uint32_t g = (d & 0x00FF00u) * ia + 0x008000u;
+  rb = ((rb + ((rb >> 8) & 0xFF00FFu)) >> 8) & 0xFF00FFu; /* /255, rounded */
+  g = ((g + ((g >> 8) & 0x00FF00u)) >> 8) & 0x00FF00u;
+  return (s & 0xFFFFFFu) + rb + g;
+}
+
+/* All four channels times f/256. */
+static inline uint32_t premul_scale(uint32_t c, uint32_t f)
+{
+  const uint32_t ag = ((c >> 8) & 0xFF00FFu) * f & 0xFF00FF00u;
+  const uint32_t rb = ((c & 0xFF00FFu) * f >> 8) & 0xFF00FFu;
+  return ag | rb;
+}
+
+/* Bilinear tap of premultiplied pixels: fx, fy are 8-bit fractions. */
+static inline uint32_t bilerp(uint32_t c00, uint32_t c10, uint32_t c01, uint32_t c11, uint32_t fx,
+                              uint32_t fy)
+{
+  const uint32_t w11 = fx * fy >> 8, w10 = fx - w11, w01 = fy - w11, w00 = 256 - fx - fy + w11;
+  const uint32_t rb = ((c00 & 0xFF00FFu) * w00 + (c10 & 0xFF00FFu) * w10 +
+                       (c01 & 0xFF00FFu) * w01 + (c11 & 0xFF00FFu) * w11) >> 8 & 0xFF00FFu;
+  const uint32_t ag = (((c00 >> 8) & 0xFF00FFu) * w00 + ((c10 >> 8) & 0xFF00FFu) * w10 +
+                       ((c01 >> 8) & 0xFF00FFu) * w01 + ((c11 >> 8) & 0xFF00FFu) * w11) &
+                      0xFF00FF00u;
+  return ag | rb;
+}
+
+static uint64_t pixmap_key(const BuiPixmap *img)
+{
+  if (img->key) {
+    return img->key;
+  }
+  /* content hash: an image updated in place gets a new atlas entry */
+  uint64_t h = 1469598103934665603ull;
+  const size_t n = (size_t)img->w * img->h;
+  for (size_t i = 0; i < n; i++) {
+    h = (h ^ img->px[i]) * 1099511628211ull;
+  }
+  return h | (1ull << 63); /* never a BKImBuf key (counters) */
+}
+
+/* -- forgotten images (GPU renderers free big-image textures) ------------------- */
+
+#define FORGET_LOG 256 /* power of two */
+static uint64_t g_forget[FORGET_LOG];
+static volatile long g_forget_head = 0;
+
+void BUI_image_forget(uint64_t key)
+{
+#ifdef _MSC_VER
+  const unsigned i = (unsigned)_InterlockedIncrement(&g_forget_head) - 1;
+#else
+  const unsigned i = (unsigned)__atomic_fetch_add(&g_forget_head, 1, __ATOMIC_ACQ_REL);
+#endif
+  g_forget[i & (FORGET_LOG - 1)] = key;
+}
+
+int bui_image_forgotten(unsigned *seen, uint64_t *r_keys, int max)
+{
+#ifdef _MSC_VER
+  const unsigned head = (unsigned)_InterlockedOr(&g_forget_head, 0);
+#else
+  const unsigned head = (unsigned)__atomic_load_n(&g_forget_head, __ATOMIC_ACQUIRE);
+#endif
+  const unsigned n = head - *seen;
+  *seen = head;
+  if (n > (unsigned)max || n > FORGET_LOG / 2) {
+    return -1;
+  }
+  for (unsigned k = 0; k < n; k++) {
+    r_keys[k] = g_forget[(head - n + k) & (FORGET_LOG - 1)];
+  }
+  return (int)n;
+}
+
+static inline int imin(int a, int b)
+{
+  return a < b ? a : b;
+}
+
+/* A pixmap over the atlas (BUI_IMAGE_ATLAS_MAX): textures of its own, tiled only when a
+ * side is over the device's limit. Tiles overlap by a pixel so bilinear
+ * samples at their seams read real neighbours; each tile draws the part of
+ * the destination whose samples fall in its core. */
+static void gpu_image_big(BuiRaster *r, float x, float y, float w, float h, const BuiPixmap *img,
+                          float sx, float sy, float sw, float sh, float alpha, int flags,
+                          int x0, int y0, int x1, int y1)
+{
+  const uint64_t key = pixmap_key(img);
+  const int core = bui_gpu_max_texture(r->gpu) - 2;
+  if (core < 1) {
+    return;
+  }
+  const int tiled = img->w > core + 2 || img->h > core + 2;
+  const int nx = tiled ? (img->w + core - 1) / core : 1, ny = tiled ? (img->h + core - 1) / core : 1;
+  const float kx = w / sw, ky = h / sh;
+  for (int j = 0; j < ny; j++) {
+    for (int i = 0; i < nx; i++) {
+      /* core [cx0, cx1) x [cy0, cy1); texture one pixel wider where it can */
+      const int cx0 = tiled ? i * core : 0, cx1 = tiled ? imin(img->w, cx0 + core) : img->w;
+      const int cy0 = tiled ? j * core : 0, cy1 = tiled ? imin(img->h, cy0 + core) : img->h;
+      const float u0 = fmaxf((float)cx0, sx), u1 = fminf((float)cx1, sx + sw);
+      const float v0 = fmaxf((float)cy0, sy), v1 = fminf((float)cy1, sy + sh);
+      if (!(u1 > u0) || !(v1 > v0)) {
+        continue;
+      }
+      const int tx0 = cx0 > 0 ? cx0 - 1 : 0, tx1 = imin(img->w, cx1 + 1);
+      const int ty0 = cy0 > 0 ? cy0 - 1 : 0, ty1 = imin(img->h, cy1 + 1);
+      const uint64_t tkey = tiled ? (key ^ ((uint64_t)(j * nx + i + 1) * 0x9E3779B97F4A7C15ull)) : key;
+      const int tex = bui_gpu_image_tex(r->gpu, tkey, key, img->px + (size_t)ty0 * img->w + tx0,
+                                        img->w, tx1 - tx0, ty1 - ty0);
+      if (!tex) {
+        continue;
+      }
+      /* the destination pixels whose centers sample this core */
+      int bx0 = x0, by0 = y0, bx1 = x1, by1 = y1;
+      if (tiled) {
+        bx0 = clampi((int)ceilf(x + (u0 - sx) * kx - 0.5f), x0, x1);
+        bx1 = clampi((int)ceilf(x + (u1 - sx) * kx - 0.5f), x0, x1);
+        by0 = clampi((int)ceilf(y + (v0 - sy) * ky - 0.5f), y0, y1);
+        by1 = clampi((int)ceilf(y + (v1 - sy) * ky - 0.5f), y0, y1);
+        if (bx1 <= bx0 || by1 <= by0) {
+          continue;
+        }
+      }
+      BuiGpuInst *in = bui_gpu_inst_image(r->gpu, tex, bx0, by0, bx1, by1);
+      if (in) {
+        v4(in->rect, x, y, w, h);
+        v4(in->uv, sx - (float)tx0, sy - (float)ty0, sw, sh);
+        in->p[1] = alpha;
+        in->p[2] = (flags & BUI_IMAGE_NEAREST) ? 1.0f : 0.0f;
+      }
+    }
+  }
+}
+
 void BUI_raster_image(BuiRaster *r,
                       float x,
                       float y,
                       float w,
                       float h,
-                      const uint32_t *argb,
-                      int iw,
-                      int ih,
-                      float alpha)
+                      const BuiPixmap *img,
+                      const float src[4],
+                      float alpha,
+                      int flags)
 {
   int x0, y0, x1, y1;
-  if (!argb || iw <= 0 || ih <= 0 || !clip_box(r, x, y, x + w, y + h, &x0, &y0, &x1, &y1)) {
+  if (!img || !img->px || img->w <= 0 || img->h <= 0 || !(alpha > 0.0f) ||
+      !clip_box(r, x, y, x + w, y + h, &x0, &y0, &x1, &y1))
+  {
+    return;
+  }
+  /* the source rectangle, inside the image */
+  float sx = 0.0f, sy = 0.0f, sw = (float)img->w, sh = (float)img->h;
+  if (src) {
+    sx = clampf(src[0], 0.0f, (float)img->w);
+    sy = clampf(src[1], 0.0f, (float)img->h);
+    sw = clampf(src[2], 0.0f, (float)img->w - sx);
+    sh = clampf(src[3], 0.0f, (float)img->h - sy);
+    if (!(sw > 0.0f) || !(sh > 0.0f)) {
+      return;
+    }
+  }
+  alpha = clampf(alpha, 0.0f, 1.0f);
+  if (r->gpu && (img->w > BUI_IMAGE_ATLAS_MAX || img->h > BUI_IMAGE_ATLAS_MAX)) {
+    gpu_image_big(r, x, y, w, h, img, sx, sy, sw, sh, alpha, flags, x0, y0, x1, y1);
     return;
   }
   if (r->gpu) {
     int ax, ay;
-    BuiGpuInst *in = alpha > 0.0f && bui_gpu_image(r->gpu, argb, iw, ih, &ax, &ay) ?
-                         gpu_inst(r, BG_IMAGE, x0, y0, x1, y1) :
-                         NULL;
-    if (in) {
-      v4(in->rect, x, y, w, h);
-      v4(in->uv, (float)ax, (float)ay, (float)iw, (float)ih);
-      in->p[1] = clampf(alpha, 0.0f, 1.0f);
+    if (bui_gpu_image(r->gpu, pixmap_key(img), img->px, img->w, img->h, &ax, &ay)) {
+      BuiGpuInst *in = gpu_inst(r, BG_IMAGE, x0, y0, x1, y1);
+      if (in) {
+        v4(in->rect, x, y, w, h);
+        v4(in->uv, (float)ax + sx, (float)ay + sy, sw, sh);
+        in->p[1] = alpha;
+        in->p[2] = (flags & BUI_IMAGE_NEAREST) ? 1.0f : 0.0f;
+      }
     }
     return;
   }
-  const int ga = (int)(clampf(alpha, 0.0f, 1.0f) * 256.0f + 0.5f);
+  const uint32_t ga = (uint32_t)(alpha * 256.0f + 0.5f);
+  const float kx = sw / w, ky = sh / h;
+  /* 1:1 on whole pixels: a copy with blending */
+  if (fabsf(kx - 1.0f) < 1e-4f && fabsf(ky - 1.0f) < 1e-4f && x == floorf(x) && y == floorf(y) &&
+      sx == floorf(sx) && sy == floorf(sy))
+  {
+    for (int py = y0; py < y1; py++) {
+      uint32_t *row = r->pix + (size_t)py * r->w;
+      const uint32_t *s = img->px + (size_t)(py - (int)y + (int)sy) * img->w + (int)sx - (int)x;
+      for (int px = x0; px < x1; px++) {
+        uint32_t c = s[px];
+        if (ga < 256) {
+          c = premul_scale(c, ga);
+        }
+        if (c >= 0xFF000000u) {
+          row[px] = c & 0xFFFFFFu;
+        }
+        else if (c) {
+          row[px] = premul_over(row[px], c);
+        }
+      }
+    }
+    return;
+  }
+  const int nearest = (flags & BUI_IMAGE_NEAREST) != 0;
+  const int ix0 = (int)sx, iy0 = (int)sy;
+  const int ix1 = (int)fmaxf((float)ix0, ceilf(sx + sw) - 1.0f);
+  const int iy1 = (int)fmaxf((float)iy0, ceilf(sy + sh) - 1.0f);
   for (int py = y0; py < y1; py++) {
     uint32_t *row = r->pix + (size_t)py * r->w;
-    const int sy = clampi((int)(((float)py + 0.5f - y) * ih / h), 0, ih - 1);
-    const uint32_t *src = argb + (size_t)sy * iw;
+    /* texel space, centers at .5 */
+    const float v = sy + ((float)py + 0.5f - y) * ky - (nearest ? 0.0f : 0.5f);
+    int ty = (int)floorf(v);
+    const uint32_t fy = nearest ? 0u : (uint32_t)((v - (float)ty) * 256.0f);
+    const int ta = clampi(ty, iy0, iy1), tb = clampi(ty + 1, iy0, iy1);
+    const uint32_t *ra = img->px + (size_t)ta * img->w, *rb = img->px + (size_t)tb * img->w;
     for (int px = x0; px < x1; px++) {
-      const int sx = clampi((int)(((float)px + 0.5f - x) * iw / w), 0, iw - 1);
-      const uint32_t c = src[sx];
-      const int a = (int)((c >> 24) * ga) >> 8;
-      if (a >= 255) {
+      const float u = sx + ((float)px + 0.5f - x) * kx - (nearest ? 0.0f : 0.5f);
+      const int tx = (int)floorf(u);
+      uint32_t c;
+      if (nearest) {
+        c = ra[clampi(tx, ix0, ix1)];
+      }
+      else {
+        const uint32_t fx = (uint32_t)((u - (float)tx) * 256.0f);
+        const int xa = clampi(tx, ix0, ix1), xb = clampi(tx + 1, ix0, ix1);
+        c = bilerp(ra[xa], ra[xb], rb[xa], rb[xb], fx, fy);
+      }
+      if (ga < 256) {
+        c = premul_scale(c, ga);
+      }
+      if (c >= 0xFF000000u) {
         row[px] = c & 0xFFFFFFu;
       }
-      else if (a > 0) {
-        row[px] = blend(row[px], c & 0xFFFFFFu, (uint32_t)(a + (a >> 7)));
+      else if (c) {
+        row[px] = premul_over(row[px], c);
       }
     }
   }

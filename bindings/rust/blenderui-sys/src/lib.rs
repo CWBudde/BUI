@@ -106,7 +106,60 @@ pub struct BKCanvasItem {
     pub clip_on: c_int,
     pub clip: [c_float; 4],
     pub family: *const c_char,
+    /// Images: exactly one of `rgba` (copied), `imbuf` (borrowed: must outlive
+    /// the item) or `src` (a file decoded through the kit's cache at the box
+    /// size). With 4 coords the image is fitted into the box by `fit`.
+    pub imbuf: *const BKImBuf,
+    pub src: *const c_char,
+    pub fit: c_int,
+    /// Animated `src`: 0 plays; n > 0 shows frame n - 1 (paused).
+    pub frame: c_int,
 }
+
+/// An animation stepped by the caller (`BKAnim`): GIF, animated WebP.
+#[repr(C)]
+pub struct BKAnim {
+    _private: [u8; 0],
+}
+
+/// A decoded image (`BKImBuf`): premultiplied 0xAARRGGBB frames, owned by C.
+#[repr(C)]
+pub struct BKImBuf {
+    _private: [u8; 0],
+}
+
+/// `BKImageInfo`: format and intrinsic size from a header.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct BKImageInfo {
+    pub format: c_int,
+    pub width: c_int,
+    pub height: c_int,
+    pub frames: c_int,
+}
+
+/// `BKImageStats`: the shared image cache.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug)]
+pub struct BKImageStats {
+    pub bytes: usize,
+    pub budget: usize,
+    pub entries: c_int,
+    pub pending: c_int,
+    pub decoded: c_int,
+    pub failed: c_int,
+    pub cancelled: c_int,
+    pub evicted: c_int,
+    /// Time the workers spent decoding (ms).
+    pub decode_ms: f64,
+}
+
+/// CSS object-fit (`BK_FIT_*`).
+pub const BK_FIT_FILL: c_int = 0;
+pub const BK_FIT_CONTAIN: c_int = 1;
+pub const BK_FIT_COVER: c_int = 2;
+pub const BK_FIT_NONE: c_int = 3;
+pub const BK_FIT_SCALE_DOWN: c_int = 4;
 
 impl Default for BKCanvasItem {
     fn default() -> Self {
@@ -166,6 +219,42 @@ unsafe extern "C" {
     pub fn BK_node_rect(node: *const BKNode, r_rect: *mut c_int);
     pub fn BK_node_natural(node: *mut BKNode, r_size: *mut c_int);
     pub fn BK_node_set_image(node: *mut BKNode, rgba: *const c_uchar, w: c_int, h: c_int);
+    pub fn BK_node_set_imbuf(node: *mut BKNode, ib: *const BKImBuf);
+    pub fn BK_node_set_image_source(node: *mut BKNode, src: *const c_char, fit: c_int);
+
+    // images (kit/intern/image: one decoder per format for every binding)
+    pub fn BK_image_probe(data: *const c_void, len: usize, r_info: *mut BKImageInfo) -> c_int;
+    pub fn BK_imbuf_decode(data: *const c_void, len: usize, max_w: c_int, max_h: c_int) -> *mut BKImBuf;
+    pub fn BK_imbuf_load(path: *const c_char, max_w: c_int, max_h: c_int) -> *mut BKImBuf;
+    pub fn BK_imbuf_from_rgba(rgba: *const c_uchar, w: c_int, h: c_int, stride: c_int) -> *mut BKImBuf;
+    pub fn BK_imbuf_free(ib: *mut BKImBuf);
+    pub fn BK_imbuf_size(ib: *const BKImBuf, r_w: *mut c_int, r_h: *mut c_int) -> c_int;
+    pub fn BK_imbuf_pixels(ib: *const BKImBuf, frame: c_int) -> *const u32;
+    pub fn BK_imbuf_delay(ib: *const BKImBuf, frame: c_int) -> c_int;
+    pub fn BK_imbuf_rgba(ib: *const BKImBuf, frame: c_int, dst: *mut c_uchar) -> c_int;
+    pub fn BK_imbuf_texture(ib: *const BKImBuf, frame: c_int) -> c_int;
+    pub fn BK_imbuf_texture_update(ib: *const BKImBuf, frame: c_int, tex: c_int) -> c_int;
+    /// Frees a BUI texture (`BK_imbuf_texture`, Dear ImGui user textures).
+    pub fn BUI_texture_free(tex: c_int);
+    pub fn BK_imbuf_decode_frame(data: *const c_void, len: usize, frame: c_int, max_w: c_int, max_h: c_int)
+                                 -> *mut BKImBuf;
+    pub fn BK_anim_open(data: *const c_void, len: usize, max_w: c_int, max_h: c_int) -> *mut BKAnim;
+    pub fn BK_anim_next(anim: *mut BKAnim, r_delay_ms: *mut c_int) -> *mut BKImBuf;
+    pub fn BK_anim_info(anim: *const BKAnim, r_w: *mut c_int, r_h: *mut c_int, r_loops: *mut c_int) -> c_int;
+    pub fn BK_anim_free(anim: *mut BKAnim);
+    pub fn BK_set_animations(enabled: c_int);
+    pub fn BK_node_set_image_frame(node: *mut BKNode, frame: c_int);
+    pub fn BK_image_info(src: *const c_char, r_info: *mut BKImageInfo) -> c_int;
+    pub fn BK_image_prefetch(src: *const c_char, w: c_int, h: c_int, fit: c_int);
+    pub fn BK_image_set_budget(bytes: usize);
+    pub fn BK_image_set_threads(n: c_int);
+    pub fn BK_image_stats(r_stats: *mut BKImageStats);
+    pub fn BK_image_poll() -> c_int;
+    pub fn BK_image_clear_cache();
+    pub fn BK_image_exit();
+    /// Blender's allocator counters (bui_core): bytes and blocks held through MEM_*.
+    pub fn MEM_get_memory_in_use() -> usize;
+    pub fn MEM_get_memory_blocks_in_use() -> u32;
 
     // properties
     pub fn BK_set_num(node: *mut BKNode, key: *const c_char, value: c_double) -> c_int;

@@ -70,8 +70,20 @@ int bui_gpu_slug_glyph(BuiGpu *g, int face, int glyph, unsigned gen, float r_bbo
  * quadratic curves (6 floats each, font units, y up) and its box. */
 int bui_text_glyph_outline(int face, int glyph, float **r_curves, int *r_n, float r_bbox[4]);
 
-/* Atlas placement of a 0xAARRGGBB image (cached by content). */
-int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *r_y);
+/* Atlas placement of a premultiplied 0xAARRGGBB image, cached by `key`
+ * (BuiPixmap.key, or its content hash). 0 when it can't be placed. */
+int bui_gpu_image(BuiGpu *g, uint64_t key, const uint32_t *argb, int w, int h, int *r_x, int *r_y);
+/* Images too big for the atlas get a texture of their own (uploaded once
+ * per `key`; `base` is the image's key, which BUI_image_forget names). Rows
+ * are `stride` pixels apart. Returns a texture handle > 0 for
+ * bui_gpu_inst_image, 0 when it can't be made. Unused ones are freed. */
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
+                      int w, int h);
+/* The largest texture side the device takes (images over it are tiled). */
+int bui_gpu_max_texture(BuiGpu *g);
+/* An image instance sampling texture `tex` (0: the atlas), batched with
+ * other instances that use the same one. */
+BuiGpuInst *bui_gpu_inst_image(BuiGpu *g, int tex, int x0, int y0, int x1, int y1);
 void bui_gpu_triangles(BuiGpu *g,
                        const float (*co)[2],
                        const float (*col)[4],
@@ -107,6 +119,9 @@ int bui_texture_view(int tex, BuiTexView *r_view); /* 0 when not live */
 int bui_texture_changes(int tex, unsigned since, int (*r_rects)[4], int max);
 /* Bumped whenever a texture is freed (GPU caches sweep then). */
 unsigned bui_texture_free_gen(void);
+/* Keys BUI_image_forget named since `*seen` (advanced): their count, or -1
+ * when more went by than the log keeps (free whatever isn't in use). */
+int bui_image_forgotten(unsigned *seen, uint64_t *r_keys, int max);
 
 /* Records damage for present (x, y, w, h); w <= 0 means the whole frame. */
 void bui_gpu_damage(BuiGpu *g, int x, int y, int w, int h);

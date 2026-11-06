@@ -129,6 +129,7 @@ class TkSurface:
         self.scene = scene
         self.raster = buipy.Raster(1, 1)
         self._pending = None
+        self._image_poll = None  # after() id while images decode
         self._rendered = False
         self._size = (0, 0)
         self.frames = 0  # rendered frame count (diagnostics/tests)
@@ -201,6 +202,16 @@ class TkSurface:
         self._pending = None
         self.render()
 
+    def _poll_images(self) -> None:
+        self._image_poll = None
+        if buipy.image_poll():  # arrived: their rectangles are damaged (request() runs)
+            return
+        if buipy.image_stats()["pending"]:
+            try:
+                self._image_poll = self.widget.after(8, self._poll_images)
+            except tk.TclError:
+                pass
+
     def render(self) -> None:
         """Render now and present the changed regions."""
         try:
@@ -223,6 +234,10 @@ class TkSurface:
             regions = self.scene.render(w, h)
         finally:
             buipy.set_backend(None)
+        if buipy.image_stats()["pending"] and not self._image_poll:
+            # images decoding on the kit's workers: Tk's loop doesn't see the
+            # kit's wake channel everywhere (X11), so look again shortly
+            self._image_poll = self.widget.after(8, self._poll_images)
         if regions == 0 and not resized and self._rendered:
             return  # damage-driven scene: nothing changed, nothing to blit
         self.frames += 1

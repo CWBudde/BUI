@@ -47,8 +47,8 @@ def check_sources() -> list[str]:
         ft = cm.parent / "extern" / "freetype"
         imgui = cm.parent / "extern" / "imgui"
         for tok in re.findall(r"[\w${}/.+-]+\.(?:c|cc|cpp|m|mm|h|hh)\b", text):
-            if "CMAKE_SOURCE_DIR" in tok or tok.startswith("tests/") and cm.parent == DEST:
-                continue  # examples/ and tests/ of the top directory: only with tests/examples on
+            if "CMAKE_SOURCE_DIR" in tok or tok.startswith(("tests/", "bench/")) and cm.parent == DEST:
+                continue  # examples/, tests/, bench/ of the top directory: only with tests/examples on
             path = (tok.replace("${CMAKE_CURRENT_SOURCE_DIR}/", "")
                        .replace("${FT}", str(ft)).replace("${IMGUI_DIR}", str(imgui)))
             if "$" in path or tok.startswith(("/FI", "-include")) or tok in NOT_FILES:

@@ -11,3 +11,11 @@ repository = "https://github.com/ppmpreetham/BUI"
 homepage = "https://bui.preetham.top"
 authors = ["BUI contributors"]
 rust-version = "1.88"
+
+# Shipped binaries (bindings/node/scripts/build.js: the Node addon and the
+# QuickJS runtime): whole-program LTO in one codegen unit. bui-runtime.exe
+# measured 7.56 MB with `release`, 7.09 MB with this (Windows, MSVC).
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

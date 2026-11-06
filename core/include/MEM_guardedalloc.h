@@ -38,6 +38,11 @@ void *MEM_recallocN_id(void *vmemh, size_t len, const char *str);
 void *MEM_dupallocN(const void *vmemh);
 void MEM_freeN(void *vmemh);
 size_t MEM_allocN_len(const void *vmemh);
+/* Blender's leak counters: bytes and blocks currently allocated through MEM_*. */
+size_t MEM_get_memory_in_use(void);
+unsigned int MEM_get_memory_blocks_in_use(void);
+/* BUI: allocations made through MEM_* so far (allocations per frame, in benchmarks). */
+size_t MEM_get_allocations_total(void);
 
 #ifdef __cplusplus
 }

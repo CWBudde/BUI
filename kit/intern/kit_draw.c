@@ -1280,9 +1280,8 @@ void bk_text_icon(const BKRect *rect, const char *s, int icon, const uchar color
  * become a coverage mask drawn in the text (or the icon's theme) color,
  * colored icons keep their colors. Ids below are BUI's vector icons. */
 
+#include "image/image.h"
 #include "kit_icons_svg.h"
-#include "nanosvg.h"
-#include "nanosvgrast.h"
 
 #define BK_SVG_BASE 4096
 
@@ -1337,8 +1336,7 @@ static int svg_lookup(const char *name)
 
 typedef struct SvgBitmap {
   uint32_t key[3]; /* icon + 1, size, rgb (0 for colored icons); key[0] 0: empty */
-  int w, h;
-  uint32_t *argb;
+  BKImBuf *ib;
 } SvgBitmap;
 
 #define SVG_CACHE 1024 /* power of two */
@@ -1348,14 +1346,15 @@ static int g_svg_cached = 0;
 static void svg_cache_flush(void)
 {
   for (int i = 0; i < SVG_CACHE; i++) {
-    free(g_svg_cache[i].argb);
+    BK_imbuf_free(g_svg_cache[i].ib);
   }
   memset(g_svg_cache, 0, sizeof(g_svg_cache));
   g_svg_cached = 0;
 }
 
-/* blf_glyph_cache_add_svg: rasterize at `size` pixels (the viewBox is 1600). */
-static const SvgBitmap *svg_bitmap(int idx, int size, const float c[4])
+/* blf_glyph_cache_add_svg: rasterize at `size` pixels (the viewBox is 1600),
+ * with the image module's SVG path (kit/intern/image/format_svg.c). */
+static const BKImBuf *svg_bitmap(int idx, int size, const float c[4])
 {
   const bool colored = bk_svg_icons[idx].kind < 0;
   const uint32_t rgb = colored ? 0u :
@@ -1371,55 +1370,29 @@ static const SvgBitmap *svg_bitmap(int idx, int size, const float c[4])
         svg_cache_flush();
         return svg_bitmap(idx, size, c);
       }
-      char *src = strdup(bk_svg_icons[idx].svg); /* nsvgParse writes into it */
-      NSVGimage *image = src ? nsvgParse(src, "px", 96.0f) : NULL;
-      free(src);
-      if (!image || image->width <= 0 || image->height <= 0) {
-        if (image) {
-          nsvgDelete(image);
-        }
+      BKImBuf *ib = imb_svg_rasterize(bk_svg_icons[idx].svg, size, size);
+      if (!ib) {
         return NULL;
       }
-      float scale = (float)size / 1600.0f;
-      const int w = (int)ceilf(image->width * scale), hh = (int)ceilf(image->height * scale);
-      scale = (float)w / image->width;
-      uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)hh * 4);
-      uint32_t *argb = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)w * (size_t)hh);
-      NSVGrasterizer *rast = nsvgCreateRasterizer();
-      if (!rgba || !argb || !rast) {
-        free(rgba);
-        free(argb);
-        if (rast) {
-          nsvgDeleteRasterizer(rast);
-        }
-        nsvgDelete(image);
-        return NULL;
-      }
-      nsvgRasterize(rast, image, 0.0f, 0.0f, scale, rgba, w, hh, w * 4);
-      nsvgDeleteRasterizer(rast);
-      nsvgDelete(image);
-      for (int p = 0; p < w * hh; p++) {
-        const uint8_t *s = rgba + (size_t)p * 4;
-        if (colored) {
-          argb[p] = ((uint32_t)s[3] << 24) | ((uint32_t)s[0] << 16) | ((uint32_t)s[1] << 8) | s[2];
-        }
-        else {
-          /* RGBA -> coverage: srgb_to_grayscale_byte(rgb) * alpha */
+      if (!colored) {
+        /* coverage: srgb_to_grayscale_byte(rgb) * alpha, tinted (premultiplied) */
+        const uint32_t cr = rgb >> 16, cg = (rgb >> 8) & 0xFF, cb = rgb & 0xFF;
+        for (int p = 0; p < ib->x * ib->y; p++) {
+          uint8_t s[4];
+          imb_unpremultiply(s, &ib->rect[p], 1);
           const float gray = 0.2126f * s[0] + 0.7152f * s[1] + 0.0722f * s[2];
-          const uint32_t a = (uint32_t)(gray * (float)s[3] / 255.0f + 0.5f);
-          argb[p] = (BK_MIN(a, 255u) << 24) | rgb;
+          const uint32_t a = BK_MIN((uint32_t)(gray * (float)s[3] / 255.0f + 0.5f), 255u);
+          ib->rect[p] = (a << 24) | ((cr * a + 127) / 255) << 16 | ((cg * a + 127) / 255) << 8 |
+                        ((cb * a + 127) / 255);
         }
       }
-      free(rgba);
       memcpy(b->key, key, sizeof(key));
-      b->w = w;
-      b->h = hh;
-      b->argb = argb;
+      b->ib = ib;
       g_svg_cached++;
-      return b;
+      return ib;
     }
     if (memcmp(b->key, key, sizeof(key)) == 0) {
-      return b;
+      return b->ib;
     }
   }
 }
@@ -1427,12 +1400,12 @@ static const SvgBitmap *svg_bitmap(int idx, int size, const float c[4])
 static void svg_icon_draw(int idx, float cx, float cy, const float c[4], float s)
 {
   const int size = BK_MAX(1, (int)(s + 0.5f));
-  const SvgBitmap *b = svg_bitmap(idx, size, c);
-  if (!b) {
+  const BKImBuf *ib = svg_bitmap(idx, size, c);
+  if (!ib) {
     return;
   }
-  const float x = floorf(cx - (float)b->w * 0.5f + 0.5f), y = floorf(cy - (float)b->h * 0.5f + 0.5f);
-  BUI_raster_image(bk_draw.r, x, y, (float)b->w, (float)b->h, b->argb, b->w, b->h, c[3]);
+  const float x = floorf(cx - (float)ib->x * 0.5f + 0.5f), y = floorf(cy - (float)ib->y * 0.5f + 0.5f);
+  bk_imbuf_draw(ib, x, y, (float)ib->x, (float)ib->y, c[3]);
 }
 
 const float *bk_icon_tint(int icon)

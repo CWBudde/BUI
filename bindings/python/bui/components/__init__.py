@@ -36,7 +36,7 @@ from bui.components.menus import Menu, MenuBar, MenuButton, MenuItem, PieMenu
 from bui.components.templates import IDSelector, PathField
 from bui.components.views import GridView, ListView, TreeItem, TreeView
 from bui.components.widgets import (Button, Checkbox, ColorSwatch, Decorator, Dropdown,
-                                    EnumRow, HotkeyField, IconButton, Label, NumberField,
+                                    EnumRow, HotkeyField, IconButton, Image, Label, NumberField,
                                     NumberSlider, ProgressBar, SearchField, Separator, Spacer,
                                     TextField, Toggle, eval_number)
 
@@ -46,7 +46,7 @@ __all__ = [
     "Column", "Row", "Split", "Grid", "Box", "Panel", "Tabs", "SideTabs", "Sidebar", "ScrollView", "Area", "AreaHeader",
     "VectorField",
     # widgets
-    "Label", "Separator", "Spacer", "ProgressBar", "Button", "IconButton", "Toggle",
+    "Label", "Image", "Separator", "Spacer", "ProgressBar", "Button", "IconButton", "Toggle",
     "Checkbox", "Decorator", "TextField", "SearchField", "HotkeyField", "NumberField",
     "NumberSlider", "Dropdown", "EnumRow", "ColorSwatch", "eval_number",
     # views

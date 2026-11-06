@@ -35,6 +35,7 @@ cmake --build build
 | `BUI_IMGUI_BLENDER_WIDGETS` | `OFF` | Dear ImGui's widgets become Blender's (an edited `imgui_widgets.cpp`) |
 | `BUI_WARNINGS_AS_ERRORS` | `OFF` | Only affects GCC and Clang today: when `OFF` the build adds `-Wno-error`; when `ON` it doesn't. It never adds `-Werror` or `/WX` by itself. |
 | `BUI_SLUG` | `ON` | GPU text from glyph outlines (Slug) by default; `OFF` makes the glyph atlas the default (switchable at run time either way) |
+| `BUI_IMAGE_SVG` | `ON` | SVG images through the kit's nanosvg (no extra code: Blender's icons use it already) |
 | `BUI_TEXT_FREETYPE` | `ON` | Rasterize glyphs with the vendored FreeType 2.13.3, the way Blender's BLF does (light hinting, gamma 1.43, Inter's optical size). `OFF` uses stb_truetype. Ignored when `BUI_TEXT_GDI` is on. |
 | `BUI_TEXT_GDI` | `OFF` | Use Windows' GDI text engine and system fonts instead of the portable engine (embedded Inter, Slug on the GPU) |
 

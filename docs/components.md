@@ -117,6 +117,7 @@ of Blender's SVG icons (`buipy.kit_icon_names()` lists them).
 | `Popover` | `Popover(text, *children, icon=None)`: a button that opens a panel |
 | `MenuButton` | `MenuButton(text, items, *, icon=None)` |
 | `Label` | `Label(text, *, icon=None, align="left", color=None, bold=False)` |
+| `Image` | `Image(src, *, fit="contain", frame=None)`: an image file (PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR, PNM, SVG), natural size from its header, pixels decoded off the UI thread; `fit` as CSS `object-fit`; animations play, or hold `frame` |
 | `ProgressBar` | `ProgressBar(value=0.0, text=None)` |
 | `Separator`, `Spacer` | `Separator(factor=0.5, line=False)` / `Spacer()` |
 

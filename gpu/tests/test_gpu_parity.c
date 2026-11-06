@@ -146,7 +146,11 @@ static void scene(BuiRaster *r, int pass)
   for (int i = 0; i < 16 * 12; i++) {
     img[i] = ((i % 16 + i / 16) & 1) ? 0xFFFF8000u : 0x80202080u;
   }
-  BUI_raster_image(r, 20, 260, 64, 48, img, 16, 12, 0.9f);
+  const BuiPixmap pm = {img, 16, 12, 0}; /* premultiplied */
+  BUI_raster_image(r, 20, 260, 64, 48, &pm, NULL, 0.9f, 0);
+  const float part[4] = {4, 2, 8, 6};
+  BUI_raster_image(r, 90, 330, 40, 30, &pm, part, 1.0f, BUI_IMAGE_NEAREST);
+  BUI_raster_image(r, 140, 330, 16, 12, &pm, NULL, 1.0f, 0); /* 1:1 copy */
   /* clipped primitives */
   BUI_raster_set_clip(r, 100, 260, 120, 40);
   BUI_raster_round_rect(r, 90, 250, 80, 60, 10, red);
@@ -259,6 +263,66 @@ static int mesh_bands(void)
   return same;
 }
 
+/* Images over the atlas (2047 px) take a texture of their own on the GPU;
+ * past the device limit they are tiled (forced here with a small limit). */
+#define BW 2600
+#define BH 300
+static int big_image(int max_texture)
+{
+  static uint32_t px[BW * BH];
+  for (int y = 0; y < BH; y++) {
+    for (int x = 0; x < BW; x++) {
+      const uint32_t a = (x / 40 + y / 40) & 1 ? 255u : 160u; /* premultiplied */
+      const uint32_t r = (uint32_t)(x * 255 / BW) * a / 255, g = (uint32_t)(y * 255 / BH) * a / 255;
+      px[y * BW + x] = a << 24 | r << 16 | g << 8 | ((x ^ y) & 0x3F) * a / 255;
+    }
+  }
+  const BuiPixmap pm = {px, BW, BH, 77};
+  const float part[4] = {1150.5f, 40.25f, 300, 80};
+  BuiRaster *rs[2] = {BUI_raster_create(640, 200), BUI_raster_create(640, 200)};
+  if (max_texture) {
+    char v[32];
+    snprintf(v, sizeof(v), "%d", max_texture);
+#ifdef _WIN32
+    _putenv_s("BUI_GPU_MAX_TEXTURE", v);
+#else
+    setenv("BUI_GPU_MAX_TEXTURE", v, 1);
+#endif
+  }
+  int ok = 1;
+  if (!BUI_raster_gpu_attach(rs[1], NULL, 1)) {
+    printf("big images: no GPU device, skipped\n");
+  }
+  else {
+    for (int k = 0; k < 2; k++) {
+      const float bg[4] = {0.16f, 0.16f, 0.17f, 1};
+      BUI_raster_begin_frame(rs[k], 640, 200);
+      BUI_raster_fill_rect(rs[k], 0, 0, 640, 200, bg);
+      BUI_raster_image(rs[k], 10, 10, 600, 69, &pm, NULL, 1.0f, 0);       /* downscaled */
+      BUI_raster_image(rs[k], 20, 90, 450, 100, &pm, part, 0.8f, 0);      /* crop, upscaled */
+      BUI_raster_image(rs[k], 480, 90, 150, 100, &pm, part, 1.0f, BUI_IMAGE_NEAREST);
+      BUI_raster_end_frame(rs[k]);
+    }
+    const uint32_t *a = BUI_raster_pixels(rs[0]), *b = BUI_raster_pixels(rs[1]);
+    int bad = 0, maxd = 0;
+    for (int i = 0; i < 640 * 200; i++) {
+      int d = 0;
+      for (int s = 0; s < 24; s += 8) {
+        const int da = abs((int)((a[i] >> s) & 0xFF) - (int)((b[i] >> s) & 0xFF));
+        d = da > d ? da : d;
+      }
+      maxd = d > maxd ? d : maxd;
+      bad += d > 3;
+    }
+    ok = bad <= 640 * 200 / 500;
+    printf("big images (%s): %d of %d pixels differ by more than 3 (max %d)\n",
+           max_texture ? "tiled" : "own texture", bad, 640 * 200, maxd);
+  }
+  BUI_raster_free(rs[0]);
+  BUI_raster_free(rs[1]);
+  return ok;
+}
+
 int main(void)
 {
   BuiRaster *cpu = BUI_raster_create(W, H);
@@ -284,5 +348,7 @@ int main(void)
     BUI_raster_free(gpu);
   }
   BUI_raster_free(cpu);
+  ok &= big_image(0);
+  ok &= big_image(512); /* tiles of 510 px with a pixel of overlap */
   return ok ? 0 : 1;
 }

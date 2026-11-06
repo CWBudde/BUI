@@ -9,7 +9,7 @@ badges: ["15 minutes", "Windows x64 prebuilt"]
 sources: ["docs/javascript.md", "bindings/react/examples/counter.jsx", "bindings/react/examples/counter.js", "bindings/react/README.md", "bindings/react/index.js", "bindings/node/index.js", "bindings/node/cli.js"]
 ---
 
-You know React. Here's the twist: the same components, hooks and JSX render into a **native desktop window**, drawn by BUI. There's no browser, no webview and no Electron. When you're done, one command turns the app into a single executable of about 5 MB.
+You know React. Here's the twist: the same components, hooks and JSX render into a **native desktop window**, drawn by BUI. There's no browser, no webview and no Electron. When you're done, one command turns the app into a single executable of about 7 MB.
 
 You'll build a counter with a Blender slider, learn the one thing that's different about hooks here (they hold **signals**), and ship it.
 
@@ -130,7 +130,7 @@ node app.js
 npx bui build app.jsx
 ```
 
-This writes `app.exe`: BUI plus the small [QuickJS](https://github.com/quickjs-ng/quickjs) JavaScript engine, with your bundled app appended. For a small React app on Windows x64, the repository measured a 4.9 MB executable that reaches its first frame in 68 ms.
+This writes `app.exe`: BUI plus the small [QuickJS](https://github.com/quickjs-ng/quickjs) JavaScript engine, with your bundled app appended. For a small React app on Windows x64, the repository measured a 7.3 MB executable that reaches its first frame in 68 ms (the size measured with the image decoders, the time in an earlier run).
 
 - Bundling needs [Bun](https://bun.sh) installed, even if you run the app on Node. With Bun alone, `bunx bui build app.jsx` works too.
 - Windows builds open no console window. Add `--console` to see your `console.log` output.

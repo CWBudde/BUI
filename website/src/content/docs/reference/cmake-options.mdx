@@ -1,0 +1,121 @@
+---
+title: CMake options
+description: Every option you can pass when building BUI from source with CMake, its default, and exactly what it changes.
+section: Reference
+order: 20
+languages: ["c", "cpp", "imgui"]
+sources: ["CMakeLists.txt", "kit/CMakeLists.txt", "gpu/CMakeLists.txt", "ui/CMakeLists.txt", "bindings/imgui/CMakeLists.txt", "bindings/python/CMakeLists.txt", "backends/qt/CMakeLists.txt", "examples/CMakeLists.txt", "docs/getting-started.md", "pyproject.toml", "bindings/rust/blenderui-sys/build.rs"]
+---
+
+When you build BUI from source, a handful of CMake options decide what gets built and how text is drawn. The defaults suit almost everyone, so you only need this page when you want something specific: C only, Windows' own fonts, or Dear ImGui with Blender's widgets.
+
+Pass options with `-D` when you configure:
+
+```sh
+cmake -S . -B build -DBUI_BUILD_EXAMPLES=ON -DBUI_IMGUI_BLENDER_WIDGETS=ON
+cmake --build build -j 2
+```
+
+Options are cached in the build folder. To change one later, configure again with the new value, or start a fresh build folder.
+
+## What gets built
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `BUI_BUILD_TESTS` | `ON` | Builds the C test programs and registers every suite with `ctest`, including the native-window smoke test (skipped without a display). |
+| `BUI_BUILD_EXAMPLES` | `OFF` | Builds the C examples: `bui_kit_hello` (`examples/kit_hello.c`, a slider and a button in a native window) and `bui_svg_demo`. |
+| `BUI_BUILD_PYTHON_BINDINGS` | `ON` | Builds the `buipy` CPython extension, and the Dear ImGui extension when ImGui is built too. Skipped, with a message, if CMake can't find Python's development files. |
+| `BUI_BUILD_IMGUI` | `ON` when a C++ compiler and `bindings/imgui` are present | Builds Dear ImGui on BUI (`bui::imgui`), its C API (`bui_cimgui`), the ImGui demo and its test. |
+| `BUI_IMGUI_BLENDER_WIDGETS` | `OFF` | Dear ImGui's widgets become Blender's: an edited copy of `imgui_widgets.cpp` replaces the original, with the same API. The C, Python and Rust bindings get Blender widgets unchanged. |
+| `BUI_BUILD_QT_BACKEND` | `OFF` | Builds the C++ Qt/QPainter render-sink backend (`backends/qt/`). Needs Qt 5 or Qt 6 with Widgets; configuring fails if neither is found. |
+| `BUI_BUILD_UI` | `OFF` | Also compiles Blender's original interface sources in `ui/` as `bui_ui`. The kit doesn't need them; they're kept for reference and porting work. |
+
+## Text
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `BUI_TEXT_FREETYPE` | `ON` | Renders glyphs with the vendored FreeType 2.13.3, the way Blender's BLF does (light hinting, gamma 1.43, Inter's optical size). With `OFF`, stb_truetype rasterizes them. Ignored when `BUI_TEXT_GDI` is on. |
+| `BUI_TEXT_GDI` | `OFF` | Windows: uses the native GDI text engine and system fonts instead of the portable engine (embedded Inter). GDI text can't use Slug on the GPU. |
+| `BUI_SLUG` | `ON` | The GPU renderer's default way to draw text: `ON` is Slug (glyph outlines), `OFF` the per-glyph atlas. Switchable at run time either way (`BUI_SLUG=0/1`, `BUI_gpu_set_slug`). |
+| `BUI_TEXT_STB` | `ON` | Deprecated and ignored: the portable engine is the default everywhere now. |
+
+## Images
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `BUI_IMAGE_SVG` | `ON` | SVG files in the [image module](/docs/concepts/images), rasterized by the nanosvg the kit already uses for Blender's icons (so it adds about 1 KB). PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR and PNM are always built in. |
+
+See [Text and fonts](../../concepts/text-and-fonts/) for what these change on screen.
+
+## Compiler
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `BUI_WARNINGS_AS_ERRORS` | `OFF` | Meant to treat warnings as errors. Today it only affects GCC and Clang: when `OFF`, the build adds `-Wno-error`; when `ON`, it doesn't. It doesn't add `-Werror` or `/WX` by itself. |
+| `CMAKE_BUILD_TYPE` | `Release` | Standard CMake. BUI sets `Release` when you don't choose, because debug builds are much slower. |
+
+The C code is built as C11 and the C++ code as C++20. MSVC builds get `/W3 /utf-8`; GCC and Clang get `-Wall`.
+
+## Found automatically
+
+These aren't options, but they change what you get:
+
+| What | Effect |
+| --- | --- |
+| **X11 headers** (Linux) | CMake looks for `X11/Xlib.h` and stores the folder in `BUI_X11_INCLUDE`. Found: native X11 windows (libX11 is still only loaded at run time). Not found: no native Linux windows, so Python uses Tk or runs headless. Install `libx11-dev` or `libX11-devel`, or set `BUI_X11_INCLUDE` yourself. |
+| **Objective-C** (macOS) | Enabled automatically for the Cocoa window host. |
+| **OpenGL** (Linux) | Nothing to find: the GPU renderer's OpenGL code is always compiled, and `libGL` is loaded at run time. |
+| **Python** | Found with `find_package(Python3)`. The extension is built for that Python version only. |
+
+## Common recipes
+
+**C only, smallest build:**
+
+```sh
+cmake -S . -B build -DBUI_BUILD_PYTHON_BINDINGS=OFF -DBUI_BUILD_IMGUI=OFF -DBUI_BUILD_TESTS=OFF
+```
+
+**Dear ImGui with Blender's widgets, plus the examples:**
+
+```sh
+cmake -S . -B build -DBUI_IMGUI_BLENDER_WIDGETS=ON -DBUI_BUILD_EXAMPLES=ON
+```
+
+**Windows with MinGW** (the toolchain the Python wheels use):
+
+```sh
+cmake -S . -B build -G "MinGW Makefiles"
+```
+
+**Blender's original UI sources, for porting work:**
+
+```sh
+cmake -S . -B build-ui -DBUI_BUILD_UI=ON -DBUI_BUILD_EXAMPLES=ON
+```
+
+## Equivalents in other builds
+
+The Python wheel and the Rust crate run the same CMake project with fixed settings:
+
+| Option | Python wheel (`pyproject.toml`) | Rust crate (`blenderui-sys`) |
+| --- | --- | --- |
+| `BUI_BUILD_PYTHON_BINDINGS` | `ON` | `OFF` |
+| `BUI_BUILD_TESTS`, `BUI_BUILD_EXAMPLES`, `BUI_BUILD_UI`, `BUI_BUILD_QT_BACKEND` | `OFF` | `OFF` |
+| `BUI_BUILD_IMGUI` | Default (on with C++) | The `imgui` feature |
+| `BUI_IMGUI_BLENDER_WIDGETS` | Default (`OFF`) | The `imgui-blender-widgets` feature (`blender-widgets` in `blenderui-imgui`) |
+| `BUI_TEXT_GDI` | Default (`OFF`) | The `gdi-text` feature, or `BUI_TEXT_GDI=1` |
+| `BUI_SLUG` | Default (`ON`) | The `slug` feature (on by default) |
+
+## Next steps
+
+<CardGrid>
+  <Card title="Install BUI" href="docs/start/installation/" icon="terminal" kicker="Start here">
+    The full build-from-source steps for C.
+  </Card>
+  <Card title="Environment variables" href="docs/reference/environment-variables/" icon="terminal" kicker="Reference">
+    What you can change at run time instead.
+  </Card>
+  <Card title="Platforms" href="docs/reference/platforms/" icon="monitor" kicker="Reference">
+    Toolchains and requirements per OS.
+  </Card>
+</CardGrid>

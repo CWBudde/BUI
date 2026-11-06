@@ -34,6 +34,9 @@ pub struct Record<'a> {
     /// loads, so loading it shifts nothing.
     pub media_h: u16,
     pub text: &'a str,
+    /// The attached image's file path ("" with `media_h` > 0: a placeholder).
+    /// Drawn through `PaintSink::image`: only visible items load it.
+    pub media: &'a str,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -44,11 +47,12 @@ struct Meta {
     flags: u8,
     media_h: u16,
     text: (u32, u32),
+    media: (u32, u32),
 }
 
 impl Meta {
-    const fn new(r: &Record<'_>, text: (u32, u32)) -> Self {
-        Self { id: r.id, time: r.time, sender: r.sender, flags: r.flags, media_h: r.media_h, text }
+    const fn new(r: &Record<'_>, text: (u32, u32), media: (u32, u32)) -> Self {
+        Self { id: r.id, time: r.time, sender: r.sender, flags: r.flags, media_h: r.media_h, text, media }
     }
 }
 
@@ -78,7 +82,9 @@ impl Page {
     pub fn push(&mut self, r: &Record<'_>) {
         let a = self.text.len() as u32;
         self.text.push_str(r.text);
-        self.metas.push(Meta::new(r, (a, self.text.len() as u32)));
+        let text = (a, self.text.len() as u32);
+        let media = self.push_media(r);
+        self.metas.push(Meta::new(r, text, media));
     }
 
     /// The text buffer, for sources that read straight into it; then call
@@ -94,7 +100,15 @@ impl Page {
 
     /// Append a record whose text (`r.text` is ignored) is already in the buffer at `text`.
     pub fn push_span(&mut self, r: &Record<'_>, text: Range<usize>) {
-        self.metas.push(Meta::new(r, (text.start as u32, text.end as u32)));
+        let media = self.push_media(r);
+        self.metas.push(Meta::new(r, (text.start as u32, text.end as u32), media));
+    }
+
+    /// `r.media` appended to the buffer (empty: no bytes).
+    fn push_media(&mut self, r: &Record<'_>) -> (u32, u32) {
+        let a = self.text.len() as u32;
+        self.text.push_str(r.media);
+        (a, self.text.len() as u32)
     }
 
     /// The items the page holds.
@@ -107,7 +121,8 @@ impl Page {
     pub fn record(&self, item: usize) -> Option<Record<'_>> {
         let m = self.metas.get(item.checked_sub(self.start)?)?;
         let text = self.text.get(m.text.0 as usize..m.text.1 as usize)?;
-        Some(Record { id: m.id, time: m.time, sender: m.sender, flags: m.flags, media_h: m.media_h, text })
+        let media = self.text.get(m.media.0 as usize..m.media.1 as usize)?;
+        Some(Record { id: m.id, time: m.time, sender: m.sender, flags: m.flags, media_h: m.media_h, text, media })
     }
 }
 
@@ -151,12 +166,14 @@ pub struct Message {
     pub flags: u8,
     pub media_h: u16,
     pub text: String,
+    /// The attached image's file path (see [`Record::media`]).
+    pub media: String,
 }
 
 impl Message {
     #[must_use]
     pub fn record(&self) -> Record<'_> {
-        Record { id: self.id, time: self.time, sender: self.sender, flags: self.flags, media_h: self.media_h, text: &self.text }
+        Record { id: self.id, time: self.time, sender: self.sender, flags: self.flags, media_h: self.media_h, text: &self.text, media: &self.media }
     }
 }
 

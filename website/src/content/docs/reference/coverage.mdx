@@ -1,0 +1,128 @@
+---
+title: API coverage
+sidebarLabel: Coverage
+description: How much of each API BUI implements, in one place. tkinter, Qt, HTML, CSS, Tailwind and Dear ImGui, with how each number was measured.
+section: Reference
+order: 40
+languages: ["python", "rust", "javascript", "c", "cpp", "imgui"]
+sources: ["SYNTAX_COVERAGE.md", "docs/rust.md", "docs/qt.md", "docs/imgui.md", "docs/tkinter.md", "docs/components.md", "README.md", "CHANGELOG.md"]
+---
+
+"Does BUI support X?" usually comes down to a number. This page collects every coverage figure in the repository, with how it was counted, so you can decide quickly and know exactly what you're getting.
+
+## At a glance
+
+| API | Coverage | Status |
+| --- | --- | --- |
+| tkinter and ttk | **7,846 of 7,846** public names | Complete |
+| Qt syntax | **About 220 of 920** public method names (~24%) on 25 core widget classes | Partial |
+| Blender components (Python) | **45** components | Complete |
+| HTML elements (Rust, JavaScript) | **113 of 113** | Complete |
+| CSS properties (Rust, JavaScript) | **261 of 745** W3C properties render, **129** more parse | Partial |
+| CSS 2.1 screen properties | **90 of 90** | Complete |
+| Flexbox / Grid | **12 of 12** / **23 of 23** | Complete |
+| Dear ImGui, C | **399 of 399** functions | Complete |
+| Dear ImGui, Python and safe Rust | **366 of 399** functions | Partial |
+| Image formats (every language) | PNG, JPEG, WebP (animated), GIF (animated), BMP, TGA, QOI, Radiance HDR, PNM, SVG; not yet AVIF, EXR, TIFF, JPEG XL, HEIC ([Images](/docs/concepts/images)) | Partial |
+
+## tkinter
+
+**7,846 of 7,846.** Every public member of every tkinter and ttk widget class exists, plus `Tk`, `Toplevel`, the variables, `Event`, `PhotoImage` and `BitmapImage`. The count is measured against the standard library.
+
+Names existing isn't the same as behaving the same, so there's a second check: `tests/test_tk_compat.py` runs **nine real tkinter programs** on both the standard library and BUI and requires identical results. They are a calculator, a to-do list with a scrollbar, a validated form, a text editor with menus, a sortable table, a canvas, a scrollable frame, a notebook with a paned window and an option menu, and an events-and-variables program.
+
+The modules covered: the `tkinter` package itself, `ttk`, `messagebox`, `filedialog`, `simpledialog`, `colorchooser`, `commondialog`, `dialog`, `font`, `scrolledtext` and `constants`.
+
+**What differs:** some options only change Tk's appearance (`relief`, `borderwidth`, `activebackground`, `ttk.Style` settings …). They're accepted and returned by `cget`, but the look always comes from Blender's theme. Tcl itself isn't there: `root.tk.call` handles a few common commands. See [tkinter compatibility](../../python/tkinter/) for the details.
+
+## Qt syntax
+
+**About 220 of 920 public method names, across 25 core widget classes (~24%).** There's no Qt in the test environment, so the count comes from Qt's own widget headers (`reference/qtbase`).
+
+What's there: widgets and layouts (box, grid, form, stacked), signals, `QPainter`, menus and actions, timers and property animations, and the common value types. `setStyleSheet` understands `color`, `background` on containers and `font-weight: bold`.
+
+**Missing:**
+
+- Model/view: `QAbstractItemModel`, `QListView`, `QTreeView`, `QTableView`, delegates.
+- `QSplitter`, `QDockWidget`, `QToolBar`, `QStackedWidget` as a real class, `QToolBox`, `QDateEdit` and friends, `QCalendarWidget`.
+- Most of `QWidget`'s wider surface: focus-policy details, `setWindowFlags`, geometry helpers, `grab`.
+- Stylesheet selectors and pseudo-states, `QPalette`; `QGraphicsScene`; rich text.
+- `QSettings`, `QThread`, `QClipboard`, drag and drop, `QShortcut`, OpenGL widgets.
+- `QMessageBox` and `QInputDialog` as drawn dialogs.
+
+Anything not implemented raises `AttributeError`: nothing fails silently.
+
+<ComingSoon feature="Qt parity">
+The plan is to measure against PySide6 itself, run the same programs on real Qt and on BUI (as the tkinter suite does), fill in the classes above, and then add an `install()` so `import PySide6` programs run unchanged.
+</ComingSoon>
+
+## HTML and CSS (Rust and JavaScript)
+
+Counted by `cargo test --test parity -- --nocapture` in `bindings/rust`.
+
+| Area | Coverage |
+| --- | --- |
+| HTML elements (WHATWG index) | **113 / 113** constructible, plus `svg` and `math` roots; 9 are Blender widgets |
+| CSS properties | **271** change layout or rendering; **137** more parse but have no effect |
+| W3C property index (745 properties) | **261** rendered (35%), **129** parsed without effect (17%), **355** not recognized (48%) |
+| CSS 2.1, screen properties | **90 / 90** rendered |
+| Flexbox | **12 / 12** |
+| Grid | **23 / 23**, including `grid-template-areas` and named lines |
+
+The two property counts use different lists: the first counts every property the engine handles, the second only the 745 in the [W3C index](https://www.w3.org/Style/CSS/all-properties.en.html).
+
+**Most of the unrecognized 355 aren't everyday CSS:**
+
+| Group | Properties |
+| --- | ---: |
+| Draft border and corner shapes (`corner-shape`, `border-*-clip` …) | ~78 |
+| SVG fill, stroke and markers | ~40 |
+| Gap decorations (`row-rule-*` …) | 38 |
+| Speech and aural | 31 |
+| Animation triggers and scroll-driven animation | 26 |
+| Paged media, regions, rhythm and others | ~25 |
+| Everything else | ~100 |
+
+**The biggest gaps among common properties:** 3D transforms, OpenType font features and multi-column layout. Also, 2D transforms draw but don't change hit testing.
+
+**Beyond properties:** every CSS math function with mixed units, every length unit, `var()` and `env()`; CSS Color 4 and 5 (`oklch`, `lab`, `color-mix()`, relative colors, `light-dark()`); Selectors Level 4 (`:has()`, `:is()`, `:where()` …), nesting, `::before` and `::after`; `@media` ranges, `@supports`, `@layer`, `@scope`, `@container`, `@font-face`, `@property`; `@keyframes` animations and transitions.
+
+## Tailwind CSS
+
+**Tailwind v4, compiled on first use** with the v4 default theme, like Tailwind's JIT. Variants (state, structural, `group-*`, `peer-*`, `has-*`, `data-*`, `aria-*`, breakpoints, container queries, `dark`, `motion-*` …), arbitrary values and properties, `/opacity` and `!important` all work, and utilities sort the way Tailwind sorts them. In Rust, `tw!` and `rsx!` check classes at compile time and suggest fixes for typos.
+
+There's no single count for Tailwind: classes are generated from the theme and variants rather than listed.
+
+## Blender components
+
+**45 components** in Python's `blenderui.components`: layout, values, buttons, views, menus and pie menus, the color picker, the color ramp, curve and node editors, areas and templates. Ten of them are also available from Rust and JavaScript: `Button`, `Checkbox`, `Radio`, `NumberField`, `NumberSlider`, `TextField`, `TextArea`, `ColorSwatch`, `Dropdown` and `ProgressBar`.
+
+## Dear ImGui
+
+BUI vendors **Dear ImGui 1.93.1 WIP**. It has 399 functions in `namespace ImGui` (overloads counted separately, obsolete ones excluded; 14 take a `va_list`) and 264 methods and constructors on its structs. The bindings add a default constructor to the 9 structs that declare none, for 273. Counted from `bindings/imgui/gen/coverage.json`, which the generator writes.
+
+| | `namespace ImGui` | Methods + constructors | Notes |
+| --- | --- | --- | --- |
+| C++ | Everything | Everything | The real `imgui.h` |
+| C | 399 / 399 | 273 / 273 | 894 C functions with the `Ex` variants; all 41 structs |
+| Python | 366 / 399 (366 / 385 without `va_list`) | 264 / 273 | 1,474 constants; fields of all structs |
+| Rust FFI | 385 / 399 (all but `va_list`) | 272 / 273 | 879 of the 894 C functions |
+| Rust safe layer | 366 / 399 | 264 / 273 | The rest is in `sys` |
+
+**Skipped in Python and safe Rust** (all reachable from C and the Rust FFI): the 14 `va_list` functions, functions taking an untyped `void*` value (like `PushID(const void*)` and the `*Scalar` widgets; use the typed ones), and functions taking C callbacks (the getter overloads of `Combo`, `ListBox` and the plot functions, allocator hooks, `ImDrawList::AddCallback`).
+
+**The Blender-widgets build** keeps ImGui's own drawing for window title bars, tooltips, plain popups, tables and the color picker.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Roadmap" href="docs/project/roadmap/" icon="flag" kicker="Project">
+    What's partial, and what's planned next.
+  </Card>
+  <Card title="Platforms" href="docs/reference/platforms/" icon="monitor" kicker="Reference">
+    What runs on which operating system.
+  </Card>
+  <Card title="Contributing" href="docs/project/contributing/" icon="github" kicker="Project">
+    Missing a Qt method or a CSS property? Add it.
+  </Card>
+</CardGrid>

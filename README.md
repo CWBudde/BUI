@@ -211,6 +211,15 @@ If you're starting fresh in Python, the Blender components are the friendliest.
 - In the benchmark, **2–4× less CPU per frame than gpui-fast**, with **less RAM** and a **~5 ms first frame**.
 - **Blender's text**: Inter (Blender's UI font) is embedded and rendered with FreeType the way Blender renders it, so text looks the same on every platform. On the GPU, glyphs are drawn from their outlines with [Slug](https://github.com/EricLengyel/Slug), falling back to a per-glyph atlas like Blender's.
 
+### Images
+
+- **One decoder set for every language**, in C: PNG, GIF, BMP, TGA, QOI ([Wuffs](https://github.com/google/wuffs), memory-safe), JPEG (libjpeg-turbo), WebP including animated (libwebp), Radiance HDR, PNM and SVG. The design is Blender's imbuf: one image type and a format table.
+- **Decoded at the size it is drawn, off the UI thread**: JPEG thumbnails use DCT scaling (a 4K photo becomes a 256 px thumbnail in ~12 ms), visible images first, scrolled-away requests cancelled, and only the image's rectangle redraws when it arrives. The page never jumps: sizes come from the file header.
+- **One memory-budgeted cache** (256 MiB by default). Scrolling 1,000 photo thumbnails: **2.9 ms p99 frames and 100 MB**, against 96 ms and 2.5 GB when decoding on the UI thread; **0 allocations** in a settled frame, every block freed at exit. [Images](https://bui.preetham.top/docs/concepts/images/).
+- **Animated GIF and WebP play** everywhere an image shows, decoded one frame at a time at the size drawn (two frames held per animation), each frame for its own delay, only the image's rectangle repainting. Off screen, scrolled away or in a hidden window they pause: 200 animations at once take **0.76 ms p50 / 1.5 ms p99** render frames, and **nothing at all** once off screen. `frame` holds one frame; reduced motion holds them all.
+- **Large images on the GPU**: images over 2047 px get a texture of their own on Direct3D 11 and OpenGL (tiled only past the device limit), freed with the image.
+- `<img>`, CSS `background-image`, `object-fit`, Blender `Image` components, tkinter `PhotoImage` (now also JPEG, WebP, BMP, TGA, QOI, HDR, SVG), canvas items, data-table image columns, chat-list media and Dear ImGui textures (animated ones too).
+
 ### JavaScript and React
 
 - **React 19.3** renders to BUI: HTML host components, CSS and Tailwind, events, Suspense, transitions, actions, and Blender components (`<NumberSlider>`, `<Button>` ...). BUI draws them, on the CPU or the GPU; there's no browser and no webview.
@@ -220,7 +229,7 @@ If you're starting fresh in Python, the Blender components are the friendliest.
 
 ### Small standalone apps
 
-- **`bui build app.jsx`** produces one executable of about **5 MB**: BUI with an embedded QuickJS engine.
+- **`bui build app.jsx`** produces one executable of about **7 MB**: BUI with an embedded QuickJS engine.
 - **First frame in ~70 ms**, at **19 MB** of RAM, with nothing to install. There's no browser and no webview.
 - **`--bun`** builds a Bun executable instead, with Node's APIs and a JIT.
 - Builds take under a second: the app's bundle is appended to a prebuilt runtime.
@@ -669,7 +678,7 @@ render(<Counter />, { title: "Counter", width: 360, height: 200, gpu: true })
 
 ```sh
 bun app.jsx                    # run it (Bun reads JSX directly)
-npx bui build app.jsx          # or ship it: app.exe, one 5 MB file
+npx bui build app.jsx          # or ship it: app.exe, one 7 MB file
 ```
 
 Without React, `@blender-ui/native` gives you a DOM-like API:
@@ -1089,13 +1098,13 @@ something moves, paced to the display. More:
 
 A **window host** puts a kit context in a top-level window and feeds it input.
 
-| Host                             | Where                           | Notes                                                                                                                                                                                                                   |
-| -------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Win32** (`kit_window_win32.c`) | Windows                         | BUI's own host. Per-monitor DPI, vsync-paced animation, clipboard, cursors, window-manager features.                                                                                                                    |
-| **X11** (`kit_window_x11.c`)     | Linux; Wayland through XWayland | Input mapping after Blender's GHOST. `Xft.dpi` scaling. libX11 is loaded when the first window opens.                                                                                                                   |
+| Host                             | Where                           | Notes                                                                                                                                                                                                                          |
+| -------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Win32** (`kit_window_win32.c`) | Windows                         | BUI's own host. Per-monitor DPI, vsync-paced animation, clipboard, cursors, window-manager features.                                                                                                                           |
+| **X11** (`kit_window_x11.c`)     | Linux; Wayland through XWayland | Input mapping after Blender's GHOST. `Xft.dpi` scaling. libX11 is loaded when the first window opens.                                                                                                                          |
 | **Cocoa** (`kit_window_cocoa.m`) | macOS                           | **Experimental.** Ported from Blender's GHOST Cocoa code, with Retina scaling. It's checked by CI and has been tried by hand on one Apple Silicon Mac so far; testing notes in [docs/macos-testing.md](docs/macos-testing.md). |
-| **Tk**                           | Python, anywhere                | A stdlib `tkinter` window that shows the kit's frame buffer. `BUI_HOST=tk` forces it; it's also the fallback where no native host works.                                                                                |
-| **Headless**                     | Everywhere                      | No window: render into a raster for tests and screenshots, with a virtual clock that steps animations exactly.                                                                                                          |
+| **Tk**                           | Python, anywhere                | A stdlib `tkinter` window that shows the kit's frame buffer. `BUI_HOST=tk` forces it; it's also the fallback where no native host works.                                                                                       |
+| **Headless**                     | Everywhere                      | No window: render into a raster for tests and screenshots, with a virtual clock that steps animations exactly.                                                                                                                 |
 
 `BUI_UI_SCALE=1.5` fixes the UI scale instead of following the display (1 is
 Blender's default, 20 px widgets). More:
@@ -1259,7 +1268,7 @@ transforms, OpenType features, multi-column layout. Guide:
   `memo`, `effect` and `batch`. README: [bindings/node](bindings/node/README.md).
 - **How it's fast**: BUI renders on its own UI thread, so it never blocks
   JavaScript; each tick sends one batch of changes; styles are parsed once.
-- **Standalone apps**: `npx bui build app.jsx` makes a ~5 MB executable with
+- **Standalone apps**: `npx bui build app.jsx` makes a ~7 MB executable with
   an embedded QuickJS engine; `--bun` makes a Bun executable instead;
   `npx bui run app.jsx` runs on QuickJS without building.
 - **Tests**: `new App({ headless: true })` renders off-screen, and
@@ -1276,12 +1285,12 @@ JavaScript after BUI handled them (no native `preventDefault`), and
 
 ## 26. Dear ImGui
 
-| Language | What you use                                         | Built by                                |
-| -------- | ---------------------------------------------------- | --------------------------------------- |
-| C++      | `imgui.h` + `imgui_impl_bui.h`                       | CMake target `bui_imgui` (`bui::imgui`) |
-| C        | `cimgui.h` + `cimgui_impl_bui.h`                     | CMake target `bui_cimgui`               |
-| Python   | `import blenderui.imgui as imgui`                    | The `_buiimgui` extension, in the wheel |
-| Rust     | the `blenderui-imgui` crate (on crates.io)      | Cargo                                   |
+| Language | What you use                               | Built by                                |
+| -------- | ------------------------------------------ | --------------------------------------- |
+| C++      | `imgui.h` + `imgui_impl_bui.h`             | CMake target `bui_imgui` (`bui::imgui`) |
+| C        | `cimgui.h` + `cimgui_impl_bui.h`           | CMake target `bui_cimgui`               |
+| Python   | `import blenderui.imgui as imgui`          | The `_buiimgui` extension, in the wheel |
+| Rust     | the `blenderui-imgui` crate (on crates.io) | Cargo                                   |
 
 The C, Python and Rust bindings are generated from `imgui.h`. ImGui is
 idle-free on BUI: frames run only on input and while something animates.
@@ -1451,7 +1460,7 @@ warm-up launch (`node bench/startup.js`).
 
 |                                         | First frame | Launch to exit | RAM at first frame |   What you ship |
 | --------------------------------------- | ----------: | -------------: | -----------------: | --------------: |
-| **QuickJS executable** (`bui build`)    |   **68 ms** |     **104 ms** |          **19 MB** |      **4.9 MB** |
+| **QuickJS executable** (`bui build`)    |   **68 ms** |     **104 ms** |          **19 MB** |      **7.3 MB** |
 | Bun executable (`bui build --bun`)      |       79 ms |         147 ms |              35 MB |          114 MB |
 | Bun (`bun app.js`)                      |       80 ms |         152 ms |              35 MB |  Bun + your app |
 | Node.js (`node app.js`)                 |      108 ms |         187 ms |              45 MB | Node + your app |
@@ -1490,7 +1499,7 @@ What this means:
   changes to BUI's UI thread.
 - **Signals make React as cheap as the plain API:** the component doesn't
   re-render.
-- **QuickJS** starts fastest and uses the least memory, from a 5 MB file. It
+- **QuickJS** starts fastest and uses the least memory, from a 7 MB file. It
   has no JIT, so re-rendering a 3,000-element list every frame drops it to
   20 FPS. Keep big lists on signals, or build with `--bun`.
 
@@ -1601,12 +1610,12 @@ and on an NVIDIA GPU.
 
 **Packages:**
 
-| Package                                          | Platforms                                                        | Notes                                                                             |
-| ------------------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `blenderui` on PyPI                              | Windows x86_64, Linux x86_64 (manylinux), macOS arm64 and x86_64 | CPython 3.11 to 3.14. No musllinux or 32-bit wheels.                              |
+| Package                                          | Platforms                                                        | Notes                                                           |
+| ------------------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| `blenderui` on PyPI                              | Windows x86_64, Linux x86_64 (manylinux), macOS arm64 and x86_64 | CPython 3.11 to 3.14. No musllinux or 32-bit wheels.            |
 | `blenderui` on crates.io                         | Any platform with CMake and a C compiler                         | Rust 1.88+. `blenderui-imgui` (Dear ImGui) is on crates.io too. |
-| `@blender-ui/native`, `@blender-ui/react` on npm | Windows x64                                                      | Node.js 18+ or Bun. Elsewhere, build the addon from source.                       |
-| C and C++ (CMake)                                | Windows, Linux, macOS                                            | CMake 3.20+, a C11 and C++20 compiler.                                            |
+| `@blender-ui/native`, `@blender-ui/react` on npm | Windows x64                                                      | Node.js 18+ or Bun. Elsewhere, build the addon from source.     |
+| C and C++ (CMake)                                | Windows, Linux, macOS                                            | CMake 3.20+, a C11 and C++20 compiler.                          |
 
 ## 35. Environment variables
 
@@ -1621,6 +1630,7 @@ wins.
 | `BUI_SLUG`                       | GPU text: `1` from glyph outlines (Slug, the default), `0` from a per-glyph atlas.                                                                                                                                           |
 | `BUI_GPU_DEBUG`                  | `1` prints why the GPU renderer couldn't start.                                                                                                                                                                              |
 | `BUI_GPU_WARP`                   | `1` (Windows) creates the Direct3D 11 device on WARP, the software rasterizer. Handy in VMs and CI.                                                                                                                          |
+| `BUI_GPU_MAX_TEXTURE`            | Testing: the largest texture side the GPU renderers give one image (at least 64), so images over it are tiled as on devices with a small limit.                                                                               |
 | `BUI_GPU_EGL`                    | `default` or `surfaceless` (Linux): the EGL platform for offscreen GPU rendering.                                                                                                                                            |
 | `BUI_RASTER_THREADS`             | 1 to 8 (Windows): the most threads the software raster uses for big canvases.                                                                                                                                                |
 | `BUI_PROFILE`                    | Prints frame times every 60 frames. **Any** value turns it on, even `0`.                                                                                                                                                     |
@@ -1668,6 +1678,7 @@ cd bindings/rust && cargo test              # Rust: CSS, Tailwind, rsx!, hooks, 
 | `BUI_TEXT_FREETYPE`         | `ON`                     | Render glyphs with FreeType like Blender's BLF; `OFF` uses stb_truetype                             |
 | `BUI_TEXT_GDI`              | `OFF`                    | Windows' GDI text and system fonts                                                                  |
 | `BUI_SLUG`                  | `ON`                     | Slug as the GPU's default text method (switchable at run time)                                      |
+| `BUI_IMAGE_SVG`             | `ON`                     | SVG images through the kit's nanosvg (no extra code: Blender's icons already use it)                |
 | `BUI_WARNINGS_AS_ERRORS`    | `OFF`                    | GCC and Clang only: when `OFF` the build adds `-Wno-error`; it never adds `-Werror` or `/WX` itself |
 
 Rebuild the docs screenshots with `python tools/gen_doc_images.py` (and the
@@ -1687,6 +1698,7 @@ website's dark and light shots with `--site`). More:
 | Flexbox / Grid                    | **12 of 12** / **23 of 23**                                                                                                   | Complete |
 | Dear ImGui, C                     | **399 of 399** functions                                                                                                      | Complete |
 | Dear ImGui, Python and safe Rust  | **366 of 399** functions (Rust FFI: 385)                                                                                      | Partial  |
+| Image formats (every language)    | PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR, PNM, SVG; not yet AVIF, EXR, TIFF, JPEG XL, HEIC                                   | Partial  |
 
 How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverage/),
 [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md), [docs/rust.md](docs/rust.md#coverage),
@@ -1696,7 +1708,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 
 | Path                                | Contents                                                                                                                                                                                                                                                                                                                                     |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kit/`                              | The C runtime: nodes, input, widget drawing (the `interface_widgets.cc` port), menus, geometry managers, canvas, the File Browser, themes (`kit_theme_presets.c`), the Win32, X11 and Cocoa window hosts; `kit/intern/blender/` holds Blender files copied in (string search, text-edit undo, float precision). API: `kit/include/BUI_kit.h` |
+| `kit/`                              | The C runtime: nodes, input, widget drawing (the `interface_widgets.cc` port), menus, geometry managers, canvas, the File Browser, themes (`kit_theme_presets.c`), the Win32, X11 and Cocoa window hosts; `kit/intern/image/` (images: decoders, cache, worker pool; third-party decoders in `kit/extern/`); `kit/intern/blender/` holds Blender files copied in (string search, text-edit undo, float precision). API: `kit/include/BUI_kit.h` |
 | `gpu/`                              | Software raster, GPU renderer on Direct3D 11 (`gpu_d3d11.c`, `shaders/`) and OpenGL 3.3 (`gpu_gl.c`), textured meshes, Slug text, text engine (FreeType or stb_truetype + embedded Inter, or GDI)                                                                                                                                            |
 | `core/`, `types/`                   | Blender's `blenlib` subset (including `string_search.cc` and `expr_pylike_eval.cc`) and data types                                                                                                                                                                                                                                           |
 | `ui/`, `compat/`                    | Blender's original interface sources, kept for reference (not compiled by default; `kit/` re-ports them in C), and the seams replacing Blender's application APIs                                                                                                                                                                            |
@@ -1706,7 +1718,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | `bindings/node/`, `bindings/react/` | `@blender-ui/native` and `@blender-ui/react`                                                                                                                                                                                                                                                                                                 |
 | `bindings/imgui/`                   | Dear ImGui (vendored), the BUI backend, Blender style, the C API and its generator, the Blender-widgets build                                                                                                                                                                                                                                |
 | `backends/qt/`                      | C++ Qt/QPainter render-sink backend                                                                                                                                                                                                                                                                                                          |
-| `bench/`                            | The start time and battery benchmark                                                                                                                                                                                                                                                                                                         |
+| `bench/`                            | The start time and battery benchmark; `bench/images/` (decoders, thumbnail grid)                                                                                                                                                                                                                                                             |
 | `examples/`, `tools/`               | Demos, the website's screenshot programs (`examples/site/`), the icon and theme generators, the docs screenshot generator                                                                                                                                                                                                                    |
 | `website/`                          | The documentation website, [bui.preetham.top](https://bui.preetham.top)                                                                                                                                                                                                                                                                      |
 
@@ -1750,22 +1762,22 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | Rust               | HTML (113/113 elements), Flexbox 12/12, Grid 23/23, CSS 2.1 90/90, math functions, `var()`, CSS Color 4/5, Selectors 4, `@layer` / `@media` / `@supports` / `@scope` / `@container` / `@font-face` / `@property`, `@keyframes` animations and transitions, filters / blend modes / masks / `clip-path` / 2D transforms / `border-image`, bidi text, background images, `object-fit`, Tailwind v4, `rsx!`, `#[component]` with optional props and `key`, hooks, Blender components, browser-look form controls, headless testing |
 | Dear ImGui         | The real Dear ImGui 1.93 on BUI (CPU, Direct3D 11, OpenGL), Blender theme and Inter; C++ / C (399/399 functions) / Python and Rust (366–385/399); the Blender-widgets build                                                                                                                                                                                                                                                                                                                                                     |
 | Rendering          | Software raster (parallel, damage-tracked), GPU renderer (Direct3D 11 on Windows, OpenGL 3.3 on Linux), textured meshes, portable text engine (FreeType, as in Blender)                                                                                                                                                                                                                                                                                                                                                         |
-| JavaScript / React | `@blender-ui/native`: a DOM-like API over napi-rs, with its own UI thread, only changes crossing the boundary, vsync-paced `requestAnimationFrame` and signals. `@blender-ui/react`: a React 19.3 renderer whose hooks (`useState`, `useMemo`, `useEffect` ...) hold signals that update nodes without re-renders. Both on Node.js and Bun, with headless testing. `bui build` makes standalone executables: about 5 MB with the embedded QuickJS runtime, or Bun's with `--bun` ([guide](docs/javascript.md))                  |
+| JavaScript / React | `@blender-ui/native`: a DOM-like API over napi-rs, with its own UI thread, only changes crossing the boundary, vsync-paced `requestAnimationFrame` and signals. `@blender-ui/react`: a React 19.3 renderer whose hooks (`useState`, `useMemo`, `useEffect` ...) hold signals that update nodes without re-renders. Both on Node.js and Bun, with headless testing. `bui build` makes standalone executables: about 7 MB with the embedded QuickJS runtime, or Bun's with `--bun` ([guide](docs/javascript.md))                  |
 | Packaging          | [`blenderui` on PyPI](https://pypi.org/project/blenderui/), with a CI workflow for wheels on all platforms (Linux wheels with the native X11 host); [`blenderui` on crates.io](https://crates.io/crates/blenderui); [`@blender-ui/react`](https://www.npmjs.com/package/@blender-ui/react) and [`@blender-ui/native`](https://www.npmjs.com/package/@blender-ui/native) on npm                                                                                                                                                  |
 | Docs               | The website, [bui.preetham.top](https://bui.preetham.top)                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 **Partial or in progress**
 
-| Area                                                   | What's missing                                                                                                                                                                                                                                     |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Qt syntax (~24%)                                       | Model/view classes, docks, toolbars, splitters, Qt stylesheets ([details](docs/qt.md#coverage))                                                                                                                                                    |
-| CSS (261 of 745 W3C properties render, 129 more parse) | 3D transforms, OpenType font features, multi-column layout; hit testing ignores 2D transforms. Most of the remaining W3C list is drafts, speech, print and SVG ([breakdown](docs/rust.md#coverage))                                                |
-| Text                                                   | No text wrapping around floats; right-to-left text is reordered (bidi) but not shaped (Arabic joining); no OpenType features; no per-glyph font fallback yet (characters missing from the font show as boxes); no IME                              |
-| Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                         |
-| Dear ImGui                                             | Python and safe Rust skip the `va_list`, `void*` and C-callback functions (reachable from C and the Rust FFI); with Blender widgets, window title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing                   |
-| JavaScript / React packages                            | npm packages are prebuilt for Windows x64 only (on Linux, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element                         |
+| Area                                                   | What's missing                                                                                                                                                                                                                                         |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Qt syntax (~24%)                                       | Model/view classes, docks, toolbars, splitters, Qt stylesheets ([details](docs/qt.md#coverage))                                                                                                                                                        |
+| CSS (261 of 745 W3C properties render, 129 more parse) | 3D transforms, OpenType font features, multi-column layout; hit testing ignores 2D transforms. Most of the remaining W3C list is drafts, speech, print and SVG ([breakdown](docs/rust.md#coverage))                                                    |
+| Text                                                   | No text wrapping around floats; right-to-left text is reordered (bidi) but not shaped (Arabic joining); no OpenType features; no per-glyph font fallback yet (characters missing from the font show as boxes); no IME                                  |
+| Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                             |
+| Dear ImGui                                             | Python and safe Rust skip the `va_list`, `void*` and C-callback functions (reachable from C and the Rust FFI); with Blender widgets, window title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing                       |
+| JavaScript / React packages                            | npm packages are prebuilt for Windows x64 only (on Linux, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element                             |
 | macOS                                                  | **Experimental.** The native Cocoa window host is written, checked by CI and tried by hand on one Apple Silicon Mac ([how to help](docs/macos-testing.md)); JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet |
-| Themes                                                 | Dark and Light work; loading other Blender theme files doesn't yet                                                                                                                                                                                 |
+| Themes                                                 | Dark and Light work; loading other Blender theme files doesn't yet                                                                                                                                                                                     |
 
 **Planned (coming soon)**
 
@@ -1882,6 +1894,16 @@ program that includes BUI, you distribute it under the GPL too, with its source
 code available. If that doesn't fit your project, talk to a lawyer before you
 ship. (This is a summary, not legal advice.)
 </details>
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=ppmpreetham%2Fbui&type=timeline&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ppmpreetham/bui&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ppmpreetham/bui&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ppmpreetham/bui&type=date&legend=bottom-right" />
+ </picture>
+</a>
 
 ## 42. Contributing and publishing
 

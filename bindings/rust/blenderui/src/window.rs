@@ -611,6 +611,8 @@ impl App {
     // -- automation (tests, screenshots) --------------------------------------------------
 
     /// Render a window off-screen: (width, height, 0x00RRGGBB pixels) in device pixels.
+    /// Images it shows are decoded first (the frame waits for the kit's
+    /// image workers), so the pixels are deterministic.
     pub fn draw(&mut self, id: WindowId) -> (usize, usize, Vec<u32>) {
         self.flush();
         let Some(w) = self.windows.get_mut(id.0).and_then(|w| w.as_deref_mut()) else {
@@ -624,6 +626,19 @@ impl App {
             }
             let _s = span(Phase::Widgets);
             sys::BK_render(w.ctx, w.raster, pw, ph, 1);
+            // decodes this frame asked for: wait, then draw what arrived
+            let mut st = sys::BKImageStats::default();
+            sys::BK_image_stats(&raw mut st);
+            for _ in 0..10_000 {
+                if st.pending == 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_micros(200));
+                sys::BK_image_stats(&raw mut st);
+            }
+            if sys::BK_image_poll() > 0 {
+                sys::BK_render(w.ctx, w.raster, pw, ph, 0);
+            }
             let p = sys::BUI_raster_pixels(w.raster);
             std::slice::from_raw_parts(p, (pw * ph) as usize).to_vec()
         };

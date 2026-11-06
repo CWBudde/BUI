@@ -68,6 +68,7 @@ static LRESULT CALLBACK wake_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
   if (msg == WM_BK_WAKE) {
     InterlockedExchange(&g_wake_pending, 0); /* wakes after this point post again */
+    BK_image_poll(); /* decoded images: damage what shows them */
     if (g_wake_cb) {
       g_wake_cb();
     }
@@ -76,9 +77,8 @@ static LRESULT CALLBACK wake_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
   return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-int BK_window_wake_init(void (*cb)(void))
+int bk_window_wake_ready(void)
 {
-  g_wake_cb = cb;
   if (g_wake_hwnd) {
     return 1;
   }
@@ -90,6 +90,12 @@ int BK_window_wake_init(void (*cb)(void))
   g_wake_hwnd = CreateWindowExW(0, L"BUIKitWake", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL,
                                 wc.hInstance, NULL);
   return g_wake_hwnd != NULL;
+}
+
+int BK_window_wake_init(void (*cb)(void))
+{
+  g_wake_cb = cb;
+  return bk_window_wake_ready();
 }
 
 void BK_window_wake(void)

@@ -1,7 +1,7 @@
 ---
 title: Standalone executables
 sidebarLabel: Standalone executables
-description: Turn a JavaScript or React app into one executable of about 5 MB with bui build, or a full Bun executable with --bun. Plus the performance numbers behind the choice.
+description: Turn a JavaScript or React app into one executable of about 7 MB with bui build, or a full Bun executable with --bun. Plus the performance numbers behind the choice.
 section: JavaScript & React
 order: 40
 languages: ["javascript"]
@@ -9,7 +9,7 @@ badges: ["Windows x64 prebuilt"]
 sources: ["docs/javascript.md", "bindings/node/cli.js", "bindings/node/README.md", "bindings/react/README.md", "bindings/node/bench/startup.js", "bindings/node/bench/cells.js"]
 ---
 
-Your users shouldn't need Node.js to run your tool. **`bui build app.jsx` makes one executable of about 5 MB** that reaches its first frame in about 70 ms. Send them the file; they double-click it. That's the whole install.
+Your users shouldn't need Node.js to run your tool. **`bui build app.jsx` makes one executable of about 7 MB** that reaches its first frame in about 70 ms. Send them the file; they double-click it. That's the whole install.
 
 Under the hood it's BUI with a small JavaScript engine, [QuickJS](https://github.com/quickjs-ng/quickjs), built in. Your app's code is appended to it. Nothing is compiled per app, so a build takes well under a second.
 
@@ -42,7 +42,7 @@ Under the hood it's BUI with a small JavaScript engine, [QuickJS](https://github
 ## Commands and options
 
 ```sh
-npx bui build app.jsx            # app.exe: BUI + QuickJS, about 5 MB
+npx bui build app.jsx            # app.exe: BUI + QuickJS, about 7 MB
 npx bui build app.jsx --bun      # app.exe: a Bun executable, about 115 MB
 npx bui run app.jsx              # run on the QuickJS runtime, no executable
 ```
@@ -68,7 +68,7 @@ npx bui run app.jsx              # run on the QuickJS runtime, no executable
 
 <BenchChart id="js-first-frame" table="jsStartupJs" />
 
-The QuickJS executable is 4.9 MB against 114 MB for `--bun`, and it starts with less memory. The trade-off is speed: QuickJS is an interpreter, while Bun has a JIT.
+The QuickJS executable is 7.3 MB against 114 MB for `--bun`, and it starts with less memory. The trade-off is speed: QuickJS is an interpreter, while Bun has a JIT.
 
 No JIT matters less than it sounds, for two reasons:
 
@@ -82,7 +82,7 @@ No JIT matters less than it sounds, for two reasons:
 ## How it works
 
 1. **Bundle.** Bun bundles your entry and its packages into one script, with React's production build (unless `--dev`).
-2. **Append.** `bui` copies the prebuilt `bui-runtime` (BUI plus QuickJS, 4.9 MB), appends your script and a small trailer that marks where it starts.
+2. **Append.** `bui` copies the prebuilt `bui-runtime` (BUI plus QuickJS, 7.1 MB), appends your script and a small trailer that marks where it starts.
 3. **Mark it as an app.** On Windows, unless you pass `--console`, the executable is marked as a windowed app, so no console appears.
 
 When the executable starts, `bui-runtime` finds the script at its end and runs it.

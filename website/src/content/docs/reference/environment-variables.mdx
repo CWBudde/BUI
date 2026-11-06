@@ -1,0 +1,126 @@
+---
+title: Environment variables
+description: Every environment variable BUI reads, what it does, its values and default, and where in the source it's read.
+section: Reference
+order: 10
+sources: ["docs/getting-started.md", "kit/intern/kit_core.c", "gpu/intern/gpu_raster.c", "gpu/intern/gpu_d3d11.c", "gpu/intern/gpu_gl.c", "kit/intern/kit_frame.c", "kit/intern/kit_window_win32.c", "kit/intern/kit_window_x11.c", "kit/intern/kit_window_cocoa.m", "kit/intern/kit_fsmenu.c", "kit/intern/kit_filebrowser_posix.c", "kit/intern/kit_filebrowser_win32.c", "bindings/python/bui/__init__.py", "bindings/python/bui/host.py", "bindings/python/bui/theme.py", "bindings/python/bui/filebrowser.py", "bindings/rust/blenderui/src/prof.rs", "bindings/rust/blenderui-sys/build.rs", "bindings/rust/blenderui-qjs/src/main.rs", "bindings/node/index.js", "gpu/tests/test_gpu_parity.c", "bindings/imgui/tests/test_imgui_bui.cpp"]
+---
+
+Environment variables let you change how any BUI app runs without touching its code: switch renderers, pick the light theme, force a UI scale, swap the font, or print timings. Most are read by the C library, so they work the same from every language; a few are for one binding, and the tables say which.
+
+Set one for a single run like this:
+
+<Tabs sync="shell">
+<Tab label="Linux and macOS">
+
+```sh
+BUI_GPU=1 python my_app.py
+```
+
+</Tab>
+<Tab label="PowerShell">
+
+```sh
+$env:BUI_GPU = "1"; python my_app.py
+```
+
+</Tab>
+<Tab label="cmd.exe">
+
+```sh
+set BUI_GPU=1 && python my_app.py
+```
+
+</Tab>
+</Tabs>
+
+**Variables usually win over code.** Where a variable and an API call set the same thing (`BUI_GPU` and `bui.set_gpu()`, say), the variable takes precedence over the app-wide setting, so you can override an app from outside. `BUI_THEME` is the exception: it's only the starting theme.
+
+**On/off values.** For the on/off variables below, BUI looks at the first character: `1`, `y`, `Y`, `t` or `T` means on, anything else means off, and an empty or unset variable means "not set". So `BUI_GPU=yes` and `BUI_GPU=true` work too. The exceptions are noted.
+
+## Rendering
+
+| Variable | Values | Default | What it does | Read in |
+| --- | --- | --- | --- | --- |
+| `BUI_GPU` | on / off | Off (or what the code asked for) | Draws native windows on the GPU: Direct3D 11 on Windows, OpenGL 3.3 on Linux. `BUI_GPU=0` forces the software raster. Overrides the app-wide defaults: `bui.set_gpu()`, `Application::gpu()` and `BUI_gpu_set_default()`. A window that asks for the GPU itself (`Tk(gpu=True)`, `WindowOptions { gpu: Some(true) }`, `BK_window_set_gpu`) still gets it. | `gpu/intern/gpu_raster.c` |
+| `BUI_SLUG` | on / off | On (the CMake `BUI_SLUG` option) | How the GPU draws text: `1` from glyph outlines (Slug), `0` from a per-glyph bitmap atlas. Overrides `bui.set_slug()`, `.slug()` and `BUI_gpu_set_slug()`. Read once per process. | `gpu/intern/gpu_raster.c` |
+| `BUI_GPU_DEBUG` | `1` | Unset | Prints to stderr why the GPU renderer couldn't start (and, on Linux, what it runs on). Only `1` turns it on. | `gpu/intern/gpu_d3d11.c`, `gpu/intern/gpu_gl.c` |
+| `BUI_GPU_WARP` | `1` | Unset | Windows: creates the Direct3D 11 device on WARP, Windows' software rasterizer, instead of the graphics card. Useful in VMs and CI. Only `1` turns it on. | `gpu/intern/gpu_d3d11.c` |
+| `BUI_GPU_MAX_TEXTURE` | A number of pixels, 64 or more | The device's limit | Testing: the largest texture side the GPU renderers give one image; images over it are tiled, as on devices with a small limit (the GPU parity test uses 512). | `gpu/intern/gpu_d3d11.c`, `gpu/intern/gpu_gl.c` |
+| `BUI_GPU_EGL` | `default`, `surfaceless` | Surfaceless first, then default | Linux: which EGL platform offscreen GPU rendering uses (tests, screenshots). | `gpu/intern/gpu_gl.c` |
+| `BUI_RASTER_THREADS` | A number, 1 to 8 | The processor count, capped at 8 | Windows: the most threads the software raster uses for big canvases. `1` forces one thread. Elsewhere, canvases draw on one thread. | `kit/intern/kit_frame.c` |
+| `BUI_PROFILE` | Any value | Unset | Prints frame times to stderr every 60 frames: per-phase times in Rust and JavaScript, raster and present times in the Windows native host. **Any** value turns it on, even `0`. | `bindings/rust/blenderui/src/prof.rs`, `kit/intern/kit_window_win32.c` |
+
+## Windows and display
+
+| Variable | Values | Default | What it does | Read in |
+| --- | --- | --- | --- | --- |
+| `BUI_UI_SCALE` | A number, such as `1.25` or `1.5` | The display's scale | Fixes the UI scale instead of following the monitor's DPI. `1` means Blender's default size (20 px widgets). Clamped to 0.5–4. | `kit/intern/kit_window_win32.c`, `kit_window_x11.c`, `kit_window_cocoa.m`, `bindings/python/bui/theme.py` |
+| `BUI_THEME` | `dark` or `light` (any case; `Blender Light` works too) | `dark` | Picks Blender's Dark or Light theme for the whole process, when the app doesn't choose one itself (`bui.set_theme()`, `blenderui::set_theme()` / `Application::theme()`, `new App({ theme })`, `BK_set_theme()`). Here **the code wins**: an explicit call replaces it. See [Theming](../../concepts/theming/). | `kit/intern/kit_core.c` |
+| `BUI_HOST` | `tk` | Native where available | Python: forces the stdlib Tk window even where a native host exists. | `bindings/python/bui/host.py` |
+| `BUI_MAC_TK` | `0` | `1` | Python on macOS: `0` skips starting a hidden Tk root before the first native window (it's there so Tk and the Cocoa host can share one `NSApplication`). | `bindings/python/bui/host.py` |
+
+## Text and fonts
+
+| Variable | Values | Default | What it does | Read in |
+| --- | --- | --- | --- | --- |
+| `BUI_FONT` | A path to a `.ttf`, `.otf` or `.ttc` file | Unset (embedded Inter) | Replaces the embedded Inter as the default UI face. | `gpu/intern/gpu_raster.c` |
+| `BUI_FONT_DIR` | A folder | Unset | An extra font folder, searched before the system's. | `gpu/intern/gpu_raster.c` |
+
+## File dialogs
+
+| Variable | Values | Default | What it does | Read in |
+| --- | --- | --- | --- | --- |
+| `BUI_FILEDIALOG` | `native`, `system` or `tk` | Unset (Blender's File Browser) | Python: `tkinter.filedialog` and `QFileDialog` use the operating system's dialogs instead of Blender's File Browser. Not case-sensitive. | `bindings/python/bui/filebrowser.py` |
+| `BUI_BOOKMARKS` | A file path | `$XDG_CONFIG_HOME/bui/bookmarks.txt` (or `~/.config/bui/bookmarks.txt`); on Windows `%APPDATA%\bui\bookmarks.txt` | Where the File Browser saves its bookmarks. | `kit/intern/kit_fsmenu.c` |
+
+## Python
+
+| Variable | Values | Default | What it does | Read in |
+| --- | --- | --- | --- | --- |
+| `BUIPY_BUILD_DIR` | A folder | Searches `build*/bindings/python` in the checkout | Running from a source checkout: the folder that holds the built `buipy` extension. Without it, `import bui` uses the most recently built extension it finds. The extension must match your Python version. | `bindings/python/bui/__init__.py` |
+
+## JavaScript
+
+| Variable | Values | Default | What it does | Read in |
+| --- | --- | --- | --- | --- |
+| `BUI_NODE_ADDON` | A path to a `.node` file | The bundled `blenderui.<platform>-<arch>.node` | `@blender-ui/native`: loads this native addon instead. Handy when you built the addon yourself. | `bindings/node/index.js` |
+| `BUI_HEADLESS` | `1` | Unset | Apps built with `bui build`, and `bui run`: render off-screen, without windows (for tests). Same as `--headless`. | `bindings/rust/blenderui-qjs/src/main.rs` |
+| `NODE_ENV` | `production` | Depends on your tools | Not BUI's own, but it matters: React's development build is much heavier. Measure with `production`. | React |
+
+## Building from source
+
+These are read while building, not at run time.
+
+| Variable | Values | What it does | Read in |
+| --- | --- | --- | --- |
+| `BUI_SOURCE_DIR` | A folder | Rust: build the C library from this checkout instead of the surrounding repository or the vendored `csrc/` | `bindings/rust/blenderui-sys/build.rs` |
+| `BUI_TEXT_GDI` | `1` | Rust: build with Windows' GDI text engine, like the `gdi-text` feature | `bindings/rust/blenderui-sys/build.rs` |
+| `GPUI_FXC_PATH` | Path to `fxc.exe` | The Rust benchmark: gpui needs the Windows SDK's shader compiler | `bindings/rust/bench/README.md` |
+
+## Tests and examples
+
+| Variable | Values | What it does | Read in |
+| --- | --- | --- | --- |
+| `BUI_PARITY_PPM` | A folder | The GPU parity test writes the CPU frame, the GPU frame and their difference as images there | `gpu/tests/test_gpu_parity.c` |
+| `BUI_IMGUI_SHOT` | A folder | The Dear ImGui test writes PNG screenshots (CPU and GPU) there | `bindings/imgui/tests/test_imgui_bui.cpp` |
+| `BUI_IMGUI_TRACE` | Any value | The Dear ImGui demo and test print a line per render (frame count, animating) | `examples/imgui_demo.cpp`, `bindings/imgui/tests/test_imgui_bui.cpp` |
+| `BUI_EXAMPLE_SECONDS` | A number | The JavaScript and React counter examples quit after this many seconds | `bindings/node/examples/counter.js`, `bindings/react/examples/counter.jsx` |
+
+<Callout type="note" title="FreeType's own variables">
+BUI vendors FreeType, which reads a few variables of its own (such as `FREETYPE_PROPERTIES`). BUI doesn't rely on them; see FreeType's documentation if you need them.
+</Callout>
+
+## Next steps
+
+<CardGrid>
+  <Card title="CMake options" href="docs/reference/cmake-options/" icon="terminal" kicker="Reference">
+    What you can choose when you build BUI.
+  </Card>
+  <Card title="Rendering" href="docs/concepts/rendering/" icon="cpu" kicker="Concepts">
+    What <code>BUI_GPU</code> and <code>BUI_SLUG</code> switch between.
+  </Card>
+  <Card title="Profiling" href="docs/performance/profiling/" icon="clock" kicker="Performance">
+    Reading <code>BUI_PROFILE</code>'s output.
+  </Card>
+</CardGrid>

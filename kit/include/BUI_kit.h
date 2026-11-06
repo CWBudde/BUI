@@ -241,6 +241,91 @@ double BK_geom_get(const BKNode *child, const char *key);
 /* Frame grid weights (Tk columnconfigure / Qt setColumnStretch). */
 void BK_frame_grid_weight(BKNode *frame, int column_axis, int index, double weight, int minsize);
 
+/* -- images (kit/intern/image: Blender's imbuf design) ----------------------------------
+ * One decoder per format for every binding: PNG, GIF (animated), BMP, TGA, QOI, PNM
+ * (Wuffs), JPEG (libjpeg-turbo, DCT-scaled thumbnails, EXIF orientation), WebP
+ * (libwebp: lossy, lossless, animated), Radiance HDR, SVG (nanosvg; BUI_IMAGE_SVG).
+ * Pixels are premultiplied 0xAARRGGBB, decoded at the size they are drawn.
+ * Synchronous decodes run on any thread; the cache and loader are UI-thread APIs. */
+typedef struct BKImBuf BKImBuf;
+enum {
+  BK_IMAGE_NONE = 0,
+  BK_IMAGE_PNG,
+  BK_IMAGE_JPEG,
+  BK_IMAGE_WEBP,
+  BK_IMAGE_GIF,
+  BK_IMAGE_BMP,
+  BK_IMAGE_TGA,
+  BK_IMAGE_QOI,
+  BK_IMAGE_HDR,
+  BK_IMAGE_PNM,
+  BK_IMAGE_SVG,
+};
+/* CSS object-fit */
+enum { BK_FIT_FILL = 0, BK_FIT_CONTAIN, BK_FIT_COVER, BK_FIT_NONE, BK_FIT_SCALE_DOWN };
+typedef struct BKImageInfo {
+  int format; /* BK_IMAGE_* */
+  int width, height, frames;
+} BKImageInfo;
+/* Header only (no pixels): 0 when the data is not an image BUI reads. */
+int BK_image_probe(const void *data, size_t len, BKImageInfo *r_info);
+int BK_image_probe_file(const char *path, BKImageInfo *r_info);
+const char *BK_image_format_name(int format); /* "png", NULL for unknown */
+/* Decode (any thread). max_w/max_h: fit within, never upscaled; 0 = no limit.
+ * NULL on failure. Free with BK_imbuf_free. */
+BKImBuf *BK_imbuf_decode(const void *data, size_t len, int max_w, int max_h);
+BKImBuf *BK_imbuf_load(const char *path, int max_w, int max_h);
+BKImBuf *BK_imbuf_from_rgba(const unsigned char *rgba, int w, int h, int stride); /* straight RGBA */
+BKImBuf *BK_imbuf_from_argb(const uint32_t *argb, int w, int h); /* premultiplied */
+void BK_imbuf_free(BKImBuf *ib);
+int BK_imbuf_size(const BKImBuf *ib, int *r_w, int *r_h); /* returns the frame count */
+int BK_imbuf_format(const BKImBuf *ib);
+const uint32_t *BK_imbuf_pixels(const BKImBuf *ib, int frame); /* premultiplied 0xAARRGGBB */
+int BK_imbuf_delay(const BKImBuf *ib, int frame); /* ms; 0 for stills */
+int BK_imbuf_loops(const BKImBuf *ib);            /* 0 = forever */
+int BK_imbuf_rgba(const BKImBuf *ib, int frame, unsigned char *dst); /* straight RGBA, w*h*4 */
+/* Frame `frame` alone (GIF / animated WebP decode up to it; stills: frame 0). */
+BKImBuf *BK_imbuf_decode_frame(const void *data, size_t len, int frame, int max_w, int max_h);
+/* A BUI_texture_* (RGBA) holding a frame, for Dear ImGui and textured meshes;
+ * free with BUI_texture_free. 0 on failure. */
+int BK_imbuf_texture(const BKImBuf *ib, int frame);
+/* Replaces texture `tex` (same size) with a frame: an animation's next one. */
+int BK_imbuf_texture_update(const BKImBuf *ib, int frame, int tex);
+
+/* An animation stepped by the caller (GIF, animated WebP): one frame at a
+ * time at the size drawn (fit within max_w x max_h; 0 = free), looping.
+ * The data is copied. NULL when it is not an animation BUI reads. */
+typedef struct BKAnim BKAnim;
+BKAnim *BK_anim_open(const void *data, size_t len, int max_w, int max_h);
+/* The next frame (yours: BK_imbuf_free) and how long to show it; NULL on errors. */
+BKImBuf *BK_anim_next(BKAnim *anim, int *r_delay_ms);
+/* Intrinsic size and loop count (0 = forever); returns the frame count. */
+int BK_anim_info(const BKAnim *anim, int *r_w, int *r_h, int *r_loops);
+void BK_anim_free(BKAnim *anim);
+
+/* The shared cache and loader. Sources (file paths) decode on a few worker
+ * threads at the size they are drawn, visible first; results arrive on the UI
+ * thread (the window loop wakes for them) and redraw only where they show. */
+typedef struct BKImageStats {
+  size_t bytes, budget; /* decoded pixels held / the budget */
+  int entries, pending; /* cached entries, decodes queued or running */
+  int decoded, failed, cancelled, evicted; /* since start (or BK_image_exit) */
+  double decode_ms; /* time the workers spent decoding, since the process started */
+} BKImageStats;
+void BK_image_set_budget(size_t bytes); /* default 256 MiB */
+void BK_image_set_threads(int n);       /* 0 = cores - 1, at most 4; before the first request */
+/* Called on a worker thread when results are ready (default: BK_window_wake).
+ * Hosts with their own loop call BK_image_poll from it. */
+void BK_image_set_notify(void (*notify)(void *data), void *data);
+int BK_image_poll(void); /* hands finished decodes to the cache; returns how many */
+void BK_image_stats(BKImageStats *r_stats);
+/* Intrinsic size of a source from its header (read once): layout without pixels. */
+int BK_image_info(const char *src, BKImageInfo *r_info);
+/* Decode ahead (lower priority than what is drawn): rows a list will show next. */
+void BK_image_prefetch(const char *src, int w, int h, int fit);
+void BK_image_clear_cache(void); /* drops every settled entry */
+void BK_image_exit(void);        /* joins the workers, frees the cache */
+
 /* -- canvas (Tk Canvas, QPainter) -------------------------------------------------- */
 enum { BK_ITEM_RECT, BK_ITEM_OVAL, BK_ITEM_LINE, BK_ITEM_POLYGON, BK_ITEM_TEXT, BK_ITEM_ARC,
        BK_ITEM_IMAGE, BK_ITEM_ROUNDRECT };
@@ -261,6 +346,15 @@ typedef struct BKCanvasItem {
   float clip[4];
   const char *family; /* text font family; NULL = the UI font. Not copied:
                          it must outlive the item (e.g. a static string) */
+  /* Images: exactly one of rgba (copied), imbuf (borrowed: must outlive the
+   * item) or src (a file, decoded through the cache at the box size). With
+   * 4 coords the image is fitted into the box x0 y0 x1 y1 by `fit`; with 2 it
+   * is drawn at its intrinsic size, placed by `anchor`. */
+  const BKImBuf *imbuf;
+  const char *src;
+  int fit;   /* BK_FIT_* */
+  int frame; /* animated src: 0 plays (each frame for its delay, looping as the file
+              * says; paused while off screen); n > 0 shows frame n - 1 */
 } BKCanvasItem;
 void BK_canvas_set_item(BKNode *canvas, const BKCanvasItem *item); /* insert or replace by id */
 void BK_canvas_add_item(BKNode *canvas, const BKCanvasItem *item);
@@ -273,8 +367,13 @@ void BK_canvas_delete(BKNode *canvas, int id);                     /* id < 0: al
 void BK_canvas_raise(BKNode *canvas, int id, int to_top);
 int BK_canvas_count(BKNode *canvas);
 
-/* Images on labels/buttons (RGBA). */
+/* Images on labels/buttons (drawn at their size) and "image" nodes (fitted):
+ * straight RGBA (copied), a borrowed BKImBuf, or a source decoded through the cache. */
 void BK_node_set_image(BKNode *node, const unsigned char *rgba, int w, int h);
+void BK_node_set_imbuf(BKNode *node, const BKImBuf *ib);
+void BK_node_set_image_source(BKNode *node, const char *src, int fit);
+/* Animated sources play (0, the default) or show frame n - 1 (n > 0: paused). */
+void BK_node_set_image_frame(BKNode *node, int frame);
 
 /* -- custom nodes ("custom") ------------------------------------------------------------
  * A node whose drawing and input belong to the host: other UI systems embedded
@@ -376,7 +475,7 @@ int BK_undo_depth(BKContext *ctx, int *r_redo);
 /* -- animation (panel open/close) --------------------------------------------------------------
  * While BK_animating() is non-zero the host should keep rendering frames. */
 int BK_animating(BKContext *ctx);
-void BK_set_animations(int enabled);
+void BK_set_animations(int enabled); /* also animated images (off: reduced motion) */
 
 /* -- context ------------------------------------------------------------------- */
 BKContext *BK_context_new(BKNode *root);

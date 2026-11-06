@@ -26,6 +26,23 @@ function check (stdout, runtime) {
   return r
 }
 
+/** The runtime `bui build` copies (as cli.js finds it). */
+function runtimeFile () {
+  const exe = process.platform === 'win32' ? '.exe' : ''
+  const shipped = path.join(__dirname, '..', `bui-runtime.${process.platform}-${process.arch}${exe}`)
+  if (fs.existsSync(shipped)) return shipped
+  for (const profile of ['dist', 'release']) {
+    const built = path.join(__dirname, '../../rust/target', profile, `bui-runtime${exe}`)
+    if (fs.existsSync(built)) return built
+  }
+  return null
+}
+
+// bui-runtime (BUI + QuickJS, its image decoders included) measured 7,097,856
+// bytes on Windows x64 (`npm run build`: the dist profile, fat LTO). The budget is
+// that plus 5 %: growth past it should be a decision, not an accident.
+const RUNTIME_BUDGET = { 'win32-x64': Math.round(7097856 * 1.05) }
+
 function exec (file, args = []) {
   const r = spawnSync(file, args, { encoding: 'utf8', env: { ...process.env, BUI_HEADLESS: '1' }, timeout: 60000 })
   assert.strictEqual(r.status, 0, `${file} failed: ${r.stderr}`)
@@ -36,8 +53,18 @@ test('bui build: a QuickJS executable of a few MB runs the React app', { skip: !
   const out = path.join(dir, `react-app${process.platform === 'win32' ? '.exe' : ''}`)
   const b = spawnSync(process.execPath, [cli, 'build', app, '-o', out, '--console'], { encoding: 'utf8' })
   assert.strictEqual(b.status, 0, b.stderr)
-  const size = fs.statSync(out).size / 1048576
-  assert.ok(size < 8, `small: ${size.toFixed(1)} MB`)
+  // the executable is the runtime, the app's bundle and a 16-byte trailer
+  // (cli.js build): bui build adds nothing else
+  const exe = fs.readFileSync(out)
+  const trailer = exe.subarray(exe.length - 16)
+  assert.strictEqual(trailer.subarray(0, 8).toString(), 'BUIAPP01')
+  const bundle = Number(trailer.readBigUInt64LE(8))
+  const runtime = fs.statSync(runtimeFile()).size
+  assert.strictEqual(exe.length, runtime + bundle + 16)
+  const budget = RUNTIME_BUDGET[`${process.platform}-${process.arch}`]
+  if (budget && runtimeFile().endsWith(`bui-runtime.${process.platform}-${process.arch}.exe`)) {
+    assert.ok(runtime <= budget, `runtime ${runtime} bytes, budget ${budget}`)
+  }
   check(exec(out), 'quickjs')
 })
 

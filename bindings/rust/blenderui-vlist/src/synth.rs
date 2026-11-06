@@ -42,7 +42,7 @@ pub fn message(i: u64) -> Message {
         text.push_str(WORDS[(x % WORDS.len() as u64) as usize]);
     }
     let media_h = if (h >> 40).is_multiple_of(40) { 120 + ((h >> 48) % 100) as u16 } else { 0 };
-    Message { id: i + 1, time, sender, flags: 0, media_h, text }
+    Message { id: i + 1, time, sender, flags: 0, media_h, text, media: String::new() }
 }
 
 /// The classified messages `from..to`.

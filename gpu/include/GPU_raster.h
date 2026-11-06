@@ -121,9 +121,39 @@ typedef struct BuiWidgetBase {
 
 void BUI_raster_widget_base(BuiRaster *r, const BuiWidgetBase *params);
 
-/* Image (0xAARRGGBB, iw x ih) scaled into x, y, w, h (nearest), alpha blended. */
-void BUI_raster_image(BuiRaster *r, float x, float y, float w, float h, const uint32_t *argb,
-                      int iw, int ih, float alpha);
+/* A premultiplied 0xAARRGGBB image (rows top-down, stride w): the layout of
+ * the frame itself and of the GPU atlas, so drawing needs no conversion.
+ * `key` names the pixels for the GPU renderers' atlas: nonzero and unique
+ * per content (the kit's BKImBuf keys); 0 hashes the pixels at each draw
+ * (small, short-lived images). */
+typedef struct BuiPixmap {
+  const uint32_t *px;
+  int w, h;
+  uint64_t key;
+} BuiPixmap;
+enum {
+  BUI_IMAGE_NEAREST = 1 << 0, /* nearest texel (CSS image-rendering: pixelated); else bilinear */
+};
+/* Draws the `src` part of `img` (x, y, w, h in image pixels; NULL = all of
+ * it) into x, y, w, h, filtered, times `alpha`, premultiplied source-over.
+ * 1:1 on whole pixels is an exact copy. */
+void BUI_raster_image(BuiRaster *r,
+                      float x,
+                      float y,
+                      float w,
+                      float h,
+                      const BuiPixmap *img,
+                      const float src[4],
+                      float alpha,
+                      int flags);
+
+/* The pixels named `key` (BuiPixmap.key) are gone for good: GPU renderers
+ * free their copy (images too big for the atlas keep a texture of their own).
+ * Any thread. The kit calls it when it frees a decoded image. */
+void BUI_image_forget(uint64_t key);
+/* Images up to this many pixels on a side share the GPU atlas; bigger ones
+ * get a texture of their own (forget those with BUI_image_forget). */
+#define BUI_IMAGE_ATLAS_MAX 2047
 
 /* end_frame that only diffs the given region (everything else is known to
  * be unchanged): partial redraws cost O(region), not O(window). */

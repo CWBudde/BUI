@@ -92,10 +92,23 @@ typedef struct SlugGlyph {
 typedef struct Batch {
   int tri; /* 0: quad instances, 1: triangles, 2: textured mesh (indexed) */
   int first, count;
+  int img; /* quads: the RGBA texture their images sample (-1 none yet, 0 atlas, n: big[n - 1]) */
   /* meshes: texture (0: white), sampler, scissor x0 y0 x1 y1 */
   int tex, nearest;
   int clip[4];
 } Batch;
+
+/* An image too big for the atlas, in a texture of its own. */
+#  define BIG_MAX 32
+#  define BIG_BUDGET ((size_t)256 << 20) /* bytes of big-image textures kept */
+#  define BIG_IDLE 120                   /* frames unused before one is freed */
+typedef struct BigTex {
+  uint64_t key, base; /* 0 = empty */
+  int w, h;
+  unsigned used; /* the frame it was last drawn in */
+  ID3D11Texture2D *tex;
+  ID3D11ShaderResourceView *srv;
+} BigTex;
 
 /* A registry texture (BUI_texture_*) on this device, by registry slot. */
 typedef struct DevTex {
@@ -144,6 +157,10 @@ struct BuiGpu {
   int w, h; /* frame size */
 
   Atlas mask, rgba;
+  BigTex big[BIG_MAX];
+  size_t big_bytes;
+  unsigned frame, forget_seen;
+  int max_tex; /* the feature level's largest texture side */
   Slot *mask_map, *img_map;
   int mask_n, img_n;
   unsigned mask_gen;
@@ -284,6 +301,11 @@ static int device_init(BuiGpu *g)
   }
   if (FAILED(hr)) {
     return fail("D3D11CreateDevice", hr);
+  }
+  g->max_tex = got >= D3D_FEATURE_LEVEL_11_0 ? D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION : 8192;
+  const char *max_env = getenv("BUI_GPU_MAX_TEXTURE"); /* tests: force tiling */
+  if (max_env && atoi(max_env) >= 64) {
+    g->max_tex = atoi(max_env) < g->max_tex ? atoi(max_env) : g->max_tex;
   }
   IDXGIDevice *xd = NULL;
   IDXGIAdapter *ad = NULL;
@@ -459,6 +481,10 @@ void bui_gpu_free(BuiGpu *g)
   REL(g->mask.tex);
   REL(g->rgba.srv);
   REL(g->rgba.tex);
+  for (int i = 0; i < BIG_MAX; i++) {
+    REL(g->big[i].srv);
+    REL(g->big[i].tex);
+  }
   REL(g->curve_srv);
   REL(g->curve_tex);
   REL(g->band_srv);
@@ -514,17 +540,29 @@ void bui_gpu_free(BuiGpu *g)
 
 static void flush(BuiGpu *g);
 
+static void big_sweep(BuiGpu *g);
+
 void bui_gpu_begin(BuiGpu *g, int w, int h)
 {
   g->w = w > 0 ? w : 1;
   g->h = h > 0 ? h : 1;
+  g->frame++;
+  big_sweep(g);
 }
 
+static Batch *batch_new(BuiGpu *g, int tri, int first);
+
+/* The batch to append to: the last one when it is of the same kind. */
 static Batch *batch_for(BuiGpu *g, int tri, int first)
 {
   if (tri != 2 && g->n_b > 0 && g->b[g->n_b - 1].tri == tri) {
     return &g->b[g->n_b - 1];
   }
+  return batch_new(g, tri, first);
+}
+
+static Batch *batch_new(BuiGpu *g, int tri, int first)
+{
   if (g->n_b == g->cap_b) {
     const int cap = g->cap_b ? g->cap_b * 2 : 64;
     Batch *nb = (Batch *)realloc(g->b, sizeof(Batch) * (size_t)cap);
@@ -538,6 +576,7 @@ static Batch *batch_for(BuiGpu *g, int tri, int first)
   memset(b, 0, sizeof(*b));
   b->tri = tri;
   b->first = first;
+  b->img = -1;
   return b;
 }
 
@@ -731,7 +770,29 @@ void bui_gpu_mesh(BuiGpu *g,
   b->count += n;
 }
 
+/* Appends an instance to quad batch `b`. */
+static BuiGpuInst *inst_in(BuiGpu *g, Batch *b, int kind, int x0, int y0, int x1, int y1);
+
+BuiGpuInst *bui_gpu_inst_image(BuiGpu *g, int tex, int x0, int y0, int x1, int y1)
+{
+  Batch *b = g->n_b > 0 ? &g->b[g->n_b - 1] : NULL;
+  if (!b || b->tri != 0 || (b->img >= 0 && b->img != tex)) {
+    b = batch_new(g, 0, g->n_inst); /* another texture: another draw */
+  }
+  if (!b) {
+    return NULL;
+  }
+  b->img = tex;
+  return inst_in(g, b, BG_IMAGE, x0, y0, x1, y1);
+}
+
 BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1)
+{
+  Batch *b = batch_for(g, 0, g->n_inst);
+  return b ? inst_in(g, b, kind, x0, y0, x1, y1) : NULL;
+}
+
+static BuiGpuInst *inst_in(BuiGpu *g, Batch *b, int kind, int x0, int y0, int x1, int y1)
 {
   if (g->n_inst == g->cap_inst) {
     const int cap = g->cap_inst ? g->cap_inst * 2 : 1024;
@@ -741,10 +802,6 @@ BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1)
     }
     g->inst = ni;
     g->cap_inst = cap;
-  }
-  Batch *b = batch_for(g, 0, g->n_inst);
-  if (!b) {
-    return NULL;
   }
   b->count++;
   BuiGpuInst *in = &g->inst[g->n_inst++];
@@ -1095,7 +1152,7 @@ static void img_reset(BuiGpu *g)
   g->img_n = 0;
 }
 
-int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *r_y)
+int bui_gpu_image(BuiGpu *g, uint64_t key, const uint32_t *argb, int w, int h, int *r_x, int *r_y)
 {
   if (!g->rgba.tex && !atlas_create(g, &g->rgba, 2048, 4)) {
     return 0;
@@ -1103,13 +1160,8 @@ int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *
   if (w + 1 > g->rgba.size || h + 1 > g->rgba.size) {
     return 0; /* TODO: images larger than the atlas */
   }
-  /* content hash: an image updated in place gets a new entry */
-  uint64_t hsh = 1469598103934665603ull;
-  const size_t n = (size_t)w * h;
-  for (size_t i = 0; i < n; i++) {
-    hsh = (hsh ^ argb[i]) * 1099511628211ull;
-  }
-  const uint64_t k1 = hsh | 1, k2 = ((uint64_t)w << 32) | (uint32_t)h;
+  /* key: BuiPixmap.key or its content hash (gpu_raster.c), with the size */
+  const uint64_t k1 = key, k2 = ((uint64_t)w << 32) | (uint32_t)h;
   uint32_t idx = (uint32_t)mix64(k1) & (IMG_MAP - 1);
   for (;;) {
     Slot *s = &g->img_map[idx];
@@ -1126,7 +1178,7 @@ int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *
   int x, y;
   if (g->img_n >= IMG_MAP_FILL || !atlas_place(&g->rgba, w, h, &x, &y)) {
     img_reset(g);
-    return bui_gpu_image(g, argb, w, h, r_x, r_y);
+    return bui_gpu_image(g, key, argb, w, h, r_x, r_y);
   }
   atlas_upload(g, &g->rgba, x, y, w, h, argb, w * 4);
   Slot *s = &g->img_map[idx];
@@ -1138,6 +1190,104 @@ int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *
   *r_x = x;
   *r_y = y;
   return 1;
+}
+
+/* -- big images: textures of their own ------------------------------------------------ */
+
+static void big_release(BuiGpu *g, BigTex *t)
+{
+  if (t->srv) {
+    g->big_bytes -= (size_t)t->w * t->h * 4;
+  }
+  REL(t->srv);
+  REL(t->tex);
+  memset(t, 0, sizeof(*t));
+}
+
+/* Frees what the kit freed (BUI_image_forget) and what went unused. */
+static void big_sweep(BuiGpu *g)
+{
+  uint64_t gone[64];
+  const int n = bui_image_forgotten(&g->forget_seen, gone, 64); /* -1: missed some */
+  for (int i = 0; i < BIG_MAX; i++) {
+    BigTex *t = &g->big[i];
+    if (!t->key) {
+      continue;
+    }
+    int drop = g->frame - t->used > BIG_IDLE || (n < 0 && t->used != g->frame);
+    for (int k = 0; k < n && !drop; k++) {
+      drop = gone[k] == t->base;
+    }
+    if (drop) {
+      big_release(g, t);
+    }
+  }
+}
+
+int bui_gpu_max_texture(BuiGpu *g)
+{
+  return g->max_tex > 0 ? g->max_tex : 8192;
+}
+
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
+                      int w, int h)
+{
+  if (w <= 0 || h <= 0 || w > bui_gpu_max_texture(g) || h > bui_gpu_max_texture(g)) {
+    return 0;
+  }
+  int free_slot = -1, lru = -1;
+  for (int i = 0; i < BIG_MAX; i++) {
+    BigTex *t = &g->big[i];
+    if (t->key == key && t->w == w && t->h == h) {
+      t->used = g->frame;
+      return i + 1;
+    }
+    if (!t->key) {
+      free_slot = free_slot < 0 ? i : free_slot;
+    }
+    else if (t->used != g->frame && (lru < 0 || t->used < g->big[lru].used)) {
+      lru = i; /* not drawn this frame: no recorded batch samples it */
+    }
+  }
+  const size_t bytes = (size_t)w * h * 4;
+  while (lru >= 0 && (free_slot < 0 || g->big_bytes + bytes > BIG_BUDGET)) {
+    big_release(g, &g->big[lru]);
+    free_slot = free_slot < 0 ? lru : free_slot;
+    lru = -1;
+    for (int i = 0; i < BIG_MAX; i++) {
+      const BigTex *t = &g->big[i];
+      if (t->key && t->used != g->frame && (lru < 0 || t->used < g->big[lru].used)) {
+        lru = i;
+      }
+    }
+  }
+  if (free_slot < 0) {
+    return 0;
+  }
+  BigTex *t = &g->big[free_slot];
+  D3D11_TEXTURE2D_DESC td = {0};
+  td.Width = (UINT)w;
+  td.Height = (UINT)h;
+  td.MipLevels = td.ArraySize = 1;
+  td.Format = DXGI_FORMAT_B8G8R8A8_UNORM; /* 0xAARRGGBB in memory order */
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D11_USAGE_IMMUTABLE;
+  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+  D3D11_SUBRESOURCE_DATA init = {argb, (UINT)stride * 4, 0};
+  if (FAILED(ID3D11Device_CreateTexture2D(g->dev, &td, &init, &t->tex)) ||
+      FAILED(ID3D11Device_CreateShaderResourceView(g->dev, (ID3D11Resource *)t->tex, NULL,
+                                                   &t->srv)))
+  {
+    REL(t->tex);
+    return 0;
+  }
+  t->key = key;
+  t->base = base;
+  t->w = w;
+  t->h = h;
+  t->used = g->frame;
+  g->big_bytes += bytes;
+  return free_slot + 1;
 }
 
 void bui_gpu_damage(BuiGpu *g, int x, int y, int w, int h)
@@ -1267,7 +1417,7 @@ static void flush(BuiGpu *g)
   ID3D11ShaderResourceView *srv[4] = {g->mask.srv, g->rgba.srv, g->curve_srv, g->band_srv};
   ID3D11DeviceContext_PSSetShaderResources(c, 0, 4, srv);
 
-  int cur = -1;
+  int cur = -1, img = 0;
   for (int i = 0; i < g->n_b; i++) {
     const Batch *b = &g->b[i];
     if (b->count == 0) {
@@ -1315,6 +1465,12 @@ static void flush(BuiGpu *g)
       ID3D11DeviceContext_DrawIndexed(c, (UINT)b->count, (UINT)b->first, 0);
     }
     else if (!b->tri) {
+      const int want = b->img > 0 && g->big[b->img - 1].srv ? b->img : 0;
+      if (want != img) { /* t1: the atlas, or a big image's own texture */
+        img = want;
+        ID3D11ShaderResourceView *t1 = img ? g->big[img - 1].srv : g->rgba.srv;
+        ID3D11DeviceContext_PSSetShaderResources(c, 1, 1, &t1);
+      }
       ID3D11DeviceContext_DrawInstanced(c, 4, (UINT)b->count, 0, (UINT)b->first);
     }
     else {
@@ -1485,6 +1641,33 @@ void bui_gpu_begin(BuiGpu *g, int w, int h)
   (void)w;
   (void)h;
 }
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
+                      int w, int h)
+{
+  (void)g;
+  (void)key;
+  (void)base;
+  (void)argb;
+  (void)stride;
+  (void)w;
+  (void)h;
+  return 0;
+}
+int bui_gpu_max_texture(BuiGpu *g)
+{
+  (void)g;
+  return 0;
+}
+BuiGpuInst *bui_gpu_inst_image(BuiGpu *g, int tex, int x0, int y0, int x1, int y1)
+{
+  (void)g;
+  (void)tex;
+  (void)x0;
+  (void)y0;
+  (void)x1;
+  (void)y1;
+  return NULL;
+}
 BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1)
 {
   (void)g;
@@ -1508,9 +1691,10 @@ int bui_gpu_mask(BuiGpu *g, const void *key, unsigned gen, const uint8_t *mask, 
   (void)r_y;
   return 0;
 }
-int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *r_y)
+int bui_gpu_image(BuiGpu *g, uint64_t key, const uint32_t *argb, int w, int h, int *r_x, int *r_y)
 {
   (void)g;
+  (void)key;
   (void)argb;
   (void)w;
   (void)h;

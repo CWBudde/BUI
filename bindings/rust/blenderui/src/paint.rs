@@ -13,71 +13,209 @@ use crate::style::{BorderStyle, BoxEdge, Computed, DecoStyle, DisplayKind, TextA
 use crate::text::{self, TextCache};
 use blenderui_sys as sys;
 
-/// RGBA pixels for `<img>` / `img().image_rgba(...)`.
-#[derive(Clone, Debug, PartialEq)]
+/// A decoded image, owned by the kit's image module (a `BKImBuf`: one
+/// allocation of premultiplied pixels). Every format and every binding goes
+/// through the same C decoders: PNG, JPEG, WebP, GIF, BMP, TGA, QOI, Radiance
+/// HDR, PNM and SVG. Cheap to share (`Arc<Image>`) and to pass every frame:
+/// the canvas borrows it, nothing is copied or converted per frame.
 pub struct Image {
     pub width: u32,
     pub height: u32,
-    /// `width * height * 4` bytes, row-major, straight alpha.
-    pub rgba: Vec<u8>,
+    ib: std::ptr::NonNull<sys::BKImBuf>,
 }
+
+// SAFETY: a BKImBuf is never written after it is made, and only Drop frees it.
+unsafe impl Send for Image {}
+// SAFETY: as above: shared references only read it.
+unsafe impl Sync for Image {}
 
 impl Image {
-    /// Decode a PNG file.
-    pub fn from_png(path: &str) -> Option<Image> {
-        let decoder = png::Decoder::new(std::fs::File::open(path).ok()?);
-        let mut decoder = decoder;
-        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-        let mut reader = decoder.read_info().ok()?;
-        let mut buf = vec![0; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).ok()?;
-        let px = (info.width * info.height) as usize;
-        let rgba = match info.color_type {
-            png::ColorType::Rgba => buf[..px * 4].to_vec(),
-            png::ColorType::Rgb => buf[..px * 3].chunks(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-            png::ColorType::GrayscaleAlpha => {
-                buf[..px * 2].chunks(2).flat_map(|c| [c[0], c[0], c[0], c[1]]).collect()
-            }
-            png::ColorType::Grayscale => buf[..px].iter().flat_map(|&g| [g, g, g, 255]).collect(),
-            png::ColorType::Indexed => return None,
-        };
-        Some(Image { width: info.width, height: info.height, rgba })
+    fn wrap(ib: *mut sys::BKImBuf) -> Option<Self> {
+        let ib = std::ptr::NonNull::new(ib)?;
+        let (mut w, mut h) = (0, 0);
+        // SAFETY: `ib` is a live image the kit just made.
+        unsafe { sys::BK_imbuf_size(ib.as_ptr(), &raw mut w, &raw mut h) };
+        Some(Self { width: w as u32, height: h as u32, ib })
     }
 
-    /// Nearest-neighbour resample to `w` x `h`.
-    fn resized(&self, w: u32, h: u32) -> Vec<u8> {
-        if w == self.width && h == self.height {
-            return self.rgba.clone();
+    /// Straight-alpha RGBA pixels, `width * height * 4` bytes (copied once).
+    #[must_use]
+    pub fn from_rgba(width: u32, height: u32, rgba: &[u8]) -> Option<Self> {
+        if width == 0 || height == 0 || rgba.len() < width as usize * height as usize * 4 {
+            return None;
         }
-        let mut out = vec![0u8; (w * h * 4) as usize];
-        for y in 0..h {
-            let sy = (y as u64 * self.height as u64 / h.max(1) as u64) as u32;
-            for x in 0..w {
-                let sx = (x as u64 * self.width as u64 / w.max(1) as u64) as u32;
-                let s = ((sy * self.width + sx) * 4) as usize;
-                let d = ((y * w + x) * 4) as usize;
-                out[d..d + 4].copy_from_slice(&self.rgba[s..s + 4]);
-            }
-        }
+        // SAFETY: `rgba` holds the `width * height * 4` bytes the kit reads.
+        Self::wrap(unsafe { sys::BK_imbuf_from_rgba(rgba.as_ptr(), width as i32, height as i32, 0) })
+    }
+
+    /// Decode an encoded image, fitted within `max_w` x `max_h` (0: no limit;
+    /// never upscaled). JPEGs decode smaller for free (DCT scaling).
+    #[must_use]
+    pub fn decode(bytes: &[u8], max_w: u32, max_h: u32) -> Option<Self> {
+        // SAFETY: the kit reads `bytes.len()` bytes and keeps nothing.
+        Self::wrap(unsafe { sys::BK_imbuf_decode(bytes.as_ptr().cast(), bytes.len(), max_w as i32, max_h as i32) })
+    }
+
+    /// Decode an image file (any format the kit reads), at full size.
+    #[must_use]
+    pub fn open(path: &str) -> Option<Self> {
+        let path = std::ffi::CString::new(path).ok()?;
+        // SAFETY: `path` is NUL-terminated and outlives the call.
+        Self::wrap(unsafe { sys::BK_imbuf_load(path.as_ptr(), 0, 0) })
+    }
+
+    /// Decode a PNG file. Kept for compatibility: every format works now.
+    #[deprecated(since = "0.4.0", note = "every format decodes: use Image::open")]
+    #[must_use]
+    pub fn from_png(path: &str) -> Option<Self> {
+        Self::open(path)
+    }
+
+    /// The pixels as straight-alpha RGBA (a copy).
+    #[must_use]
+    pub fn to_rgba(&self) -> Vec<u8> {
+        let mut out = vec![0u8; self.width as usize * self.height as usize * 4];
+        // SAFETY: `out` holds width * height * 4 bytes, what the kit writes.
+        unsafe { sys::BK_imbuf_rgba(self.ib.as_ptr(), 0, out.as_mut_ptr()) };
         out
+    }
+
+    /// A BUI texture of the pixels (a Dear ImGui `ImTextureID`); free it
+    /// with `blenderui::sys::BUI_texture_free`. 0 on failure.
+    #[must_use]
+    pub fn texture(&self) -> i32 {
+        // SAFETY: a live image.
+        unsafe { sys::BK_imbuf_texture(self.ib.as_ptr(), 0) }
+    }
+
+    /// Puts these pixels into BUI texture `tex` of the same size (from
+    /// [`Image::texture`]): the next frame of an [`Animation`] in a Dear
+    /// ImGui texture. `false` when the sizes differ.
+    #[must_use]
+    pub fn update_texture(&self, tex: i32) -> bool {
+        // SAFETY: a live image; the kit checks `tex`.
+        unsafe { sys::BK_imbuf_texture_update(self.ib.as_ptr(), 0, tex) != 0 }
+    }
+
+    pub(crate) const fn as_ptr(&self) -> *const sys::BKImBuf {
+        self.ib.as_ptr()
     }
 }
 
-/// Decoded `<img src>` files, kept by the window (each file is decoded once).
+impl Drop for Image {
+    fn drop(&mut self) {
+        // SAFETY: the image is ours; nothing uses it after this (the canvas
+        // that borrowed it gets its next display list before it draws again).
+        unsafe { sys::BK_imbuf_free(self.ib.as_ptr()) };
+    }
+}
+
+impl std::fmt::Debug for Image {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Image").field("width", &self.width).field("height", &self.height).finish_non_exhaustive()
+    }
+}
+
+/// The image cache shared by every window (and every binding in the
+/// process): decoded bytes held, the budget, decodes pending, totals.
+#[must_use]
+pub fn image_stats() -> sys::BKImageStats {
+    let mut st = sys::BKImageStats::default();
+    // SAFETY: the kit writes the struct.
+    unsafe { sys::BK_image_stats(&raw mut st) };
+    st
+}
+
+/// The image cache's memory budget in bytes (default 256 MiB). Images on
+/// screen stay even past it; the least recently drawn go first.
+pub fn set_image_budget(bytes: usize) {
+    // SAFETY: a plain setting.
+    unsafe { sys::BK_image_set_budget(bytes) };
+}
+
+/// An animation decoded one frame at a time at the size asked (GIF,
+/// animated WebP): for drawing it yourself, e.g. into a Dear ImGui texture
+/// with [`Image::update_texture`]. `<img>` and `Painter::image_file` play
+/// animations by themselves.
+pub struct Animation {
+    anim: std::ptr::NonNull<sys::BKAnim>,
+    pub width: u32,
+    pub height: u32,
+    /// Frames in the file and how many times it plays (0: forever).
+    pub frames: u32,
+    pub loops: u32,
+}
+
+// SAFETY: the decoder is owned here and only used through `&mut self`.
+unsafe impl Send for Animation {}
+
+impl Animation {
+    /// Decode `bytes` frame by frame, fitted within `max_w` x `max_h` (0: no
+    /// limit). `None` when it is not an animation the kit reads.
+    #[must_use]
+    pub fn new(bytes: &[u8], max_w: u32, max_h: u32) -> Option<Self> {
+        // SAFETY: the kit copies `bytes`.
+        let anim = std::ptr::NonNull::new(unsafe {
+            sys::BK_anim_open(bytes.as_ptr().cast(), bytes.len(), max_w as i32, max_h as i32)
+        })?;
+        let (mut w, mut h, mut loops) = (0, 0, 0);
+        // SAFETY: a live animation; the out-parameters are written.
+        let frames = unsafe { sys::BK_anim_info(anim.as_ptr(), &raw mut w, &raw mut h, &raw mut loops) };
+        Some(Self { anim, width: w as u32, height: h as u32, frames: frames as u32, loops: loops as u32 })
+    }
+
+    /// The next frame (looping after the last) and how long to show it.
+    pub fn next_frame(&mut self) -> Option<(Image, std::time::Duration)> {
+        let mut delay = 0;
+        // SAFETY: a live animation; the frame is ours.
+        let img = Image::wrap(unsafe { sys::BK_anim_next(self.anim.as_ptr(), &raw mut delay) })?;
+        Some((img, std::time::Duration::from_millis(delay.max(0) as u64)))
+    }
+}
+
+impl Drop for Animation {
+    fn drop(&mut self) {
+        // SAFETY: ours, freed once.
+        unsafe { sys::BK_anim_free(self.anim.as_ptr()) };
+    }
+}
+
+/// An image file shown by path: its intrinsic size comes from the file's
+/// header (read once); the pixels decode on the kit's worker threads at the
+/// size they are drawn, only while visible.
+#[derive(Clone, Debug)]
+pub(crate) struct ImageFile {
+    pub src: Arc<str>,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl ImageFile {
+    fn probe(src: &str) -> Option<Self> {
+        let path = std::ffi::CString::new(src).ok()?;
+        let mut info = sys::BKImageInfo::default();
+        // SAFETY: `path` is NUL-terminated; `info` is written.
+        let ok = unsafe { sys::BK_image_info(path.as_ptr(), &raw mut info) } != 0;
+        (ok && info.width > 0 && info.height > 0)
+            .then(|| Self { src: src.into(), width: info.width as u32, height: info.height as u32 })
+    }
+}
+
+/// `<img src>` files, kept by the window (each header is read once).
 #[derive(Default)]
 pub(crate) struct ImageCache {
-    files: HashMap<String, Option<Arc<Image>>>,
+    files: HashMap<String, Option<ImageFile>>,
 }
 
 impl ImageCache {
-    /// `src` of an `<img>`: PNG files.
-    pub(crate) fn load(&mut self, src: &str) -> Option<Arc<Image>> {
+    /// `src` of an `<img>`: any format the kit reads.
+    pub(crate) fn load(&mut self, src: &str) -> Option<ImageFile> {
         if let Some(i) = self.files.get(src) {
             return i.clone();
         }
-        let img = Image::from_png(src).map(Arc::new);
-        self.files.insert(src.to_owned(), img.clone());
-        img
+        let file = ImageFile::probe(src);
+        self.files.insert(src.to_owned(), file.clone());
+        file
     }
 }
 
@@ -91,6 +229,10 @@ enum Kind {
     /// `start..end` of the painter's text arena (NUL-terminated there).
     Text { start: u32, size: f32, flags: i32 },
     Image(Arc<Image>),
+    /// A file by path (`start..` of the text arena, NUL-terminated), fitted
+    /// into the box by `fit` (`sys::BK_FIT_*`); animations play (`frame` 0)
+    /// or hold frame `frame - 1`.
+    File { start: u32, fit: i32, frame: i32 },
 }
 
 /// Coordinates: up to four inline (rects, ovals, text, images), more on the heap.
@@ -239,6 +381,41 @@ impl Painter {
         self.push(Kind::Image(image.clone()), Self::corners(bounds), Rgba::TRANSPARENT);
     }
 
+    /// An image file (any format the kit reads) scaled to `bounds`. It
+    /// decodes on the kit's worker threads at the size drawn and appears when
+    /// ready; nothing loads while it is off screen.
+    pub fn image_file(&mut self, bounds: Bounds<f32>, src: &str) {
+        self.file(bounds, src, sys::BK_FIT_FILL, None);
+    }
+
+    /// An image file covering `bounds` (CSS `object-fit: cover`: thumbnails).
+    pub fn image_file_cover(&mut self, bounds: Bounds<f32>, src: &str) {
+        self.file(bounds, src, sys::BK_FIT_COVER, None);
+    }
+
+    /// An image file scaled to `bounds`, an animation (GIF, animated WebP)
+    /// held on `frame`; `None` plays it (what `image_file` does: each frame
+    /// for its delay, looping as the file says, paused while off screen).
+    pub fn image_file_frame(&mut self, bounds: Bounds<f32>, src: &str, frame: Option<u32>) {
+        self.file(bounds, src, sys::BK_FIT_FILL, frame);
+    }
+
+    fn file(&mut self, bounds: Bounds<f32>, src: &str, fit: i32, frame: Option<u32>) {
+        if !src.is_empty() {
+            let start = self.text.len() as u32;
+            self.text.extend(src.bytes().filter(|&b| b != 0));
+            self.text.push(0);
+            let frame = frame.map_or(0, |f| f.saturating_add(1).min(i32::MAX as u32) as i32);
+            self.push(Kind::File { start, fit, frame }, Self::corners(bounds), Rgba::TRANSPARENT);
+        }
+    }
+
+    /// NUL-terminated bytes at `start` of the text arena (without the NUL).
+    fn arena_str(&self, start: u32) -> &[u8] {
+        let t = &self.text[start as usize..];
+        &t[..t.iter().position(|&b| b == 0).unwrap_or(t.len())]
+    }
+
     /// Restrict the following drawing to `bounds` (intersected with any current clip).
     pub fn with_clip(&mut self, bounds: Bounds<f32>, f: impl FnOnce(&mut Painter)) {
         let saved = self.clip;
@@ -251,9 +428,11 @@ impl Painter {
     }
 
     /// The kit item for `it`, scaled to device pixels; its coordinates go
-    /// into `coords` (point `ci.coords` at them once filled) and image
-    /// pixels into `keep`. None: nothing to draw.
-    fn build_item(&self, it: &Item, scale: f32, coords: &mut Vec<f32>, keep: &mut Option<Vec<u8>>)
+    /// into `coords` (point `ci.coords` at them once filled). Images are
+    /// borrowed by the kit: the painter keeps them alive until its next
+    /// flush. With `sync` (offscreen layers, drawn once) files decode now
+    /// and `sync` keeps them for the call. None: nothing to draw.
+    fn build_item(&self, it: &Item, scale: f32, coords: &mut Vec<f32>, sync: Option<&mut Vec<Arc<Image>>>)
                   -> Option<sys::BKCanvasItem> {
         coords.clear();
         coords.extend(it.coords.as_slice().iter().map(|v| v * scale));
@@ -292,19 +471,23 @@ impl Painter {
                 ci.text = self.text[*start as usize..].as_ptr().cast();
             }
             Kind::Image(img) => {
-                let w = (coords[2] - coords[0]).round().max(1.0) as u32;
-                let h = (coords[3] - coords[1]).round().max(1.0) as u32;
-                if img.width == 0 || img.height == 0 {
-                    return None;
-                }
-                let px = img.resized(w, h);
                 ci.type_ = sys::BK_ITEM_IMAGE;
-                ci.anchor = sys::BK_ANCHOR_N | sys::BK_ANCHOR_W;
-                ci.rgba = px.as_ptr();
-                ci.iw = w as i32;
-                ci.ih = h as i32;
-                coords.truncate(2);
-                *keep = Some(px);
+                ci.imbuf = img.as_ptr();
+                ci.fit = sys::BK_FIT_FILL;
+            }
+            Kind::File { start, fit, frame } => {
+                ci.type_ = sys::BK_ITEM_IMAGE;
+                ci.fit = *fit;
+                ci.frame = *frame;
+                match sync {
+                    Some(keep) => {
+                        // offscreen layers are drawn once: an animation shows its first frame
+                        let img = file_pixels(std::str::from_utf8(self.arena_str(*start)).ok()?)?;
+                        ci.imbuf = img.as_ptr();
+                        keep.push(img);
+                    }
+                    None => ci.src = self.text[*start as usize..].as_ptr().cast(),
+                }
             }
         }
         if let Some(c) = it.clip {
@@ -320,8 +503,7 @@ impl Painter {
         let mut coords: Vec<f32> = Vec::new();
         let mut count: i32 = 0;
         for it in &self.items {
-            let mut keep = None;
-            let Some(mut ci) = self.build_item(it, scale, &mut coords, &mut keep) else { continue };
+            let Some(mut ci) = self.build_item(it, scale, &mut coords, None) else { continue };
             ci.coords = coords.as_ptr();
             // SAFETY: every pointer in `ci` outlives the call; the kit copies
             // them into the slot's existing buffers.
@@ -340,14 +522,13 @@ impl Painter {
             return None;
         }
         let mut coords: Vec<Vec<f32>> = Vec::with_capacity(self.items.len());
-        let mut keep: Vec<Option<Vec<u8>>> = Vec::with_capacity(self.items.len());
+        let mut keep: Vec<Arc<Image>> = Vec::new();
         let mut items: Vec<sys::BKCanvasItem> = Vec::with_capacity(self.items.len());
         for it in &self.items {
-            let (mut c, mut k) = (Vec::new(), None);
-            if let Some(ci) = self.build_item(it, scale, &mut c, &mut k) {
+            let mut c = Vec::new();
+            if let Some(ci) = self.build_item(it, scale, &mut c, Some(&mut keep)) {
                 items.push(ci);
                 coords.push(c);
-                keep.push(k);
             }
         }
         for (ci, c) in items.iter_mut().zip(&coords) {
@@ -385,6 +566,7 @@ impl Painter {
                     (5u8, &t[..end], size.to_bits(), flags).hash(h)
                 }
                 Kind::Image(img) => (6u8, Arc::as_ptr(img) as usize).hash(h),
+                Kind::File { start, fit, frame } => (7u8, self.arena_str(*start), fit, frame).hash(h),
             }
             if let Some(c) = it.clip {
                 (c.origin.x.to_bits(), c.origin.y.to_bits(), c.size.width.to_bits(), c.size.height.to_bits()).hash(h);
@@ -662,7 +844,7 @@ fn paint_layer(cx: &mut LayerCx, root: usize, list: &[usize], p: &mut Painter, b
             px = fx::composite(&back, &px, blend);
         }
     }
-    let img = Arc::new(Image { width: px.w as u32, height: px.h as u32, rgba: px.to_rgba8() });
+    let Some(img) = Image::from_rgba(px.w as u32, px.h as u32, &px.to_rgba8()).map(Arc::new) else { return };
     let at = rect(tx / cx.scale, ty / cx.scale, px.w as f32 / cx.scale, px.h as f32 / cx.scale);
     if blend == fx::Blend::Normal {
         LAYERS.with(|l| l.borrow_mut().put(key, img.clone(), at));
@@ -690,7 +872,7 @@ fn paint_backdrop(cx: &mut LayerCx, i: usize, p: &mut Painter) {
     if let Some(mask) = mp.rasterize(cx.scale, x0, y0, w, h) {
         fx::apply_mask(&mut px, &mask, false);
     }
-    let img = Arc::new(Image { width: w as u32, height: h as u32, rgba: px.to_rgba8() });
+    let Some(img) = Image::from_rgba(w as u32, h as u32, &px.to_rgba8()).map(Arc::new) else { return };
     p.opacity = 1.0;
     p.clip = n.clip;
     p.image(rect(x0 / cx.scale, y0 / cx.scale, w as f32 / cx.scale, h as f32 / cx.scale), &img);
@@ -868,7 +1050,7 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
                 paint_box(n, c, p, vp, redundant_background(frame, styles, n));
             }
             let marker_img = n.marker.as_ref().and(c.list_image.as_deref()).and_then(background_file);
-            if let Some(img) = marker_img {
+            if let Some(img) = marker_img.as_ref() {
                 // `list-style-image`: the image, at most a line tall, left of the box
                 let bw = border_widths(c, b.size.width);
                 let pad = lp(c.layout.padding.top, b.size.width);
@@ -876,7 +1058,7 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
                 let (iw, ih) = (img.width as f32, img.height as f32);
                 let s = (lh / ih.max(1.0)).min(1.0);
                 let (w, h) = (iw * s, ih * s);
-                p.image(rect(b.origin.x - w - 6.0, b.origin.y + bw[0] + pad + (lh - h) / 2.0, w, h), &img);
+                p.image_file(rect(b.origin.x - w - 6.0, b.origin.y + bw[0] + pad + (lh - h) / 2.0, w, h), &img.src);
             } else if let Some(m) = n.marker.as_ref().filter(|m| !m.is_empty()) {
                 let bw = border_widths(c, b.size.width);
                 let pad = lp(c.layout.padding.top, b.size.width);
@@ -897,6 +1079,16 @@ fn paint_node(frame: &Frame, styles: &StyleStore, tc: &mut TextCache, i: usize, 
                             p.with_clip(inner, |p| p.image(rect(x, y, w, h), img));
                         }
                         _ => p.image(inner, img),
+                    },
+                    Replaced::File(file, frame) => match &c.images {
+                        Some(st) if st.object_fit != crate::style::ObjectFit::Fill
+                            || st.object_position != [crate::style::Pos::CENTER; 2] => {
+                            let (x, y, w, h) = st.object_rect(
+                                (inner.origin.x, inner.origin.y, inner.size.width, inner.size.height),
+                                (file.width as f32, file.height as f32));
+                            p.with_clip(inner, |p| p.image_file_frame(rect(x, y, w, h), &file.src, *frame));
+                        }
+                        _ => p.image_file_frame(inner, &file.src, *frame),
                     },
                     Replaced::Painted(f) => p.with_clip(inner, |p| f(inner, p, app)),
                     Replaced::Placeholder(tag) => {
@@ -1186,7 +1378,7 @@ fn paint_rounded_styled(p: &mut Painter, b: Bounds<f32>, r: f32, w: f32, col: Rg
 /// Border-image source pixels, cached per source and size.
 fn border_image_source(src: &crate::effects::ImageSource, w: f32, h: f32) -> Option<Arc<Image>> {
     match src {
-        crate::effects::ImageSource::Url(u) => background_file(u),
+        crate::effects::ImageSource::Url(u) => file_pixels(u),
         crate::effects::ImageSource::Gradient(g) => {
             thread_local! {
                 static GRADIENTS: std::cell::RefCell<HashMap<String, Arc<Image>>> =
@@ -1201,7 +1393,7 @@ fn border_image_source(src: &crate::effects::ImageSource, w: f32, h: f32) -> Opt
             let area = rect(0.0, 0.0, iw as f32, ih as f32);
             gp.with_clip(area, |gp| paint_gradient(gp, g, area));
             let px = gp.rasterize(1.0, 0.0, 0.0, iw, ih)?;
-            let img = Arc::new(Image { width: iw as u32, height: ih as u32, rgba: px.to_rgba8() });
+            let img = Arc::new(Image::from_rgba(iw as u32, ih as u32, &px.to_rgba8())?);
             GRADIENTS.with(|m| {
                 let mut m = m.borrow_mut();
                 if m.len() > 64 {
@@ -1227,12 +1419,13 @@ fn crop(img: &Arc<Image>, x: u32, y: u32, w: u32, h: u32) -> Option<Arc<Image>> 
     if let Some(c) = CROPS.with(|m| m.borrow().get(&key).cloned()) {
         return Some(c);
     }
+    let all = img.to_rgba();
     let mut rgba = Vec::with_capacity((w * h * 4) as usize);
     for row in y..y + h {
         let s = ((row * img.width + x) * 4) as usize;
-        rgba.extend_from_slice(&img.rgba[s..s + (w * 4) as usize]);
+        rgba.extend_from_slice(&all[s..s + (w * 4) as usize]);
     }
-    let c = Arc::new(Image { width: w, height: h, rgba });
+    let c = Arc::new(Image::from_rgba(w, h, &rgba)?);
     CROPS.with(|m| {
         let mut m = m.borrow_mut();
         if m.len() > 512 {
@@ -1541,15 +1734,36 @@ fn paint_scrollbars(n: &BoxNode, p: &mut Painter) {
 }
 
 /// `background-image: url()` files (PNG), decoded once per process.
-fn background_file(url: &str) -> Option<Arc<Image>> {
-    static FILES: std::sync::Mutex<Option<HashMap<String, Option<Arc<Image>>>>> = std::sync::Mutex::new(None);
-    let mut files = FILES.lock().unwrap_or_else(|e| e.into_inner());
+fn background_file(url: &str) -> Option<ImageFile> {
+    static FILES: std::sync::Mutex<Option<HashMap<String, Option<ImageFile>>>> = std::sync::Mutex::new(None);
+    let mut files = FILES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let files = files.get_or_insert_with(HashMap::new);
     if let Some(i) = files.get(url) {
         return i.clone();
     }
-    let img = Image::from_png(url).map(Arc::new);
-    files.insert(url.to_owned(), img.clone());
+    let file = ImageFile::probe(url);
+    files.insert(url.to_owned(), file.clone());
+    file
+}
+
+/// A file's pixels decoded now (border images and offscreen layers, which
+/// need them in the frame that asks), cached by path.
+fn file_pixels(url: &str) -> Option<Arc<Image>> {
+    thread_local! {
+        static PIXELS: std::cell::RefCell<HashMap<String, Option<Arc<Image>>>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
+    if let Some(i) = PIXELS.with(|m| m.borrow().get(url).cloned()) {
+        return i;
+    }
+    let img = Image::open(url).map(Arc::new);
+    PIXELS.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.len() >= 64 {
+            m.clear();
+        }
+        m.insert(url.to_owned(), img.clone());
+    });
     img
 }
 
@@ -1580,7 +1794,7 @@ fn paint_background_image(p: &mut Painter, st: &crate::style::ImageStyle, area: 
     p.with_clip(clip_to, |p| {
         for j in 0..ny {
             for i in 0..nx {
-                p.image(rect(sx + i as f32 * tw, sy + j as f32 * th, tw, th), &img);
+                p.image_file(rect(sx + i as f32 * tw, sy + j as f32 * th, tw, th), &img.src);
             }
         }
     });

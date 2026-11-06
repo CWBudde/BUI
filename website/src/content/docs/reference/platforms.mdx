@@ -1,0 +1,92 @@
+---
+title: Platforms
+description: What runs where. The full matrix of operating systems, languages, renderers and packages, with notes and requirements for Windows, Linux and macOS.
+section: Reference
+order: 30
+sources: ["README.md", "docs/getting-started.md", "docs/publishing.md", "docs/javascript.md", "pyproject.toml", ".github/workflows/wheels.yml", "kit/CMakeLists.txt", "gpu/CMakeLists.txt", "bindings/node/package.json", "bindings/rust/Cargo.toml", "CONTRIBUTING.md", "CHANGELOG.md"]
+---
+
+BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; macOS works with a few honest caveats. Here's the whole picture, so you can tell in one glance whether your setup is covered.
+
+## The matrix
+
+| | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| Window | Native (Win32) | Native (X11; Wayland through XWayland) | Native (Cocoa), experimental |
+| Python (`pip install`) | Works: wheels | Works: wheels | Works: wheels |
+| Rust | Works | Works | Experimental |
+| JavaScript and React | Works: prebuilt on npm | Works: build the addon from source (`npm run build`) | Headless |
+| C, C++, Dear ImGui | Works | Works | Experimental |
+| Renderer | CPU raster, or GPU (Direct3D 11) | CPU raster, or GPU (OpenGL 3.3) | CPU raster |
+| HiDPI | Per-monitor DPI | `Xft.dpi` | Retina (backing scale) |
+| Images | All [built-in formats](/docs/concepts/images); decode threads; GPU atlas | All built-in formats; decode threads; GPU atlas | All built-in formats; decode threads (CPU raster) |
+
+**Works** means it works and is tested. **Experimental** means it's written and checked by CI, but has had little hands-on testing on real hardware (macOS: one Apple Silicon Mac so far).
+
+## Windows
+
+- **Window:** a native Win32 host, per-monitor DPI aware, with animation paced to the display.
+- **GPU renderer:** Direct3D 11 (feature level 10.0 or newer). Machines without it stay on the CPU raster.
+- **Compilers:** MSVC, or MinGW-w64 GCC. The published Python wheels are built with MinGW (UCRT) and statically linked to the GCC runtime, so they depend only on system DLLs and Python's. The Rust crate's default target uses MSVC: install the Visual Studio Build Tools.
+- **JavaScript:** the npm packages ship a prebuilt addon and the `bui-runtime` for **Windows x64**.
+
+## Linux
+
+- **Window:** a native X11 host. Wayland sessions run it through XWayland.
+- **No X11 needed to import.** `libX11` and `libGL` load when the first window opens, so BUI imports and renders headless on servers and in containers without them. (Rust binaries are the exception: they link `libX11` directly.)
+- **GPU renderer:** OpenGL 3.3 core, through GLX for windows and EGL for offscreen rendering. Where OpenGL is missing, BUI falls back to the CPU raster.
+- **Tested on:** the C, Python, window and GPU parity tests pass on Mesa's software OpenGL and on an NVIDIA GPU. The suites also run under WSLg.
+- **Building from source** needs the X11 headers: `libx11-dev` (Debian, Ubuntu) or `libX11-devel` (Fedora). No GL headers are needed.
+- **JavaScript:** no prebuilt npm addon yet. Build it from a clone with `npm run build` in `bindings/node` (needs Rust, CMake and a C compiler); windows are native.
+
+## macOS <Badge tone="preview">Experimental</Badge>
+
+- **Window:** a native Cocoa host, ported from Blender's GHOST code, with Retina scaling. It's checked by CI and has been tried by hand on one Apple Silicon Mac by [Krish Kalaria](https://github.com/krishkalaria12), who also fixed the bugs he found (issue #3, pull request #4). AppKit only allows windows on the main thread.
+- **Python fallback:** if the native host misbehaves, use the standard Tk window: `BUI_HOST=tk`. That needs a Python with `tkinter` (for example from python.org, or `brew install python-tk`).
+- **JavaScript is headless.** Node runs BUI on its own UI thread, and macOS only allows windows on the main thread.
+- **Renderer:** the CPU raster only.
+- **Help test it.** If you have a Mac, the [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md) lists what to build, what to run and what to report.
+
+<ComingSoon feature="macOS GPU and JavaScript windows">
+The GPU renderer on Metal (or the OpenGL backend), and Node windows on the main thread.
+</ComingSoon>
+
+## Packages
+
+| Package | Platforms | Notes |
+| --- | --- | --- |
+| `blenderui` on PyPI | Windows x86_64, Linux x86_64 (manylinux), macOS arm64 and x86_64 | CPython 3.11, 3.12, 3.13 and 3.14. No musllinux or 32-bit wheels. Linux wheels include the native X11 host. |
+| `@blender-ui/native`, `@blender-ui/react` on npm | Windows x64 | Node.js 18 or newer, or Bun. Elsewhere, build the addon from source. |
+| `blenderui` on crates.io | Any platform with CMake and a C compiler | `cargo add blenderui`; the C kit is compiled on first build. Rust 1.88 or newer. `blenderui-imgui` (Dear ImGui) is published too, next to the smaller crates `blenderui` builds on (`blenderui-sys`, `-macros`, `-tailwind`, `-paint`, `-table`, `-vlist`). |
+| C and C++ (CMake) | Windows, Linux, macOS | CMake 3.20+, a C11 and C++20 compiler. |
+
+## Requirements at a glance
+
+| You use | You need |
+| --- | --- |
+| Python | CPython 3.11 or newer |
+| Rust | Rust 1.88+, CMake, a C compiler (and the X11 headers on Linux) |
+| JavaScript | Node.js 18+ or Bun |
+| C / C++ | CMake 3.20+, a C11 and C++20 compiler (MSVC, GCC or MinGW-w64, Clang); X11 headers on Linux |
+
+## Not yet
+
+<StatusTable rows={[
+  ["WebAssembly", "planned", "The kit in a browser <code>&lt;canvas&gt;</code>, with the React and DOM-like APIs on top"],
+  ["Vulkan and WebGPU", "planned", "More GPU backends drawing the same instance stream"],
+  ["npm addons beyond Windows x64", "partial", "Build the addon from source on Linux; prebuilt per-platform packages would follow the napi-rs convention"],
+]} />
+
+## Next steps
+
+<CardGrid>
+  <Card title="Install BUI" href="docs/start/installation/" icon="terminal" kicker="Start here">
+    One command for Python and JavaScript.
+  </Card>
+  <Card title="Window hosts" href="docs/concepts/window-hosts/" icon="monitor" kicker="Concepts">
+    How each native window works.
+  </Card>
+  <Card title="Roadmap" href="docs/project/roadmap/" icon="flag" kicker="Project">
+    What's coming for macOS, WebAssembly and more.
+  </Card>
+</CardGrid>

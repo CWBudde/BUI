@@ -11,6 +11,7 @@
 #include "BLI_compiler_attrs.h"
 #include "BLI_utildefines.h"
 #include "MEM_guardedalloc.h"
+#include "atomic_ops.h"
 
 static size_t bui_malloc_usable_size(void *ptr)
 {
@@ -28,9 +29,50 @@ static size_t bui_malloc_usable_size(void *ptr)
 #endif
 }
 
+/* Blocks and bytes in use (MEM_get_memory_blocks_in_use / MEM_get_memory_in_use,
+ * as Blender's allocator counts them): leak checks in tests. Bytes are the
+ * allocator's usable sizes (0 where the platform can't tell). Aligned blocks
+ * (MEM_mallocN_aligned) aren't counted. */
+static uint32_t mem_blocks = 0;
+static size_t mem_bytes = 0;
+static size_t mem_total = 0; /* allocations ever made (BUI: benchmarks) */
+
+static void *mem_count(void *ptr)
+{
+  if (ptr) {
+    atomic_add_and_fetch_uint32(&mem_blocks, 1);
+    atomic_add_and_fetch_z(&mem_total, 1);
+    atomic_add_and_fetch_z(&mem_bytes, bui_malloc_usable_size(ptr));
+  }
+  return ptr;
+}
+
+static void mem_uncount(void *ptr)
+{
+  if (ptr) {
+    atomic_sub_and_fetch_uint32(&mem_blocks, 1);
+    atomic_sub_and_fetch_z(&mem_bytes, bui_malloc_usable_size(ptr));
+  }
+}
+
+size_t MEM_get_memory_in_use(void)
+{
+  return atomic_load_z(&mem_bytes);
+}
+
+size_t MEM_get_allocations_total(void)
+{
+  return atomic_load_z(&mem_total);
+}
+
+unsigned int MEM_get_memory_blocks_in_use(void)
+{
+  return atomic_add_and_fetch_uint32(&mem_blocks, 0);
+}
+
 void *MEM_mallocN(size_t len, const char *UNUSED(str))
 {
-  return len ? malloc(len) : NULL;
+  return len ? mem_count(malloc(len)) : NULL;
 }
 
 void *MEM_malloc_arrayN(size_t len, size_t size, const char *str)
@@ -40,7 +82,7 @@ void *MEM_malloc_arrayN(size_t len, size_t size, const char *str)
 
 void *MEM_callocN(size_t len, const char *UNUSED(str))
 {
-  return len ? calloc(1, len) : NULL;
+  return len ? mem_count(calloc(1, len)) : NULL;
 }
 
 void *MEM_calloc_arrayN(size_t len, size_t size, const char *str)
@@ -71,16 +113,19 @@ void MEM_freeN(void *vmemh)
     /* fall through to free(); _aligned_free would break non-aligned blocks */
   }
 #endif
+  mem_uncount(vmemh);
   free(vmemh);
 }
 
 void *MEM_reallocN_id(void *vmemh, size_t len, const char *UNUSED(str))
 {
   if (!len) {
-    free(vmemh);
+    MEM_freeN(vmemh);
     return NULL;
   }
+  mem_uncount(vmemh);
   void *newp = realloc(vmemh, len);
+  mem_count(newp ? newp : vmemh); /* on failure the old block stays live */
   return newp;
 }
 

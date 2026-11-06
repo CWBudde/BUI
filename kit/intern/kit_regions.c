@@ -71,7 +71,10 @@ static void text_rotated(float bx, float by, const char *s, const uchar color[4]
     /* the image is mh wide and mw tall: mask (mx, my) -> (mh - 1 - my, mx) */
     for (int my = 0; my < mh; my++) {
       for (int mx = 0; mx < mw; mx++) {
-        img[(size_t)mx * mh + (size_t)(mh - 1 - my)] = (uint32_t)mask[(size_t)my * mw + mx] << 24 | rgb;
+        const uint32_t m = mask[(size_t)my * mw + mx]; /* premultiplied */
+        img[(size_t)mx * mh + (size_t)(mh - 1 - my)] =
+            m << 24 | ((rgb >> 16) * m / 255) << 16 | (((rgb >> 8) & 0xFF) * m / 255) << 8 |
+            ((rgb & 0xFF) * m / 255);
       }
     }
     e->hash = key;
@@ -87,7 +90,8 @@ static void text_rotated(float bx, float by, const char *s, const uchar color[4]
   }
   const float a = color[3] / 255.0f;
   const float x0 = floorf(bx + 0.5f) + (float)e->ascent - (float)e->w, y0 = floorf(by + 0.5f) - (float)e->ox;
-  BUI_raster_image(bk_draw.r, x0, y0, (float)e->w, (float)e->h, e->argb, e->w, e->h, a);
+  const BuiPixmap pm = {e->argb, e->w, e->h, (e->hash ^ (uint64_t)e->gen << 32) | 1ull << 63};
+  BUI_raster_image(bk_draw.r, x0, y0, (float)e->w, (float)e->h, &pm, NULL, a, 0);
 }
 
 /** \} */

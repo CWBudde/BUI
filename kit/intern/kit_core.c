@@ -268,7 +268,7 @@ void BK_node_free(BKNode *n)
   free(n->linked_start);
   bk_te_free(n->edit);
   free(n->geom);
-  bk_image_free((BKImage *)n->image);
+  bk_image_ref_clear(&n->image);
   free(n);
 }
 
@@ -1394,6 +1394,7 @@ void BK_context_free(BKContext *ctx)
     return;
   }
   BK_close_popups(ctx);
+  bk_image_forget_context(ctx);
   for (int i = 0; i < ctx->nkeys; i++) {
     bk_release(ctx->keys[i].ref);
   }
@@ -2144,6 +2145,7 @@ static int region_scroll_update_alpha(BKContext *ctx, int x, int y)
 
 static void draw_region(BKContext *ctx, const BKRect *rect)
 {
+  bk_image_pass_begin(ctx, rect->xmin, rect->ymin, rect->xmax, rect->ymax);
   const int w = ctx->win_w, h = ctx->win_h;
   bk_clip_reset(w, h);
   bk_clip_push(rect->xmin, rect->ymin, bk_rw(rect), bk_rh(rect));
@@ -2169,6 +2171,7 @@ static void draw_region(BKContext *ctx, const BKRect *rect)
   }
   draw_tooltip(ctx);
   bk_clip_reset(w, h);
+  bk_image_pass_end();
 }
 
 int BK_needs_render(BKContext *ctx)
@@ -2180,6 +2183,8 @@ static void anim_step(BKContext *ctx);
 
 int BK_render(BKContext *ctx, BuiRaster *r, int w, int h, int full)
 {
+  BK_image_poll(); /* decoded images arrive (and damage where they show) */
+  bk_image_tick(); /* animated images whose next frame is due */
   bk_draw.r = r;
   ctx->raster = r;
   anim_step(ctx);
@@ -2208,6 +2213,7 @@ int BK_render(BKContext *ctx, BuiRaster *r, int w, int h, int full)
   if (!ctx->full_dirty && ctx->ndirty == 0) {
     return 0;
   }
+  bk_image_frame_begin(); /* a drawn frame: the image cache ages one generation */
   BUI_raster_begin_frame(r, w, h);
   int regions;
   if (ctx->full_dirty) {
@@ -3579,6 +3585,11 @@ static int g_animations = 1;
 void BK_set_animations(int enabled)
 {
   g_animations = enabled != 0;
+}
+
+bool bk_animations_enabled(void)
+{
+  return g_animations;
 }
 
 int BK_animating(BKContext *ctx)

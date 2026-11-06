@@ -46,6 +46,17 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Size and speed: every function and datum in its own section, so linkers drop
+# what a program never calls (MSVC /OPT:REF, GNU --gc-sections: Rust passes
+# both). Release is optimized explicitly: cmake-rs (blenderui-sys) replaces
+# CMAKE_C_FLAGS_RELEASE with flags that carry no /O2, and the Visual Studio
+# generator then compiled the kit without optimization.
+if(MSVC)
+  add_compile_options($<$<CONFIG:Release>:/O2> /Gy /Gw)
+else()
+  add_compile_options(-ffunction-sections -fdata-sections)
+endif()
+
 if(MSVC)
   add_compile_options(/W3 /utf-8)
   add_compile_definitions(_USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)  # M_PI*; POSIX names
@@ -80,6 +91,18 @@ if(BUI_BUILD_TESTS)
   add_executable(bui_theme_test tests/theme_test.c)
   target_link_libraries(bui_theme_test PRIVATE bui::kit)
   add_test(NAME bui_theme_test COMMAND bui_theme_test)
+  # images: every format, decode at size, the cache and loader, no leaks
+  add_executable(bui_image_test tests/image_test.c)
+  target_link_libraries(bui_image_test PRIVATE bui::kit)
+  target_compile_definitions(bui_image_test PRIVATE
+    BUI_TEST_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/tests/images"
+    BUI_TEST_TMP="${CMAKE_CURRENT_BINARY_DIR}/image_test_files")
+  add_test(NAME bui_image_test COMMAND bui_image_test)
+  set_tests_properties(bui_image_test PROPERTIES TIMEOUT 120)
+  if(WIN32) # the thumbnail-grid benchmark (bench/images/image_grid.c; not a test)
+    add_executable(bui_image_bench bench/images/image_grid.c)
+    target_link_libraries(bui_image_bench PRIVATE bui::kit psapi)
+  endif()
 endif()
 
 # before the Python bindings: they add the blenderui.imgui extension when bui_cimgui exists

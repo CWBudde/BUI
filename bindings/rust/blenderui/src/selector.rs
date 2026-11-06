@@ -1069,9 +1069,10 @@ fn media_feature(env: &MediaEnv, name: &str, op: Option<Op>, v: Option<&MediaVal
         "color" => num_feature(8.0, op, v),
         "color-index" | "monochrome" | "grid" => num_feature(0.0, op, v),
         "prefers-color-scheme" => ident_feature(if env.dark { "dark" } else { "light" }, op, v, ""),
-        "prefers-reduced-motion" | "prefers-reduced-transparency" | "prefers-reduced-data" => {
-            ident_feature("no-preference", op, v, "no-preference")
+        "prefers-reduced-motion" => {
+            ident_feature(if crate::reduced_motion() { "reduce" } else { "no-preference" }, op, v, "no-preference")
         }
+        "prefers-reduced-transparency" | "prefers-reduced-data" => ident_feature("no-preference", op, v, "no-preference"),
         "prefers-contrast" => ident_feature("no-preference", op, v, "no-preference"),
         "forced-colors" | "inverted-colors" => ident_feature("none", op, v, "none"),
         "hover" | "any-hover" => ident_feature("hover", op, v, "none"),

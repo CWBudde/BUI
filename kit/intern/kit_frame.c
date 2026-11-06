@@ -675,69 +675,6 @@ const BKClass bk_cls_radio = {.name = "radio",
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Images
- * \{ */
-
-void bk_image_free(BKImage *img)
-{
-  if (img) {
-    free(img->argb);
-    free(img);
-  }
-}
-
-static BKImage *image_from_rgba(const unsigned char *rgba, int w, int h)
-{
-  if (!rgba || w <= 0 || h <= 0) {
-    return NULL;
-  }
-  BKImage *img = (BKImage *)calloc(1, sizeof(BKImage));
-  img->w = w;
-  img->h = h;
-  img->argb = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)w * h);
-  for (int i = 0; i < w * h; i++) {
-    const unsigned char *p = rgba + 4 * (size_t)i;
-    img->argb[i] = ((uint32_t)p[3] << 24) | ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
-  }
-  return img;
-}
-
-void bk_image_draw(const BKImage *img, float x, float y, float w, float h, float alpha)
-{
-  if (img) {
-    BUI_raster_image(bk_draw.r, x, y, w, h, img->argb, img->w, img->h, alpha);
-  }
-}
-
-void BK_node_set_image(BKNode *n, const unsigned char *rgba, int w, int h)
-{
-  bk_image_free((BKImage *)n->image);
-  n->image = image_from_rgba(rgba, w, h);
-  bk_relayout(n);
-  bk_invalidate(n);
-}
-
-static void image_measure(BKNode *n, int *rw, int *rh)
-{
-  const BKImage *img = (const BKImage *)n->image;
-  *rw = img ? img->w : u();
-  *rh = img ? img->h : u();
-}
-
-static void image_draw(BKNode *n)
-{
-  const BKImage *img = (const BKImage *)n->image;
-  if (img) {
-    bk_image_draw(img, n->x + (n->w - img->w) / 2, n->y + (n->h - img->h) / 2, img->w, img->h,
-                  NODE_ENABLED(n) ? 1.0f : 0.5f);
-  }
-}
-
-const BKClass bk_cls_image = {.name = "image", .measure = image_measure, .draw = image_draw};
-
-/** \} */
-
-/* -------------------------------------------------------------------- */
 /** \name Canvas (display list)
  * \{ */
 
@@ -745,7 +682,7 @@ typedef struct CItem {
   BKCanvasItem it;
   float *coords;
   char *text;
-  BKImage *img;
+  BKImageRef img; /* BK_ITEM_IMAGE: rgba (copied), imbuf (borrowed) or src (cached) */
   int coords_cap; /* floats allocated in coords */
   int text_cap;   /* bytes allocated in text */
 } CItem;
@@ -825,7 +762,7 @@ static void citem_free(CItem *c)
 {
   free(c->coords);
   free(c->text);
-  bk_image_free(c->img);
+  bk_image_ref_clear(&c->img);
 }
 
 static void canvas_free(BKNode *n)
@@ -886,12 +823,50 @@ static void citem_assign(CItem *c, const BKCanvasItem *item)
   if (tl) {
     memcpy(c->text, item->text, (size_t)tl);
   }
-  bk_image_free(c->img);
-  c->img = item->rgba ? image_from_rgba(item->rgba, item->iw, item->ih) : NULL;
+  /* one pixel source per image item (validated here, at the boundary) */
+  const int sources = (item->rgba != NULL) + (item->imbuf != NULL) + (item->src != NULL);
+  if (item->type != BK_ITEM_IMAGE || sources != 1) {
+    bk_image_ref_clear(&c->img);
+  }
+  else if (item->imbuf) {
+    bk_image_ref_set_imbuf(&c->img, item->imbuf);
+  }
+  else if (item->src) {
+    bk_image_ref_set_source(&c->img, item->src);
+  }
+  else {
+    bk_image_ref_set_rgba(&c->img, item->rgba, item->iw, item->ih);
+  }
   c->it = *item;
   c->it.coords = c->coords;
   c->it.text = tl ? c->text : NULL;
   c->it.rgba = NULL;
+  c->it.src = NULL;
+  c->it.imbuf = NULL;
+}
+
+/* An image item's box in canvas space: x0 y0 x1 y1 with 4 coordinates,
+ * else the intrinsic size placed at the point by the anchor. */
+static bool citem_image_box(const CItem *ci, float b[4])
+{
+  const BKCanvasItem *it = &ci->it;
+  const float *p = ci->coords;
+  if (it->ncoords >= 4) {
+    b[0] = BK_MIN(p[0], p[2]);
+    b[1] = BK_MIN(p[1], p[3]);
+    b[2] = fabsf(p[2] - p[0]);
+    b[3] = fabsf(p[3] - p[1]);
+    return b[2] > 0.0f && b[3] > 0.0f;
+  }
+  int w, h;
+  if (it->ncoords < 2 || !bk_image_ref_size(&ci->img, &w, &h)) {
+    return false;
+  }
+  b[0] = p[0] - anchor_off(it->anchor, w, BK_ANCHOR_W, BK_ANCHOR_E);
+  b[1] = p[1] - anchor_off(it->anchor, h, BK_ANCHOR_N, BK_ANCHOR_S);
+  b[2] = (float)w;
+  b[3] = (float)h;
+  return true;
 }
 
 /* The canvas-space box an item can paint into, with margins for outline
@@ -928,13 +903,14 @@ static bool citem_bbox(const CItem *ci, float b[4])
     m = 2.0f;
   }
   else if (it->type == BK_ITEM_IMAGE) {
-    if (!ci->img) {
+    float ib[4];
+    if (!citem_image_box(ci, ib)) {
       return false;
     }
-    x0 = p[0] - anchor_off(it->anchor, ci->img->w, BK_ANCHOR_W, BK_ANCHOR_E);
-    y0 = p[1] - anchor_off(it->anchor, ci->img->h, BK_ANCHOR_N, BK_ANCHOR_S);
-    x1 = x0 + ci->img->w;
-    y1 = y0 + ci->img->h;
+    x0 = ib[0];
+    y0 = ib[1];
+    x1 = ib[0] + ib[2];
+    y1 = ib[1] + ib[3];
     m = 2.0f;
   }
   b[0] = x0 - m;
@@ -1100,7 +1076,27 @@ typedef struct ItemPrep {
   float y0, y1;
   const BuiTextRun *run;
   float tx, ty;
+  BKImageDraw image; /* image items: resolved (ib NULL: nothing to draw yet) */
 } ItemPrep;
+
+/* An image item placed in window space (ox, oy: the canvas origin). */
+static bool citem_image_resolve(const CItem *ci, float ox, float oy, BKImageDraw *r)
+{
+  float b[4];
+  if (!citem_image_box(ci, b)) {
+    return false;
+  }
+  b[0] += ox;
+  b[1] += oy;
+  const int *c = bk_draw.clip;
+  if (ci->img.kind == BK_IMREF_SOURCE &&
+      (b[0] + b[2] <= c[0] || b[0] >= c[2] || b[1] + b[3] <= c[1] || b[1] >= c[3]))
+  {
+    return false; /* off screen: a file outside the clip is neither decoded nor played */
+  }
+  return bk_image_ref_resolve(&ci->img, ci->it.ncoords >= 4 ? ci->it.fit : BK_FIT_FILL,
+                              ci->it.frame, b, r);
+}
 
 /* Draw one item into `r`. With `prep`, text uses the prepared run (safe on
  * any thread); without it, text is prepared here. */
@@ -1234,13 +1230,10 @@ static void canvas_item_draw(BuiRaster *r, const CItem *ci, float ox, float oy, 
       break;
     }
     case BK_ITEM_IMAGE: {
-      if (!ci->img || it->ncoords < 2) {
-        return;
+      BKImageDraw d;
+      if (prep ? prep->image.ib != NULL : citem_image_resolve(ci, ox, oy, &d)) {
+        bk_image_draw_resolved(r, prep ? &prep->image : &d, 1.0f);
       }
-      const float w = (float)ci->img->w, h = (float)ci->img->h;
-      const float x = ox + p[0] - anchor_off(it->anchor, (int)w, BK_ANCHOR_W, BK_ANCHOR_E);
-      const float y = oy + p[1] - anchor_off(it->anchor, (int)h, BK_ANCHOR_N, BK_ANCHOR_S);
-      BUI_raster_image(r, x, y, w, h, ci->img->argb, ci->img->w, ci->img->h, 1.0f);
       break;
     }
   }
@@ -1336,9 +1329,16 @@ static bool item_prepare(const CItem *ci, float ox, float oy, ItemPrep *pp)
     pp->y0 = y - size * 1.5f - 2.0f;
     pp->y1 = y + size + 2.0f;
   }
-  else if (it->type == BK_ITEM_IMAGE && ci->img) {
-    pp->y0 = oy + p[1] - (float)ci->img->h;
-    pp->y1 = oy + p[1] + (float)ci->img->h;
+  else if (it->type == BK_ITEM_IMAGE) {
+    pp->image.ib = NULL;
+    if (citem_image_resolve(ci, ox, oy, &pp->image)) {
+      pp->y0 = pp->image.dst[1] - 1.0f;
+      pp->y1 = pp->image.dst[1] + pp->image.dst[3] + 1.0f;
+    }
+    else {
+      pp->image.ib = NULL;
+      pp->y1 = pp->y0 - 1.0f; /* nothing to draw */
+    }
   }
   if (it->clip_on) {
     pp->y0 = BK_MAX(pp->y0, oy + it->clip[1] - 1.0f);
@@ -1384,7 +1384,8 @@ static void band_draw(const BandJob *j, int b)
       }
     }
     BUI_raster_view(j->base, view, cx0, cy0, cx1, cy1);
-    canvas_item_draw(view, ci, j->ox, j->oy, it->type == BK_ITEM_TEXT ? &j->prep[i] : NULL);
+    canvas_item_draw(view, ci, j->ox, j->oy,
+                     it->type == BK_ITEM_TEXT || it->type == BK_ITEM_IMAGE ? &j->prep[i] : NULL);
   }
   free(view);
 }

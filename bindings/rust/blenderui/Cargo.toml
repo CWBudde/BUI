@@ -24,7 +24,6 @@ blenderui-tailwind = { path = "../blenderui-tailwind", version = "0.3.0" }
 taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "flexbox_balance", "grid", "block_layout", "float_layout", "calc", "content_size"] }
 paste = "1"
 smallvec = { version = "1", features = ["union", "const_generics"] }
-png = "0.17"
 
 [features]
 # Draw text with Windows' native GDI engine (system fonts) instead of the
@@ -36,3 +35,8 @@ slug = ["blenderui-sys/slug"]
 default = ["slug"]
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = ["blenderui-sys/portable-text"]
+
+[dev-dependencies]
+# Encoding only: the website-screenshot examples (examples/site) write PNGs.
+# The library decodes every format with the kit (no Rust image decoder).
+png = "0.17"

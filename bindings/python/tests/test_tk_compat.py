@@ -440,8 +440,29 @@ def prog_events(tk, ttk):
     return result
 
 
+def prog_photoimage(tk, ttk):
+    """PhotoImage reading the formats Tk itself reads (BUI: the kit's decoders)."""
+    import base64
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "images")
+    root = tk.Tk()
+    png = tk.PhotoImage(file=os.path.join(here, "quad.png"))
+    ppm = tk.PhotoImage(file=os.path.join(here, "quad.ppm"))
+    with open(os.path.join(here, "quad.gif"), "rb") as fh:
+        gif = tk.PhotoImage(data=base64.b64encode(fh.read()).decode())
+    anim = tk.PhotoImage(file=os.path.join(here, "anim.gif"), format="gif -index 2")
+    tk.Label(root, image=png).pack()
+    root.update()
+    result = {"png": (png.width(), png.height(), png.get(1, 1), png.get(6, 4)),
+              "ppm": (ppm.width(), ppm.height(), ppm.get(6, 1)),
+              "gif": (gif.width(), gif.height()),
+              "anim": (anim.width(), anim.height()),
+              "alpha": tk.PhotoImage(file=os.path.join(here, "quad_alpha.png")).transparency_get(6, 4)}
+    root.destroy()
+    return result
+
+
 PROGRAMS = [prog_calculator, prog_todo, prog_form, prog_editor, prog_table, prog_canvas,
-            prog_scrollable_frame, prog_widgets, prog_events]
+            prog_scrollable_frame, prog_widgets, prog_events, prog_photoimage]
 
 
 # ==========================================================================

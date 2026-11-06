@@ -166,8 +166,10 @@ the software raster.
   `protocol("WM_DELETE_WINDOW")`, `grab_set` (disables the other windows),
   clipboard, `after` / `after_idle` / `after_info`, `wait_window`,
   `wait_variable` and every `winfo_*`.
-- **Images.** `PhotoImage` reads PNG / PPM / PGM in pure Python and GIF
-  through Tk. It supports `put` / `get` / `copy` / `zoom` / `subsample` /
+- **Images.** `PhotoImage` decodes with the kit's image module (the C
+  decoders every BUI binding shares): Tk's PNG, GIF (`format="gif -index n"`
+  picks a frame) and PPM / PGM, and also JPEG, WebP, BMP, TGA, QOI, Radiance
+  HDR and SVG. It supports `put` / `get` / `copy` / `zoom` / `subsample` /
   `copy_replace` / `data` and `write` (PNG, PPM). `BitmapImage` reads XBM.
 
 ## The Blender look

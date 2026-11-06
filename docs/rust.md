@@ -226,7 +226,7 @@ user-agent stylesheet gives them and how they are realised.
 | --------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Box       | `div`, `p`, `h1`-`h6`, `a`, `span`, `ul`/`ol`/`li`, `table` ..., `details`, `dialog`, `form` ... | laid out and painted from CSS                           |
 | Widget    | `button`, `input`, `select`, `textarea`, `progress`, `meter` (+ `option`, `optgroup`, `datalist`) | Blender's own widgets ([below](#form-controls))        |
-| Replaced  | `img`, `video`, `audio`, `iframe`, `embed`, `object`, `canvas`                            | an intrinsic size; `img` shows PNG files or RGBA pixels       |
+| Replaced  | `img`, `video`, `audio`, `iframe`, `embed`, `object`, `canvas`                            | an intrinsic size; `img` shows image files or RGBA pixels     |
 | Metadata  | `head`, `title`, `style`, `script`, `meta`, `link`, `template` ...                        | not rendered (`<style>` and `<title>` are read)               |
 | Break     | `br`, `wbr`                                                                               | line breaks                                                    |
 
@@ -433,6 +433,22 @@ gets `on_click`.
 Positions are logical pixels. Clicking an element focuses it; key events go
 to the focused element and bubble up. `cx.stop_propagation()` stops bubbling.
 
+## Images
+
+`<img src>` and CSS background images read every format the kit reads (PNG,
+JPEG, WebP, GIF, BMP, TGA, QOI, Radiance HDR, PNM, SVG). Layout takes the size
+from the file's header; the pixels decode on the kit's worker threads at the
+size drawn and the image appears when ready (`App::draw` waits for them, so
+headless pixels are deterministic). `Image::open` / `Image::decode` decode
+synchronously, `Painter::image_file` / `image_file_cover` draw a file in a
+canvas, `CellRender::Image` is a data-table image column and
+`Record::media` a chat message's picture. `blenderui::image_stats()` and
+`set_image_budget` see and size the shared cache. Animated GIF and WebP
+play (paused while off screen); `<img frame="2">` holds a frame,
+`set_reduced_motion(true)` holds them all, and `Animation` steps one
+yourself (`Image::update_texture` for Dear ImGui). See
+[Images](https://bui.preetham.top/docs/concepts/images/).
+
 ## Painting your own content
 
 `canvas(|bounds, painter| ..)` is gpui's `canvas()`: it paints with a
@@ -562,7 +578,7 @@ the result is cached, so a page that doesn't change costs nothing.
 
 Also rendered: every `border-style` and `outline-style` (`dashed`, `dotted`, `double`, `groove`, `ridge`, `inset`, `outset`, following rounded corners with Blender's corner tessellation), `text-decoration-style` (including `wavy`), `-thickness` and `text-underline-offset`, `background-clip` / `background-origin` (`border-box`, `padding-box`, `content-box`), `background-attachment: fixed`, `clip: rect()` on absolutely positioned boxes, counters (`counter-reset` / `-increment` / `-set` with `counter()` and `counters()` in `content`), `empty-cells`, `list-style-image`, `word-break: break-all`, `overflow-wrap: anywhere | break-word` and `tab-size`.
 
-Also supported: `background-image: url()` (PNG) with `background-size` / `-position` (`-x` / `-y`) / `-repeat`, `object-fit` / `object-position`, logical border longhands (`border-inline-width` ...), `text-wrap-mode`, `white-space-collapse`, `scale`, `@container` size queries (`container-type`, `container-name`), `@font-face` (local font files) and `@property` initial values.
+Also supported: `background-image: url()` (every image format) with `background-size` / `-position` (`-x` / `-y`) / `-repeat`, `object-fit` / `object-position`, logical border longhands (`border-inline-width` ...), `text-wrap-mode`, `white-space-collapse`, `scale`, `@container` size queries (`container-type`, `container-name`), `@font-face` (local font files) and `@property` initial values.
 
 How much is left, against all 745 properties in the
 [W3C index](https://www.w3.org/Style/CSS/all-properties.en.html):
@@ -692,7 +708,8 @@ The `gdi-text` feature uses Windows' GDI engine and system fonts.
   inline elements (`<kbd>`, `<code>`) are not drawn.
 - **Widgets draw above page content**, so a `z-index`ed box (a `<dialog>`)
   over a form field does not cover the field.
-- **Images**: PNG only, nearest-neighbour scaling. `video`, `audio`,
+- **Images**: an animation inside a CSS effect layer (filters, masks, 3D
+  transforms) shows its first frame. `video`, `audio`,
   `iframe` show a placeholder.
 - **Windows** are native on Windows (Win32), Linux (X11) and macOS (Cocoa,
   new, tried by hand so far on one Apple Silicon Mac; it needs the main thread). The GPU

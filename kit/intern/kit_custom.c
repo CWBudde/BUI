@@ -246,9 +246,10 @@ static bool live(const BKNode *n, BKContext *ctx)
   return true;
 }
 
-static void arm_timer(BKContext *ctx)
+void bk_ctx_arm_timer(BKContext *ctx)
 {
-  double due = 0.0;
+  /* the context's one frame timer: custom nodes' wakes and animated images */
+  double due = bk_image_next_due(ctx);
   for (BKCustom *c = g_customs; c; c = c->next) {
     if (c->wake_at > 0.0 && bk_ctx(c->node) == ctx && (due == 0.0 || c->wake_at < due)) {
       due = c->wake_at;
@@ -271,6 +272,7 @@ static void arm_timer(BKContext *ctx)
 void bk_custom_timer(BKContext *ctx)
 {
   ctx->custom_timer_due = 0.0;
+  bk_image_tick(); /* animated images whose frame is due (they damage themselves) */
   const double now = bk_time() + 0.002; /* timers fire a little early */
   bool any = false;
   for (BKCustom *c = g_customs; c; c = c->next) {
@@ -280,7 +282,7 @@ void bk_custom_timer(BKContext *ctx)
       any = true;
     }
   }
-  arm_timer(ctx);
+  bk_ctx_arm_timer(ctx);
   if (any) {
     bk_ctx_request(ctx);
   }
@@ -369,7 +371,7 @@ void BK_custom_request_frame(BKNode *node, int ms)
     c->wake_at = at;
   }
   if (ctx) {
-    arm_timer(ctx);
+    bk_ctx_arm_timer(ctx);
   }
 }
 

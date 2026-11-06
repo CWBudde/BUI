@@ -207,6 +207,16 @@ The crate depends on `blenderui-sys` with its `imgui` feature, which builds Dear
 the BUI backend and the C API with the project's CMake files (as for the C kit; a published
 crate carries them in `csrc/`, see `scripts/vendor_c.py`). Nothing else is downloaded.
 
+## Images as textures
+
+ImGui's user textures are BUI textures. Decode any image the kit reads and
+get its id: Python `tex, w, h = blenderui.image_texture(data)` then
+`imgui.image(tex, (w, h))` and `blenderui.texture_free(tex)`; Rust
+`blenderui::Image::open(path)?.texture()`; C `BK_imbuf_texture(ib, 0)`.
+Animated GIF and WebP: Python `blenderui.AnimatedTexture(data)` (call
+`update()` each frame, draw `texture`), Rust `blenderui::Animation` with
+`Image::update_texture`, C `BK_anim_next` with `BK_imbuf_texture_update`.
+
 ## Headless rendering and tests
 
 All three bindings can run Dear ImGui without a window: frames render into an offscreen

@@ -68,6 +68,9 @@ pub enum CellRender {
     /// A row-actions button (three dots); a click raises
     /// [`TableEvent::CellAction`](crate::TableEvent::CellAction).
     Actions,
+    /// An image: the cell's text is a file path, shown as a square thumbnail
+    /// (`object-fit: cover`). Only visible rows paint, so only they load.
+    Image,
 }
 
 /// shadcn's Badge variants.

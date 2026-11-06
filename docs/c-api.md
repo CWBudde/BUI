@@ -97,6 +97,38 @@ tree gridview canvas textarea image ramp curve normal histogram custom`.
 Read the header for the full list. It is the reference: every function
 has a one-line comment.
 
+## Images
+
+`kit/intern/image` decodes images for every binding (Blender's imbuf design:
+one `BKImBuf` type and a format table): PNG, GIF, BMP, TGA, QOI (Wuffs), JPEG
+(libjpeg-turbo), WebP (libwebp), Radiance HDR, PNM and SVG.
+
+```c
+BKImageInfo info;
+BK_image_probe(data, len, &info);               /* header only: format, size, frames */
+BKImBuf *ib = BK_imbuf_decode(data, len, 256, 256); /* any thread; fit within, never upscaled */
+int w, h, frames = BK_imbuf_size(ib, &w, &h);
+const uint32_t *px = BK_imbuf_pixels(ib, 0);    /* premultiplied 0xAARRGGBB */
+BK_imbuf_free(ib);
+
+/* files on nodes and canvas items: decoded on worker threads at the drawn size */
+BK_node_set_image_source(image_node, "photo.jpg", BK_FIT_COVER);
+BKCanvasItem it = {.type = BK_ITEM_IMAGE, .coords = box, .ncoords = 4,
+                   .src = "photo.jpg", .fit = BK_FIT_COVER};
+BK_image_set_budget(128u << 20);                /* the shared cache */
+```
+
+The window hosts wake for finished decodes; a host with its own loop calls
+`BK_image_poll()` (or sets `BK_image_set_notify`). `BK_image_exit()` joins the
+workers and frees the cache.
+
+Animated GIF and WebP sources play by themselves (only while on screen, on
+the context's frame timer: `BKHost.schedule` with `BK_TIMER_CUSTOM`); a
+canvas item's `frame` (or `BK_node_set_image_frame`) holds frame `n - 1`,
+and `BK_set_animations(0)` holds them all. To step one yourself:
+`BK_anim_open`, then `BK_anim_next` for each frame and its delay;
+`BK_imbuf_texture_update` puts a frame into a texture.
+
 ## Showing the kit in your own window
 
 The kit always draws into a `BuiRaster`: the software raster, or Direct3D 11

@@ -42,7 +42,7 @@ Because every constructor returns a `Div`, everything on this page and on the [C
 | --- | --- | --- |
 | Box | `div`, `p`, `h1`-`h6`, `a`, `span`, `ul` / `ol` / `li`, `table` …, `details`, `dialog`, `form` … | Laid out and painted from CSS |
 | Widget | `button`, `input`, `select`, `textarea`, `progress`, `meter`, plus `option`, `optgroup`, `datalist` | Form controls: browser-style, or Blender's own widgets ([the three looks](../styled-and-blender-components/)) |
-| Replaced | `img`, `video`, `audio`, `iframe`, `embed`, `object`, `canvas` | An intrinsic size; `img` shows PNG files or RGBA pixels |
+| Replaced | `img`, `video`, `audio`, `iframe`, `embed`, `object`, `canvas` | An intrinsic size; `img` shows PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR, PNM or SVG files, or RGBA pixels |
 | Metadata | `head`, `title`, `style`, `script`, `meta`, `link`, `template` … | Not drawn (`<style>` and `<title>` are read) |
 | Break | `br`, `wbr` | Line breaks |
 
@@ -155,7 +155,7 @@ table()
 - **From pixels:** `img().image_rgba(width, height, rgba)`, with `width * height * 4` bytes, row-major, straight alpha.
 - **Shared pixels:** `img().image(Arc<Image>)` is cheap to pass every frame. `Image::from_png(path)` decodes a file into one.
 
-Images are PNG only and scale with nearest-neighbour sampling. CSS `object-fit`, `object-position` and `background-image: url(...)` work too ([CSS](../css-and-tailwind/)).
+Images decode with the kit's [image module](/docs/concepts/images) (PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR, PNM, SVG) off the UI thread at the size drawn, and scale with bilinear filtering. CSS `object-fit`, `object-position` and `background-image: url(...)` work too ([CSS](../css-and-tailwind/)).
 
 `video`, `audio` and `iframe` show a placeholder of their intrinsic size; there's no media playback or embedded browsing <ComingSoon inline />.
 

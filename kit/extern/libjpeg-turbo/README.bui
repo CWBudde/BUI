@@ -1,0 +1,15 @@
+Project: libjpeg-turbo (decoder subset)
+URL: https://github.com/libjpeg-turbo/libjpeg-turbo
+Version: 3.1.2
+License: IJG AND BSD-3-Clause AND Zlib (see LICENSE.md, README.ijg)
+Used for: JPEG decoding in kit/intern/image (format_jpeg.c), like Blender's
+          imbuf (format_jpeg.cc), including DCT scaling for thumbnails.
+
+Copied unmodified: the decompressor sources from src/ and the 8-bit wrappers
+from src/wrapper/ (*-8.c). Not copied: the compressor, turbojpeg, tools,
+SIMD (the x86 SIMD needs NASM), 12/16-bit wrappers, jquant1/2.c, jmemnobs.c.
+
+BUI files (bui/):
+  jconfig.h, jconfigint.h, jversion.h  configuration (CMake generates these upstream)
+  jmem_bui.c                           memory manager on MEM_guardedalloc (replaces jmemnobs.c)
+  jdecode_8bit_only.c                  12/16-bit and quantizer entry points that fail cleanly

@@ -77,7 +77,7 @@ Everything below is tkinter behaviour, implemented on BUI's C runtime.
 - **Canvas.** All item types, including `window`, smoothed lines and arrowheads; tag expressions such as `"a&&!b"`; `find_*` and `addtag_*`; `tag_bind` with `current` and per-item `<Enter>` / `<Leave>`; shape-accurate hit tests; `move`, `moveto`, `scale` and `coords`; and editing text items in place.
 - **Text.** The full index grammar (`3.5`, `end-1c`, `insert lineend`, `@x,y`, `tag.first`, `+N lines`, `wordstart` …), tags with colors, priorities and `tag_bind`, marks with gravity, `search` (regexp, backwards, `count`), `dump`, `count`, the undo stack, `<<Modified>>` and peers.
 - **Windows.** `geometry`, `attributes` (`-topmost`, `-alpha`, `-fullscreen`, `-disabled`), `resizable`, `minsize` and `maxsize`, `overrideredirect`, `state`, `iconify`, `withdraw`, `transient`, `protocol("WM_DELETE_WINDOW")`, `grab_set`, the clipboard, `after`, `after_idle`, `after_info`, `wait_window`, `wait_variable` and every `winfo_*`.
-- **Images.** `PhotoImage` reads PNG, PPM and PGM in pure Python, and GIF through Tk. It supports `put`, `get`, `copy`, `zoom`, `subsample`, `copy_replace`, `data` and `write` (PNG, PPM). `BitmapImage` reads XBM.
+- **Images.** `PhotoImage` decodes with the kit's [image module](/docs/concepts/images): Tk's PNG, GIF (`format="gif -index n"` picks a frame) and PPM/PGM, plus JPEG, WebP, BMP, TGA, QOI, Radiance HDR and SVG. It supports `put`, `get`, `copy`, `zoom`, `subsample`, `copy_replace`, `data` and `write` (PNG, PPM). `BitmapImage` reads XBM.
 
 ## The Blender look
 

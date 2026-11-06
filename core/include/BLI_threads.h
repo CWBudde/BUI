@@ -27,6 +27,29 @@ void BLI_mutex_lock(ThreadMutex *mutex);
 void BLI_mutex_unlock(ThreadMutex *mutex);
 void BLI_mutex_destroy(ThreadMutex *mutex);
 
+/* Condition variables (Blender's BLI_condition_*), waiting on a ThreadMutex. */
+#ifdef _WIN32
+typedef struct BUI_ThreadConditionImpl {
+  void *impl; /* CONDITION_VARIABLE (pointer-sized) */
+} ThreadCondition;
+#else
+typedef pthread_cond_t ThreadCondition;
+#endif
+void BLI_condition_init(ThreadCondition *cond);
+void BLI_condition_wait(ThreadCondition *cond, ThreadMutex *mutex);
+void BLI_condition_notify_one(ThreadCondition *cond);
+void BLI_condition_notify_all(ThreadCondition *cond);
+void BLI_condition_end(ThreadCondition *cond);
+
+/* Blender's thread pool (BLI_threads.cc): `tot` slots in `threadbase`, each
+ * running `do_thread(callerdata)` once inserted; end joins them all and
+ * frees the slots. */
+struct ListBase;
+void BLI_threadpool_init(struct ListBase *threadbase, void *(*do_thread)(void *), int tot);
+void BLI_threadpool_insert(struct ListBase *threadbase, void *callerdata);
+void BLI_threadpool_end(struct ListBase *threadbase);
+int BLI_system_thread_count(void);
+
 /* Placeholder spin-lock alias kept for source compatibility. */
 typedef ThreadMutex SpinLock;
 

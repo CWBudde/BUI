@@ -100,6 +100,9 @@ impl PaintSink for PainterSink<'_> {
         let scale = self.scale;
         *self.widths.get_or_insert_with(text, 0, size, || measure(text, size, scale))
     }
+    fn image(&mut self, r: Rect, src: &str) {
+        self.p.image_file_cover(bounds(r, self.origin), src);
+    }
     fn clipped(&mut self, r: Rect, f: &mut dyn FnMut(&mut dyn PaintSink)) {
         let (origin, scale) = (self.origin, self.scale);
         let widths = &mut *self.widths;

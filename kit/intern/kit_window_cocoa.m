@@ -1871,8 +1871,11 @@ int BK_window_pump(void)
 static void wake_perform(void *info)
 {
   (void)info;
-  if (__atomic_exchange_n(&g_wake_pending, 0, __ATOMIC_ACQ_REL) && g_wake_cb) {
-    g_wake_cb();
+  if (__atomic_exchange_n(&g_wake_pending, 0, __ATOMIC_ACQ_REL)) {
+    BK_image_poll(); /* decoded images: damage what shows them */
+    if (g_wake_cb) {
+      g_wake_cb();
+    }
   }
   @autoreleasepool {
     render_due(); /* draw what it changed even inside AppKit's loops */
@@ -1880,9 +1883,8 @@ static void wake_perform(void *info)
   }
 }
 
-int BK_window_wake_init(void (*cb)(void))
+int bk_window_wake_ready(void)
 {
-  g_wake_cb = cb;
   if (!g_wake_src) {
     CFRunLoopSourceContext c;
     memset(&c, 0, sizeof(c));
@@ -1894,6 +1896,12 @@ int BK_window_wake_init(void (*cb)(void))
     CFRunLoopAddSource(CFRunLoopGetMain(), g_wake_src, kCFRunLoopCommonModes);
   }
   return 1;
+}
+
+int BK_window_wake_init(void (*cb)(void))
+{
+  g_wake_cb = cb;
+  return bk_window_wake_ready();
 }
 
 /* Thread-safe: wakes the loop, which calls the wake callback. */

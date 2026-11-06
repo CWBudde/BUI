@@ -129,8 +129,8 @@ impl Measurer for ChatStyle {
 
     fn estimator(&self, list_width: f32) -> Estimator {
         // a third of the messages start a run; images are rare
-        let pad = f64::from(self.top(&Record { id: 0, time: 0, sender: 0, flags: 0, media_h: 0, text: "" }) + 3.0) + f64::from(self.header_h) * 0.33;
-        let w = f64::from(self.wrap_width(&Record { id: 0, time: 0, sender: 0, flags: 0, media_h: 0, text: "" }, list_width));
+        let pad = f64::from(self.top(&Record { id: 0, time: 0, sender: 0, flags: 0, media_h: 0, text: "", media: "" }) + 3.0) + f64::from(self.header_h) * 0.33;
+        let w = f64::from(self.wrap_width(&Record { id: 0, time: 0, sender: 0, flags: 0, media_h: 0, text: "", media: "" }, list_width));
         Estimator::new(pad, f64::from(self.line_height), f64::from(self.font_size) * 0.5, w)
     }
 }
@@ -183,8 +183,13 @@ impl ItemPainter for ChatStyle {
         }
         if rec.media_h > 0 {
             let w = (r.w - SCROLL_W - x - self.pad_x).min(f32::from(rec.media_h) * 1.5);
-            sink.round(Rect::new(x, y + 3.0, w, f32::from(rec.media_h)), 4.0, pal.dim.opacity(0.25));
-            sink.text(x + 8.0, y + 3.0 + f32::from(rec.media_h) * 0.5, "image", self.font_size - 1.0, pal.dim);
+            let at = Rect::new(x, y + 3.0, w, f32::from(rec.media_h));
+            if rec.media.is_empty() {
+                sink.round(at, 4.0, pal.dim.opacity(0.25));
+                sink.text(x + 8.0, y + 3.0 + f32::from(rec.media_h) * 0.5, "image", self.font_size - 1.0, pal.dim);
+            } else {
+                sink.image(at, rec.media); // the height was known before it loads: nothing shifts
+            }
         }
     }
 

@@ -23,7 +23,7 @@ use crate::css::{Decl, Prop, Rule, Stylesheet, Subject};
 use crate::element::{AnyElement, Div, Listeners, PaintFn, ParentElement, SharedString};
 use crate::geometry::{rect, Bounds, Units};
 use crate::html::{tag_kind, ua_styled_stylesheet, ua_stylesheet, TagKind};
-use crate::paint::{Image, ImageCache};
+use crate::paint::{Image, ImageCache, ImageFile};
 use crate::prof::{span, Phase};
 use crate::style::ContentPart;
 use crate::style::{apply, Computed, DisplayKind, Fnv, FnvMap, TextAlign, TextTransform, VAlign, WhiteSpace};
@@ -234,6 +234,9 @@ pub(crate) enum Content {
 
 pub(crate) enum Replaced {
     Image(Arc<Image>),
+    /// `<img src>`: decoded on the kit's workers when shown; animations
+    /// play, or hold the frame of the `frame` attribute.
+    File(ImageFile, Option<u32>),
     Painted(PaintFn),
     Placeholder(&'static str),
 }
@@ -1186,10 +1189,10 @@ impl<'a> Builder<'a> {
             TagKind::Replaced => {
                 let r = if let Some(f) = div.paint.take() {
                     Replaced::Painted(f)
-                } else if let Some(img) = div.image.take().or_else(|| {
-                    self.attr(i, "src").map(str::to_owned).and_then(|s| self.images.load(&s))
-                }) {
+                } else if let Some(img) = div.image.take() {
                     Replaced::Image(img)
+                } else if let Some(file) = self.attr(i, "src").map(str::to_owned).and_then(|s| self.images.load(&s)) {
+                    Replaced::File(file, self.attr(i, "frame").and_then(|v| v.trim().parse().ok()))
                 } else {
                     Replaced::Placeholder(div.tag)
                 };
@@ -1746,6 +1749,7 @@ impl<'a> Builder<'a> {
             Content::Replaced(r) => {
                 let (iw, ih) = match r {
                     Replaced::Image(img) => (img.width as f32, img.height as f32),
+                    Replaced::File(file, _) => (file.width as f32, file.height as f32),
                     _ => (300.0, 150.0),
                 };
                 let attr = |n: &str| self.attr(i, n).and_then(|v| v.trim_end_matches("px").parse::<f32>().ok());

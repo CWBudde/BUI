@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "BUI_kit.h"
+#include "image/image.h"
 
 typedef unsigned char uchar;
 
@@ -393,7 +394,9 @@ struct BKNode {
 
   struct BKGeom *geom; /* geometry manager info (children of frames) */
   float anim;          /* panel open fraction while animating (0..1) */
-  void *image;         /* BKImage on labels/buttons */
+  BKImageRef image;    /* labels, buttons, the "image" class (image/image.h) */
+  int image_fit;       /* BK_FIT_* for the "image" class */
+  int image_frame;     /* animations: 0 plays, n > 0 shows frame n - 1 */
 
   void *ext; /* type-specific data */
   /* internal C wiring (composites built in C, e.g. the color picker) */
@@ -465,13 +468,12 @@ typedef struct BKGeom {
   int reqw, reqh;
 } BKGeom;
 
-typedef struct BKImage {
-  int w, h;
-  uint32_t *argb; /* premultiplied-free 0xAARRGGBB */
-} BKImage;
-
-void bk_image_free(BKImage *img);
-void bk_image_draw(const BKImage *img, float x, float y, float w, float h, float alpha);
+/* Node images (image/draw.c): intrinsic size, and drawn at it centered in `r`. */
+bool bk_node_image_size(const BKNode *n, int *r_w, int *r_h);
+void bk_node_image_draw(const BKNode *n, const BKRect *r, float alpha);
+/* The window host's cross-thread wake, created on this (the UI) thread
+ * (kit_window_*.c); its handler calls BK_image_poll. 0 without a host. */
+int bk_window_wake_ready(void);
 
 /* Undo entries (BK_undo). */
 typedef struct BKUndo {
@@ -555,6 +557,10 @@ int bk_custom_event(BKNode *n, BKCustomEvent *e, int wx, int wy);
 void bk_custom_frames(BKContext *ctx);       /* BK_render: frame callbacks due */
 bool bk_custom_animating(BKContext *ctx);    /* a visible node wants the next frame */
 void bk_custom_timer(BKContext *ctx);        /* BK_TIMER_CUSTOM fired */
+/* Arms the context's frame timer (BK_TIMER_CUSTOM) for the earliest of its
+ * custom nodes' wakes and its animated images' next frames. */
+void bk_ctx_arm_timer(BKContext *ctx);
+bool bk_animations_enabled(void); /* BK_set_animations: off = reduced motion */
 void bk_update_cursor(BKContext *ctx);
 
 void bk_undo_record(BKNode *n, int kind);

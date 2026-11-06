@@ -692,11 +692,19 @@ static const char *const k_fs_quad =
     /* same lift as the CPU glyph cache (gamma 1/1.45, like GDI's grayscale AA) */
     "    return premul(v_c0, pow(cov, 1.0 / 1.45));\n"
     "  }\n"
-    "  if (kind == K_IMAGE) {\n"
-    "    vec2 isz = v_uv.zw;\n"
-    "    ivec2 sp = clamp(ivec2((s - R.xy) * isz / R.zw), ivec2(0, 0), ivec2(isz) - 1);\n"
-    "    vec4 c = texelFetch(rgba_tex, ivec2(v_uv.xy) + sp, 0);\n"
-    "    return premul(c, v_p.y);\n"
+    "  if (kind == K_IMAGE) {\n" /* premultiplied, bilinear: as bui_ui.hlsl */
+    "    vec2 k = v_uv.zw / R.zw;\n"
+    "    vec2 lo = floor(v_uv.xy), hi = max(lo, ceil(v_uv.xy + v_uv.zw) - 1.0);\n"
+    "    if (v_p.z > 0.5) {\n"
+    "      ivec2 t = ivec2(clamp(floor(v_uv.xy + (s - R.xy) * k), lo, hi));\n"
+    "      return texelFetch(rgba_tex, t, 0) * v_p.y;\n"
+    "    }\n"
+    "    vec2 t = v_uv.xy + (s - R.xy) * k - 0.5;\n"
+    "    vec2 t0 = floor(t), f = t - t0;\n"
+    "    ivec2 a = ivec2(clamp(t0, lo, hi)), b = ivec2(clamp(t0 + 1.0, lo, hi));\n"
+    "    vec4 top = mix(texelFetch(rgba_tex, a, 0), texelFetch(rgba_tex, ivec2(b.x, a.y), 0), f.x);\n"
+    "    vec4 bot = mix(texelFetch(rgba_tex, ivec2(a.x, b.y), 0), texelFetch(rgba_tex, b, 0), f.x);\n"
+    "    return mix(top, bot, f.y) * v_p.y;\n"
     "  }\n"
     "  if (kind == K_SHADOW) {\n"
     "    float rad = v_p.y, size = v_p.z, alpha = v_p.w;\n"
@@ -844,10 +852,22 @@ typedef struct SlugGlyph {
 typedef struct Batch {
   int tri; /* 0: quad instances, 1: triangles, 2: textured mesh (indexed) */
   int first, count;
+  int img; /* quads: the RGBA texture their images sample (-1 none yet, 0 atlas, n: big[n - 1]) */
   /* meshes: texture (0: white), sampler, scissor x0 y0 x1 y1 */
   int tex, nearest;
   int clip[4];
 } Batch;
+
+/* An image too big for the atlas, in a texture of its own (as gpu_d3d11.c). */
+#  define BIG_MAX 32
+#  define BIG_BUDGET ((size_t)256 << 20)
+#  define BIG_IDLE 120
+typedef struct BigTex {
+  uint64_t key, base; /* 0 = empty */
+  int w, h;
+  unsigned used;
+  GLuint tex;
+} BigTex;
 
 /* A registry texture (BUI_texture_*) in this context, by registry slot. */
 typedef struct DevTex {
@@ -897,6 +917,10 @@ struct BuiGpu {
   int w, h; /* frame size */
 
   Atlas mask, rgba;
+  BigTex big[BIG_MAX];
+  size_t big_bytes;
+  unsigned frame, forget_seen;
+  int big_max; /* the largest big-image texture side (max_tex, or less for tests) */
   Slot *mask_map, *img_map;
   int mask_n, img_n;
   unsigned mask_gen;
@@ -1279,6 +1303,11 @@ static int device_init(BuiGpu *g)
   if (g->max_tex < 2048) {
     return fail("2048 px textures");
   }
+  g->big_max = g->max_tex;
+  const char *max_env = getenv("BUI_GPU_MAX_TEXTURE"); /* tests: force big-image tiling */
+  if (max_env && atoi(max_env) >= 64 && atoi(max_env) < g->big_max) {
+    g->big_max = atoi(max_env);
+  }
   g->prog_quad = program(g, k_vs_quad, k_fs_quad);
   g->prog_tri = program(g, k_vs_tri, k_fs_tri);
   g->prog_mesh = program(g, k_vs_mesh, k_fs_mesh);
@@ -1519,17 +1548,29 @@ static void atlas_upload(BuiGpu *g, Atlas *a, int x, int y, int w, int h, const 
 
 static void flush(BuiGpu *g);
 
+static void big_sweep(BuiGpu *g);
+
 void bui_gpu_begin(BuiGpu *g, int w, int h)
 {
   g->w = w > 0 ? w : 1;
   g->h = h > 0 ? h : 1;
+  g->frame++;
+  big_sweep(g);
 }
 
+static Batch *batch_new(BuiGpu *g, int tri, int first);
+
+/* The batch to append to: the last one when it is of the same kind. */
 static Batch *batch_for(BuiGpu *g, int tri, int first)
 {
   if (tri != 2 && g->n_b > 0 && g->b[g->n_b - 1].tri == tri) {
     return &g->b[g->n_b - 1];
   }
+  return batch_new(g, tri, first);
+}
+
+static Batch *batch_new(BuiGpu *g, int tri, int first)
+{
   if (g->n_b == g->cap_b) {
     const int cap = g->cap_b ? g->cap_b * 2 : 64;
     Batch *nb = (Batch *)realloc(g->b, sizeof(Batch) * (size_t)cap);
@@ -1543,6 +1584,7 @@ static Batch *batch_for(BuiGpu *g, int tri, int first)
   memset(b, 0, sizeof(*b));
   b->tri = tri;
   b->first = first;
+  b->img = -1;
   return b;
 }
 
@@ -1739,7 +1781,28 @@ void bui_gpu_mesh(BuiGpu *g,
   b->count += n;
 }
 
+static BuiGpuInst *inst_in(BuiGpu *g, Batch *b, int kind, int x0, int y0, int x1, int y1);
+
+BuiGpuInst *bui_gpu_inst_image(BuiGpu *g, int tex, int x0, int y0, int x1, int y1)
+{
+  Batch *b = g->n_b > 0 ? &g->b[g->n_b - 1] : NULL;
+  if (!b || b->tri != 0 || (b->img >= 0 && b->img != tex)) {
+    b = batch_new(g, 0, g->n_inst); /* another texture: another draw */
+  }
+  if (!b) {
+    return NULL;
+  }
+  b->img = tex;
+  return inst_in(g, b, BG_IMAGE, x0, y0, x1, y1);
+}
+
 BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1)
+{
+  Batch *b = batch_for(g, 0, g->n_inst);
+  return b ? inst_in(g, b, kind, x0, y0, x1, y1) : NULL;
+}
+
+static BuiGpuInst *inst_in(BuiGpu *g, Batch *b, int kind, int x0, int y0, int x1, int y1)
 {
   if (g->n_inst == g->cap_inst) {
     const int cap = g->cap_inst ? g->cap_inst * 2 : 1024;
@@ -1749,10 +1812,6 @@ BuiGpuInst *bui_gpu_inst(BuiGpu *g, int kind, int x0, int y0, int x1, int y1)
     }
     g->inst = ni;
     g->cap_inst = cap;
-  }
-  Batch *b = batch_for(g, 0, g->n_inst);
-  if (!b) {
-    return NULL;
   }
   b->count++;
   BuiGpuInst *in = &g->inst[g->n_inst++];
@@ -2089,7 +2148,7 @@ static void img_reset(BuiGpu *g)
   g->img_n = 0;
 }
 
-int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *r_y)
+int bui_gpu_image(BuiGpu *g, uint64_t key, const uint32_t *argb, int w, int h, int *r_x, int *r_y)
 {
   if (!g->rgba.tex && (!make_current(g) || !atlas_create(g, &g->rgba, 2048, 4))) {
     return 0;
@@ -2097,12 +2156,8 @@ int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *
   if (w + 1 > g->rgba.size || h + 1 > g->rgba.size) {
     return 0; /* TODO: images larger than the atlas */
   }
-  uint64_t hsh = 1469598103934665603ull;
-  const size_t n = (size_t)w * h;
-  for (size_t i = 0; i < n; i++) {
-    hsh = (hsh ^ argb[i]) * 1099511628211ull;
-  }
-  const uint64_t k1 = hsh | 1, k2 = ((uint64_t)w << 32) | (uint32_t)h;
+  /* key: BuiPixmap.key or its content hash (gpu_raster.c), with the size */
+  const uint64_t k1 = key, k2 = ((uint64_t)w << 32) | (uint32_t)h;
   uint32_t idx = (uint32_t)mix64(k1) & (IMG_MAP - 1);
   for (;;) {
     Slot *s = &g->img_map[idx];
@@ -2119,7 +2174,7 @@ int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *
   int x, y;
   if (g->img_n >= IMG_MAP_FILL || !atlas_place(&g->rgba, w, h, &x, &y)) {
     img_reset(g);
-    return bui_gpu_image(g, argb, w, h, r_x, r_y);
+    return bui_gpu_image(g, key, argb, w, h, r_x, r_y);
   }
   atlas_upload(g, &g->rgba, x, y, w, h, argb, w * 4);
   Slot *s = &g->img_map[idx];
@@ -2131,6 +2186,100 @@ int bui_gpu_image(BuiGpu *g, const uint32_t *argb, int w, int h, int *r_x, int *
   *r_x = x;
   *r_y = y;
   return 1;
+}
+
+/* -- big images: textures of their own (as gpu_d3d11.c) ----------------------------- */
+
+static void big_release(BuiGpu *g, BigTex *t)
+{
+  if (t->tex) {
+    g->big_bytes -= (size_t)t->w * t->h * 4;
+    GL(glDeleteTextures)(1, &t->tex);
+  }
+  memset(t, 0, sizeof(*t));
+}
+
+static void big_sweep(BuiGpu *g)
+{
+  uint64_t gone[64];
+  const int n = bui_image_forgotten(&g->forget_seen, gone, 64); /* -1: missed some */
+  int current = -1;
+  for (int i = 0; i < BIG_MAX; i++) {
+    BigTex *t = &g->big[i];
+    if (!t->key) {
+      continue;
+    }
+    int drop = g->frame - t->used > BIG_IDLE || (n < 0 && t->used != g->frame);
+    for (int k = 0; k < n && !drop; k++) {
+      drop = gone[k] == t->base;
+    }
+    if (drop) {
+      if (current < 0) {
+        current = make_current(g);
+      }
+      if (current) {
+        big_release(g, t);
+      }
+    }
+  }
+}
+
+int bui_gpu_max_texture(BuiGpu *g)
+{
+  return g->big_max;
+}
+
+int bui_gpu_image_tex(BuiGpu *g, uint64_t key, uint64_t base, const uint32_t *argb, int stride,
+                      int w, int h)
+{
+  if (w <= 0 || h <= 0 || w > g->big_max || h > g->big_max || !make_current(g)) {
+    return 0;
+  }
+  int free_slot = -1, lru = -1;
+  for (int i = 0; i < BIG_MAX; i++) {
+    BigTex *t = &g->big[i];
+    if (t->key == key && t->w == w && t->h == h) {
+      t->used = g->frame;
+      return i + 1;
+    }
+    if (!t->key) {
+      free_slot = free_slot < 0 ? i : free_slot;
+    }
+    else if (t->used != g->frame && (lru < 0 || t->used < g->big[lru].used)) {
+      lru = i; /* not drawn this frame: no recorded batch samples it */
+    }
+  }
+  const size_t bytes = (size_t)w * h * 4;
+  while (lru >= 0 && (free_slot < 0 || g->big_bytes + bytes > BIG_BUDGET)) {
+    big_release(g, &g->big[lru]);
+    free_slot = free_slot < 0 ? lru : free_slot;
+    lru = -1;
+    for (int i = 0; i < BIG_MAX; i++) {
+      const BigTex *t = &g->big[i];
+      if (t->key && t->used != g->frame && (lru < 0 || t->used < g->big[lru].used)) {
+        lru = i;
+      }
+    }
+  }
+  if (free_slot < 0) {
+    return 0;
+  }
+  BigTex *t = &g->big[free_slot];
+  t->tex = tex_create(g, GL_RGBA8, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV);
+  if (!t->tex) {
+    return 0;
+  }
+  GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 4);
+  GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, stride);
+  GL(glTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, argb);
+  GL(glPixelStorei)(GL_UNPACK_ROW_LENGTH, 0);
+  t->key = key;
+  t->base = base;
+  t->w = w;
+  t->h = h;
+  t->used = g->frame;
+  g->big_bytes += bytes;
+  return free_slot + 1;
 }
 
 void bui_gpu_damage(BuiGpu *g, int x, int y, int w, int h)
@@ -2226,7 +2375,7 @@ static void flush(BuiGpu *g)
   GL(glActiveTexture)(GL_TEXTURE0);
   const float sx = 2.0f / (float)g->tw, sy = 2.0f / (float)g->th;
 
-  int cur = -1;
+  int cur = -1, img = 0;
   for (int i = 0; i < g->n_b; i++) {
     const Batch *b = &g->b[i];
     if (b->count == 0) {
@@ -2263,6 +2412,13 @@ static void flush(BuiGpu *g)
                          (const void *)(sizeof(uint32_t) * (size_t)b->first));
     }
     else if (!b->tri) {
+      const int want = b->img > 0 && g->big[b->img - 1].tex ? b->img : 0;
+      if (want != img) { /* unit 1: the atlas, or a big image's own texture */
+        img = want;
+        GL(glActiveTexture)(GL_TEXTURE0 + 1);
+        GL(glBindTexture)(GL_TEXTURE_2D, img ? g->big[img - 1].tex : g->rgba.tex);
+        GL(glActiveTexture)(GL_TEXTURE0);
+      }
       const size_t base = sizeof(BuiGpuInst) * (size_t)b->first;
       for (GLuint k = 0; k < 8; k++) {
         GL(glVertexAttribPointer)(k, 4, GL_FLOAT, GL_FALSE, sizeof(BuiGpuInst),

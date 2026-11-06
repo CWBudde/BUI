@@ -6,6 +6,71 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Added
+- **Images, once in C for every binding** (`kit/intern/image`, after Blender's imbuf: one
+  image type, `BKImBuf`, and a format table): PNG, GIF (animated), BMP, TGA and QOI with
+  Wuffs (memory-safe), JPEG with libjpeg-turbo 3.1.2 (EXIF orientation, CMYK, DCT-scaled
+  thumbnails), WebP with libwebp 1.6.0 (lossy, lossless, animated), Radiance HDR (after
+  Blender's), PNM (ASCII and binary) and SVG (the kit's nanosvg; `BUI_IMAGE_SVG`, on).
+  Decoded at the size drawn into premultiplied pixels, on a worker pool (visible first,
+  prefetch, cancellation), into one memory-budgeted cache (`BK_image_set_budget`, 256 MiB);
+  an arriving image redraws only its rectangle, and layout uses the header's size.
+  C: `BK_imbuf_*`, `BK_image_*`, `BK_node_set_image_source`, `BK_node_set_imbuf`,
+  canvas items with `src` / `imbuf` / `fit`. Rust: `<img>` and CSS background images in
+  every format, `Image::open` / `decode` / `from_rgba` / `texture`,
+  `Painter::image_file(_cover)`, `image_stats`, `set_image_budget`, an image column in the
+  data table (`CellRender::Image`), chat-list media (`Record::media`), and a
+  `PaintSink::image`. Python: `blenderui.image_decode` / `image_probe` / `image_texture` /
+  `texture_free` / `image_stats` / `set_image_budget`, the `Image` component, and tkinter
+  `PhotoImage` reading JPEG, WebP, BMP, TGA, QOI, HDR and SVG too (`format="gif -index n"`
+  picks a frame). Dear ImGui: textures from images (`image_texture`, `BK_imbuf_texture`).
+- Blender's `MEM_get_memory_in_use` / `MEM_get_memory_blocks_in_use` leak counters, and
+  its condition variables and thread pool (`BLI_condition_*`, `BLI_threadpool_*`) in core.
+- `bench/images`: the decoder comparison and the thumbnail-grid benchmark (`bui_image_bench`).
+- **Animated GIF and WebP play**, decoded one frame at a time at the size drawn (the cache
+  holds the shown frame, the next one and the decoder; no all-frames limit), each frame for
+  its delay, looping as the file says (GIF disposal and blending, WebP's canvas). Frames
+  advance on the context's frame timer and repaint only their rectangle; an animation off
+  screen, clipped away, in a row that isn't shown or in a window that isn't rendering
+  pauses (no decoding, timers or renders). `frame` holds one frame: the `<img frame>`
+  attribute (Rust, React), `Painter::image_file_frame`, `Image(frame=)`,
+  `BK_node_set_image_frame`, canvas items' `frame`. Reduced motion holds them all:
+  `blenderui::set_reduced_motion` (CSS `prefers-reduced-motion: reduce` then matches),
+  `bui.set_reduced_motion`, `BK_set_animations(0)`. Stepping animations yourself (Dear
+  ImGui): `BK_anim_open` / `BK_anim_next` / `BK_imbuf_texture_update`, Rust
+  `blenderui::Animation` and `Image::update_texture`, Python `blenderui.AnimatedTexture`.
+  One frame alone: `BK_imbuf_decode_frame`, `image_decode_frame` (tkinter `-index n` uses it).
+- **Images over 2047 px on the GPU**: a texture of their own on Direct3D 11 and OpenGL
+  (tiled only past the device limit; `BUI_GPU_MAX_TEXTURE` forces it for tests), freed
+  when the kit frees the image (`BUI_image_forget`) or after 120 unused frames, within
+  256 MiB. The parity test compares them with the CPU raster, whole and tiled.
+- `BKImageStats.decode_ms` (time the workers spent decoding) and `MEM_get_allocations_total`.
+- `bench/images`: `bui_image_bench <dir> anim <count>`, many animations at once.
+
+### Changed
+- `BUI_raster_image` takes a `BuiPixmap` (premultiplied pixels with a key), a source
+  rectangle and flags; it filters bilinearly (exact copies at 1:1) on the CPU and on both
+  GPU renderers, and the GPU atlas finds images by key instead of hashing their pixels
+  every frame.
+- `blenderui::Image` holds the kit's decoded image instead of a `Vec<u8>` (`width` and
+  `height` stay public; `from_png` is deprecated in favour of `open`; `image_rgba` takes any
+  `AsRef<[u8]>`). The automation `App::draw` waits for image decodes it started.
+- tkinter `PhotoImage` decodes through the kit (the Python PNG/PPM decoders and the
+  round trip through the real Tk for GIF are gone).
+- Images whose source rectangle is outside the canvas clip are neither decoded nor played.
+- **Builds**: every C file compiles with function and data sections (`-ffunction-sections
+  -fdata-sections`, MSVC `/Gy /Gw`) so linkers drop unused code, and MSVC Release builds
+  get `/O2` explicitly: under cmake-rs (`blenderui-sys`) the kit was compiled unoptimized.
+  The Node addon and the QuickJS runtime build with the new `dist` profile (fat LTO, one
+  codegen unit): `bui-runtime.exe` went from 8,693,760 to 7,097,856 bytes, and an app
+  made with `bui build` is about 7 MB (the docs said about 5 MB; that figure predated the
+  image decoders). The Node test now checks that `bui build` adds only the bundle and
+  holds the runtime to its measured size plus 5 %.
+
+### Removed
+- The `png` crate as a dependency of `blenderui` (the website-screenshot examples still use
+  it to write PNGs, as a dev-dependency).
+
 ## [0.3.0] - 2026-11-06
 
 ### Added

@@ -274,10 +274,11 @@ impl Div {
         self
     }
 
-    /// Image pixels for `<img>`: RGBA, `width * height * 4` bytes.
-    pub fn image_rgba(mut self, width: u32, height: u32, rgba: Vec<u8>) -> Self {
-        // (shared image data: see `image`)
-        self.image = Some(Arc::new(crate::paint::Image { width, height, rgba }));
+    /// Image pixels for `<img>`: straight RGBA, `width * height * 4` bytes
+    /// (copied; to show the same pixels every frame, make an `Image` once and
+    /// pass it to `image`).
+    pub fn image_rgba(mut self, width: u32, height: u32, rgba: impl AsRef<[u8]>) -> Self {
+        self.image = crate::paint::Image::from_rgba(width, height, rgba.as_ref()).map(Arc::new);
         self
     }
 

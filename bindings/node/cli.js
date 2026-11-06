@@ -47,8 +47,10 @@ function parse (argv) {
 function runtimePath () {
   const shipped = path.join(__dirname, `bui-runtime.${TAG}${EXE}`)
   if (fs.existsSync(shipped)) return shipped
-  const built = path.join(__dirname, '../rust/target/release', `bui-runtime${EXE}`)
-  if (fs.existsSync(built)) return built
+  for (const profile of ['dist', 'release']) { // npm run build, or a plain cargo build
+    const built = path.join(__dirname, '../rust/target', profile, `bui-runtime${EXE}`)
+    if (fs.existsSync(built)) return built
+  }
   fail(`no bui-runtime for ${TAG}: prebuilt for Windows x64; run \`npm run build\` in bindings/node to build it`)
 }
 
