@@ -29,6 +29,22 @@ All notable changes to **blenderui** (BUI). The format follows
   platforms, retained mode with no visual editor, and that the numbers come from one machine. The
   FAQ answers "is it immediate mode?" and "is it accessible?"; accessibility joins the roadmap.
 
+- **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
+  pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
+  SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
+  `build/`), and records a bug from his log (fixed below: Objective-C printed "Class BUIKitView is
+  implemented in both"). The docs and the website say two Apple Silicon Macs.
+- **Python:** Dear ImGui (`blenderui.imgui`) is compiled into the `buipy` extension; the separate
+  `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
+  `buipy.imgui_module()`). The public API is unchanged.
+- **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
+- **Releases:** `tools/bump_version.py --npm patch` moves every published npm package by that kind from its
+  own version (native 0.3.0 to 0.3.1, svelte 0.1.0 to 0.1.1; a package that isn't on npm yet keeps its first
+  version), and `release.yml` skips a package that is not on npm yet with a clear warning instead of failing
+  (a new package's first publish is manual, then it gets a trusted publisher; `tools/release.py` shows it as
+  MANUAL). A release is also refused when `THIRD_PARTY_NOTICES.md` is out of date.
+- **Svelte** now publishes from CI like the other npm packages (its trusted publisher is set up).
+
 ### Fixed
 - **Backspace over a Blender value resets it to its default, not to zero** (number fields, sliders,
   vector fields, checkboxes; the right-click "Reset to Default Value" already did, and the docs always
@@ -44,17 +60,6 @@ All notable changes to **blenderui** (BUI). The format follows
   registered twice (reported by [DanNoby](https://github.com/DanNoby), issue #6). A process now
   holds one kit: `buipy` and Dear ImGui are one binary on every platform, which also means one
   theme and one set of kit state instead of two.
-
-### Changed
-- **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
-  pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
-  SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
-  `build/`), and records a bug from his log (fixed below: Objective-C printed "Class BUIKitView is
-  implemented in both"). The docs and the website say two Apple Silicon Macs.
-- **Python:** Dear ImGui (`blenderui.imgui`) is compiled into the `buipy` extension; the separate
-  `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
-  `buipy.imgui_module()`). The public API is unchanged.
-- **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
 
 ## [0.4.0] - 2026-11-06
 
