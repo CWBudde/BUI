@@ -534,6 +534,7 @@ static void close_window(BKWindow *win)
   if (!win->xid) {
     return;
   }
+  BUI_raster_gpu_release(win->raster); /* the GL context uses the window */
   XDestroyWindow(g_dpy, win->xid);
   XFlush(g_dpy);
   win->xid = 0;

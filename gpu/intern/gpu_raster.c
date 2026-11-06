@@ -194,8 +194,7 @@ void BUI_raster_free(BuiRaster *r)
   if (!r) {
     return;
   }
-  bui_gpu_free(r->gpu);
-  bui_gpu_free(r->gpu_pending);
+  BUI_raster_gpu_release(r);
   BUI_raster_free(r->scratch);
   free(r->pix);
   free(r->prev);
@@ -304,6 +303,17 @@ int BUI_raster_gpu_poll(BuiRaster *r)
   const int sw = r->gpu_switched;
   r->gpu_switched = 0;
   return sw;
+}
+
+void BUI_raster_gpu_release(BuiRaster *r)
+{
+  bui_gpu_free(r->gpu_pending);
+  r->gpu_pending = NULL;
+  if (r->gpu) {
+    bui_gpu_free(r->gpu);
+    r->gpu = NULL;
+    r->w = r->h = 0; /* the next frame allocates the CPU frame */
+  }
 }
 
 int BUI_raster_gpu_pending(const BuiRaster *r)
