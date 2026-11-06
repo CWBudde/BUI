@@ -587,9 +587,11 @@ impl App {
                 // animation: rebuild right before the next (vsync-paced) render
                 Some(n) if w.animation_frame => {
                     w.animation_frame = false;
+                    w.frame_pending = true;
                     unsafe { sys::BK_window_request_frame(n, w.vsync as c_int) };
                 }
-                Some(n) if !w.timer_pending => {
+                // the requested frame rebuilds the window at its paced time
+                Some(n) if !w.timer_pending && !w.frame_pending => {
                     w.timer_pending = true;
                     unsafe { sys::BK_window_timer(n, 0) };
                 }
@@ -798,6 +800,7 @@ unsafe extern "C" fn on_frame(data: *mut c_void, _win: *mut sys::BKWindow) {
     with_running_app(|app| {
         app.drain();
         app.with_window(id, |w, app| {
+            w.frame_pending = false;
             if w.dirty {
                 w.rebuild(app);
             }
@@ -866,6 +869,7 @@ pub struct Window {
     widgets: Widgets,
     dirty: bool,
     timer_pending: bool,
+    frame_pending: bool,
     animation_frame: bool,
     /// CSS animation time (virtual in headless windows).
     clock: crate::anim::Clock,
@@ -922,6 +926,7 @@ impl Window {
                 widgets: Widgets::new(),
                 dirty: true,
                 timer_pending: false,
+                frame_pending: false,
                 animation_frame: false,
                 clock: crate::anim::Clock::new(!headless),
                 vsync: true,
