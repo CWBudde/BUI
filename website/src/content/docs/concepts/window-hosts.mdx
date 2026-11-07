@@ -15,7 +15,8 @@ This page explains each host, how to choose one yourself, and what to expect on 
 
 <StatusTable columns={["Host", "Status", "Where and what"]} rows={[
   ["<strong>Win32</strong>", "done", "Windows. Native, written in C"],
-  ["<strong>X11</strong>", "done", "Linux (Wayland sessions through XWayland). Native, written in C"],
+  ["<strong>X11</strong>", "done", "Linux (and Wayland sessions, through XWayland). Native, written in C"],
+  ["<strong>Wayland</strong>", "experimental", "Linux. Native, written in C, after Blender's GHOST. CPU renderer"],
   ["<strong>Cocoa</strong>", "experimental", "macOS. Native, tried by hand on two Apple Silicon Macs so far"],
   ["<strong>Tk</strong>", "done", "Anywhere Python has <code>tkinter</code>. Python only; the fallback"],
   ["<strong>Headless</strong>", "done", "Anywhere. No window: tests and screenshots"],
@@ -43,7 +44,11 @@ A plain Win32 window. Redraw requests coalesce into one render message, and the 
 
 The same API on Xlib. Button and key mapping follow Blender's `GHOST_SystemX11`. Damaged rectangles go to the window with `XPutImage`, or through GLX with the [GPU renderer](../rendering/). Timers, cross-thread wakes and frame pacing all run in one `select()` loop.
 
-Wayland sessions run it through XWayland, which every mainstream desktop provides.
+Wayland sessions can run it through XWayland, which every mainstream desktop provides.
+
+### Linux (Wayland) <Badge tone="preview">Experimental</Badge>
+
+A native Wayland host with the same API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels (with server-side decorations when the compositor offers them), a `wl_seat` with xkbcommon for keys and key repeat, the pointer, the clipboard through `wl_data_device`, cursors from the cursor theme, the output's buffer scale, and frame callbacks for pacing. Damaged rectangles are copied into `wl_shm` buffers. libwayland-client and libwayland-cursor load at run time through Blender's `wayland_dynload`, so nothing is linked. A session with `WAYLAND_DISPLAY` gets this host; set `BUI_WINDOW_BACKEND=x11` to use X11, or `wayland` to force this one. It draws on the CPU: with the [GPU renderer](../rendering/) on (`BUI_GPU=1`), a Wayland session keeps X11 through XWayland until Wayland has its own EGL renderer. Per-window `BK_window_set_gpu` on a Wayland window is ignored for the same reason. Not done yet: IME, client-side decorations when the compositor has no server-side ones (GNOME shows no title bar), pointer warping, window positions.
 
 ### macOS (Cocoa) <Badge tone="preview">Experimental</Badge>
 

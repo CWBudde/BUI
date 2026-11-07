@@ -7,7 +7,7 @@ import { repoFile } from "../../lib/docs";
 type Cell = { text?: string; status?: "done" | "experimental" | "partial" };
 const cols = ["Windows", "Linux", "macOS"];
 const rows: [string, Cell, Cell, Cell][] = [
-  ["Window", { text: "Native (Win32)" }, { text: "Native (X11; Wayland via XWayland)" }, { text: "Native (Cocoa)", status: "experimental" }],
+  ["Window", { text: "Native (Win32)" }, { text: "Native (X11, Wayland experimental)" }, { text: "Native (Cocoa)", status: "experimental" }],
   ["Python (pip install)", { text: "Wheels", status: "done" }, { text: "Wheels", status: "done" }, { text: "Wheels", status: "done" }],
   ["Rust", { status: "done" }, { text: "Build from source", status: "done" }, { status: "experimental" }],
   ["JavaScript / React", { text: "Prebuilt on npm", status: "done" }, { text: "Build the addon from source", status: "done" }, { text: "Headless for now", status: "partial" }],

@@ -12,7 +12,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 
 | | Windows | Linux | macOS |
 | --- | --- | --- | --- |
-| Window | Native (Win32) | Native (X11; Wayland through XWayland) | Native (Cocoa), experimental |
+| Window | Native (Win32) | Native (X11, and Wayland: experimental) | Native (Cocoa), experimental |
 | Python (`pip install`) | Works: wheels | Works: wheels | Works: wheels |
 | Rust | Works | Works | Experimental |
 | JavaScript and React | Works: prebuilt on npm | Works: build the addon from source (`npm run build`) | Headless |
@@ -34,7 +34,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 
 ## Linux
 
-- **Window:** a native X11 host. Wayland sessions run it through XWayland.
+- **Window:** a native X11 host, and an experimental native Wayland host (CPU renderer; the GPU renderer keeps X11 through XWayland on a Wayland session).
 - **No X11 needed to import.** `libX11` and `libGL` load when the first window opens, so BUI imports and renders headless on servers and in containers without them. (Rust binaries are the exception: they link `libX11` directly.)
 - **GPU renderer:** OpenGL 3.3 core, through GLX for windows and EGL for offscreen rendering. Where OpenGL is missing, BUI falls back to the CPU raster.
 - **Tested on:** the C, Python, window and GPU parity tests pass on Mesa's software OpenGL and on an NVIDIA GPU. The suites also run under WSLg.
