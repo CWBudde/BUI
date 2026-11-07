@@ -380,7 +380,7 @@ local function apply_edit()
 
   local parent = meta.parent
   local old_key = meta.key
-  local new_key_str = editor_key:get("value")
+  local new_key_str = editor_key:get("text")
   if not new_key_str or new_key_str == "" then return end
 
   local type_idx = editor_type:get("value")
@@ -389,7 +389,7 @@ local function apply_edit()
 
   local new_val
   if new_type == "string" then
-    new_val = editor_val_str:get("value") or ""
+    new_val = editor_val_str:get("text") or ""
   elseif new_type == "number" then
     new_val = editor_val_num:get("value") or 0
   elseif new_type == "boolean" then

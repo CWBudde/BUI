@@ -59,68 +59,71 @@ static void host_schedule(void *data, int ms, int timer_id) {
  * then pop the error and any temporaries. Leaves the stack one item lighter. */
 static void report_error(lua_State *L) {
   const char *err = lua_tostring(L, -1);
+  if (!err) err = "(error object not a string)";
   lua_getglobal(L, "debug");
   if (lua_istable(L, -1)) {
     lua_getfield(L, -1, "traceback");
     if (lua_isfunction(L, -1)) {
-      lua_insert(L, -3); /* traceback below err, stack: debug, traceback, err */
-      lua_pop(L, 1);     /* pop debug, stack: traceback, err */
-      lua_pushvalue(L, -1); /* copy err, stack: traceback, err, err */
+      lua_insert(L, -3);
+      lua_pop(L, 1);
+      lua_pushvalue(L, -1);
       if (lua_pcall(L, 1, 1, 0) == LUA_OK) {
-        lua_remove(L, -2); /* remove raw err, keep traceback result */
+        lua_remove(L, -2);
         err = lua_tostring(L, -1);
+        if (!err) err = "(traceback result not a string)";
       } else {
-        lua_pop(L, 1); /* pop pcall error, keep original err */
+        lua_pop(L, 1);
         err = lua_tostring(L, -1);
+        if (!err) err = "(pcall error not a string)";
       }
     } else {
-      lua_pop(L, 1); /* pop non-function traceback field */
-      lua_pop(L, 1); /* pop debug table */
+      lua_pop(L, 1);
+      lua_pop(L, 1);
     }
   } else {
-    lua_pop(L, 1); /* pop non-table debug */
+    lua_pop(L, 1);
   }
-  fprintf(stderr, "bui: callback error: %s\n", err ? err : "(unknown)");
-  lua_pop(L, 1); /* pop the error string */
+  fprintf(stderr, "bui: callback error: %s\n", err);
+  lua_pop(L, 1);
 }
 
 static void host_emit(void *data, BKNode *node, int kind, void *ref, double a, double b) {
   lua_State *L = g_host_L;
   if (!L) return;
+  int top = lua_gettop(L);
 
-  /* BK_EV_CALL: hotkey or menu callback, ref is a luaL_ref int */
   if (kind == BK_EV_CALL && ref) {
     int func_ref = (int)(intptr_t)ref;
     lua_rawgeti(L, LUA_REGISTRYINDEX, func_ref);
+    if (!lua_isfunction(L, -1)) {
+      lua_settop(L, top);
+      return;
+    }
     if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
       report_error(L);
     }
+    lua_settop(L, top);
     return;
   }
 
-  /* Other events: look up the Lua userdata for this node */
   if (!node) return;
   lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_NODE_MAP);
   lua_pushlightuserdata(L, node);
   lua_rawget(L, -2);
-  if (lua_isnil(L, -1)) { lua_pop(L, 2); return; }
-  /* stack: node_map, userdata */
-
-  /* Get uservalue table */
-  if (lua_getuservalue(L, -1) == LUA_TNIL) { lua_pop(L, 3); return; }
+  if (lua_isnil(L, -1)) { lua_settop(L, top); return; }
+  if (lua_getuservalue(L, -1) == LUA_TNIL) { lua_settop(L, top); return; }
   lua_pushinteger(L, kind);
   lua_rawget(L, -2);
-  /* stack: node_map, userdata, uservalue, callback */
 
   if (lua_isfunction(L, -1)) {
-    lua_pushvalue(L, -3);    /* self = node userdata */
+    lua_pushvalue(L, -3);
     lua_pushnumber(L, a);
     lua_pushnumber(L, b);
     if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
       report_error(L);
     }
   }
-  lua_pop(L, 4); /* node_map, userdata, uservalue, callback/nil */
+  lua_settop(L, top);
 }
 
 /* ------------------------------------------------------------------ */

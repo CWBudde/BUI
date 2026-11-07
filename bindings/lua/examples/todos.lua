@@ -25,7 +25,7 @@ local tasks = {}
 local add_btn = bui.Node("button")
 add_btn:set("text", "Add")
 add_btn:on(bui.EV_CLICK, function()
-    local text = field:get("value")
+    local text = field:get("text")
     if text and #text > 0 then
         table.insert(tasks, text)
         field:set("value", "")
