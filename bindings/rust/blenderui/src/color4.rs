@@ -537,6 +537,38 @@ enum HueMethod {
     Decreasing,
 }
 
+/// CSS Color 4 §4.4.1: after converting into a polar space, the hue is powerless when the chroma
+/// (saturation in hsl) is at most the space's epsilon, or when hwb whiteness + blackness reaches
+/// 100%. Such a hue becomes missing, and the chroma is set to zero so float noise is not amplified.
+/// Returns whether the hue is missing. Epsilons are the spec's sample values, scaled to the 0..1
+/// ranges used here for hsl and hwb.
+fn powerless_to_missing(space: Space, c: &mut V3) -> bool {
+    match space {
+        Space::Hsl | Space::Lch | Space::Oklch => {
+            let eps = match space {
+                Space::Hsl => 0.00001,
+                Space::Lch => 0.0015,
+                _ => 0.000004,
+            };
+            if c[1] > eps {
+                return false;
+            }
+            c[1] = c[1].min(0.0);
+            true
+        }
+        Space::Hwb => {
+            if c[1] + c[2] < 0.99999 {
+                return false;
+            }
+            if c[1] + c[2] < 1.0 {
+                c[2] = 1.0 - c[1];
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 fn color_mix(fx: &FuncTok, current: Rgba) -> Option<Rgba> {
     // in <space> [<method> hue], <color> [<pct>], <color> [<pct>]
     let head = fx.args.first()?;
@@ -575,6 +607,12 @@ fn color_mix(fx: &FuncTok, current: Rgba) -> Option<Rgba> {
     p2 /= sum;
     let (mut a, mut b) = (coords(space, c1), coords(space, c2));
     if let Some(h) = space.hue_index() {
+        // A hue made powerless by the conversion is missing: it takes the other color's hue.
+        match (powerless_to_missing(space, &mut a), powerless_to_missing(space, &mut b)) {
+            (true, false) => a[h] = b[h],
+            (false, true) => b[h] = a[h],
+            _ => {}
+        }
         let (h1, h2) = (a[h].rem_euclid(360.0), b[h].rem_euclid(360.0));
         let d = h2 - h1;
         let h2 = match method {
@@ -657,5 +695,28 @@ mod tests {
         assert_eq!(hex(col("rgb(from #808080 calc(r * 2) g b)")), 0xff8080);
         assert_eq!(col("hsl(from red h s l / 0.25)").a, 0.25);
         assert_eq!(hex(col("light-dark(white, black)")), 0x000000);
+    }
+
+    #[test]
+    fn achromatic_colors_take_the_other_hue() {
+        // White, grays, black and transparent have no hue: the mix keeps the other color's hue
+        // instead of interpolating from 0deg (red).
+        assert_eq!(hex(col("color-mix(in hsl, white, blue)")), 0x9f9fdf);
+        assert_eq!(hex(col("color-mix(in hsl, blue, white)")), 0x9f9fdf);
+        let m = col("color-mix(in hwb, white, blue)"); // hwb(240 50% 0%)
+        assert!((m.r - 0.5).abs() < 0.01 && (m.g - 0.5).abs() < 0.01 && m.b > 0.99, "{m:?}");
+        let hue = |space: Space, c: Rgba| coords(space, c)[2];
+        let blue = hue(Space::Oklch, col("blue"));
+        let m = col("color-mix(in oklch, white, blue)");
+        assert!((hue(Space::Oklch, m) - blue).abs() < 1.0, "{m:?}");
+        let m = col("color-mix(in oklch, transparent, blue)");
+        assert_eq!(hex(m), 0x0000ff);
+        assert!((m.a - 0.5).abs() < 1e-3);
+        let red = hue(Space::Lch, col("red"));
+        let m = col("color-mix(in lch, gray, red)");
+        assert!((hue(Space::Lch, m) - red).abs() < 1.0, "{m:?}");
+        // both achromatic: still a gray
+        let g = hex(col("color-mix(in oklch, white, black)"));
+        assert!(g >> 16 == g & 0xff && g >> 8 & 0xff == g & 0xff, "{g:06x}");
     }
 }

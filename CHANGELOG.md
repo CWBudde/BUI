@@ -43,6 +43,7 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
 - **X11:** a frame callback that closes its window no longer renders into the closed window.
 - **X11:** a window that closes while its GPU device starts releases the device before the X window is destroyed (`BUI_raster_gpu_release`), so Mesa no longer prints `failed to create drawable`.
+- **CSS colors:** `color-mix()` in `hsl`, `hwb`, `lch` and `oklch` treats the hue of white, grays, black and `transparent` as missing (CSS Color 4 powerless hue), so the mix keeps the other color's hue: `color-mix(in hsl, white, blue)` is a light blue, not pink.
 
 ## [0.4.1] - 2026-11-06
 
