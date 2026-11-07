@@ -31,8 +31,8 @@
 .chart-bar {
   position: absolute;
   inset: 0 auto 0 0;
-  /* the longest bar takes two thirds of the track, so every value label fits after it */
-  width: calc(var(--p) * var(--scale, 0.66));
+  /* the longest bar takes 58% of the track, so every value label fits after it */
+  width: calc(var(--p) * var(--scale, 0.58));
   min-width: 2px;
   background-color: var(--c, var(--chart-other));
   transform-origin: left center;
@@ -44,7 +44,7 @@
 .chart-value {
   position: absolute;
   top: 50%;
-  left: calc(var(--p) * var(--scale, 0.66) + 0.5rem);
+  left: calc(var(--p) * var(--scale, 0.58) + 0.5rem);
   transform: translateY(-50%);
   display: inline-flex;
   align-items: baseline;
