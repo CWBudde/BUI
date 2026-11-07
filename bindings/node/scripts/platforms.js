@@ -3,6 +3,9 @@
 // downloaded from other CI runners), writes npm/<tag>/ with a package.json
 // and that platform's addon and bui-runtime files. Prints the folders made.
 //
+// --version <v> gives the platform packages another version (the first,
+// manual publish of a new platform package: 0.0.0-bootstrap).
+//
 // --main also writes the optionalDependencies of package.json (all platform
 // packages, at this version), as napi-rs's prepublish does: the lockfile then
 // never names packages that are not published yet. It stops if a platform
@@ -16,6 +19,12 @@ const root = path.join(__dirname, '..')
 const mainPath = path.join(root, 'package.json')
 const main = JSON.parse(fs.readFileSync(mainPath, 'utf8'))
 const runtime = /^bui-runtime(-\w+)?\./
+const arg = (name) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined
+const version = arg('--version') ?? main.version
+if (process.argv.includes('--main') && version !== main.version) {
+  console.error('--main publishes the platform packages at the main package\'s version: --version cannot change it')
+  process.exit(1)
+}
 
 function stage (tag, { os, cpu, libc }) {
   const addon = `blenderui.${tag}.node`
@@ -28,7 +37,7 @@ function stage (tag, { os, cpu, libc }) {
   fs.copyFileSync(path.join(root, '../../LICENSE'), path.join(dir, 'LICENSE'))
   const pkg = {
     name: packageName(tag),
-    version: main.version,
+    version,
     description: `The ${tag} native addon and bui-runtime of ${main.name}.`,
     main: addon,
     files: [...files, 'LICENSE'],

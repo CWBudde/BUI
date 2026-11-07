@@ -176,7 +176,7 @@ jobs:
             version=$(node -p "require('./$dir/package.json').version")
             if ! npm view "$name" name >/dev/null 2>&1; then
               # trusted publishing can only be configured on a package that exists
-              echo "::warning::$name is not on npm yet: publish it once by hand (cd $dir && npm publish --access public), then add its trusted publisher (docs/publishing.md). Skipping."
+              echo "::warning::$name is not on npm yet: publish it once by hand (a platform package: node bindings/node/scripts/platforms.js --version 0.0.0-bootstrap, then npm publish --access public --tag bootstrap in its folder; otherwise cd $dir && npm publish --access public), then add its trusted publisher (docs/publishing.md). Skipping."
               missing=1
               continue
             fi
