@@ -122,6 +122,10 @@ if(BUI_BUILD_PYTHON_BINDINGS)
   add_subdirectory(bindings/python)
 endif()
 
+if(BUI_BUILD_LUA_BINDINGS)
+  add_subdirectory(bindings/lua)
+endif()
+
 if(BUI_BUILD_QT_BACKEND)
   add_subdirectory(backends/qt)
 endif()
