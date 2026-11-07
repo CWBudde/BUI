@@ -164,7 +164,7 @@ jobs:
         run: npm ci
       - name: Build the Windows addon and stage the platform packages
         working-directory: bindings/node
-        run: npm run build && node scripts/platforms.js
+        run: npm run build && node scripts/platforms.js --main
       - name: Publish the npm packages, platforms first, with no token (OIDC)
         run: |
           # the platform packages (@blender-ui/native-<tag>), then the workspaces of
