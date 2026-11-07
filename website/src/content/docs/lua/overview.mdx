@@ -1,0 +1,58 @@
+---
+title: Lua
+description: "Use BUI from Lua 5.4. The bui-lua executable and the loadable bui module expose the whole kit: every widget and every event."
+section: Lua
+order: 10
+sources: ["bindings/lua/README.md", "bindings/lua/CMakeLists.txt", "bindings/lua/examples", "bindings/lua/tests"]
+---
+
+A standalone executable and a loadable module that embed Lua 5.4 and expose the full BUI kit API: every widget, every event. Use the `bui-lua` binary, or drop `bui.so` / `bui.dll` into any Lua 5.4, LuaJIT or LuaRocks install.
+
+## Build it
+
+The Lua host is off by default. Turn it on with a CMake option:
+
+```sh
+cmake -S . -B build -DBUI_BUILD_LUA_BINDINGS=ON
+cmake --build build --target bui-lua
+./bui-lua app.lua
+./bui-lua
+```
+
+CMake uses a system Lua 5.4 when it finds one. Otherwise it downloads Lua 5.4.7 at configure time and builds it with the host. The suites are registered with `ctest` as `bui_lua_*`.
+
+## A first window
+
+```lua
+local bui = require("bui")
+local root = bui.Node("frame")
+root:set("padding", 8)
+local btn = bui.Node("button")
+btn:set("text", "Click Me")
+btn:on(bui.EV_CLICK, function(self) print("Clicked!") end)
+root:add(btn)
+btn:geom(bui.GEOM_PACK, {fill = 1})
+local ctx = bui.Context(root)
+local win = bui.Window(ctx, "Lua BUI", 320, 120)
+win:show()
+bui.run()
+```
+
+## Widgets
+
+`frame`, `column`, `row`, `grid`, `box`, `panel`, `tabs`, `sidetabs`, `scroll`, `label`, `separator`, `progress`, `button`, `toggle`, `checkbox`, `decorator`, `text`, `search`, `hotkey`, `number`, `slider`, `dropdown`, `enum`, `swatch`, `popover`, `menubutton`, `menubar`, `image`, `video`, `textarea`, `custom`, `canvas`, `list`, `tree`, `gridview`, `ramp`, `curve`, `normal`, `histogram`, `radio`, `meter` and `filebrowser`.
+
+## Examples
+
+Nine scripts in [`bindings/lua/examples`](https://github.com/ppmpreetham/BUI/tree/main/bindings/lua/examples): `hello.lua`, `counter.lua`, `todos.lua`, `gallery.lua`, `forms.lua`, `dashboard.lua`, `anim.lua`, `lua_table_editor.lua` and `editor_screenshot.lua`.
+
+## Next steps
+
+<CardGrid>
+  <Card title="The kit API" href="docs/c/c-api/" icon="book" kicker="C & C++">
+    The C API the Lua module wraps.
+  </Card>
+  <Card title="CMake options" href="docs/reference/cmake-options/" icon="terminal" kicker="Reference">
+    Every build option, including the Lua host.
+  </Card>
+</CardGrid>

@@ -25,6 +25,7 @@ Options are cached in the build folder. To change one later, configure again wit
 | `BUI_BUILD_TESTS` | `ON` | Builds the C test programs and registers every suite with `ctest`, including the native-window smoke test (skipped without a display). |
 | `BUI_BUILD_EXAMPLES` | `OFF` | Builds the C examples: `bui_kit_hello` (`examples/kit_hello.c`, a slider and a button in a native window) and `bui_svg_demo`. |
 | `BUI_BUILD_PYTHON_BINDINGS` | `ON` | Builds the `buipy` CPython extension, and the Dear ImGui extension when ImGui is built too. Skipped, with a message, if CMake can't find Python's development files. |
+| `BUI_BUILD_LUA_BINDINGS` | `OFF` | Builds the Lua 5.4 host: the `bui-lua` executable and the `bui.so` / `bui.dll` module, with its `bui_lua_*` tests. Without a system Lua 5.4, CMake downloads Lua at configure time. |
 | `BUI_BUILD_IMGUI` | `ON` when a C++ compiler and `bindings/imgui` are present | Builds Dear ImGui on BUI (`bui::imgui`), its C API (`bui_cimgui`), the ImGui demo and its test. |
 | `BUI_IMGUI_BLENDER_WIDGETS` | `OFF` | Dear ImGui's widgets become Blender's: an edited copy of `imgui_widgets.cpp` replaces the original, with the same API. The C, Python and Rust bindings get Blender widgets unchanged. |
 | `BUI_BUILD_QT_BACKEND` | `OFF` | Builds the C++ Qt/QPainter render-sink backend (`backends/qt/`). Needs Qt 5 or Qt 6 with Widgets; configuring fails if neither is found. |

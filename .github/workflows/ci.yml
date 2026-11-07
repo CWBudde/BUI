@@ -58,6 +58,33 @@ jobs:
         if: runner.os == 'macOS'
         run: ctest --test-dir build -C Release -R bui_window_smoke -V
 
+  # The Lua host (bindings/lua) is off by default, so the job above never builds it. Lua 5.4 is
+  # fetched at configure time (bindings/lua/CMakeLists.txt) when the system has none.
+  lua:
+    name: bui-lua build + tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: X11 headers and a virtual display (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUI_BUILD_LUA_BINDINGS=ON -DBUI_BUILD_PYTHON_BINDINGS=OFF -DBUI_BUILD_IMGUI=OFF
+      - name: Build
+        run: cmake --build build --config Release --parallel 4 --target bui-lua
+      - name: Test (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a ctest --test-dir build -C Release -R bui_lua --output-on-failure
+      - name: Test
+        if: runner.os != 'Linux'
+        run: ctest --test-dir build -C Release -R bui_lua --output-on-failure
+
   rust:
     name: cargo test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

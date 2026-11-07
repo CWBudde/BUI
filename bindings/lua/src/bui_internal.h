@@ -10,6 +10,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef _WIN32 /* no setenv in the Windows C runtime */
+#  define setenv(name, value, overwrite) _putenv_s((name), (value))
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Userdata wrapper structs                                           */
 /* ------------------------------------------------------------------ */

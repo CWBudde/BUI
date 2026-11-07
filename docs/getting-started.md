@@ -27,6 +27,7 @@ cmake --build build
 | Option | Default | Effect |
 |---|---|---|
 | `BUI_BUILD_PYTHON_BINDINGS` | `ON` | Build the `buipy` CPython extension. It is skipped with a message if the Python dev files are missing. |
+| `BUI_BUILD_LUA_BINDINGS` | `OFF` | The Lua 5.4 host (`bui-lua` and the `bui` module). Lua is fetched at configure time when the system has no Lua 5.4. |
 | `BUI_BUILD_TESTS` | `ON` | C test executables and the ctest suites |
 | `BUI_BUILD_EXAMPLES` | `OFF` | C examples (`bui_kit_hello`, `bui_svg_demo`, the site screenshot programs) |
 | `BUI_BUILD_UI` | `OFF` | Compile Blender's original `ui/` sources as well (not needed for the kit) |
