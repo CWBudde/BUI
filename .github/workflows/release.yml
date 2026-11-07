@@ -111,17 +111,24 @@ jobs:
       matrix:
         # ubuntu-22.04: the addon then needs glibc 2.35 or later
         os: [ubuntu-22.04, macos-15, macos-15-intel]
+    env:
+      # the oldest macOS the kit supports (Rust, the cc crate and CMake read it)
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@stable
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+      - name: X11 and Wayland headers (Linux; without the Wayland ones the addon is X11 only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libwayland-dev libxkbcommon-dev wayland-protocols pkg-config
       - name: Build the addon and the runtimes
         working-directory: bindings/node
         run: npm run build
+      - name: The Linux addon has the Wayland host
+        if: runner.os == 'Linux'
+        run: grep -q xdg_wm_base bindings/node/blenderui.linux-x64.node
       - uses: actions/upload-artifact@v4
         with:
           name: npm-native-${{ matrix.os }}
