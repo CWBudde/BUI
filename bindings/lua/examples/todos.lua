@@ -4,6 +4,7 @@ local bui = require("bui")
 -- Build the layout
 local root = bui.Node("frame")
 root:set("padding", 8)
+local ctx  -- declared early for closure capture
 
 local header = bui.Node("label")
 header:set("text", "Todo List")
@@ -25,6 +26,8 @@ local tasks = {}
 local add_btn = bui.Node("button")
 add_btn:set("text", "Add")
 add_btn:on(bui.EV_CLICK, function()
+    -- Commit any pending text edit before reading the field
+    ctx:focus_node(nil)
     local text = field:get("text")
     if text and #text > 0 then
         table.insert(tasks, text)
@@ -67,7 +70,7 @@ end)
 root:add(clear)
 clear:geom(bui.GEOM_PACK, {fill = 1, pady0 = 4})
 
-local ctx = bui.Context(root)
+ctx = bui.Context(root)
 local win = bui.Window(ctx, "Todo List", 320, 400)
 
 if win then
