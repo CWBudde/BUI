@@ -398,6 +398,117 @@ static int l_ctx_redo(lua_State *L) {
   return 1;
 }
 
+static int l_ctx_undo_depth(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  int redo = 0;
+  int undo = cud->ctx ? BK_undo_depth(cud->ctx, &redo) : 0;
+  lua_pushinteger(L, undo);
+  lua_pushinteger(L, redo);
+  return 2;
+}
+
+static int l_ctx_animating(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  lua_pushboolean(L, cud->ctx ? BK_animating(cud->ctx) : 0);
+  return 1;
+}
+
+static int l_ctx_clipboard_get(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  char *text = BK_clipboard_get(cud->ctx);
+  lua_pushstring(L, text ? text : "");
+  free(text);
+  return 1;
+}
+
+static int l_ctx_clipboard_set(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (cud->ctx) BK_clipboard_set(cud->ctx, luaL_checkstring(L, 2));
+  return 0;
+}
+
+static int l_ctx_set_pointer(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (cud->ctx) BK_set_pointer(cud->ctx, (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3));
+  return 0;
+}
+
+static int l_ctx_popup_count(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  lua_pushinteger(L, cud->ctx ? BK_popup_count(cud->ctx) : 0);
+  return 1;
+}
+
+static int l_ctx_popup(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  int i = (int)luaL_checkinteger(L, 2);
+  if (i < 0) i = BK_popup_count(cud->ctx) + i;
+  BKNode *n = BK_popup(cud->ctx, i);
+  if (!n) return 0;
+  void *existing = luabui_lookup_node(L, n);
+  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
+  ud->node = n;
+  luaL_getmetatable(L, LUABUI_NODE_MT);
+  lua_setmetatable(L, -2);
+  lua_newtable(L);
+  lua_setuservalue(L, -2);
+  luabui_map_node(L, n, -1);
+  return 1;
+}
+
+static int l_ctx_open_menu(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  /* owner node (optional), items table, title (optional), at_x/at_y (optional) */
+  BKNode *owner = NULL;
+  if (!lua_isnil(L, 2)) {
+    luabui_Node *oud = CHECK_NODE(L, 2);
+    if (oud->node) owner = oud->node;
+  }
+  luaL_checktype(L, 3, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 3);
+  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
+  memset(specs, 0, n * sizeof(BKMenuSpec));
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, 3, i + 1);
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "text"); specs[i].text = lua_tostring(L, -1); lua_pop(L, 1);
+      lua_getfield(L, -1, "icon"); specs[i].icon = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+      lua_getfield(L, -1, "enabled"); specs[i].enabled = (int)luaL_optinteger(L, -1, 1); lua_pop(L, 1);
+      lua_getfield(L, -1, "checked"); specs[i].checked = (int)luaL_optinteger(L, -1, -1); lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+  }
+  const char *title = luaL_optstring(L, 4, NULL);
+  int ax = (int)luaL_optinteger(L, 5, -100000);
+  int ay = (int)luaL_optinteger(L, 6, -100000);
+  BK_open_menu(cud->ctx, owner, specs, n, title, ax, ay);
+  return 0;
+}
+
+static int l_ctx_open_pie(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  luaL_checktype(L, 2, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 2);
+  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
+  memset(specs, 0, n * sizeof(BKMenuSpec));
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, 2, i + 1);
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "text"); specs[i].text = lua_tostring(L, -1); lua_pop(L, 1);
+      lua_getfield(L, -1, "icon"); specs[i].icon = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+  }
+  const char *title = luaL_optstring(L, 3, NULL);
+  BK_open_pie(cud->ctx, specs, n, title);
+  return 0;
+}
+
 /* Nullify all node userdata pointers in the node map. Called before freeing
  * a context so that node __gc (which runs later) sees ud->node == NULL and
  * does not try to access freed C memory. */
@@ -485,8 +596,17 @@ static const luaL_Reg ctx_methods[] = {
   {"focus",         l_ctx_focus},
   {"hover",         l_ctx_hover},
   {"cursor",        l_ctx_cursor},
+  {"set_pointer",   l_ctx_set_pointer},
   {"undo",          l_ctx_undo},
   {"redo",          l_ctx_redo},
+  {"undo_depth",    l_ctx_undo_depth},
+  {"animating",     l_ctx_animating},
+  {"clipboard_get", l_ctx_clipboard_get},
+  {"clipboard_set", l_ctx_clipboard_set},
+  {"popup_count",   l_ctx_popup_count},
+  {"popup",         l_ctx_popup},
+  {"open_menu",     l_ctx_open_menu},
+  {"open_pie",      l_ctx_open_pie},
   {"free",          l_ctx_free},
   {"__gc",          l_ctx_gc},
   {"__tostring",    l_ctx_tostring},

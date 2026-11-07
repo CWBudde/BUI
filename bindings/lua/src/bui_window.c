@@ -109,6 +109,30 @@ static int l_win_wm_get(lua_State *L) {
   return 0;
 }
 
+static int l_win_pixel(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  if (!wud->win) return 0;
+  int x = (int)luaL_checkinteger(L, 2);
+  int y = (int)luaL_checkinteger(L, 3);
+  BuiRaster *r = BK_window_raster(wud->win);
+  if (!r) return 0;
+  int rw = BUI_raster_width(r), rh = BUI_raster_height(r);
+  if (x < 0 || y < 0 || x >= rw || y >= rh) {
+    return luaL_error(L, "pixel (%d, %d) out of bounds (%dx%d)", x, y, rw, rh);
+  }
+  const uint32_t p = BUI_raster_pixels(r)[(size_t)y * rw + x];
+  lua_pushinteger(L, (p >> 16) & 255);
+  lua_pushinteger(L, (p >> 8) & 255);
+  lua_pushinteger(L, p & 255);
+  return 3;
+}
+
+static int l_win_frames(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  lua_pushinteger(L, wud->win ? BK_window_frames(wud->win) : 0);
+  return 1;
+}
+
 static int l_win_free(lua_State *L) {
   luabui_Window *wud = CHECK_WIN(L, 1);
   if (wud->win) {
@@ -149,6 +173,8 @@ static const luaL_Reg win_methods[] = {
   {"cancel_timer", l_win_cancel_timer},
   {"set_gpu",      l_win_set_gpu},
   {"handle",       l_win_handle},
+  {"pixel",        l_win_pixel},
+  {"frames",       l_win_frames},
   {"wm",           l_win_wm},
   {"wm_get",       l_win_wm_get},
   {"free",         l_win_free},

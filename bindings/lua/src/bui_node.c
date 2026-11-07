@@ -392,6 +392,145 @@ static int l_node_set_video(lua_State *L) {
   return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* Canvas methods                                                     */
+/* ------------------------------------------------------------------ */
+
+static int l_node_canvas_set(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return luaL_error(L, "attempt to use freed node");
+  luaL_checktype(L, 2, LUA_TTABLE);
+  BKCanvasItem it;
+  memset(&it, 0, sizeof(it));
+  lua_getfield(L, 2, "id");     it.id = (int)luaL_optinteger(L, -1, 0);
+  lua_getfield(L, 2, "type");   it.type = (int)luaL_optinteger(L, -1, 0);
+  lua_getfield(L, 2, "width");  it.width = (float)luaL_optnumber(L, -1, 1.0);
+  lua_getfield(L, 2, "radius"); it.radius = (float)luaL_optnumber(L, -1, 0.0);
+  lua_getfield(L, 2, "size");   it.size = (float)luaL_optnumber(L, -1, 0.0);
+  lua_getfield(L, 2, "start");  it.start = (float)luaL_optnumber(L, -1, 0.0);
+  lua_getfield(L, 2, "extent"); it.extent = (float)luaL_optnumber(L, -1, 90.0);
+  lua_getfield(L, 2, "hidden"); it.hidden = lua_toboolean(L, -1);
+  lua_getfield(L, 2, "anchor"); it.anchor = (int)luaL_optinteger(L, -1, 0);
+  lua_getfield(L, 2, "text");   it.text = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  /* fill / outline: 4-number table */
+  lua_getfield(L, 2, "fill");
+  if (lua_istable(L, -1)) {
+    for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); it.fill[j] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
+  }
+  lua_pop(L, 1);
+  lua_getfield(L, 2, "outline");
+  if (lua_istable(L, -1)) {
+    for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); it.outline[j] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
+  }
+  lua_pop(L, 1);
+  /* coords: array of numbers */
+  lua_getfield(L, 2, "coords");
+  if (lua_istable(L, -1)) {
+    int n = (int)lua_rawlen(L, -1);
+    float *c = (float *)calloc((size_t)(n + 1), sizeof(float));
+    for (int i = 0; i < n; i++) { lua_rawgeti(L, -1, i + 1); c[i] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
+    it.coords = c;
+    it.ncoords = n;
+  }
+  lua_pop(L, 1);
+  BK_canvas_set_item(ud->node, &it);
+  if (it.coords) free((void *)it.coords);
+  return 0;
+}
+
+static int l_node_canvas_delete(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int id = (int)luaL_checkinteger(L, 2);
+  BK_canvas_delete(ud->node, id);
+  return 0;
+}
+
+static int l_node_canvas_raise(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int id = (int)luaL_checkinteger(L, 2);
+  int top = (int)luaL_optinteger(L, 3, 1);
+  BK_canvas_raise(ud->node, id, top);
+  return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Textarea methods                                                    */
+/* ------------------------------------------------------------------ */
+
+static int l_node_ta_insert(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int off = (int)luaL_checkinteger(L, 2);
+  const char *text = luaL_checkstring(L, 3);
+  BK_textarea_insert(ud->node, off, text);
+  return 0;
+}
+
+static int l_node_ta_delete(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int a = (int)luaL_checkinteger(L, 2);
+  int b = (int)luaL_checkinteger(L, 3);
+  BK_textarea_delete(ud->node, a, b);
+  return 0;
+}
+
+static int l_node_ta_spans(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  luaL_checktype(L, 2, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 2);
+  BKTextSpan *spans = (BKTextSpan *)calloc((size_t)(n + 1), sizeof(BKTextSpan));
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, 2, i + 1);
+    if (lua_istable(L, -1)) {
+      lua_rawgeti(L, -1, 1); spans[i].start = (int)luaL_checkinteger(L, -1); lua_pop(L, 1);
+      lua_rawgeti(L, -1, 2); spans[i].end   = (int)luaL_checkinteger(L, -1); lua_pop(L, 1);
+      lua_rawgeti(L, -1, 3); /* optional fg color table: {r, g, b, a} */
+      if (lua_istable(L, -1)) {
+        spans[i].has_fg = 1;
+        for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); spans[i].fg[j] = (float)luaL_optnumber(L, -1, j == 3 ? 1.0 : 0.0); lua_pop(L, 1); }
+      }
+      lua_pop(L, 1);
+      lua_rawgeti(L, -1, 4); /* optional bg color table */
+      if (lua_istable(L, -1)) {
+        spans[i].has_bg = 1;
+        for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); spans[i].bg[j] = (float)luaL_optnumber(L, -1, j == 3 ? 1.0 : 0.0); lua_pop(L, 1); }
+      }
+      lua_pop(L, 2);
+    }
+    lua_pop(L, 1);
+  }
+  BK_textarea_set_spans(ud->node, spans, n);
+  free(spans);
+  return 0;
+}
+
+static int l_node_ta_see(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  BK_textarea_see(ud->node, (int)luaL_checkinteger(L, 2));
+  return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Grid weight                                                         */
+/* ------------------------------------------------------------------ */
+
+static int l_node_grid_weight(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int axis = (int)luaL_checkinteger(L, 2);
+  int idx  = (int)luaL_checkinteger(L, 3);
+  double weight = luaL_checknumber(L, 4);
+  int minsize = (int)luaL_optinteger(L, 5, 0);
+  BK_frame_grid_weight(ud->node, axis, idx, weight, minsize);
+  return 0;
+}
+
 static int l_node_set_roots(lua_State *L) {
   luabui_Node *ud = CHECK_NODE(L, 1);
   if (!ud->node) return luaL_error(L, "attempt to use freed node");
@@ -574,10 +713,18 @@ static const luaL_Reg node_methods[] = {
   {"off",          l_node_off},
   {"geom",         l_node_geom},
   {"geom_get",     l_node_geom_get},
+  {"grid_weight",  l_node_grid_weight},
   {"set_image",        l_node_set_image},
   {"set_imbuf",        l_node_set_imbuf},
   {"set_image_source", l_node_set_image_source},
   {"set_video",        l_node_set_video},
+  {"canvas_set",   l_node_canvas_set},
+  {"canvas_delete",l_node_canvas_delete},
+  {"canvas_raise", l_node_canvas_raise},
+  {"ta_insert",    l_node_ta_insert},
+  {"ta_delete",    l_node_ta_delete},
+  {"ta_spans",     l_node_ta_spans},
+  {"ta_see",       l_node_ta_see},
   {"text_at",      l_node_text_index},
   {"caret",        l_node_caret},
   {"set_caret",    l_node_set_caret},

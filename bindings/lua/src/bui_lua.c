@@ -92,6 +92,89 @@ static int l_eval(lua_State *L) {
   return 0;
 }
 
+static int l_quit(lua_State *L) {
+  BK_window_quit();
+  return 0;
+}
+
+static int l_window_supported(lua_State *L) {
+  lua_pushboolean(L, BK_window_supported());
+  return 1;
+}
+
+static int l_set_animations(lua_State *L) {
+  BK_set_animations(lua_toboolean(L, 1));
+  return 0;
+}
+
+static int l_icon_names(lua_State *L) {
+  int n = BK_icon_list_count();
+  lua_createtable(L, n, 0);
+  for (int i = 0; i < n; i++) {
+    lua_pushstring(L, BK_icon_list_name(i));
+    lua_rawseti(L, -2, i + 1);
+  }
+  return 1;
+}
+
+static int l_image_probe(lua_State *L) {
+  size_t len;
+  const char *data = luaL_checklstring(L, 1, &len);
+  BKImageInfo info;
+  if (!BK_image_probe(data, len, &info)) { lua_pushnil(L); return 1; }
+  lua_pushstring(L, BK_image_format_name(info.format));
+  lua_pushinteger(L, info.width);
+  lua_pushinteger(L, info.height);
+  lua_pushinteger(L, info.frames);
+  return 4;
+}
+
+static int l_image_stats(lua_State *L) {
+  BKImageStats st;
+  BK_image_stats(&st);
+  lua_createtable(L, 0, 9);
+  lua_pushinteger(L, (lua_Integer)st.bytes);    lua_setfield(L, -2, "bytes");
+  lua_pushinteger(L, (lua_Integer)st.budget);   lua_setfield(L, -2, "budget");
+  lua_pushinteger(L, st.entries);               lua_setfield(L, -2, "entries");
+  lua_pushinteger(L, st.pending);               lua_setfield(L, -2, "pending");
+  lua_pushinteger(L, st.decoded);               lua_setfield(L, -2, "decoded");
+  lua_pushinteger(L, st.failed);                lua_setfield(L, -2, "failed");
+  lua_pushinteger(L, st.cancelled);             lua_setfield(L, -2, "cancelled");
+  lua_pushinteger(L, st.evicted);               lua_setfield(L, -2, "evicted");
+  lua_pushnumber(L, st.decode_ms);              lua_setfield(L, -2, "decode_ms");
+  return 1;
+}
+
+static int l_image_decode_frame(lua_State *L) {
+  size_t len;
+  const char *data = luaL_checklstring(L, 1, &len);
+  int index = (int)luaL_checkinteger(L, 2);
+  int max_w = (int)luaL_optinteger(L, 3, 0);
+  int max_h = (int)luaL_optinteger(L, 4, 0);
+  BKImBuf *ib = BK_imbuf_decode_frame(data, len, index, max_w, max_h);
+  if (!ib) { lua_pushnil(L); return 1; }
+  int w, h;
+  BK_imbuf_size(ib, &w, &h);
+  const char *fmt = BK_image_format_name(BK_imbuf_format(ib));
+  /* Return pixel data as Lua string */
+  lua_pushstring(L, fmt);
+  lua_pushinteger(L, w);
+  lua_pushinteger(L, h);
+  /* Allocate buffer and copy RGBA pixels */
+  luaL_Buffer buf;
+  luaL_buffinit(L, &buf);
+  size_t pixsize = (size_t)w * h * 4;
+  char *pix = (char *)malloc(pixsize);
+  if (pix) {
+    BK_imbuf_rgba(ib, 0, (unsigned char *)pix);
+    luaL_addlstring(&buf, pix, pixsize);
+    free(pix);
+  }
+  luaL_pushresult(&buf);
+  BK_imbuf_free(ib);
+  return 4; /* format, width, height, rgba_bytes */
+}
+
 /* ------------------------------------------------------------------ */
 /* Factory functions                                                  */
 /* ------------------------------------------------------------------ */
@@ -193,8 +276,11 @@ static const struct luaL_Reg bui_module[] = {
   {"TreeItem",  l_new_treeitem},
   {"run",       l_run},
   {"pump",      l_pump},
+  {"quit",      l_quit},
   {"headless",  l_headless},
   {"set_headless", l_set_headless},
+  {"window_supported", l_window_supported},
+  {"set_animations", l_set_animations},
   {"set_scale", l_set_scale},
   {"set_theme", l_set_theme},
   {"theme_name",l_theme_name},
@@ -202,7 +288,11 @@ static const struct luaL_Reg bui_module[] = {
   {"unit",      l_unit},
   {"version",   l_version},
   {"eval",      l_eval},
+  {"icon_names", l_icon_names},
+  {"image_probe", l_image_probe},
+  {"image_stats", l_image_stats},
   {"image_decode", l_image_decode},
+  {"image_decode_frame", l_image_decode_frame},
   {"image_load",   l_image_load},
   {"Video",        l_video_new},
   {NULL, NULL}
