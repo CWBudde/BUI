@@ -112,7 +112,7 @@ static void host_emit(void *data, BKNode *node, int kind, void *ref, double a, d
   lua_rawget(L, -2);
   /* stack: node_map, userdata, uservalue, callback */
 
-  if (!lua_isnil(L, -1)) {
+  if (lua_isfunction(L, -1)) {
     lua_pushvalue(L, -3);    /* self = node userdata */
     lua_pushnumber(L, a);
     lua_pushnumber(L, b);
@@ -159,8 +159,7 @@ static int l_ctx_root(lua_State *L) {
   if (!cud->ctx) return 0;
   BKNode *root = BK_context_root(cud->ctx);
   if (!root) return 0;
-  void *existing = luabui_lookup_node(L, root);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_node(L, root)) return 1;
   /* Create new wrapper */
   luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   ud->node = root;
@@ -351,8 +350,7 @@ static int l_ctx_focus(lua_State *L) {
   if (!cud->ctx) return 0;
   BKNode *n = BK_focus(cud->ctx);
   if (!n) return 0;
-  void *existing = luabui_lookup_node(L, n);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_node(L, n)) return 1;
   luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   ud->node = n;
   luaL_getmetatable(L, LUABUI_NODE_MT);
@@ -368,8 +366,7 @@ static int l_ctx_hover(lua_State *L) {
   if (!cud->ctx) return 0;
   BKNode *n = BK_hover(cud->ctx);
   if (!n) return 0;
-  void *existing = luabui_lookup_node(L, n);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_node(L, n)) return 1;
   luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   ud->node = n;
   luaL_getmetatable(L, LUABUI_NODE_MT);
@@ -405,8 +402,7 @@ static int l_ctx_popup_owner(lua_State *L) {
   if (i < 0) i = BK_popup_count(cud->ctx) + i;
   BKNode *n = BK_popup_owner(cud->ctx, i);
   if (!n) return 0;
-  void *existing = luabui_lookup_node(L, n);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_node(L, n)) return 1;
   luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   ud->node = n; luaL_getmetatable(L, LUABUI_NODE_MT); lua_setmetatable(L, -2);
   lua_newtable(L); lua_setuservalue(L, -2); luabui_map_node(L, n, -1);
@@ -446,8 +442,7 @@ static int l_ctx_picker_part(lua_State *L) {
   if (!p) return 0;
   BKNode *n = BK_picker_part(p, name);
   if (!n) return 0;
-  void *existing = luabui_lookup_node(L, n);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_node(L, n)) return 1;
   luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   ud->node = n; luaL_getmetatable(L, LUABUI_NODE_MT); lua_setmetatable(L, -2);
   lua_newtable(L); lua_setuservalue(L, -2); luabui_map_node(L, n, -1);
@@ -527,8 +522,7 @@ static int l_ctx_popup(lua_State *L) {
   if (i < 0) i = BK_popup_count(cud->ctx) + i;
   BKNode *n = BK_popup(cud->ctx, i);
   if (!n) return 0;
-  void *existing = luabui_lookup_node(L, n);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_node(L, n)) return 1;
   luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   ud->node = n;
   luaL_getmetatable(L, LUABUI_NODE_MT);

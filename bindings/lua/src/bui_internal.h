@@ -84,8 +84,10 @@ void luabui_register_video(lua_State *L);
 /* Store node -> userdata in the weak-keyed node map. */
 void luabui_map_node(lua_State *L, BKNode *node, int ud_idx);
 
-/* Look up userdata for a BKNode*. Returns NULL if not found. */
-void *luabui_lookup_node(lua_State *L, BKNode *node);
+/* Look up userdata for a BKNode*. Pushes userdata on stack and returns 1
+ * if found; returns 0 and pushes nothing if not found. Caller must pop
+ * with lua_pop(L, 2) when found (returns 1). */
+int luabui_lookup_node(lua_State *L, BKNode *node);
 
 /* Remove a node from the map. */
 void luabui_unmap_node(lua_State *L, BKNode *node);
@@ -95,7 +97,7 @@ void luabui_unmap_node(lua_State *L, BKNode *node);
 /* ------------------------------------------------------------------ */
 
 void luabui_map_treeitem(lua_State *L, BKTreeItem *item, int ud_idx);
-void *luabui_lookup_treeitem(lua_State *L, BKTreeItem *item);
+int  luabui_lookup_treeitem(lua_State *L, BKTreeItem *item);
 void luabui_unmap_treeitem(lua_State *L, BKTreeItem *item);
 
 /* Nullify all tree item userdata whose C pointer has been freed. */

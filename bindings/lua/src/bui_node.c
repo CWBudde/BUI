@@ -9,18 +9,24 @@
 void luabui_map_node(lua_State *L, BKNode *node, int ud_idx) {
   lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_NODE_MAP);
   lua_pushlightuserdata(L, node);
-  lua_pushvalue(L, ud_idx < 0 ? ud_idx - 1 : ud_idx);
+  lua_pushvalue(L, ud_idx < 0 ? ud_idx - 2 : ud_idx);
   lua_rawset(L, -3);
   lua_pop(L, 1);
 }
 
-void *luabui_lookup_node(lua_State *L, BKNode *node) {
+/* Push the Lua userdata for a C node onto the stack.
+ * Returns 1 if found (userdata on stack), 0 if not found. */
+int luabui_lookup_node(lua_State *L, BKNode *node) {
+  int top = lua_gettop(L);
   lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_NODE_MAP);
   lua_pushlightuserdata(L, node);
   lua_rawget(L, -2);
-  void *ud = lua_touserdata(L, -1);
-  lua_pop(L, 2);
-  return ud;
+  if (lua_isnil(L, -1)) {
+    lua_settop(L, top);
+    return 0;
+  }
+  lua_remove(L, -2); /* pop map table, keep userdata */
+  return 1;
 }
 
 void luabui_unmap_node(lua_State *L, BKNode *node) {
@@ -73,13 +79,7 @@ static int l_node_child(lua_State *L) {
   int i = (int)luaL_checkinteger(L, 2);
   BKNode *child = BK_node_child(ud->node, i);
   if (!child) return 0;
-  /* Return the Lua userdata for this child, creating one if needed */
-  void *existing = luabui_lookup_node(L, child);
-  if (existing) {
-    lua_pushvalue(L, (int)(intptr_t)existing);
-    return 1;
-  }
-  /* Create a new wrapper (the node already exists in the C tree) */
+  if (luabui_lookup_node(L, child)) return 1;
   luabui_Node *cud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   cud->node = child;
   luaL_getmetatable(L, LUABUI_NODE_MT);
@@ -97,10 +97,7 @@ static int l_node_children(lua_State *L) {
   lua_createtable(L, n, 0);
   for (int i = 0; i < n; i++) {
     BKNode *child = BK_node_child(ud->node, i);
-    void *existing = luabui_lookup_node(L, child);
-    if (existing) {
-      lua_pushvalue(L, (int)(intptr_t)existing);
-    } else {
+    if (!luabui_lookup_node(L, child)) {
       luabui_Node *cud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
       cud->node = child;
       luaL_getmetatable(L, LUABUI_NODE_MT);
@@ -125,8 +122,7 @@ static int l_node_parent(lua_State *L) {
   if (!ud->node) return 0;
   BKNode *parent = BK_node_parent(ud->node);
   if (!parent) return 0;
-  void *existing = luabui_lookup_node(L, parent);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_node(L, parent)) return 1;
   luabui_Node *pud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
   pud->node = parent;
   luaL_getmetatable(L, LUABUI_NODE_MT);
@@ -925,18 +921,22 @@ void luabui_register_node(lua_State *L) {
 void luabui_map_treeitem(lua_State *L, BKTreeItem *item, int ud_idx) {
   lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
   lua_pushlightuserdata(L, item);
-  lua_pushvalue(L, ud_idx < 0 ? ud_idx - 1 : ud_idx);
+  lua_pushvalue(L, ud_idx < 0 ? ud_idx - 2 : ud_idx);
   lua_rawset(L, -3);
   lua_pop(L, 1);
 }
 
-void *luabui_lookup_treeitem(lua_State *L, BKTreeItem *item) {
+int luabui_lookup_treeitem(lua_State *L, BKTreeItem *item) {
+  int top = lua_gettop(L);
   lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
   lua_pushlightuserdata(L, item);
   lua_rawget(L, -2);
-  void *ud = lua_touserdata(L, -1);
-  lua_pop(L, 2);
-  return ud;
+  if (lua_isnil(L, -1)) {
+    lua_settop(L, top);
+    return 0;
+  }
+  lua_remove(L, -2);
+  return 1;
 }
 
 void luabui_unmap_treeitem(lua_State *L, BKTreeItem *item) {
@@ -1017,9 +1017,7 @@ static int l_treeitem_child(lua_State *L) {
   int i = (int)luaL_checkinteger(L, 2);
   BKTreeItem *item = BK_tree_item_child(tud->item, i);
   if (!item) return 0;
-  /* Check if we already have a Lua wrapper */
-  void *existing = luabui_lookup_treeitem(L, item);
-  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  if (luabui_lookup_treeitem(L, item)) return 1;
   luabui_TreeItem *cud = (luabui_TreeItem *)lua_newuserdata(L, sizeof(luabui_TreeItem));
   cud->item = item;
   luaL_getmetatable(L, LUABUI_TREEITEM_MT);
