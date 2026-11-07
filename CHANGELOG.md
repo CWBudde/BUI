@@ -7,6 +7,13 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **npm on Linux and macOS:** the prebuilt addon and `bui-runtime` ship for Linux x64 (glibc 2.35 or later) and
+  macOS (arm64 and x64) as well as Windows x64, one package per platform: `@blender-ui/native-<tag>`
+  (`bindings/node/platform.js`). `@blender-ui/native` lists them as `optionalDependencies`, so an install gets
+  only its own (about 29 MB). The install command does not change. With `--omit=optional` the addon is missing,
+  and the load error says so. `release.yml` builds them on `ubuntu-22.04`, `macos-15`, `macos-15-intel` and
+  Windows, then publishes the platform packages before `@blender-ui/native`. On macOS, JavaScript still runs
+  headless.
 - **Native Wayland windows (experimental).** `kit/intern/kit_window_wayland.c` is a Wayland host with the same
   `BK_window_*` API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels with server-side
   decorations when offered, a `wl_seat` with xkbcommon (keys, key repeat), the pointer, the clipboard through
@@ -50,6 +57,7 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
 
 ### Fixed
+- **Node and Bun:** a relative `BUI_NODE_ADDON` path starts at the working directory, not at the package folder. The load error now shows the cause.
 - **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
 - **X11:** a frame callback that closes its window no longer renders into the closed window.
 - **X11:** a window that closes while its GPU device starts releases the device before the X window is destroyed (`BUI_raster_gpu_release`), so Mesa no longer prints `failed to create drawable`.
