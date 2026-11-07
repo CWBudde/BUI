@@ -621,6 +621,7 @@ local function build_ui()
   local title_lbl = bui.Node("label")
   title_lbl:set("text", "Lua Table Editor")
   tb:add(title_lbl)
+  title_lbl:geom(bui.GEOM_PACK, {side = 0})
 
   local demo_dd = bui.Node("dropdown")
   local demo_names = {}
@@ -644,7 +645,9 @@ local function build_ui()
   search:geom(bui.GEOM_PACK, {fill = 1, side = 1})
   search_node = search
 
-tb:add(bui.Node("separator"))
+local sep1 = bui.Node("separator")
+sep1:geom(bui.GEOM_PACK, {side = 1})
+tb:add(sep1)
 
 local add_btn = bui.Node("button")
 add_btn:set("text", "+ Add")
@@ -674,7 +677,9 @@ expf_btn:on(bui.EV_CLICK, export_to_file_via_browser)
 tb:add(expf_btn)
 expf_btn:geom(bui.GEOM_PACK, {side = 1})
 
-tb:add(bui.Node("separator"))
+local sep2 = bui.Node("separator")
+sep2:geom(bui.GEOM_PACK, {side = 1})
+tb:add(sep2)
 
 local ub = bui.Node("button")
 ub:set("text", "Undo")
@@ -695,11 +700,12 @@ rb:geom(bui.GEOM_PACK, {side = 1})
 redo_btn = rb
 
   root:add(tb)
+  tb:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
   -- === Main: tree + editor side panel ===
   local main_row = bui.Node("row")
   root:add(main_row)
-  main_row:geom(bui.GEOM_PACK, {fill = 1})
+  main_row:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
   -- Tree view
   local tree = bui.Node("tree")
@@ -811,6 +817,7 @@ redo_btn = rb
   status_node = bui.Node("label")
   status_node:set("text", "Select a demo to begin")
   root:add(status_node)
+  status_node:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
   -- === Initial load ===
   local first_name = demo_names[1]
