@@ -24,25 +24,27 @@
 enum { BACKEND_UNDECIDED = 0, BACKEND_X11, BACKEND_WAYLAND };
 static int g_backend = BACKEND_UNDECIDED;
 
+/* Whether this session should get Wayland windows (see the top of the file). */
+static bool wants_wayland(void)
+{
+  const char *force = getenv("BUI_WINDOW_BACKEND");
+  if (force && strcmp(force, "wayland") == 0) {
+    return true;
+  }
+  if (force && strcmp(force, "x11") == 0) {
+    return false;
+  }
+  const char *display = getenv("WAYLAND_DISPLAY");
+  return display && display[0] && !BUI_gpu_default();
+}
+
 /* Decided by the first call that needs a window host. BK_window_supported does not decide: the
  * GPU renderer can still be asked for after it (the Rust App sets it right after), and that
  * changes the answer. */
 static int backend(void)
 {
   if (g_backend == BACKEND_UNDECIDED) {
-    const char *force = getenv("BUI_WINDOW_BACKEND");
-    bool wayland;
-    if (force && strcmp(force, "wayland") == 0) {
-      wayland = true;
-    }
-    else if (force && strcmp(force, "x11") == 0) {
-      wayland = false;
-    }
-    else {
-      const char *display = getenv("WAYLAND_DISPLAY");
-      wayland = display && display[0] && !BUI_gpu_default();
-    }
-    g_backend = (wayland && bk_wl_window_supported()) ? BACKEND_WAYLAND : BACKEND_X11;
+    g_backend = (wants_wayland() && bk_wl_window_supported()) ? BACKEND_WAYLAND : BACKEND_X11;
   }
   return g_backend;
 }
@@ -60,7 +62,8 @@ int BK_window_supported(void)
 {
   return g_backend == BACKEND_WAYLAND ? 1 :
          g_backend == BACKEND_X11     ? bk_x11_window_supported() :
-                                        (bk_x11_window_supported() || bk_wl_window_supported());
+                                        (bk_x11_window_supported() ||
+                                         (wants_wayland() && bk_wl_window_supported()));
 }
 
 /* Process-wide state goes to both hosts (see kit_window_linux.h). */

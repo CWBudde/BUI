@@ -161,7 +161,18 @@ impl NativeApp {
         // JavaScript thread (libuv's loop), while BUI runs on its own
         // "bui-ui" thread; the Cocoa host refuses windows there, so stay
         // headless instead of starting a native loop that would end at once.
+        let asked_headless = headless;
         let headless = headless || !blenderui::native_windows() || cfg!(target_os = "macos");
+        // Headless without being asked is silent otherwise: nothing on screen, nothing in the log.
+        if headless && !asked_headless {
+            if cfg!(target_os = "macos") {
+                eprintln!("blenderui: Node windows are not available on macOS yet; running headless (no window is shown).");
+            } else {
+                eprintln!("blenderui: no window system is available (X11 needs DISPLAY and libX11, Wayland needs \
+                           WAYLAND_DISPLAY and XDG_RUNTIME_DIR); running headless, so no window is shown. Pass \
+                           `headless: true` to silence this.");
+            }
+        }
         let (ltx, lrx) = mpsc::channel::<Link>();
         std::thread::Builder::new().name("bui-ui".into()).spawn(move || {
             let mut a = if headless { Application::headless() } else { Application::new().keep_alive(true) };
