@@ -520,7 +520,7 @@ local function export_to_file_via_browser()
   local state = fb:get("state")
   local result_path = nil
   if state > 0 then
-    local r = fb:strs("result")
+    local r = fb:get_strs("result")
     result_path = r and r[1]
   end
   if fbw:is_open() then fbw:close() end
@@ -690,6 +690,7 @@ local function build_ui()
   -- === Main: tree + editor side panel ===
   local main_row = bui.Node("row")
   root:add(main_row)
+  main_row:geom(bui.GEOM_PACK, {fill = 1})
 
   -- Tree view
   local tree = bui.Node("tree")
@@ -698,12 +699,14 @@ local function build_ui()
   tree:on(bui.EV_ACTIVATE, function() refresh_editor() end)
   tree:on(bui.EV_CHANGE,   function() refresh_editor() end)
   main_row:add(tree)
+  tree:geom(bui.GEOM_PACK, {fill = 1})
   tree_node = tree
 
   -- Editor side panel (collapsible)
   local ep = bui.Node("panel")
   ep:set("text", "Edit Entry")
   ep:set("collapsed", 0)
+  ep:geom(bui.GEOM_PACK, {side = 1})
 
   local body = ep:child(0)
   if not body then

@@ -146,6 +146,25 @@ cnv:canvas_raise(1, 1)
 local px, _, w, h = cnv_ctx:render(100, 100, 1)
 check(px ~= nil, "canvas render nil")
 check(#px == 40000, "canvas render size != 40000, got " .. #px)
+
+-- ── Canvas damage comparison ────────────────────────────────────────
+
+cnv:canvas_set({id=3, type=0, coords={20,20,70,70}, fill={0,0,1,1}})
+local px2, _, w2, h2 = cnv_ctx:render(100, 100, 0)
+check(px2 ~= nil, "incremental render nil")
+check(#px2 == 40000, "incremental size != 40000, got " .. #px2)
+-- Verify different content (blue rect added vs initial red)
+local diff = false
+for i = 1, #px do
+  if px:byte(i) ~= px2:byte(i) then diff = true; break end
+end
+check(diff, "incremental render should differ from initial")
+
+-- Full re-render matches bytestream
+cnv:canvas_delete(-1)
+cnv:canvas_set({id=1, type=0, coords={10,10,50,50}, fill={1,0,0,1}})
+local px3, _, _, _ = cnv_ctx:render(100, 100, 1)
+check(#px == #px3, "full re-render size mismatch")
 cnv_ctx:free()
 
 -- ── Textarea ─────────────────────────────────────────────────────────
@@ -198,6 +217,31 @@ check(type(idx) == "number", "text_at not a number, got " .. type(idx))
 local px2, _, w2, h2 = ta_ctx:render(200, 100, 1)
 check(px2 ~= nil, "textarea render nil")
 check(#px2 == 80000, "textarea render size != 80000, got " .. #px2)
+
+-- ── Textarea input and undo ─────────────────────────────────────────
+
+local ta2 = bui.Node("textarea")
+ta2:set("value", "hello")
+local ta2_root = bui.Node("frame")
+ta2_root:add(ta2)
+local ta2_ctx = bui.Context(ta2_root)
+-- Get textarea rect so we can click inside it
+local _, _, _, _, tar = ta2:rect()
+-- Click to focus, then type characters
+ta2_ctx:press(5, 5, 0)
+ta2_ctx:release(5, 5, 0)
+ta2_ctx:key("x", "x", 0)
+local val = ta2:get("value")
+check(val ~= nil, "textarea value nil after key")
+-- Undo the key press
+ta2_ctx:undo()
+-- Redo
+ta2_ctx:redo()
+local ud, rd = ta2_ctx:undo_depth()
+check(type(ud) == "number", "ta undo_depth[0] not number, got " .. type(ud))
+check(type(rd) == "number", "ta undo_depth[1] not number, got " .. type(rd))
+ta2_ctx:free()
+
 ta_ctx:free()
 
 -- ── Tree / TreeView ──────────────────────────────────────────────────

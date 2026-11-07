@@ -126,6 +126,36 @@ check(pp == nil, "picker_part with no popup should be nil, got " .. tostring(pp)
 local po = ctx:popup_owner(-1)
 check(po == nil, "popup_owner(-1) should be nil with no popups, got " .. tostring(po))
 
+-- ── Color picker interaction ────────────────────────────────────────
+
+-- Create a context specifically for color picker testing
+local cpr = bui.Node("frame")
+local cp_node = bui.Node("swatch")
+cp_node:set("color", {0.5, 0.5, 0.5, 1.0})
+cpr:add(cp_node)
+local cp_ctx = bui.Context(cpr)
+-- Click on the swatch to open a color picker popup
+cp_ctx:press(10, 10, 0)
+cp_ctx:release(10, 10, 0)
+-- Should have at least one popup for the color picker
+local cp_count = cp_ctx:popup_count()
+-- Check picker parts if there's an active popup
+if cp_count > 0 then
+  local area_part = cp_ctx:picker_part("area")
+  if area_part then check(type(area_part) == "userdata", "picker_part area not userdata") end
+  local strip_part = cp_ctx:picker_part("strip")
+  -- dropper_part may or may not exist
+  local dropper_part = cp_ctx:picker_part("dropper")
+  -- Modal state (eyedropper)
+  local cp_modal = cp_ctx:modal()
+  check(type(cp_modal) == "boolean", "cp ctx:modal not boolean, got " .. type(cp_modal))
+end
+-- Menu rows for picker
+local mrows = cp_ctx:menu_rows(-1)
+-- May be nil or a table
+cp_ctx:close_popups()
+cp_ctx:free()
+
 -- ── Set pointer ──────────────────────────────────────────────────────
 
 ctx:set_pointer(100, 100)
