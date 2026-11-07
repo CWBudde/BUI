@@ -3,11 +3,14 @@ title: Benchmarks
 description: "BUI's published numbers with their full context: start time and battery cost for every API, frame times, Rust against gpui, and JavaScript startup and animation."
 section: Performance
 order: 10
-badges: ["Ryzen 7 5800U", "Windows 11"]
+badges: ["Windows 11", "Linux"]
 sources: ["README.md", "bindings/rust/bench/README.md", "docs/javascript.md", "bench/run.py", "bench/apps", "bindings/rust/bench/common/settings.rs", "bindings/node/bench/startup.js", "bindings/node/bench/cells.js"]
 ---
 
 BUI is fast where it matters to people: it opens quickly, it sits at zero CPU while you're not touching it, and it stays smooth when thousands of things move. Here are the numbers, with everything you need to judge them.
+
+<Tabs sync="os" label="Operating system" bare>
+<Tab label="Windows">
 
 <Callout type="warning" title="Where these numbers come from">
 Every number on this page was measured on **one laptop: a Ryzen 7 5800U** (8 cores, 16 threads, AMD Radeon integrated GPU, 60 Hz display), running **Windows 11 on AC power**, with release builds. They were measured **before the latest features landed**: Dear ImGui support, the Linux GPU renderer, and Blender's search and expression code. Your machine will give different numbers; the comparisons are what carry over. [Run the benchmarks yourself](../run-benchmarks/) to check.
@@ -115,6 +118,45 @@ More results, at 100 and 1,000 cells:
 - **Svelte with runes** pays Svelte's flush, which walks the component's effects: 65–76 µs on Node.js and Bun, 790 µs on QuickJS (no JIT) for 3,000 cells. Per frame, that's within the noise of BUI's rendering.
 - **Memory:** Svelte keeps 10–17 MB more than React with signals at 3,000 cells. A heap snapshot puts it in Svelte's own effects, closures and each-block items (about 1.9 KB per cell); BUI's nodes are the same objects for both.
 - **Startup:** with its runtime bundled, a Svelte app reaches its first frame within 10–15 ms of a React one on Node.js and Bun (it was 0.1–0.3 s later), and as fast as React's when built with `bui build`.
+
+</Tab>
+<Tab label="Linux">
+
+<Callout type="warning" title="Where the Linux numbers come from">
+Measured on **one laptop: an Intel Core i5-12500H** (16 threads, 15 GB, Intel Iris Xe, Mesa 25.3, a 1920×1080 display at 120 Hz), in **KDE Plasma on Wayland** (BUI windows run through Xwayland), on mains power, with release builds. They include the Linux GPU start-up work from [pull request #10](https://github.com/ppmpreetham/BUI/pull/10). CPU time is the run time of all threads and memory is resident memory; the Windows tab used CPU cycles and the working set, and the GPU renderer there is Direct3D 11 where here it is OpenGL 3.3. The two machines differ, so compare the shape of the results, not single numbers. The X11 loop sleeps 16.7 ms after each frame, so animation here stays below 60 FPS whatever the render time.
+</Callout>
+
+## Linux: start time and battery
+
+The same small settings window written each of the five ways (see [`bench/apps`](https://github.com/ppmpreetham/BUI/tree/main/bench/apps)), on the CPU renderer and the GPU renderer.
+
+<BenchTable id="linuxStart" />
+
+- On the GPU renderer the device starts on a worker thread, so the first frame no longer waits for the OpenGL driver: Rust opens in 61 ms, and the Python APIs in about 100 to 150 ms.
+- An idle window switches to the GPU as soon as it is ready and releases its CPU frame buffers, so idle CPU stays at about zero.
+
+## Linux: frame times
+
+<BenchTable id="linuxFrames" />
+
+## Linux: JavaScript
+
+<BenchTable id="linuxJsStartup" />
+
+<BenchTable id="linuxJsAnim" />
+
+<BenchTable id="linuxJsFrameworks" />
+
+## Linux: Rust compile times
+
+<BenchTable id="linuxBuildCommands" />
+
+<BenchTable id="linuxBuild" />
+
+A release build is 7.2 MB against 100 MB for a debug one, and an incremental rebuild takes under two seconds.
+
+</Tab>
+</Tabs>
 
 <Callout type="joke">
 Unlike a Cycles render, these numbers don't get any less noisy if you leave them running overnight. Run each benchmark a few times instead.

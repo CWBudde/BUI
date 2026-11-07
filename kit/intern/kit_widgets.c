@@ -3454,7 +3454,9 @@ static void html_text(const BKRect *cr, const char *s, int len, const uchar c[4]
 void bk_html_te_draw(BKTextEdit *te, const BKRect *cr, const uchar color[4])
 {
   const float inner = BK_MAX(1.0f, (float)bk_rw(cr) - 1.0f);
-  const float caret_px = bk_masked_width(te->text, te->caret, te->mask, false);
+  const BKImeComp *ime = &te->ime;
+  const float text_px = bk_masked_width(te->text, te->caret, te->mask, false);
+  const float caret_px = text_px + bk_ime_caret_offset(ime, false);
   if (caret_px - te->scroll > inner) {
     te->scroll = caret_px - inner;
   }
@@ -3472,7 +3474,17 @@ void bk_html_te_draw(BKTextEdit *te, const BKRect *cr, const uchar color[4])
   }
   const float base = bk_text_baseline(cr);
   bk_clip_push(cr->xmin, cr->ymin - m, bk_rw(cr) + 1, h + 2 * m);
-  bk_text(tx, base, s, len, color, false);
+  if (ime->len) { /* an IME composition: before the caret, the composite, after it */
+    const float cx = tx + text_px;
+    bk_text(tx, base, s, te->caret, color, false);
+    bk_text(cx, base, ime->text, ime->len, color, false);
+    bk_text(cx + bk_text_width(ime->text, ime->len, false), base, s + te->caret,
+            len - te->caret, color, false);
+    bk_ime_draw_underline(ime, cx, (float)cr->ymax, (float)bk_rw(cr), color, false);
+  }
+  else {
+    bk_text(tx, base, s, len, color, false);
+  }
   if (te->anchor >= 0 && te->anchor != te->caret) {
     const int a = BK_MIN(te->anchor, te->caret), b = BK_MAX(te->anchor, te->caret);
     const float sx = tx + bk_masked_width(te->text, a, te->mask, false);
@@ -3490,6 +3502,7 @@ void bk_html_te_draw(BKTextEdit *te, const BKRect *cr, const uchar color[4])
     bk_fill(floorf(tx + caret_px), (float)cr->ymin, html_bw(), (float)h, color);
   }
   bk_clip_pop();
+  bk_ime_set_candidate(&te->ime, (int)floorf(tx + caret_px) + 5, cr->ymax + 1);
 }
 
 /* -- buttons (push buttons, toggles, color input frame) -- */

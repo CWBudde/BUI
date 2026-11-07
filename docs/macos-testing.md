@@ -1,14 +1,15 @@
 # Testing BUI on macOS
 
-Thanks for testing BUI on a Mac. The macOS window host is new. CI checks it, and two people
-have tried it by hand on Apple Silicon Macs (below). Their reports found real bugs and a build
-trap, now fixed or documented. More Macs find more, especially Intel Macs and older macOS
-versions, because a person clicking around finds what CI can't.
+Thanks for testing BUI on a Mac. The macOS window host is new. CI checks it, and three people
+have tried it by hand on Macs (below): two Apple Silicon, one Intel. Their reports found real bugs
+and a build trap, now fixed or documented. More Macs find more, especially older macOS versions and
+the section 5 checklist on an Intel Mac, because a person clicking around finds what CI can't.
 
 | Tester | Mac | Commit | Result | What it led to |
 | --- | --- | --- | --- | --- |
 | [Krish Kalaria](https://github.com/krishkalaria12) | MacBook Air (M5), simulated input | `53263f8` | 16/17 ctest; Cocoa window, Retina, input all work | Issue #3, fixed by pull request #4: tkinter variables, Quit, `geometry()` and fit-to-content sizing |
-| [DanNoby](https://github.com/DanNoby) | Apple Silicon, trackpad and mouse, Python 3.12 | `adf5632` | 17/17 ctest, the whole section 5 checklist works | Issue #6: the toolchain trap in section 1, and the duplicate Objective-C classes in section 7 |
+| [DanNoby](https://github.com/DanNoby) | Apple Silicon, trackpad and mouse, Python 3.12 | `adf5632`, later `main` | 17/17 ctest, the whole section 5 checklist works; on `main` the Objective-C class check passes and the duplicate-class warning is gone | Issue #6: the toolchain trap in section 1, and the duplicate Objective-C classes in section 7 |
+| [piaoboo](https://github.com/piaoboo) | MacBook Pro 16,1: Intel Core i9, Radeon Pro 5500M, macOS 26.7.1, Python 3.12 from uv | the 0.4.1 wheel, then `bca7b8d` | Wheel: window, rendering (0.7 ms a frame), Retina 2x, clipboard with CJK text all work. Source build: 25/25 ctest. Section 5 not done by hand yet | Issue #17: notes on the Python kit classes (attributes and methods mixed), and that the section 1 toolchain trap does not appear with a current Xcode |
 This guide takes about 30–60 minutes: build from source, run the tests, try a
 few apps, and report back.
 
@@ -51,7 +52,9 @@ rm -rf build
 
 Reported and confirmed by [DanNoby](https://github.com/DanNoby) (issue #6): after that the build succeeded and all tests
 passed with no source changes. Updating the Command Line Tools in System Settings > Software
-Update does the same for most people.
+Update does the same for most people. The trap depends on the tools being older than the SDK, not on
+the macOS version: [piaoboo](https://github.com/piaoboo) (issue #17, an Intel Mac with Xcode 21 and SDK 26.5) configured and
+built with no `xcode-select` change. Python from `uv` (`cpython-3.12`) worked with no extra flags.
 
 ## 2. Get the code
 
@@ -228,7 +231,7 @@ Blender's Ctrl** (Cmd+C, Cmd+V, Cmd+Z, Cmd+wheel) and **Option is Alt**.
 - **No input method (IME) support yet:** composed input such as Japanese or
   Chinese, and possibly dead-key accents, is not expected to work.
 - Fonts are Blender's (Inter, drawn with FreeType like Blender), not the system font.
-- **Fixed (next release, unreleased): Python printed `objc: Class BUIKitView is implemented in both buipy... and _buiimgui...`**
+- **Fixed in 0.4.1: Python printed `objc: Class BUIKitView is implemented in both buipy... and _buiimgui...`**
   (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both extensions were
   loaded, for example in the Dear ImGui test. Each of the two Python extensions embedded the
   whole kit, including the Cocoa host, so its Objective-C classes existed twice (the tests passed,
@@ -236,8 +239,9 @@ Blender's Ctrl** (Cmd+C, Cmd+V, Cmd+Z, Cmd+wheel) and **Option is Alt**.
   cause spurious casting failures and mysterious crashes"). Dear ImGui is now compiled into
   `buipy` (`buipy.imgui_module()` is behind `blenderui.imgui`), so a process holds one kit and
   there is no `_buiimgui` binary. `buipy_imgui` checks, on a Mac, that the four classes come from
-  `buipy` and that nothing is registered twice; it needs a Mac to confirm. Reported through
-  [DanNoby](https://github.com/DanNoby)'s test log. Still expected in that log:
+  `buipy` and that nothing is registered twice. Confirmed on [DanNoby](https://github.com/DanNoby)'s
+  Mac from `main` (issue #6, log of 2026-11-07): all 21 tests in `buipy_imgui` pass, including
+  `test_cocoa_classes_come_from_buipy`, and the log has no `objc:` warning. Still expected in that log:
   `gpu_parity: no GPU device, skipped` (there is no Metal renderer) and
   `[imgui-error] Missing End()` (a test of error reporting).
 - Python: when tkinter is importable, BUI starts a hidden Tk first (Tk insists on

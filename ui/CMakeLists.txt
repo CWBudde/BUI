@@ -37,9 +37,9 @@ if(BUI_BUILD_UI)
   add_library(bui::ui ALIAS bui_ui)
   target_include_directories(bui_ui PUBLIC ${UI_INC})
   target_include_directories(bui_ui PRIVATE
-    ${CMAKE_SOURCE_DIR}/compat/include
-    ${CMAKE_SOURCE_DIR}/types/dna/include
-    ${CMAKE_SOURCE_DIR}/gpu/include
+    ${BUI_SOURCE_DIR}/compat/include
+    ${BUI_SOURCE_DIR}/types/dna/include
+    ${BUI_SOURCE_DIR}/gpu/include
   )
   target_link_libraries(bui_ui PUBLIC bui::core bui::types bui::gpu bui::compat)
   # Upstream headers rely on transitive math includes that the de-namespaced

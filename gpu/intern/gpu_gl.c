@@ -14,15 +14,16 @@
  *    platform, else the default display), else a GLX pbuffer.
  * libGL / libEGL / libX11 are loaded with dlopen on first use, never linked:
  * without them bui_gpu_create returns NULL and the software raster draws.
- * The context is created on the calling thread (no worker thread as on D3D);
- * bui_gpu_state is 1 right away, so the raster still switches over at its
- * next poll, the same "pending" handoff the D3D device uses.
+ * As on D3D, a worker thread creates the context and the device, so the first
+ * frame does not wait for the driver. The worker then releases the context,
+ * and the thread that draws makes it current at first use.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 #if defined(BUI_GPU_GL) && !defined(_WIN32)
 
 #  include <dlfcn.h>
+#  include <pthread.h>
 #  include <stddef.h>
 #  include <stdint.h>
 #  include <stdio.h>
@@ -916,7 +917,11 @@ typedef struct TriV {
 enum { API_GLX = 1, API_EGL = 2 };
 
 struct BuiGpu {
-  int state; /* 1 ready (creation is synchronous; failures return NULL) */
+  int state; /* 0 pending, 1 ready, -1 failed */
+  pthread_t thread;
+  int has_thread;
+  XDisplay *host_dpy;
+  XID host_win;
 
   /* context */
   int api;
@@ -1418,15 +1423,23 @@ static int device_init(BuiGpu *g)
   return 1;
 }
 
+static void context_release(BuiGpu *g)
+{
+  if (g->glx && p_glXGetCurrentContext() == g->glx) {
+    p_glXMakeContextCurrent(g->xdpy, 0, 0, NULL);
+  }
+  if (g->egl && p_eglGetCurrentContext() == g->egl) {
+    p_eglMakeCurrent(g->edpy, NULL, NULL, NULL);
+  }
+}
+
 static void context_free(BuiGpu *g)
 {
   /* destroying the context frees its objects; the window may already be gone,
    * so nothing is drawn or made current here */
   if (g->xdpy && (g->glx || g->pbuf)) {
     XErrHandler old = trap_begin(g->xdpy);
-    if (g->glx && p_glXGetCurrentContext() == g->glx) {
-      p_glXMakeContextCurrent(g->xdpy, 0, 0, NULL);
-    }
+    context_release(g);
     if (g->glx) {
       p_glXDestroyContext(g->xdpy, g->glx);
     }
@@ -1436,9 +1449,7 @@ static void context_free(BuiGpu *g)
     trap_end(g->xdpy, old);
   }
   if (g->egl) {
-    if (p_eglGetCurrentContext() == g->egl) {
-      p_eglMakeCurrent(g->edpy, NULL, NULL, NULL);
-    }
+    context_release(g);
     if (g->esurf) {
       p_eglDestroySurface(g->edpy, g->esurf);
     }
@@ -1454,47 +1465,69 @@ static void context_free(BuiGpu *g)
   g->api = 0;
 }
 
+/* The GL libraries load on first use, so one worker creates a device at a time. */
+static pthread_mutex_t g_create_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void *device_thread(void *arg)
+{
+  BuiGpu *g = (BuiGpu *)arg;
+  pthread_mutex_lock(&g_create_lock);
+  int ok;
+  if (g->host_win) { /* a window: GLX on the host's connection */
+    ok = glx_create(g, g->host_dpy, g->host_win);
+  }
+  else { /* offscreen: EGL, else a GLX pbuffer */
+    ok = egl_create(g);
+    if (!ok) {
+      context_free(g);
+      ok = glx_create(g, NULL, 0);
+    }
+  }
+  ok = ok && device_init(g);
+  context_release(g);
+  pthread_mutex_unlock(&g_create_lock);
+  __atomic_store_n(&g->state, ok ? 1 : -1, __ATOMIC_RELEASE);
+  return NULL;
+}
+
 BuiGpu *bui_gpu_create(void *handle)
 {
   BuiGpu *g = (BuiGpu *)calloc(1, sizeof(BuiGpu));
   if (!g) {
     return NULL;
   }
+  if (handle) {
+    const BuiGpuX11Window *xw = (const BuiGpuX11Window *)handle;
+    g->host_dpy = (XDisplay *)xw->display;
+    g->host_win = (XID)xw->window;
+  }
   g->mask_map = (Slot *)calloc(MASK_MAP, sizeof(Slot));
   g->img_map = (Slot *)calloc(IMG_MAP, sizeof(Slot));
-  int ok = g->mask_map && g->img_map;
-  if (ok) {
-    if (handle) { /* a window: GLX on the host's connection */
-      const BuiGpuX11Window *xw = (const BuiGpuX11Window *)handle;
-      ok = xw->window && glx_create(g, xw->display, (XID)xw->window);
-    }
-    else { /* offscreen: EGL, else a GLX pbuffer */
-      ok = egl_create(g);
-      if (!ok) {
-        context_free(g);
-        ok = glx_create(g, NULL, 0);
-      }
-    }
-  }
-  ok = ok && device_init(g);
-  if (!ok) {
+  g->has_thread = (!handle || g->host_win) && g->mask_map && g->img_map &&
+                  pthread_create(&g->thread, NULL, device_thread, g) == 0;
+  if (!g->has_thread) {
     bui_gpu_free(g);
     return NULL;
   }
-  g->state = 1;
   return g;
 }
 
 int bui_gpu_state(BuiGpu *g, int wait)
 {
-  (void)wait; /* created synchronously: never pending */
-  return g->state;
+  if (g->has_thread && (wait || __atomic_load_n(&g->state, __ATOMIC_ACQUIRE) != 0)) {
+    pthread_join(g->thread, NULL);
+    g->has_thread = 0;
+  }
+  return __atomic_load_n(&g->state, __ATOMIC_ACQUIRE);
 }
 
 void bui_gpu_free(BuiGpu *g)
 {
   if (!g) {
     return;
+  }
+  if (g->has_thread) {
+    pthread_join(g->thread, NULL);
   }
   context_free(g); /* deletes the textures and buffers with it */
   free(g->dtex);

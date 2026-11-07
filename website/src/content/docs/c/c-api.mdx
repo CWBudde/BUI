@@ -188,6 +188,8 @@ A `BKWindow` fills in all of them except `emit`, which you keep. If you host the
 
 **Input goes in** through `BK_press`, `BK_release`, `BK_motion`, `BK_wheel`, `BK_scroll` (precise deltas), `BK_key`, `BK_key_release`, `BK_button` and `BK_context_menu`. Each returns non-zero when something changed.
 
+**Input methods (IME)** follow Blender's model (`GHOST_ImeWin32`, `wmIMEData`). The IME is off until a text field or text area is being edited, so shortcuts keep working with a CJK keyboard. A window host forwards the platform's composition events with `BK_ime_event(ctx, BK_IME_COMPOSITION_START | BK_IME_COMPOSITION | BK_IME_COMPOSITION_END, &event)`, where `BKImeEvent` carries the committed `result`, the `composite` text still being composed, the IME `cursor_pos` and the `sel_start`/`sel_end` clause being converted. After each render it calls `BK_ime_state(ctx, &state)`, which returns non-zero only when the IME must be started, ended or moved (`state.enabled`, `state.restart`, `state.x`, `state.y` is where the candidate window goes). The kit draws the composition underlined at the caret and inserts the result like typed text. The Windows window host does all of this; an embedder with its own window can use the same two calls. Number fields and password fields take no IME.
+
 **Frames come out** of `BK_render(ctx, raster, w, h, full)`. It redraws only damaged regions (unless `full`) and returns how many it redrew: 0 means nothing changed.
 
 ## Events

@@ -14,6 +14,62 @@ All notable changes to **blenderui** (BUI). The format follows
   and expose `bui._VERSION`. 9 example scripts under `bindings/lua/examples/`:
   `hello.lua`, `counter.lua`, `todos.lua`, `gallery.lua`, `forms.lua`, `dashboard.lua`,
   `anim.lua`, `lua_table_editor.lua`, `editor_screenshot.lua`.
+- **npm on Linux and macOS:** the prebuilt addon and `bui-runtime` ship for Linux x64 (glibc 2.35 or later) and
+  macOS (arm64 and x64) as well as Windows x64, one package per platform: `@blender-ui/native-<tag>`
+  (`bindings/node/platform.js`). `@blender-ui/native` lists them as `optionalDependencies`, so an install gets
+  only its own (about 29 MB). The install command does not change. With `--omit=optional` the addon is missing,
+  and the load error says so. `release.yml` builds them on `ubuntu-22.04`, `macos-15`, `macos-15-intel` and
+  Windows, then publishes the platform packages before `@blender-ui/native`. On macOS, JavaScript still runs
+  headless.
+- **Native Wayland windows (experimental).** `kit/intern/kit_window_wayland.c` is a Wayland host with the same
+  `BK_window_*` API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels with server-side
+  decorations when offered, a `wl_seat` with xkbcommon (keys, key repeat), the pointer, the clipboard through
+  `wl_data_device`, cursors, the output's buffer scale, and `wl_surface.frame` pacing into `wl_shm` buffers
+  (only damaged rectangles are copied). It uses Blender's `wayland_dynload` (`kit/extern/wayland_dynload`), so
+  libwayland loads at run time and nothing is linked; libxkbcommon is `dlopen()`ed. A Wayland session gets it;
+  `BUI_WINDOW_BACKEND=x11|wayland` picks one. It draws on the CPU, so with the GPU renderer on (`BUI_GPU=1`, or
+  `BUI_gpu_set_default(1)` before the first window) the session keeps X11 (XWayland): the X11 host and its GPU start
+  (the worker-thread device, the idle switch) are unchanged. Builds without the Wayland headers,
+  `wayland-scanner` and `wayland-protocols` (or with `-DBUI_WAYLAND=OFF`) are X11 only, as before. Not done:
+  IME, client-side decorations (no title bar on GNOME), pointer warping.
+- **Input methods (IME) on Windows**, ported from Blender (`GHOST_ImeWin32`, the text button's IME handling in
+  `interface_handlers.cc` and its drawing in `interface_widgets.cc`). Chinese, Japanese and Korean input now
+  works in text fields and text areas: the composition is drawn underlined at the caret (a thicker line under
+  the clause being converted), the candidate window follows the caret instead of the top left corner of the
+  window (issue #14), and the result is typed in like any other text. The IME is on only while a field is being
+  edited, so shortcuts keep working with a CJK keyboard; number fields and password fields take no IME, as in
+  Blender. A composition that is still going when another field takes over stays in the field it was in.
+- **C API changes:** one platform independent IME API for every window host and binding: `BKImeEvent`,
+  `BK_ime_event()`, `BKImeState`, `BK_ime_state()` and `BK_ime_composing()` (`BUI_kit.h`). Only the Win32 host
+  uses it so far; X11 and Cocoa do nothing and are unchanged. `bench/ime_bench.c` measures what it costs
+  (nothing measurable on the paths that did not change: keystroke + repaint 18.5 vs 18.4 us, idle frame 35 ns,
+  the host's poll 7 ns).
+
+### Changed
+- **macOS is no longer labelled experimental.** Three people have tried the Cocoa host by hand and it works, so
+  the README, the website and the docs say so (the platform tables, the FAQ, the limits, the roadmap, the landing
+  page). What is still true there is unchanged: the CPU raster only (no Metal renderer), and JavaScript windows
+  are headless. The native Wayland host is now the only experimental window host.
+- **macOS docs:** three people have now tried the Cocoa host by hand: two Apple Silicon Macs and an Intel MacBook Pro
+  ([piaoboo](https://github.com/piaoboo), issue #17: the PyPI wheel works, the source build passes 25/25 tests). The
+  guide and the README, website and docs that said "two Apple Silicon Macs" or "nobody has tried an Intel Mac" now
+  say so. [DanNoby](https://github.com/DanNoby)'s 2026-11-07 log (issue #6) confirms the duplicate Objective-C class
+  fix: `test_cocoa_classes_come_from_buipy` and the other 20 `buipy_imgui` tests pass and there is no `objc:` warning.
+  The Xcode toolchain note now says it depends on Command Line Tools older than the SDK, not on the macOS version.
+- **README and website:** the FAQ says macOS has been tried by hand on two Apple Silicon Macs (it said nobody
+  had checked), and a new FAQ entry and the roadmap list what people asked for: Vue and Angular (adapters
+  over `@blender-ui/native`), and Lua (a community pull request is in review), Ruby and Go through cgo
+  (over the C kit). None of them exists yet.
+- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU. A window switches to the GPU when the device is ready, also when it is idle (Linux and Windows; `BUI_raster_gpu_pending`).
+- **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
+
+### Fixed
+- **Node and Bun:** a relative `BUI_NODE_ADDON` path starts at the working directory, not at the package folder. The load error now shows the cause.
+- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
+- **X11:** a frame callback that closes its window no longer renders into the closed window.
+- **X11:** a window that closes while its GPU device starts releases the device before the X window is destroyed (`BUI_raster_gpu_release`), so Mesa no longer prints `failed to create drawable`.
+- **CSS colors:** `color-mix()` in `hsl`, `hwb`, `lch` and `oklch` treats the hue of white, grays, black and `transparent` as missing (CSS Color 4 powerless hue), so the mix keeps the other color's hue: `color-mix(in hsl, white, blue)` is a light blue, not pink.
+
 ## [0.4.1] - 2026-11-06
 
 ### Added
@@ -25,7 +81,6 @@ All notable changes to **blenderui** (BUI). The format follows
   promise before 1.0, semantic versioning after, what counts as ABI) is in the header and in the C API
   guide. Changes that break the C API are listed here under "C API changes" from now on.
 - **Third-party notices** (`THIRD_PARTY_NOTICES.md`), shipped with the wheels, the npm packages and the crates.
->>>>>>> 753dc91acbd5b2f07300aa61f7e9596ed7947a44
 
 ### Changed
 - **License, following Blender's own wording:** BUI as a whole is under the GNU GPL, version 3 or

@@ -13,9 +13,11 @@ interface Props {
   sync?: string;
   /** Accessible name for the tab list, e.g. "Language". */
   label?: string;
+  /** Just the tab strip: no box around the panels, which keep the page's own width and spacing. */
+  bare?: boolean;
 }
 
-const { sync, label = "Choose one" } = Astro.props;
+const { sync, label = "Choose one", bare = false } = Astro.props;
 
 const html = await Astro.slots.render("default");
 const labels = [...html.matchAll(/data-tab-label="([^"]*)"/g)].map((m) => m[1]);
@@ -31,8 +33,8 @@ const decode = (s: string) =>
   s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 ---
 
-<div class="tabs border border-border" data-tabs data-sync={sync}>
-  <div role="tablist" aria-label={label} class="flex overflow-x-auto border-b border-border bg-surface [scrollbar-width:none]">
+<div class:list={["tabs", bare ? "tabs-bare" : "border border-border"]} data-tabs data-sync={sync}>
+  <div role="tablist" aria-label={label} class:list={["flex overflow-x-auto border-b border-border [scrollbar-width:none]", bare ? "mb-6" : "bg-surface"]}>
     {
       labels.map((l, n) => (
         <button
@@ -50,7 +52,7 @@ const decode = (s: string) =>
       ))
     }
   </div>
-  <div class="tab-panels" set:html={panels} />
+  <div class:list={["tab-panels", bare && "is-bare"]} set:html={panels} />
 </div>
 
 <style>
@@ -59,7 +61,16 @@ const decode = (s: string) =>
     font-size: 0.9375rem;
     line-height: 1.7;
   }
-  .tab-panels :global([data-tab-panel] > * + *) {
+  .tab-panels.is-bare :global([data-tab-panel]) {
+    padding: 0;
+    font-size: inherit;
+    line-height: inherit;
+  }
+  /* a bare panel sits in the page's prose: the same spacing, with zero specificity so headings keep theirs */
+  :global(:where(.tab-panels.is-bare [data-tab-panel] > * + *)) {
+    margin-top: 1.15rem;
+  }
+  .tab-panels:not(.is-bare) :global([data-tab-panel] > * + *) {
     margin-top: 0.9rem;
   }
   .tab-panels :global([data-tab-panel]:focus-visible) {

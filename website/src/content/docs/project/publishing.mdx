@@ -110,7 +110,7 @@ cd ../react && npm publish --access public # @blender-ui/react (runs the tests)
 - **Preview** with `npm pack --dry-run`, which lists what a package will contain.
 - **Releasing again:** bump `version` in the package's `package.json` first; npm refuses to publish the same version twice. When the native package changes in a way React needs, raise React's `@blender-ui/native` range to match.
 
-The native package ships `blenderui.win32-x64.node` and `bui-runtime.win32-x64.exe`, and its `os` and `cpu` fields limit it to Windows x64. More platforms would mean building both on each platform, typically in CI, and publishing optional per-platform packages, the napi-rs convention.
+The addon and `bui-runtime` ship in one package per platform, the napi-rs convention: `@blender-ui/native-win32-x64`, `-linux-x64` (glibc 2.35 or later), `-darwin-arm64` and `-darwin-x64`. `@blender-ui/native` lists them as `optionalDependencies`, so npm and Bun install only the one that matches. `bindings/node/platform.js` lists the platforms. `node scripts/platforms.js` writes each package to `bindings/node/npm/<tag>/` at the main package's version. With `--main` (release CI only), it also writes the `optionalDependencies` into the main package's `package.json` just before publishing, as napi-rs's `prepublish` does, and stops if a platform is not built. The committed `package.json` has none, so the workspace lockfile never names a package that is not published yet. In `release.yml`, the `npm-native` jobs build on `ubuntu-22.04`, `macos-15` and `macos-15-intel`; the `npm` job builds the Windows files, then publishes the platform packages and then the main package. A new platform package must be published once by hand and given its trusted publisher; until then the workflow stops before `@blender-ui/native`. Publish that first one as a placeholder version, so no release number is used up by a local build: `node scripts/platforms.js --version 0.0.0-bootstrap`, then `npm publish --access public --tag bootstrap` in `npm/<tag>/`.
 
 ## crates.io
 
@@ -150,10 +150,10 @@ A published crate can't reach files outside itself, so `blenderui-sys` must carr
 
 ## Known gaps before 1.0
 
-- **macOS:** the native Cocoa host has been tried by hand on two Apple Silicon Macs so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
+- **macOS:** the native Cocoa host has been tried by hand on three Macs (two Apple Silicon, one Intel) so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
 - **Windows wheels** are built with MinGW. MSVC builds work (the Rust crate and the CMake build use it), but aren't what's published.
 - **No musllinux or 32-bit wheels** yet.
-- **npm:** prebuilt for Windows x64 only.
+- **npm:** prebuilt for Windows x64, Linux x64 (glibc) and macOS; no musl or arm64 Linux.
 
 ## Next steps
 

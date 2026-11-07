@@ -158,8 +158,8 @@ Try it without publishing: Actions > release > Run workflow, enter the tag and l
   before-all` installs the X11 headers (`libX11-devel` / `libx11-dev`), and
   libX11 itself is loaded at run time, so the wheels still import on servers
   without it. (This used to be a gap; it's fixed.)
-- macOS: the native Cocoa window host is new and has been tried by hand on two
-  Apple Silicon Macs so far. With `BUI_HOST=tk` the wheels use the stdlib Tk window instead, which
+- macOS: the native Cocoa window host is new and has been tried by hand on
+  three Macs (two Apple Silicon, one Intel) so far. With `BUI_HOST=tk` the wheels use the stdlib Tk window instead, which
   needs `tkinter` (for example from python.org or `brew install python-tk`).
 - MSVC builds work (the Rust crate and the CMake build use Visual Studio's
   toolchain), but the published Windows wheels are built with MinGW.

@@ -24,10 +24,13 @@
 #  include <windows.h>
 #  include <windowsx.h>
 
+#  include "kit_ime_win32.h"
+
 #  define WM_BK_RENDER (WM_APP + 1)
 #  define ID_TIP 1
 #  define ID_ANIM 2
 #  define ID_WAKE 3 /* BK_TIMER_CUSTOM: custom nodes' frames */
+#  define ID_GPU 4  /* checks the GPU device until it is ready */
 #  define ID_USER_BASE 1000
 
 struct BKWindow {
@@ -44,6 +47,8 @@ struct BKWindow {
   int fixed_w, fixed_h;           /* axes the user may not resize (Tk's resizable) */
   int user_sizing;                /* inside a user move/resize loop */
   DWORD style;                    /* framed style restored by "override" 0 */
+  BKImeWin32 ime;                 /* the IME (GHOST_ImeWin32) */
+  WPARAM last_vk;                 /* the virtual key of the last WM_KEYDOWN */
 };
 
 static int g_open = 0;
@@ -323,6 +328,14 @@ static double refresh_ms(void)
   return ms;
 }
 
+/* The device starts on a worker thread. The timer switches the window over when it is ready. */
+static void gpu_attach(BKWindow *win)
+{
+  if (BUI_raster_gpu_attach(win->raster, win->hwnd, 0)) {
+    SetTimer(win->hwnd, ID_GPU, (UINT)refresh_ms(), NULL);
+  }
+}
+
 /* Milliseconds since the current animation frame began. */
 static double frame_ms(const BKWindow *win)
 {
@@ -330,6 +343,25 @@ static double frame_ms(const BKWindow *win)
   QueryPerformanceCounter(&now);
   QueryPerformanceFrequency(&freq);
   return (double)(now.QuadPart - win->frame_start.QuadPart) * 1000.0 / (double)freq.QuadPart;
+}
+
+/* Tells the platform what the kit's IME state needs (wm_window.cc WM_window_IME_begin / _reposition /
+ * _end): on while a field takes text, restarted when another field takes over, the candidate
+ * window following the caret. BK_ime_state reports only changes, so this costs nothing otherwise. */
+static void ime_sync(BKWindow *win)
+{
+  BKImeState s;
+  if (!BK_ime_state(win->ctx, &s)) {
+    return;
+  }
+  if (!s.enabled) {
+    bk_ime_win32_end(&win->ime, win->hwnd);
+    return;
+  }
+  if (s.restart) {
+    bk_ime_win32_end(&win->ime, win->hwnd); /* textedit_ime_begin ends first, then begins */
+  }
+  bk_ime_win32_begin(&win->ime, win->hwnd, s.x, s.y, s.x, s.y, s.restart != 0);
 }
 
 static void do_render(BKWindow *win)
@@ -351,6 +383,7 @@ static void do_render(BKWindow *win)
     win->full = 1; /* the renderer changed: its frame starts empty */
   }
   const int regions = BK_render(win->ctx, win->raster, w, h, win->full);
+  ime_sync(win); /* the draw placed the caret */
   QueryPerformanceCounter(&t1);
   win->full = 0;
   if (regions || resized) {
@@ -580,8 +613,49 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 mods_now(0, 0));
       return 0;
     }
+    /* -- input methods: GHOST_SystemWin32.cc's IME cases, see kit_ime_win32.h -- */
+    case WM_INPUTLANGCHANGE:
+      bk_ime_win32_update_input_language(&win->ime);
+      bk_ime_win32_update_conversion_status(&win->ime, hwnd);
+      break;
+    case WM_IME_NOTIFY: /* conversion status when the IME or its input mode changes */
+      if (wp == IMN_SETOPENSTATUS || wp == IMN_SETCONVERSIONMODE) {
+        bk_ime_win32_update_conversion_status(&win->ime, hwnd);
+      }
+      break;
+    case WM_IME_SETCONTEXT:
+      bk_ime_win32_update_input_language(&win->ime);
+      bk_ime_win32_update_conversion_status(&win->ime, hwnd);
+      bk_ime_win32_create_window(&win->ime, hwnd);
+      bk_ime_win32_cleanup_composition(&win->ime, hwnd);
+      bk_ime_win32_check_first(&win->ime, hwnd);
+      break;
+    case WM_IME_STARTCOMPOSITION: {
+      BKImeEvent e;
+      bk_ime_win32_create_window(&win->ime, hwnd);
+      bk_ime_win32_reset_composition(&win->ime);
+      bk_ime_win32_empty_event(&win->ime, &e);
+      BK_ime_event(ctx, BK_IME_COMPOSITION_START, &e);
+      return 0; /* no DefWindowProc: the kit draws the composition, not the system */
+    }
+    case WM_IME_COMPOSITION: {
+      BKImeEvent e;
+      bk_ime_win32_update_window(&win->ime, hwnd);
+      bk_ime_win32_update_info(&win->ime, hwnd, &e);
+      BK_ime_event(ctx, BK_IME_COMPOSITION, &e);
+      return 0;
+    }
+    case WM_IME_ENDCOMPOSITION: {
+      BKImeEvent e;
+      bk_ime_win32_reset_composition(&win->ime);
+      bk_ime_win32_destroy_window(&win->ime, hwnd);
+      bk_ime_win32_empty_event(&win->ime, &e);
+      BK_ime_event(ctx, BK_IME_COMPOSITION_END, &e);
+      return 0;
+    }
     case WM_KEYDOWN:
     case WM_SYSKEYDOWN: {
+      win->last_vk = wp;
       char buf[8];
       const int mods = mods_now(0, 0);
       const char *ks = vk_keysym(wp, buf);
@@ -613,6 +687,12 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       if (wc[0] < 32 || wc[0] == 127 || (GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_MENU) >= 0)) {
         return 0; /* control characters: handled as keys */
       }
+      /* a character key the IME handles itself must not also be typed (IsImeKeyEvent) */
+      if (wc[0] < 0x80 &&
+          bk_ime_win32_is_ime_key_event(&win->ime, (char)wc[0], win->last_vk == VK_DECIMAL))
+      {
+        return 0;
+      }
       char *text = wide_to_utf8(wc, -1);
       const char *keysym = (text[0] == ' ' && !text[1]) ? "space" :
                            (text[0] == '-' && !text[1]) ? "minus" :
@@ -629,6 +709,17 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       else if (wp == ID_WAKE) {
         KillTimer(hwnd, ID_WAKE);
         BK_timer(ctx, BK_TIMER_CUSTOM);
+      }
+      else if (wp == ID_GPU) {
+        /* a GPU device that is ready switches an idle window over too */
+        if (!BUI_raster_gpu_pending(win->raster)) {
+          KillTimer(hwnd, ID_GPU);
+        }
+        else if (BUI_raster_gpu_poll(win->raster)) {
+          KillTimer(hwnd, ID_GPU);
+          win->full = 1;
+          host_request(win);
+        }
       }
       else if (wp >= ID_USER_BASE) {
         KillTimer(hwnd, wp);
@@ -671,6 +762,7 @@ BKWindow *BK_window_new(BKContext *ctx, const char *title, int width, int height
     registered = 1;
   }
   BKWindow *win = (BKWindow *)calloc(1, sizeof(BKWindow));
+  bk_ime_win32_init(&win->ime);
   win->ctx = ctx;
   win->prev = ctx->host;
   win->raster = BUI_raster_create(1, 1);
@@ -701,7 +793,7 @@ BKWindow *BK_window_new(BKContext *ctx, const char *title, int width, int height
   SetWindowLongPtrW(win->hwnd, GWLP_USERDATA, (LONG_PTR)win);
   g_open++;
   if (BUI_gpu_default()) {
-    BUI_raster_gpu_attach(win->raster, win->hwnd, 0);
+    gpu_attach(win);
   }
   BKHost host = {win,           host_request,       host_set_cursor, host_warp,
                  host_clipboard_get, host_clipboard_set, host_schedule, host_emit};
@@ -725,6 +817,7 @@ void BK_window_free(BKWindow *win)
     BK_context_set_host(win->ctx, &win->prev);
   }
   BUI_raster_free(win->raster);
+  bk_ime_win32_free(&win->ime);
   free(win);
 }
 
@@ -791,7 +884,7 @@ BuiRaster *BK_window_raster(BKWindow *win)
 void BK_window_set_gpu(BKWindow *win, int on)
 {
   if (win && on) {
-    BUI_raster_gpu_attach(win->raster, win->hwnd, 0);
+    gpu_attach(win);
     host_request(win);
   }
 }

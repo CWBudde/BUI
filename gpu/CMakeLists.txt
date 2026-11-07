@@ -17,7 +17,7 @@ bui_features(bui_gpu)
 
 target_include_directories(bui_gpu PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_SOURCE_DIR}/core/include
+  ${BUI_SOURCE_DIR}/core/include
 )
 target_link_libraries(bui_gpu PUBLIC bui::core)
 if(NOT MSVC)

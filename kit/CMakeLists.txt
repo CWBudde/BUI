@@ -15,6 +15,8 @@ add_library(bui_kit STATIC
   intern/kit_color.c
   intern/kit_frame.c
   intern/kit_textarea.c
+  intern/kit_ime.c
+  intern/kit_ime_win32.c
   intern/kit_window_win32.c
   intern/kit_window_x11.c
   intern/kit_window_null.c
@@ -101,7 +103,7 @@ if(BUI_IMAGE_JPEG) # libjpeg-turbo 3.1.2: the 8-bit decompressor, no SIMD (it ne
   add_library(bui_jpeg OBJECT ${_bui_jpeg_src}
     extern/libjpeg-turbo/bui/jmem_bui.c extern/libjpeg-turbo/bui/jdecode_8bit_only.c)
   target_include_directories(bui_jpeg PRIVATE extern/libjpeg-turbo/bui extern/libjpeg-turbo/src
-    ${CMAKE_SOURCE_DIR}/core/include)
+    ${BUI_SOURCE_DIR}/core/include)
   target_compile_options(bui_jpeg PRIVATE ${_bui_quiet} $<$<NOT:$<C_COMPILER_ID:MSVC>>:-O2>)
   target_sources(bui_kit PRIVATE intern/image/format_jpeg.c $<TARGET_OBJECTS:bui_jpeg>)
   target_include_directories(bui_kit PRIVATE extern/libjpeg-turbo/bui extern/libjpeg-turbo/src)
@@ -130,7 +132,7 @@ if(NOT MSVC)
   target_link_libraries(bui_kit PRIVATE m)
 endif()
 if(WIN32)
-  target_link_libraries(bui_kit PRIVATE user32 gdi32)
+  target_link_libraries(bui_kit PRIVATE user32 gdi32 imm32)
 elseif(APPLE)
   # Native windows on macOS: an AppKit host after Blender's GHOST Cocoa backend.
   # Objective-C (enable_language(OBJC) is in the top-level CMakeLists.txt) with
@@ -150,5 +152,48 @@ elseif(UNIX AND NOT APPLE)
     target_link_libraries(bui_kit PUBLIC ${CMAKE_DL_LIBS})
   else()
     message(STATUS "BUI: X11 headers not found; no native Linux windows (Tk / headless only)")
+  endif()
+
+  # Native Wayland windows, as Blender's GHOST_SystemWayland (xdg-shell, wl_shm, wl_seat with
+  # xkbcommon, wl_data_device). Like X11, nothing is linked: Blender's wayland_dynload loads
+  # libwayland-client / libwayland-cursor and the host dlopen()s libxkbcommon when the first
+  # window opens. Building needs the headers, wayland-scanner and wayland-protocols; without
+  # them (or with -DBUI_WAYLAND=OFF) windows are X11 only, as before. A session with
+  # WAYLAND_DISPLAY gets Wayland windows (CPU renderer), unless the GPU renderer is on: that is
+  # OpenGL through GLX, so it keeps X11 (XWayland) until Wayland has its own EGL renderer.
+  option(BUI_WAYLAND "Native Wayland windows (libwayland is loaded at run time)" ON)
+  if(BUI_WAYLAND AND BUI_X11_INCLUDE)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+      pkg_check_modules(BUI_WL QUIET wayland-client wayland-cursor xkbcommon wayland-protocols)
+      pkg_get_variable(BUI_WL_PROTOCOLS wayland-protocols pkgdatadir)
+      find_program(BUI_WL_SCANNER wayland-scanner)
+    endif()
+    if(BUI_WL_FOUND AND BUI_WL_PROTOCOLS AND BUI_WL_SCANNER)
+      set(_wl_gen ${CMAKE_CURRENT_BINARY_DIR}/wayland)
+      file(MAKE_DIRECTORY ${_wl_gen})
+      set(_wl_src)
+      foreach(_p stable/xdg-shell/xdg-shell unstable/xdg-decoration/xdg-decoration-unstable-v1)
+        get_filename_component(_n ${_p} NAME)
+        add_custom_command(
+          OUTPUT ${_wl_gen}/${_n}-client-protocol.h ${_wl_gen}/${_n}-client-protocol.c
+          COMMAND ${BUI_WL_SCANNER} client-header ${BUI_WL_PROTOCOLS}/${_p}.xml
+                  ${_wl_gen}/${_n}-client-protocol.h
+          COMMAND ${BUI_WL_SCANNER} private-code ${BUI_WL_PROTOCOLS}/${_p}.xml
+                  ${_wl_gen}/${_n}-client-protocol.c
+          DEPENDS ${BUI_WL_PROTOCOLS}/${_p}.xml)
+        list(APPEND _wl_src ${_wl_gen}/${_n}-client-protocol.c)
+      endforeach()
+      target_sources(bui_kit PRIVATE intern/kit_window_wayland.c intern/kit_window_linux.c
+        extern/wayland_dynload/wayland_dynload_client.c
+        extern/wayland_dynload/wayland_dynload_cursor.c
+        extern/wayland_dynload/wayland_dynload_utils.c ${_wl_src})
+      target_compile_definitions(bui_kit PRIVATE BUI_WINDOW_WAYLAND)
+      target_include_directories(bui_kit PRIVATE ${_wl_gen} extern/wayland_dynload
+        ${BUI_WL_INCLUDE_DIRS})
+    else()
+      message(STATUS "BUI: Wayland headers, wayland-scanner or wayland-protocols not found; "
+                     "Linux windows are X11 (Wayland sessions through XWayland)")
+    endif()
   endif()
 endif()

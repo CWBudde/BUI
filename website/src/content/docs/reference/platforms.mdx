@@ -12,17 +12,17 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 
 | | Windows | Linux | macOS |
 | --- | --- | --- | --- |
-| Window | Native (Win32) | Native (X11; Wayland through XWayland) | Native (Cocoa), experimental |
+| Window | Native (Win32) | Native (X11, and Wayland: experimental) | Native (Cocoa) |
 | Python (`pip install`) | Works: wheels | Works: wheels | Works: wheels |
-| Rust | Works | Works | Experimental |
+| Rust | Works | Works | Works |
 | JavaScript and React | Works: prebuilt on npm | Works: build the addon from source (`npm run build`) | Headless |
-| C, C++, Dear ImGui | Works | Works | Experimental |
+| C, C++, Dear ImGui | Works | Works | Works |
 | Renderer | CPU raster, or GPU (Direct3D 11) | CPU raster, or GPU (OpenGL 3.3) | CPU raster |
 | HiDPI | Per-monitor DPI | `Xft.dpi` | Retina (backing scale) |
 | Images | All [built-in formats](/docs/concepts/images); decode threads; GPU atlas | All built-in formats; decode threads; GPU atlas | All built-in formats; decode threads (CPU raster) |
 | [Video](/docs/concepts/video) | Works: Media Foundation (DXVA), tested | Works: GStreamer (VA-API where available), tested under WSL | AVFoundation: written, **untested** |
 
-**Works** means it works and is tested. **Experimental** means it's written and checked by CI, but has had little hands-on testing on real hardware (macOS: two Apple Silicon Macs so far).
+**Works** means it works and is tested. **Experimental** means it's written and checked by CI, but has had little hands-on testing on real hardware (today, the native Wayland host).
 
 ## Windows
 
@@ -34,7 +34,7 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 
 ## Linux
 
-- **Window:** a native X11 host. Wayland sessions run it through XWayland.
+- **Window:** a native X11 host, and an experimental native Wayland host (CPU renderer; the GPU renderer keeps X11 through XWayland on a Wayland session).
 - **No X11 needed to import.** `libX11` and `libGL` load when the first window opens, so BUI imports and renders headless on servers and in containers without them. (Rust binaries are the exception: they link `libX11` directly.)
 - **GPU renderer:** OpenGL 3.3 core, through GLX for windows and EGL for offscreen rendering. Where OpenGL is missing, BUI falls back to the CPU raster.
 - **Tested on:** the C, Python, window and GPU parity tests pass on Mesa's software OpenGL and on an NVIDIA GPU. The suites also run under WSLg.
@@ -42,13 +42,13 @@ BUI runs on Windows, Linux and macOS. Windows and Linux are fully supported; mac
 - **JavaScript:** no prebuilt npm addon yet. Build it from a clone with `npm run build` in `bindings/node` (needs Rust, CMake and a C compiler); windows are native.
 - **Video:** GStreamer 1.x, `dlopen`ed (no headers needed to build): install `gstreamer1.0-plugins-base` and `-good`, plus `gstreamer1.0-libav` (or `-plugins-bad` for openh264/dav1d) for H.264 and friends, and `gstreamer1.0-vaapi` / the `va` plugin for hardware decoding. Tested under WSL (Kali, GStreamer 1.24, software decoding); the OpenGL NV12 shader passes the parity test there on Mesa.
 
-## macOS <Badge tone="preview">Experimental</Badge>
+## macOS
 
-- **Window:** a native Cocoa host, ported from Blender's GHOST code, with Retina scaling. It's checked by CI and has been tried by hand on two Apple Silicon Macs: by [Krish Kalaria](https://github.com/krishkalaria12), who also fixed the bugs he found (issue #3, pull request #4), and by [DanNoby](https://github.com/DanNoby) (17/17 tests; issue #6 added a toolchain note to the guide). AppKit only allows windows on the main thread.
+- **Window:** a native Cocoa host, ported from Blender's GHOST code, with Retina scaling. It works: it's checked by CI and has been tried by hand on three Macs (two Apple Silicon, one Intel): by [Krish Kalaria](https://github.com/krishkalaria12), who also fixed the bugs he found (issue #3, pull request #4), by [DanNoby](https://github.com/DanNoby) (17/17 tests; issue #6 added a toolchain note to the guide and found the duplicate Objective-C classes, now fixed), and by [piaoboo](https://github.com/piaoboo) (an Intel MacBook Pro: the wheel works and the source build passes 25/25 tests; issue #17). AppKit only allows windows on the main thread.
 - **Python fallback:** if the native host misbehaves, use the standard Tk window: `BUI_HOST=tk`. That needs a Python with `tkinter` (for example from python.org, or `brew install python-tk`).
 - **JavaScript is headless.** Node runs BUI on its own UI thread, and macOS only allows windows on the main thread.
 - **Renderer:** the CPU raster only.
-- **Help test it.** If you have a Mac, the [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md) lists what to build, what to run and what to report.
+- **Testing.** The [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md) lists what to build, what to run and what to report, if you want to check another Mac (an older macOS, say).
 
 <ComingSoon feature="macOS GPU and JavaScript windows">
 The GPU renderer on Metal (or the OpenGL backend), and Node windows on the main thread.

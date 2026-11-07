@@ -16,7 +16,7 @@ BUI has **no accessibility support**. It draws its own widgets and doesn't talk 
 
 - The font is Blender's Inter, embedded and drawn with FreeType. System fonts are used only with the Windows GDI text option.
 - There is no per-glyph font fallback yet, so a character the font doesn't have shows as a box.
-- There are no input methods (IME): composed input such as Japanese or Chinese, and possibly dead-key accents, isn't expected to work.
+- Input methods (IME) work on Windows only: composed input such as Japanese or Chinese works there, and isn't expected to work on Linux (X11) or macOS yet.
 - Right-to-left text is reordered but not shaped (Arabic joining), and there are no OpenType features.
 
 More in [Text and fonts](../../concepts/text-and-fonts/).
@@ -34,9 +34,9 @@ BUI looks like Blender. It has Blender's Dark and Light themes (other Blender th
 
 ## Platforms
 
-- **Windows and Linux** (X11; Wayland through XWayland) are the supported platforms.
-- **macOS is experimental.** CI checks it and two people have tried it by hand on Apple Silicon Macs. JavaScript windows are headless there. See the [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md).
-- The npm packages are prebuilt for **Windows x64 only**. On Linux, build the addon from source.
+- **Windows and Linux** (X11; native Wayland is experimental, CPU renderer only, and has no title bar on compositors without server-side decorations, such as GNOME) are the supported platforms.
+- **macOS works, with limits.** CI checks it and three people have tried it by hand on Macs (two Apple Silicon, one Intel). JavaScript windows are headless there, and there is no GPU renderer. See the [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md).
+- The npm packages are prebuilt for **Windows x64**, **Linux x64** (glibc 2.35 or later) and **macOS**. On other systems, build the addon from source.
 
 ## Retained mode, and no visual editor
 

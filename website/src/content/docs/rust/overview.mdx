@@ -217,7 +217,7 @@ BUI's Rust side covers a lot, but not everything. Each page lists its own gaps; 
 - **Images**: every [format](/docs/concepts/images) decodes and animations play, but one inside a CSS effect layer (filters, masks, 3D transforms) shows its first frame. `video`, `audio` and `iframe` show a placeholder.
 - **Transforms:** every 2D transform draws, but clicks use the untransformed box. 3D transforms have no effect.
 - **Tables** size columns from their widest single-line content, a simpler version of browsers' auto layout.
-- **Windows** are native on Windows (Win32), Linux (X11) and macOS (Cocoa). The Cocoa host is new and has been tried by hand on two Apple Silicon Macs so far, and it needs the main thread. The GPU renderer runs on Windows and Linux.
+- **Windows** are native on Windows (Win32), Linux (X11) and macOS (Cocoa). The Cocoa host is new and has been tried by hand on three Macs (two Apple Silicon, one Intel) so far, and it needs the main thread. The GPU renderer runs on Windows and Linux.
 - **Components:** async resources (`use_resource`) and generic components are <ComingSoon inline />.
 
 <Callout type="joke">
