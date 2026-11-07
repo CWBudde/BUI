@@ -117,6 +117,13 @@ void luabui_init_host_callbacks(lua_State *L, BKContext *ctx);
 
 int luabui_is_numeric_key(const char *key);
 
+/* Build a BKMenuSpec array from a Lua items table at stack index `idx`,
+ * including recursive submenu processing.  The array is allocated as a
+ * Lua userdata (traced by the GC).  Returns the number of items. */
+int luabui_build_menuspec(lua_State *L, int idx, BKMenuSpec **out);
+
+
+
 /* Lua module entry point (defined in bui_lua.c) */
 LUAMOD_API int luaopen_bui(lua_State *L);
 

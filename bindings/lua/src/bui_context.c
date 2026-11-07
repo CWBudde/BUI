@@ -104,6 +104,24 @@ static void host_emit(void *data, BKNode *node, int kind, void *ref, double a, d
 }
 
 /* ------------------------------------------------------------------ */
+/* Ref hooks (retain/release for BKMenuSpec refs embedded in menu
+ * copies).  Lua registry refs are permanent so retain is a no-op;
+ * release calls luaL_unref to let the GC reclaim the closure.       */
+/* ------------------------------------------------------------------ */
+
+/* Retain/release hooks are intentionally NOT set up.  The BUI engine calls
+ * bk_retain / bk_release when deep-copying menu specs (bk_menuspec_copy /
+ * bk_menuspec_free) and the menubutton stores a persistent copy in its own
+ * MenuButtonData.  If we set up ref hooks here, the same Lua registry ref
+ * would be freed twice — once when the menu popup copy is released and
+ * again when the menubutton's persistent copy is released.
+ *
+ * Instead, Lua refs are freed manually: the menubutton's refs are tracked
+ * in _menu_refs and freed on the next set_menus call (see l_node_set_menus);
+ * one-shot open_menu / open_pie refs are small and reclaimed on context
+ * close. */
+
+/* ------------------------------------------------------------------ */
 /* Initialization                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -516,50 +534,27 @@ static int l_ctx_popup(lua_State *L) {
 static int l_ctx_open_menu(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  /* owner node (optional), items table, title (optional), at_x/at_y (optional) */
   BKNode *owner = NULL;
   if (!lua_isnil(L, 2)) {
     luabui_Node *oud = CHECK_NODE(L, 2);
     if (oud->node) owner = oud->node;
   }
-  luaL_checktype(L, 3, LUA_TTABLE);
-  int n = (int)lua_rawlen(L, 3);
-  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
-  memset(specs, 0, n * sizeof(BKMenuSpec));
-  for (int i = 0; i < n; i++) {
-    lua_rawgeti(L, 3, i + 1);
-    if (lua_istable(L, -1)) {
-      lua_getfield(L, -1, "text"); specs[i].text = lua_tostring(L, -1); lua_pop(L, 1);
-      lua_getfield(L, -1, "icon"); specs[i].icon = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
-      lua_getfield(L, -1, "enabled"); specs[i].enabled = (int)luaL_optinteger(L, -1, 1); lua_pop(L, 1);
-      lua_getfield(L, -1, "checked"); specs[i].checked = (int)luaL_optinteger(L, -1, -1); lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
-  }
+  BKMenuSpec *specs;
+  int n = luabui_build_menuspec(L, 3, &specs);
   const char *title = luaL_optstring(L, 4, NULL);
   int ax = (int)luaL_optinteger(L, 5, -100000);
   int ay = (int)luaL_optinteger(L, 6, -100000);
-  BK_open_menu(cud->ctx, owner, specs, n, title, ax, ay);
+  if (specs) BK_open_menu(cud->ctx, owner, specs, n, title, ax, ay);
   return 0;
 }
 
 static int l_ctx_open_pie(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  luaL_checktype(L, 2, LUA_TTABLE);
-  int n = (int)lua_rawlen(L, 2);
-  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
-  memset(specs, 0, n * sizeof(BKMenuSpec));
-  for (int i = 0; i < n; i++) {
-    lua_rawgeti(L, 2, i + 1);
-    if (lua_istable(L, -1)) {
-      lua_getfield(L, -1, "text"); specs[i].text = lua_tostring(L, -1); lua_pop(L, 1);
-      lua_getfield(L, -1, "icon"); specs[i].icon = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
-  }
+  BKMenuSpec *specs;
+  int n = luabui_build_menuspec(L, 2, &specs);
   const char *title = luaL_optstring(L, 3, NULL);
-  BK_open_pie(cud->ctx, specs, n, title);
+  if (specs) BK_open_pie(cud->ctx, specs, n, title);
   return 0;
 }
 
