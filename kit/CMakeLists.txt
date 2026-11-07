@@ -15,6 +15,8 @@ add_library(bui_kit STATIC
   intern/kit_color.c
   intern/kit_frame.c
   intern/kit_textarea.c
+  intern/kit_ime.c
+  intern/kit_ime_win32.c
   intern/kit_window_win32.c
   intern/kit_window_x11.c
   intern/kit_window_null.c
@@ -130,7 +132,7 @@ if(NOT MSVC)
   target_link_libraries(bui_kit PRIVATE m)
 endif()
 if(WIN32)
-  target_link_libraries(bui_kit PRIVATE user32 gdi32)
+  target_link_libraries(bui_kit PRIVATE user32 gdi32 imm32)
 elseif(APPLE)
   # Native windows on macOS: an AppKit host after Blender's GHOST Cocoa backend.
   # Objective-C (enable_language(OBJC) is in the top-level CMakeLists.txt) with

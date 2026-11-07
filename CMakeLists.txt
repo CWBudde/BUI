@@ -90,6 +90,21 @@ if(BUI_BUILD_TESTS)
   set_tests_properties(bui_gpu_start_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60
                        FAIL_REGULAR_EXPRESSION "failed to create drawable")
   # themes: Blender's Dark / Light presets (BK_set_theme), dark stays pixel-identical
+  # input methods: composition events drive the text fields (Blender's IME handling)
+  add_executable(bui_ime_test tests/ime_test.c)
+  target_link_libraries(bui_ime_test PRIVATE bui::kit)
+  add_test(NAME bui_ime_test COMMAND bui_ime_test)
+  # ... and the Windows host's port of GHOST_ImeWin32 against a real window
+  add_executable(bui_ime_win32_test tests/ime_win32_test.c)
+  target_link_libraries(bui_ime_win32_test PRIVATE bui::kit)
+  add_test(NAME bui_ime_win32_test COMMAND bui_ime_win32_test)
+  set_tests_properties(bui_ime_win32_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+  # what the IME support costs (bench/ime_bench.c); BUI_BENCH_NO_IME builds it for a kit without it
+  add_executable(bui_ime_bench bench/ime_bench.c)
+  target_link_libraries(bui_ime_bench PRIVATE bui::kit)
+  if(BUI_BENCH_NO_IME)
+    target_compile_definitions(bui_ime_bench PRIVATE BENCH_NO_IME)
+  endif()
   add_executable(bui_theme_test tests/theme_test.c)
   target_link_libraries(bui_theme_test PRIVATE bui::kit)
   add_test(NAME bui_theme_test COMMAND bui_theme_test)

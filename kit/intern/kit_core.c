@@ -677,6 +677,7 @@ void bk_begin_edit(BKNode *n, const char *text, bool select_all)
 {
   BKContext *ctx = bk_ctx(n);
   if (ctx && ctx->focus && ctx->focus != n) {
+    bk_ime_commit(ctx); /* another field takes over: the composition stays in this one */
     BKNode *f = ctx->focus;
     ctx->focus = NULL;
     if (f->cls->finish_edit) {
@@ -695,6 +696,9 @@ void bk_begin_edit(BKNode *n, const char *text, bool select_all)
 
 static void end_edit(BKContext *ctx, bool confirm)
 {
+  if (confirm) {
+    bk_ime_commit(ctx); /* Blender: a click outside inserts the text being composed */
+  }
   BKNode *f = ctx->focus;
   ctx->focus = NULL;
   if (f) {
@@ -2765,6 +2769,9 @@ static int undo_key(BKContext *ctx, const char *keysym, int mods)
 static int in_BK_key(BKContext *ctx, const char *text, const char *keysym, int mods)
 {
   hide_tooltip(ctx);
+  if (bk_ime_swallow_key(ctx, text, keysym)) {
+    return 1; /* typed text and Escape belong to the IME while it composes */
+  }
   BKEvent e = make_event(ctx, NULL, ctx->pointer_x, ctx->pointer_y, mods);
   e.text = text ? text : "";
   e.keysym = keysym ? keysym : "";
@@ -2991,6 +2998,7 @@ void bk_te_free(BKTextEdit *te)
 {
   if (te) {
     bk_textedit_undo_stack_destroy(te->undo);
+    bk_ime_comp_free(&te->ime);
     free(te->text);
     free(te);
   }
@@ -3014,7 +3022,7 @@ static void te_delete(BKTextEdit *te, int a, int b)
   te->anchor = -1;
 }
 
-static bool te_delete_selection(BKTextEdit *te)
+bool bk_te_delete_selection(BKTextEdit *te)
 {
   int a, b;
   if (!te_selection(te, &a, &b)) {
@@ -3023,6 +3031,7 @@ static bool te_delete_selection(BKTextEdit *te)
   te_delete(te, a, b);
   return true;
 }
+#define te_delete_selection bk_te_delete_selection
 
 static void te_insert(BKTextEdit *te, const char *s)
 {
@@ -3239,7 +3248,11 @@ void bk_te_draw(BKTextEdit *te, const BKRect *rect, const uchar color[4])
 {
   const int p = bk_pad();
   const float inner = BK_MAX(1.0f, (float)(bk_rw(rect) - 2 * p));
-  const float caret_px = bk_masked_width(te->text, te->caret, te->mask, false);
+  const BKImeComp *ime = &te->ime;
+  /* an IME composition sits at the caret and the caret moves into it (widget_draw_text) */
+  const float comp_w = ime->len ? bk_text_width(ime->text, ime->len, false) : 0.0f;
+  const float text_px = bk_masked_width(te->text, te->caret, te->mask, false);
+  const float caret_px = text_px + bk_ime_caret_offset(ime, false);
   if (caret_px - te->scroll > inner) {
     te->scroll = caret_px - inner;
   }
@@ -3257,7 +3270,15 @@ void bk_te_draw(BKTextEdit *te, const BKRect *rect, const uchar color[4])
     const float m = 0.15f * h;
     bk_fill(sx, rect->ymin + m, sw, h - 2 * m, bk_theme.selection);
   }
-  if (te->mask[0]) {
+  if (ime->len) { /* text before the caret, the composite, the text after it */
+    const float cx = tx + text_px;
+    bk_text(tx, bk_text_baseline(rect), te->text, te->caret, color, false);
+    bk_text(cx, bk_text_baseline(rect), ime->text, ime->len, color, false);
+    bk_text(cx + comp_w, bk_text_baseline(rect), te->text + te->caret, te->len - te->caret, color,
+            false);
+    bk_ime_draw_underline(ime, cx, (float)rect->ymax, (float)bk_rw(rect), color, false);
+  }
+  else if (te->mask[0]) {
     char buf[1024];
     bk_text(tx, bk_text_baseline(rect), buf, bk_mask_text(te->text, te->len, te->mask, buf,
                                                            sizeof(buf)),
@@ -3270,6 +3291,7 @@ void bk_te_draw(BKTextEdit *te, const BKRect *rect, const uchar color[4])
   bk_fill(floorf(tx + caret_px), rect->ymin + m, BK_MAX(1.0f, floorf(0.1f * bk_unit() + 0.5f)),
           h - 2 * m, bk_theme.cursor);
   bk_clip_pop();
+  bk_ime_set_candidate(&te->ime, (int)floorf(tx + caret_px) + 5, rect->ymax + 1);
 }
 
 /** \} */
