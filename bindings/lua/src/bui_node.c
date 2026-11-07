@@ -864,6 +864,80 @@ static int l_node_tostring(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Missing API additions                                               */
+/* ------------------------------------------------------------------ */
+
+static int l_node_ramp_active(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  lua_pushinteger(L, ud->node ? BK_ramp_active(ud->node) : 0);
+  return 1;
+}
+
+static int l_node_geom_manager(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  lua_pushinteger(L, ud->node ? BK_geom_manager(ud->node) : 0);
+  return 1;
+}
+
+static int l_node_ta_set_selection(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (ud->node) BK_textarea_set_selection(ud->node, (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3));
+  return 0;
+}
+
+static int l_node_canvas_count(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  lua_pushinteger(L, ud->node ? BK_canvas_count(ud->node) : 0);
+  return 1;
+}
+
+static int l_node_tree_row(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int i = (int)luaL_checkinteger(L, 2);
+  BKTreeItem *item = BK_tree_row(ud->node, i);
+  if (!item) return 0;
+  if (luabui_lookup_treeitem(L, item)) return 1;
+  luabui_TreeItem *tud = (luabui_TreeItem *)lua_newuserdata(L, sizeof(luabui_TreeItem));
+  tud->item = item;
+  luaL_getmetatable(L, LUABUI_TREEITEM_MT);
+  lua_setmetatable(L, -2);
+  luabui_map_treeitem(L, item, -1);
+  return 1;
+}
+
+static int l_node_tree_row_rect(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int i = (int)luaL_checkinteger(L, 2);
+  int r[4];
+  BK_tree_row_rect(ud->node, i, r);
+  lua_pushinteger(L, r[0]);
+  lua_pushinteger(L, r[1]);
+  lua_pushinteger(L, r[2]);
+  lua_pushinteger(L, r[3]);
+  return 4;
+}
+
+static int l_node_custom_request_frame(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (ud->node) BK_custom_request_frame(ud->node, (int)luaL_optinteger(L, 2, 0));
+  return 0;
+}
+
+static int l_node_custom_set_cursor(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (ud->node) BK_custom_set_cursor(ud->node, (int)luaL_checkinteger(L, 2));
+  return 0;
+}
+
+static int l_node_custom_has_focus(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  lua_pushboolean(L, ud->node ? BK_custom_has_focus(ud->node) : 0);
+  return 1;
+}
+
+/* ------------------------------------------------------------------ */
 /* Registration                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -924,6 +998,15 @@ static const luaL_Reg node_methods[] = {
   {"set_grid_colors", l_node_set_grid_colors},
   {"custom_set",   l_node_custom_set},
   {"custom_data",  l_node_custom_data},
+  {"custom_request_frame", l_node_custom_request_frame},
+  {"custom_set_cursor",    l_node_custom_set_cursor},
+  {"custom_has_focus",     l_node_custom_has_focus},
+  {"ramp_active",  l_node_ramp_active},
+  {"geom_manager", l_node_geom_manager},
+  {"ta_set_selection", l_node_ta_set_selection},
+  {"canvas_count", l_node_canvas_count},
+  {"tree_row",     l_node_tree_row},
+  {"tree_row_rect", l_node_tree_row_rect},
   {"__gc",         l_node_gc},
   {"__tostring",   l_node_tostring},
   {NULL, NULL}

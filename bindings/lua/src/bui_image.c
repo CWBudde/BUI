@@ -35,6 +35,19 @@ static int l_imbuf_pixels(lua_State *L) {
   return 1;
 }
 
+static int l_imbuf_delay(lua_State *L) {
+  luabui_ImBuf *iud = CHECK_IMBUF(L, 1);
+  int frame = (int)luaL_optinteger(L, 2, 0);
+  lua_pushinteger(L, iud->ib ? BK_imbuf_delay(iud->ib, frame) : 0);
+  return 1;
+}
+
+static int l_imbuf_loops(lua_State *L) {
+  luabui_ImBuf *iud = CHECK_IMBUF(L, 1);
+  lua_pushinteger(L, iud->ib ? BK_imbuf_loops(iud->ib) : 0);
+  return 1;
+}
+
 static int l_imbuf_free(lua_State *L) {
   luabui_ImBuf *iud = CHECK_IMBUF(L, 1);
   if (iud->ib) {
@@ -132,6 +145,18 @@ static int l_video_set_loop(lua_State *L) {
   return 0;
 }
 
+static int l_video_set_poster(lua_State *L) {
+  luabui_Video *vud = CHECK_VIDEO(L, 1);
+  if (vud->video) BK_video_set_poster(vud->video, luaL_checkstring(L, 2));
+  return 0;
+}
+
+static int l_video_set_controls(lua_State *L) {
+  luabui_Video *vud = CHECK_VIDEO(L, 1);
+  if (vud->video) BK_video_set_controls(vud->video, (int)lua_toboolean(L, 2));
+  return 0;
+}
+
 static int l_video_state(lua_State *L) {
   luabui_Video *vud = CHECK_VIDEO(L, 1);
   lua_pushinteger(L, vud->video ? BK_video_state(vud->video) : BK_VIDEO_ERROR);
@@ -205,6 +230,8 @@ static const luaL_Reg imbuf_methods[] = {
   {"size",      l_imbuf_size},
   {"format",    l_imbuf_format},
   {"pixels",    l_imbuf_pixels},
+  {"delay",     l_imbuf_delay},
+  {"loops",     l_imbuf_loops},
   {"free",      l_imbuf_free},
   {"__gc",      l_imbuf_gc},
   {"__tostring",l_imbuf_tostring},
@@ -212,18 +239,20 @@ static const luaL_Reg imbuf_methods[] = {
 };
 
 static const luaL_Reg video_methods[] = {
-  {"play",       l_video_play},
-  {"pause",      l_video_pause},
-  {"seek",       l_video_seek},
-  {"set_rate",   l_video_set_rate},
-  {"set_loop",   l_video_set_loop},
-  {"state",      l_video_state},
-  {"time",       l_video_time},
-  {"duration",   l_video_duration},
-  {"size",       l_video_size},
-  {"free",       l_video_free},
-  {"__gc",       l_video_gc},
-  {"__tostring", l_video_tostring},
+  {"play",        l_video_play},
+  {"pause",       l_video_pause},
+  {"seek",        l_video_seek},
+  {"set_rate",    l_video_set_rate},
+  {"set_loop",    l_video_set_loop},
+  {"set_poster",  l_video_set_poster},
+  {"set_controls",l_video_set_controls},
+  {"state",       l_video_state},
+  {"time",        l_video_time},
+  {"duration",    l_video_duration},
+  {"size",        l_video_size},
+  {"free",        l_video_free},
+  {"__gc",        l_video_gc},
+  {"__tostring",  l_video_tostring},
   {NULL, NULL}
 };
 

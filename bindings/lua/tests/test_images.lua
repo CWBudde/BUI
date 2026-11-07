@@ -15,21 +15,28 @@ check(type(bui.image_decode_frame) == "function", "image_decode_frame not a func
 check(type(bui.image_stats) == "function", "image_stats not a function")
 check(type(bui.icon_names) == "function", "icon_names not a function")
 
--- ── Icon names ───────────────────────────────────────────────────────
+-- ── Icon API ─────────────────────────────────────────────────────────
 
 local icons = bui.icon_names()
 check(type(icons) == "table", "icon_names not a table, got " .. type(icons))
 check(#icons > 0, "icon_names empty")
 check(type(icons[1]) == "string", "icon_names[1] not a string, got " .. type(icons[1]))
--- Check some known icon names
-local found_icon = false
-for _, name in ipairs(icons) do
-  if name == "FILE" or name == "OBJECT_DATA" or name == "ZOOM_IN" then
-    found_icon = true
-    break
-  end
-end
--- Don't require specific icons, just verify the list is non-empty strings
+
+-- icon_count
+local icount = bui.icon_count()
+check(icount > 0, "icon_count <= 0, got " .. icount)
+
+-- icon_id / icon_name roundtrip
+local id = bui.icon_id("FILE")
+check(type(id) == "number", "icon_id not a number, got " .. type(id))
+check(id > 0, "icon_id FILE <= 0, got " .. id)
+local nm = bui.icon_name(id)
+check(type(nm) == "string", "icon_name not a string, got " .. type(nm))
+check(nm ~= "", "icon_name empty for id " .. id)
+
+-- icon_id for unknown
+local unknown_id = bui.icon_id("NONEXISTENT_ICON_XYZ")
+check(unknown_id == 0, "icon_id for unknown should be 0, got " .. unknown_id)
 
 -- ── Image probe (invalid data) ───────────────────────────────────────
 
@@ -111,6 +118,29 @@ check(type(bui.image_load) == "function", "image_load not a function")
 -- image_load with non-existent path should return nil
 local ib = bui.image_load("/nonexistent/image.png", 0, 0)
 check(ib == nil, "image_load of non-existent should return nil")
+
+-- ── Image probe_file / image_info (non-existent) ─────────────────────
+
+local pf = bui.image_probe_file("/nonexistent/image.png")
+check(pf == nil, "image_probe_file of non-existent should be nil")
+
+local ii = bui.image_info("/nonexistent/image.png")
+check(ii == nil, "image_info of non-existent should be nil")
+
+-- ── Image system management ──────────────────────────────────────────
+
+bui.image_set_threads(2)
+bui.image_clear_cache()
+-- These should not crash
+
+-- ── video_backends ───────────────────────────────────────────────────
+
+local vb = bui.video_backends()
+check(type(vb) == "string", "video_backends not a string, got " .. type(vb))
+-- Should be non-empty on platforms with video support; if empty that is OK too
+if #vb > 0 then
+  check(vb:match("%w+"), "video_backends format: " .. vb)
+end
 
 -- ── Version constants ────────────────────────────────────────────────
 

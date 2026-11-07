@@ -372,6 +372,47 @@ local gv = bui.Node("gridview")
 gv:set_grid_colors({{1,0,0,1}, {0,1,0,1}, {0,0,1,1}})
 -- Just check it doesn't crash
 
+-- ── Ramp active ──────────────────────────────────────────────────────
+
+local ra = bui.Node("ramp")
+ra:ramp_set({{0, 0.2,0.3,0.4,1}, {1, 1,1,1,1}})
+local active_idx = ra:ramp_active()
+check(type(active_idx) == "number", "ramp_active not a number, got " .. type(active_idx))
+
+-- ── Canvas count ─────────────────────────────────────────────────────
+
+local cv = bui.Node("canvas")
+cv:canvas_set({id=1, type=0, coords={0,0,10,10}, fill={1,0,0,1}})
+check(cv:canvas_count() == 1, "canvas_count != 1, got " .. cv:canvas_count())
+cv:canvas_set({id=2, type=0, coords={10,10,20,20}, fill={0,1,0,1}})
+check(cv:canvas_count() == 2, "canvas_count != 2, got " .. cv:canvas_count())
+cv:canvas_delete(-1)
+check(cv:canvas_count() == 0, "canvas_count after delete all != 0, got " .. cv:canvas_count())
+
+-- ── Geom manager ─────────────────────────────────────────────────────
+
+local gm = bui.Node("button")
+check(gm:geom_manager() == 0, "default geom_manager != 0 (GEOM_NONE)")
+gm:geom(bui.GEOM_PACK, {fill = 1})
+check(gm:geom_manager() == 1, "geom_manager after GEOM_PACK != 1, got " .. gm:geom_manager())
+
+-- ── Custom node methods ──────────────────────────────────────────────
+
+local cn = bui.Node("custom")
+check(type(cn:custom_has_focus()) == "boolean", "custom_has_focus not boolean")
+-- custom_request_frame and custom_set_cursor should not crash
+cn:custom_request_frame(0)
+cn:custom_set_cursor(bui.CURSOR_DEFAULT)
+
+-- ── Textarea set_selection ──────────────────────────────────────────
+
+local tsel = bui.Node("textarea")
+tsel:set("value", "hello world")
+tsel:ta_set_selection(0, 5)
+local ss, se = tsel:selection()
+check(type(ss) == "number", "ta selection start after set not a number")
+check(type(se) == "number", "ta selection end after set not a number")
+
 -- ── All tests passed ─────────────────────────────────────────────────
 
 io.write("OK: test_widgets.lua\n")

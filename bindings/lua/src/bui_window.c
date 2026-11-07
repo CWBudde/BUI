@@ -134,6 +134,18 @@ static int l_win_frames(lua_State *L) {
   return 1;
 }
 
+static int l_win_gpu(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  lua_pushboolean(L, wud->win ? BK_window_gpu(wud->win) : 0);
+  return 1;
+}
+
+static int l_win_request_frame(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  if (wud->win) BK_window_request_frame(wud->win, (int)lua_toboolean(L, 2));
+  return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Callbacks                                                           */
 /* ------------------------------------------------------------------ */
@@ -223,6 +235,8 @@ static const luaL_Reg win_methods[] = {
   {"timer",        l_win_timer},
   {"cancel_timer", l_win_cancel_timer},
   {"set_gpu",      l_win_set_gpu},
+  {"gpu",          l_win_gpu},
+  {"request_frame", l_win_request_frame},
   {"handle",       l_win_handle},
   {"pixel",        l_win_pixel},
   {"frames",       l_win_frames},
