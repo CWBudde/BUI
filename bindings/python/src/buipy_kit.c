@@ -61,6 +61,28 @@ static void ref_release(void *ref)
   Py_DECREF((PyObject *)ref);
 }
 
+/* The kit calls back into Python from places where the GIL may not be held: a native window's
+ * message can be dispatched by another toolkit sharing the thread (Tk's update() releases the GIL
+ * around Tcl, and Tcl's notifier dispatches every window message of the thread, BUI's included).
+ * Every callback the kit gets is therefore one of these wrappers, which take the GIL first;
+ * PyGILState_Ensure is cheap and nests, so it also does no harm when the GIL is already held. */
+#define GIL_ENTER PyGILState_STATE gil_ = PyGILState_Ensure()
+#define GIL_LEAVE PyGILState_Release(gil_)
+
+static void ref_retain_gil(void *ref)
+{
+  GIL_ENTER;
+  ref_retain(ref);
+  GIL_LEAVE;
+}
+
+static void ref_release_gil(void *ref)
+{
+  GIL_ENTER;
+  ref_release(ref);
+  GIL_LEAVE;
+}
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -1378,6 +1400,56 @@ static void host_emit(void *data, BKNode *node, int kind, void *ref, double a, d
   Py_XDECREF(r);
 }
 
+static void host_request_gil(void *data)
+{
+  GIL_ENTER;
+  host_request(data);
+  GIL_LEAVE;
+}
+
+static void host_set_cursor_gil(void *data, int cursor)
+{
+  GIL_ENTER;
+  host_set_cursor(data, cursor);
+  GIL_LEAVE;
+}
+
+static void host_warp_gil(void *data, int x, int y)
+{
+  GIL_ENTER;
+  host_warp(data, x, y);
+  GIL_LEAVE;
+}
+
+static char *host_clip_get_gil(void *data)
+{
+  GIL_ENTER;
+  char *out = host_clip_get(data);
+  GIL_LEAVE;
+  return out;
+}
+
+static void host_clip_set_gil(void *data, const char *text)
+{
+  GIL_ENTER;
+  host_clip_set(data, text);
+  GIL_LEAVE;
+}
+
+static void host_schedule_gil(void *data, int ms, int timer)
+{
+  GIL_ENTER;
+  host_schedule(data, ms, timer);
+  GIL_LEAVE;
+}
+
+static void host_emit_gil(void *data, BKNode *node, int kind, void *ref, double a, double b)
+{
+  GIL_ENTER;
+  host_emit(data, node, kind, ref, a, b);
+  GIL_LEAVE;
+}
+
 static int kitctx_init(KitContextObject *self, PyObject *args, PyObject *kw)
 {
   PyObject *root;
@@ -1393,8 +1465,8 @@ static int kitctx_init(KitContextObject *self, PyObject *args, PyObject *kw)
   }
   self->ctx = BK_context_new(r);
   Py_XSETREF(self->root, Py_NewRef(root));
-  BKHost host = {self,           host_request,  host_set_cursor, host_warp,
-                 host_clip_get,  host_clip_set, host_schedule,   host_emit};
+  BKHost host = {self,               host_request_gil,  host_set_cursor_gil, host_warp_gil,
+                 host_clip_get_gil,  host_clip_set_gil, host_schedule_gil,   host_emit_gil};
   BK_context_set_host(self->ctx, &host);
   return 0;
 }
@@ -2256,6 +2328,21 @@ static int win_on_close(void *data, BKWindow *w)
   return allow;
 }
 
+static void win_on_timer_gil(void *data, BKWindow *w, int id)
+{
+  GIL_ENTER;
+  win_on_timer(data, w, id);
+  GIL_LEAVE;
+}
+
+static int win_on_close_gil(void *data, BKWindow *w)
+{
+  GIL_ENTER;
+  const int allow = win_on_close(data, w);
+  GIL_LEAVE;
+  return allow;
+}
+
 static int kitwin_init(KitWindowObject *self, PyObject *args, PyObject *kw)
 {
   static char *kwlist[] = {"context", "title", "width", "height", NULL};
@@ -2280,7 +2367,7 @@ static int kitwin_init(KitWindowObject *self, PyObject *args, PyObject *kw)
   }
   Py_XSETREF(self->ctx, Py_NewRef(ctx));
   Py_XSETREF(self->timers, PyDict_New());
-  BKWindowCallbacks cb = {self, win_on_timer, win_on_close};
+  BKWindowCallbacks cb = {self, win_on_timer_gil, win_on_close_gil};
   BK_window_set_callbacks(self->win, &cb);
   return 0;
 }
@@ -2584,7 +2671,7 @@ int buipy_kit_init(PyObject *module)
   if (PyModule_AddFunctions(module, kit_functions) < 0) {
     return -1;
   }
-  BK_set_ref_hooks(ref_retain, ref_release);
+  BK_set_ref_hooks(ref_retain_gil, ref_release_gil);
   return 0;
 }
 

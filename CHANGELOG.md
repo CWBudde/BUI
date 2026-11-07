@@ -67,6 +67,11 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
 
 ### Fixed
+- **Python: an intermittent crash (access violation) when a native window and Tk share a thread.** The C callbacks the kit
+  makes into Python (host hooks, window timer and close, reference counting) ran without the GIL when a window message
+  was dispatched from inside Tk's `update()`, which releases the GIL around Tcl and whose notifier dispatches every
+  window message of the thread. They now take the GIL first. It showed as `buipy_tk_compat` failing about one run in
+  ten on Windows CI (and one in forty on v0.4.1); it passed 120 runs in a row after the fix.
 - **Node: no window and no message.** When the addon could not get a window system (no `DISPLAY` or a display that
   does not answer, no Wayland socket) it fell back to headless silently, and a window that could not be created
   was dropped without a word: the app ran with nothing on screen and nothing in the log. The addon now prints why
