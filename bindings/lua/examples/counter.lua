@@ -15,6 +15,7 @@ local count = 0
 -- Increment button
 local inc = bui.Node("button")
 inc:set("text", "Increment")
+inc:set("icon", bui.icon_id("ADD"))
 inc:on(bui.EV_CLICK, function()
     count = count + 1
     label:set("text", "Count: " .. count)
@@ -25,6 +26,7 @@ inc:geom(bui.GEOM_PACK, {fill = 1, pady0 = 4})
 -- Decrement button
 local dec = bui.Node("button")
 dec:set("text", "Decrement")
+dec:set("icon", bui.icon_id("REMOVE"))
 dec:on(bui.EV_CLICK, function()
     count = count - 1
     label:set("text", "Count: " .. count)

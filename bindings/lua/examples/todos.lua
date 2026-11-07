@@ -26,6 +26,7 @@ local refresh_list
 
 local add_btn = bui.Node("button")
 add_btn:set("text", "Add")
+add_btn:set("icon", bui.icon_id("ADD"))
 add_btn:on(bui.EV_CLICK, function()
     -- Commit any pending text edit before reading the field
     ctx:focus_node(nil)
@@ -56,6 +57,7 @@ function refresh_list()
     for _, t in ipairs(tasks) do
         local l = bui.Node("label")
         l:set("text", t)
+        l:set("icon", bui.icon_id("CHECKBOX_HLT"))
         l:geom(bui.GEOM_PACK, {side = 0, fill = 1})
         task_list:add(l)
     end
@@ -64,6 +66,7 @@ end
 
 local clear = bui.Node("button")
 clear:set("text", "Clear All")
+clear:set("icon", bui.icon_id("X"))
 clear:on(bui.EV_CLICK, function()
     tasks = {}
     refresh_list()
