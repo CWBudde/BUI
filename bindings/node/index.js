@@ -15,17 +15,20 @@
 const native = globalThis.__BUI_NATIVE__ ?? loadAddon()
 
 function loadAddon () {
-  const env = process.env.BUI_NODE_ADDON
+  const path = require('node:path')
+  // a relative path starts at the working directory, not at this package
+  const env = process.env.BUI_NODE_ADDON && path.resolve(process.env.BUI_NODE_ADDON)
   try {
     // a literal path where a prebuilt binary exists: `bun build --compile` (and
     // other bundlers) can then embed the addon in the executable
     if (!env && process.platform === 'win32' && process.arch === 'x64') return require('./blenderui.win32-x64.node')
-    return require(env || require('node:path').join(__dirname, `blenderui.${process.platform}-${process.arch}.node`))
+    return require(env || path.join(__dirname, `blenderui.${process.platform}-${process.arch}.node`))
   } catch (err) {
     throw new Error(`@blender-ui/native: no native addon for ${process.platform}-${process.arch}. ` +
       'Prebuilt binaries are for Windows x64; elsewhere, build it from a clone of ' +
       'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler), ' +
-      'then use that package, or point BUI_NODE_ADDON at the built blenderui.<platform>-<arch>.node.',
+      'then use that package, or point BUI_NODE_ADDON at the built blenderui.<platform>-<arch>.node. ' +
+      `(${err.message.split('\n')[0]})`,
     { cause: err })
   }
 }

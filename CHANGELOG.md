@@ -15,6 +15,7 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
 
 ### Fixed
+- **Node and Bun:** a relative `BUI_NODE_ADDON` path starts at the working directory, not at the package folder. The load error now shows the cause.
 - **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
 - **X11:** a frame callback that closes its window no longer renders into the closed window.
 - **X11:** a window that closes while its GPU device starts releases the device before the X window is destroyed (`BUI_raster_gpu_release`), so Mesa no longer prints `failed to create drawable`.

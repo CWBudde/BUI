@@ -84,7 +84,7 @@ set BUI_GPU=1 && python my_app.py
 
 | Variable | Values | Default | What it does | Read in |
 | --- | --- | --- | --- | --- |
-| `BUI_NODE_ADDON` | A path to a `.node` file | The bundled `blenderui.<platform>-<arch>.node` | `@blender-ui/native`: loads this native addon instead. Handy when you built the addon yourself. | `bindings/node/index.js` |
+| `BUI_NODE_ADDON` | A path to a `.node` file | The bundled `blenderui.<platform>-<arch>.node` | `@blender-ui/native`: loads this native addon instead. Handy when you built the addon yourself. A relative path starts at the working directory. | `bindings/node/index.js` |
 | `BUI_HEADLESS` | `1` | Unset | Apps built with `bui build`, and `bui run`: render off-screen, without windows (for tests). Same as `--headless`. | `bindings/rust/blenderui-qjs/src/main.rs` |
 | `NODE_ENV` | `production` | Depends on your tools | Not BUI's own, but it matters: React's development build is much heavier. Measure with `production`. | React |
 
