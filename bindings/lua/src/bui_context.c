@@ -59,30 +59,7 @@ static void host_schedule(void *data, int ms, int timer_id) {
  * then pop the error and any temporaries. Leaves the stack one item lighter. */
 static void report_error(lua_State *L) {
   const char *err = lua_tostring(L, -1);
-  if (!err) err = "(error object not a string)";
-  lua_getglobal(L, "debug");
-  if (lua_istable(L, -1)) {
-    lua_getfield(L, -1, "traceback");
-    if (lua_isfunction(L, -1)) {
-      lua_insert(L, -3);
-      lua_pop(L, 1);
-      lua_pushvalue(L, -1);
-      if (lua_pcall(L, 1, 1, 0) == LUA_OK) {
-        lua_remove(L, -2);
-        err = lua_tostring(L, -1);
-        if (!err) err = "(traceback result not a string)";
-      } else {
-        lua_pop(L, 1);
-        err = lua_tostring(L, -1);
-        if (!err) err = "(pcall error not a string)";
-      }
-    } else {
-      lua_pop(L, 1);
-      lua_pop(L, 1);
-    }
-  } else {
-    lua_pop(L, 1);
-  }
+  if (!err) err = "(error without message)";
   fprintf(stderr, "bui: callback error: %s\n", err);
   lua_pop(L, 1);
 }
