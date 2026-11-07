@@ -46,6 +46,9 @@ All notable changes to **blenderui** (BUI). The format follows
   the host's poll 7 ns).
 
 ### Changed
+- **Lua host:** CI builds `bui-lua` and runs its `bui_lua_*` tests on Linux and Windows (a new `lua` job); the option
+  is in the CMake options tables (README, `docs/`, the website) and the website has a Lua page; the lowercase
+  `find_package(lua)` fallback is config-mode only, which removes CMake's package-name warning.
 - **macOS is no longer labelled experimental.** Three people have tried the Cocoa host by hand and it works, so
   the README, the website and the docs say so (the platform tables, the FAQ, the limits, the roadmap, the landing
   page). What is still true there is unchanged: the CPU raster only (no Metal renderer), and JavaScript windows

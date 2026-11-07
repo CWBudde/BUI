@@ -13,6 +13,7 @@ export const sections = [
   { label: "JavaScript & React", blurb: "Node.js, Bun, React, Svelte and standalone apps", icon: "file-js" },
   { label: "Dear ImGui", blurb: "The real Dear ImGui, in Blender's theme", icon: "squares-four" },
   { label: "C & C++", blurb: "The C kit and embedding BUI in your host", icon: "file-c" },
+  { label: "Lua", blurb: "The bui-lua host and the bui module", icon: "moon" },
   { label: "Concepts", blurb: "How BUI works under the hood", icon: "lightbulb-filament" },
   { label: "Performance", blurb: "Numbers, and how to measure them yourself", icon: "gauge" },
   { label: "Reference", blurb: "Variables, options, matrices and terms", icon: "books" },

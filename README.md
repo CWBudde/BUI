@@ -1840,6 +1840,7 @@ cd bindings/rust && cargo test              # Rust: CSS, Tailwind, rsx!, hooks, 
 | `BUI_BUILD_TESTS`           | `ON`                     | C test programs and the `ctest` suites                                                              |
 | `BUI_BUILD_EXAMPLES`        | `OFF`                    | The C examples (`bui_kit_hello`, `bui_svg_demo`, the site screenshot programs)                      |
 | `BUI_BUILD_PYTHON_BINDINGS` | `ON`                     | The `buipy` extension (and the ImGui extension); skipped without Python's dev files                 |
+| `BUI_BUILD_LUA_BINDINGS`    | `OFF`                    | The Lua 5.4 host (`bui-lua`, `bui.so` / `bui.dll`); fetches Lua at configure time without a system one |
 | `BUI_BUILD_IMGUI`           | `ON` with a C++ compiler | Dear ImGui on BUI, its C API, demo and test                                                         |
 | `BUI_IMGUI_BLENDER_WIDGETS` | `OFF`                    | Dear ImGui with Blender's widgets                                                                   |
 | `BUI_BUILD_QT_BACKEND`      | `OFF`                    | The C++ Qt/QPainter render-sink backend (needs Qt 5 or 6)                                           |

@@ -11,7 +11,7 @@ find_package(Lua 5.4 QUIET)
 
 # Also try the lowercase form (some Homebrew setups provide it)
 if(NOT Lua_FOUND)
-  find_package(lua 5.4 QUIET)
+  find_package(lua 5.4 QUIET CONFIG) # config packages only: FindLua.cmake is the "Lua" form above
 endif()
 
 if(Lua_FOUND AND Lua_VERSION VERSION_GREATER_EQUAL 5.4 AND Lua_VERSION VERSION_LESS 5.5)
@@ -70,8 +70,13 @@ else()
 endif()
 
 # linenoise (vendored, single-file MIT library)
-add_library(linenoise STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/linenoise/linenoise.c)
+# (linenoise needs termios.h, so Windows gets a small fgets version of the calls the REPL uses)
+if(WIN32)
+  set(_linenoise_src ${CMAKE_CURRENT_SOURCE_DIR}/extern/linenoise/linenoise_win32.c)
+else()
+  set(_linenoise_src ${CMAKE_CURRENT_SOURCE_DIR}/extern/linenoise/linenoise.c)
+endif()
+add_library(linenoise STATIC ${_linenoise_src})
 target_include_directories(linenoise PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/extern/linenoise)
 
