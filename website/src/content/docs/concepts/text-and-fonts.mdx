@@ -104,13 +104,13 @@ On Windows, you can build BUI with Windows' own GDI text engine and system fonts
 ## Limits worth knowing
 
 - **No per-glyph font fallback.** Characters that Inter (or the chosen face) doesn't have show as boxes. A family list in CSS picks one face per element; it doesn't mix faces within a line.
-- **No IME.** Input methods for Chinese, Japanese and Korean aren't supported yet.
+- **IME works on Windows only.** Input methods for Chinese, Japanese and Korean work in text fields and text areas on Windows, ported from Blender's GHOST (the candidate window follows the caret, the composition is drawn underlined at the caret). X11 and macOS aren't supported yet, and number fields and password fields take no IME, as in Blender.
 - **Right-to-left text** is reordered (bidi) but not shaped, so Arabic letters don't join.
 - **No OpenType features** (`font-feature-settings` and friends): the text engine doesn't shape, and Blender's doesn't either.
 - **Rust only:** text doesn't wrap around floats, and `text-align: justify` aligns left.
 
-<ComingSoon feature="Per-glyph font fallback and IME">
-Both are next on the list of things to port from Blender's source: BLF's fallback fonts, so missing characters find a face that has them, and input-method support.
+<ComingSoon feature="Per-glyph font fallback and IME on X11 and macOS">
+Both are next on the list of things to port from Blender's source: BLF's fallback fonts, so missing characters find a face that has them, and input methods for the X11 and Cocoa windows (they use the same kit API as Windows).
 </ComingSoon>
 
 ## Troubleshooting

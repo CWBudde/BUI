@@ -34,6 +34,7 @@ typedef struct TAData {
   Span *spans;
   int nspans;
   bool rows_set; /* "rows" was given (the browser look defaults to 2) */
+  BKImeComp ime; /* the IME composition at the caret */
 } TAData;
 
 #define TA(n) ((TAData *)(n)->ext)
@@ -117,10 +118,16 @@ static void ta_init(BKNode *n)
 static void ta_free(BKNode *n)
 {
   TAData *t = TA(n);
+  bk_ime_comp_free(&t->ime);
   free(t->text);
   free(t->lines);
   free(t->spans);
   free(t);
+}
+
+BKImeComp *bk_textarea_ime(BKNode *n)
+{
+  return &TA(n)->ime;
 }
 
 static void ta_changed(BKNode *n)
@@ -351,10 +358,20 @@ static bool delete_selection(BKNode *n)
   return true;
 }
 
+bool bk_textarea_delete_selection(BKNode *n)
+{
+  const bool deleted = delete_selection(n);
+  if (deleted) {
+    ta_reindex(TA(n));
+  }
+  return deleted;
+}
+
 static int ta_press(BKNode *n, BKEvent *e)
 {
   BKContext *ctx = bk_ctx(n);
   if (ctx && ctx->focus != n) {
+    bk_ime_commit(ctx); /* the composition stays in the field being left */
     if (ctx->focus && ctx->focus->cls->finish_edit) {
       ctx->focus->cls->finish_edit(ctx->focus, true);
     }
@@ -541,6 +558,8 @@ static void ta_measure(BKNode *n, int *rw, int *rh)
 
 static void draw_line_spans(TAData *t, int a, int b, float x, const BKRect *line,
                             const uchar def[4]);
+static void draw_caret_line(BKNode *n, int a, int b, float x, const BKRect *line,
+                            const uchar def[4]);
 
 /* Handlers that measure text, at the size it is drawn with. */
 #define TA_SCALED(name, impl) \
@@ -615,7 +634,12 @@ void bk_textarea_html_draw(BKNode *n)
     }
     const int la = t->lines[line], lb = line_end(t, line);
     const BKRect lr = bk_rect(n->x, y, n->w, lh);
-    draw_line_spans(t, la, lb, x0, &lr, tc);
+    if (focused && t->ime.len && t->caret >= la && t->caret <= lb) {
+      draw_caret_line(n, la, lb, x0, &lr, tc);
+    }
+    else {
+      draw_line_spans(t, la, lb, x0, &lr, tc);
+    }
     if (sel && sa < lb + 1 && sb > la) { /* #3390ff behind white text */
       const int s0 = BK_MAX(sa, la), s1 = BK_MIN(sb, lb);
       const float sx = x0 + bk_text_width(t->text + la, s0 - la, false);
@@ -631,8 +655,12 @@ void bk_textarea_html_draw(BKNode *n)
       bk_clip_pop();
     }
     if (focused && !sel && t->caret >= la && t->caret <= lb) {
-      const float cx = x0 + bk_text_width(t->text + la, t->caret - la, false);
+      const float cx = x0 + bk_text_width(t->text + la, t->caret - la, false) +
+                       bk_ime_caret_offset(&t->ime, false);
       bk_fill(floorf(cx), (float)y, bw, (float)lh, tc);
+    }
+    if (focused && t->caret >= la && t->caret <= lb) {
+      bk_ime_set_candidate(&t->ime, n->x, y + lh + 1);
     }
   }
   bk_clip_pop();
@@ -679,6 +707,20 @@ static void draw_line_spans(TAData *t, int a, int b, float x, const BKRect *line
   }
 }
 
+/* The caret's line with an IME composition: the text before the caret, the composite underlined,
+ * then the rest (spans keep colouring the text on either side). */
+static void draw_caret_line(BKNode *n, int a, int b, float x, const BKRect *line,
+                            const uchar def[4])
+{
+  TAData *t = TA(n);
+  const BKImeComp *c = &t->ime;
+  const float cx = x + bk_text_width(t->text + a, t->caret - a, false);
+  draw_line_spans(t, a, t->caret, x, line, def);
+  bk_text(cx, bk_text_baseline(line), c->text, c->len, def, false);
+  draw_line_spans(t, t->caret, b, cx + bk_text_width(c->text, c->len, false), line, def);
+  bk_ime_draw_underline(c, cx, (float)line->ymax, (float)bk_rw(line), def, false);
+}
+
 static void ta_draw(BKNode *n)
 {
   TAData *t = TA(n);
@@ -714,11 +756,18 @@ static void ta_draw(BKNode *n)
       bk_fill(sx, (float)y, sw, (float)lh, bk_theme.selection);
     }
     const BKRect lr = bk_rect(n->x, y, n->w, lh);
-    draw_line_spans(t, la, lb, x0, &lr, w.text);
+    if (focused && t->ime.len && t->caret >= la && t->caret <= lb) {
+      draw_caret_line(n, la, lb, x0, &lr, w.text);
+    }
+    else {
+      draw_line_spans(t, la, lb, x0, &lr, w.text);
+    }
     if (focused && t->caret >= la && t->caret <= lb) {
-      const float cx = x0 + bk_text_width(t->text + la, t->caret - la, false);
+      const float cx = x0 + bk_text_width(t->text + la, t->caret - la, false) +
+                       bk_ime_caret_offset(&t->ime, false);
       bk_fill(floorf(cx), (float)y + 1, BK_MAX(1.0f, floorf(0.1f * bk_unit() + 0.5f)),
               (float)lh - 2, bk_theme.cursor);
+      bk_ime_set_candidate(&t->ime, n->x, y + lh + 1); /* the caret line's lower edge */
     }
   }
   bk_clip_pop();

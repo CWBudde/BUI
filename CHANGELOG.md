@@ -6,6 +6,20 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Added
+- **Input methods (IME) on Windows**, ported from Blender (`GHOST_ImeWin32`, the text button's IME handling in
+  `interface_handlers.cc` and its drawing in `interface_widgets.cc`). Chinese, Japanese and Korean input now
+  works in text fields and text areas: the composition is drawn underlined at the caret (a thicker line under
+  the clause being converted), the candidate window follows the caret instead of the top left corner of the
+  window (issue #14), and the result is typed in like any other text. The IME is on only while a field is being
+  edited, so shortcuts keep working with a CJK keyboard; number fields and password fields take no IME, as in
+  Blender. A composition that is still going when another field takes over stays in the field it was in.
+- **C API changes:** one platform independent IME API for every window host and binding: `BKImeEvent`,
+  `BK_ime_event()`, `BKImeState`, `BK_ime_state()` and `BK_ime_composing()` (`BUI_kit.h`). Only the Win32 host
+  uses it so far; X11 and Cocoa do nothing and are unchanged. `bench/ime_bench.c` measures what it costs
+  (nothing measurable on the paths that did not change: keystroke + repaint 18.5 vs 18.4 us, idle frame 35 ns,
+  the host's poll 7 ns).
+
 ### Changed
 - **README and website:** the FAQ says macOS has been tried by hand on two Apple Silicon Macs (it said nobody
   had checked), and a new FAQ entry and the roadmap list what people asked for: Vue and Angular (adapters
