@@ -1,6 +1,7 @@
 /* BUI Lua binding: BKContext userdata and BKHost callback bridge.
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #include "bui_internal.h"
+#include "../../../kit/intern/kit_intern.h"
 
 int luabui_host_requested = 0;
 
@@ -561,19 +562,22 @@ static int l_ctx_open_pie(lua_State *L) {
 /* Nullify all node userdata pointers in the node map. Called before freeing
  * a context so that node __gc (which runs later) sees ud->node == NULL and
  * does not try to access freed C memory. */
-static void nullify_node_map(lua_State *L) {
+/* Only nullify nodes that belong to `ctx`.  Nodes from other contexts
+ * must stay valid — a filebrowser or popup context can be freed without
+ * disrupting the main UI context. */
+static void nullify_ctx_nodes(lua_State *L, BKContext *ctx) {
   lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_NODE_MAP);
-  /* Iterate the weak-keyed node map: key = lightuserdata(BKNode*), value = userdata */
   lua_pushnil(L);
   while (lua_next(L, -2)) {
-    /* stack: map, key, value */
     if (lua_isuserdata(L, -1) && luaL_testudata(L, -1, LUABUI_NODE_MT)) {
       luabui_Node *ud = (luabui_Node *)lua_touserdata(L, -1);
-      ud->node = NULL;
+      if (ud->node && bk_ctx(ud->node) == ctx) {
+        ud->node = NULL;
+      }
     }
-    lua_pop(L, 1); /* pop value */
+    lua_pop(L, 1);
   }
-  lua_pop(L, 1); /* pop map */
+  lua_pop(L, 1);
 }
 
 /* Clear all callback refs from the context */
@@ -597,7 +601,7 @@ static int l_ctx_free(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (cud->ctx) {
     unref_bind_refs(L);
-    nullify_node_map(L);
+    nullify_ctx_nodes(L, cud->ctx);
     BK_context_free(cud->ctx);
     cud->ctx = NULL;
   }
@@ -608,7 +612,7 @@ static int l_ctx_gc(lua_State *L) {
   luabui_Context *cud = (luabui_Context *)luaL_checkudata(L, 1, LUABUI_CONTEXT_MT);
   if (cud->ctx) {
     unref_bind_refs(L);
-    nullify_node_map(L);
+    nullify_ctx_nodes(L, cud->ctx);
     BK_context_free(cud->ctx);
     cud->ctx = NULL;
   }
