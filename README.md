@@ -22,7 +22,19 @@ People spent decades building and optimizing Blender's GUI. It's battery and mem
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/MWXZfdyM3D)
 
-<a href="https://hackergit.org/r/ppmpreetham/BUI"><img src="https://hackergit.org/badge/ppmpreetham/BUI.svg?style=card" alt="Hacker News" width="250" height="55"></a>
+<table>
+  <tr>
+    <td>
+      <a href="https://hackergit.org/r/ppmpreetham/BUI"><img src="https://hackergit.org/badge/ppmpreetham/BUI.svg?style=rank&rank=day" alt="Hacker News" width="250" height="55"></a>
+    </td>
+    <td>
+      <a href="https://hackergit.org/r/ppmpreetham/BUI"><img src="https://hackergit.org/badge/ppmpreetham/BUI.svg?style=rank&rank=week" alt="Hacker News" width="250" height="55"></a>
+    </td>
+    <td>
+      <a href="https://hackergit.org/r/ppmpreetham/BUI"><img src="https://hackergit.org/badge/ppmpreetham/BUI.svg?style=rank" alt="Hacker News" width="250" height="55"></a>
+    </td>
+  </tr>
+</table>
 
 **Website and full documentation: [bui.preetham.top](https://bui.preetham.top)** · **Chat: [Discord](https://discord.gg/MWXZfdyM3D)**
 
@@ -1894,17 +1906,17 @@ ship. The tables below have the details.
 
 **Planned (coming soon)**
 
-| Target                               | Plan                                                                                                                                                   |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **WebAssembly**                      | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit; `@blender-ui/react` and the DOM-like API on top, unchanged            |
-| **egui**                             | BUI panels inside egui, plus a Blender-styled theme                                                                                                    |
-| **More from Blender's source**       | Per-glyph font fallback (BLF), IME, search-as-you-type popups, units in number fields, widget drag and drop                                            |
-| **macOS GPU and JavaScript windows** | The GPU renderer on Metal (or the OpenGL backend), and Node windows on the main thread                                                                 |
-| **More GPU backends**                | Vulkan / WebGPU drawing the same instance stream as Direct3D 11 and OpenGL                                                                             |
-| **Accessibility**                    | Screen-reader support through UI Automation (Windows), AT-SPI (Linux) and NSAccessibility (macOS)                                                      |
-| **Qt parity**                        | Measure against PySide6, run the same programs on Qt and BUI, fill in the missing classes, then `install()` so `import PySide6` programs run unchanged |
-| **More JavaScript frameworks**       | Vue and Angular, as thin adapters over `@blender-ui/native` (the layer React and Svelte share)                                                         |
-| **More languages**                   | Lua (a community pull request is in review), Ruby, Go (through cgo), C#, Zig, Swift, Kotlin and MyGo over the same C header; Godot, Unity and Bevy; Flutter|
+| Target                               | Plan                                                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **WebAssembly**                      | The kit in the browser: the raster blits to `<canvas>`, DOM events feed the kit; `@blender-ui/react` and the DOM-like API on top, unchanged                 |
+| **egui**                             | BUI panels inside egui, plus a Blender-styled theme                                                                                                         |
+| **More from Blender's source**       | Per-glyph font fallback (BLF), IME, search-as-you-type popups, units in number fields, widget drag and drop                                                 |
+| **macOS GPU and JavaScript windows** | The GPU renderer on Metal (or the OpenGL backend), and Node windows on the main thread                                                                      |
+| **More GPU backends**                | Vulkan / WebGPU drawing the same instance stream as Direct3D 11 and OpenGL                                                                                  |
+| **Accessibility**                    | Screen-reader support through UI Automation (Windows), AT-SPI (Linux) and NSAccessibility (macOS)                                                           |
+| **Qt parity**                        | Measure against PySide6, run the same programs on Qt and BUI, fill in the missing classes, then `install()` so `import PySide6` programs run unchanged      |
+| **More JavaScript frameworks**       | Vue and Angular, as thin adapters over `@blender-ui/native` (the layer React and Svelte share)                                                              |
+| **More languages**                   | Lua (a community pull request is in review), Ruby, Go (through cgo), C#, Zig, Swift, Kotlin and MyGo over the same C header; Godot, Unity and Bevy; Flutter |
 
 Our roadmap has no dates on it. Like a good render, it's done when the noise
 goes away.
