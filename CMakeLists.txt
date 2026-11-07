@@ -28,15 +28,9 @@ option(BUI_BUILD_TESTS "Build BUI test executables" ON)
 option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
 option(BUI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(BUI_BUILD_LUA_BINDINGS "Build the bui-lua host executable (bundles Lua 5.4)" OFF)
-# Python is on by default (ctest, the wheels and the guides build it; it is skipped with a message
-# without the Python dev files), except when only the Lua host was asked for: -DBUI_BUILD_LUA_BINDINGS=ON
-# alone does not also build Python. An explicit -DBUI_BUILD_PYTHON_BINDINGS=... always wins.
-if(BUI_BUILD_LUA_BINDINGS AND NOT DEFINED BUI_BUILD_PYTHON_BINDINGS)
-  set(_bui_python_default OFF)
-else()
-  set(_bui_python_default ON)
-endif()
-option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" ${_bui_python_default})
+# Python is on by default (ctest, the wheels and the guides build it); it is skipped with a message
+# without the Python dev files, and -DBUI_BUILD_PYTHON_BINDINGS=OFF turns it off.
+option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" ON)
 option(BUI_BUILD_QT_BACKEND "Build the Qt/QPainter backend (needs Qt5/Qt6 with Widgets)" OFF)
 # The optional parts (image formats, video, GPU renderers, file browser, Dear
 # ImGui on BUI, ...): one option each, from features.json.

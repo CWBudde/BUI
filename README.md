@@ -18,7 +18,7 @@ People spent decades building and optimizing Blender's GUI. It's battery and mem
 [![crates.io](https://img.shields.io/crates/v/blenderui?label=crates.io%20blenderui)](https://crates.io/crates/blenderui)
 [![@blender-ui/react](https://img.shields.io/npm/v/@blender-ui/react?label=%40blender-ui%2Freact)](https://www.npmjs.com/package/@blender-ui/react)
 [![Wheels](https://github.com/ppmpreetham/BUI/actions/workflows/wheels.yml/badge.svg)](https://github.com/ppmpreetham/BUI/actions/workflows/wheels.yml)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](#43-license-and-credits)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](#44-license-and-credits)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/MWXZfdyM3D)
 
@@ -172,7 +172,7 @@ in any language, can have both: Blender's feel, and Blender's efficiency.
   [concepts](#part-iii-concepts) are explained in plain words.
 
 Before you ship something with BUI, read the
-[known limitations](#40-status-and-roadmap): no accessibility support yet, no
+[known limitations](#41-status-and-roadmap): no accessibility support yet, no
 input methods, and it looks like Blender, not like your operating system.
 
 ## 4. Pick your language
@@ -404,7 +404,7 @@ The npm packages are prebuilt for **Windows x64**, **Linux x64** (glibc 2.35
 or later; native X11 windows) and **macOS**. Elsewhere, build the addon from a
 clone (`npm install` then `npm run build` in `bindings/`, with Rust, CMake and
 a C compiler). On **macOS**, JavaScript runs headless for now (see
-[Platforms](#34-platforms)).
+[Platforms](#35-platforms)).
 
 **C and C++.** Build from source with CMake 3.20+ and a C11 / C++20 compiler
 (MSVC, GCC or MinGW-w64, or Clang); on Linux, also the X11 headers:
@@ -1478,7 +1478,7 @@ These numbers were measured on a Ryzen 7 5800U laptop (Windows 11, on AC
 power) **before the latest features landed**: Dear ImGui, the Linux GPU
 renderer, the light theme, and the Blender search and expression code. They
 show the shape of things, not a promise for your machine. Rerun them with the
-tools in [Run the benchmarks yourself](#33-run-the-benchmarks-yourself).
+tools in [Run the benchmarks yourself](#34-run-the-benchmarks-yourself).
 
 ## 31. Start time and battery
 
@@ -1959,7 +1959,7 @@ ship. The tables below have the details.
   video has no audio, and image formats such as AVIF, EXR, TIFF, JPEG XL and
   HEIC aren't supported.
 - **License.** GPL: a program that includes BUI is distributed under the GPL too
-  ([why](#41-faq)).
+  ([why](#42-faq)).
 
 **Done**
 
