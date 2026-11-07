@@ -3,7 +3,7 @@
 //! A background thread waits for the warm-up, snapshots process CPU time,
 //! memory and the frame counter, waits for the measured window, snapshots
 //! again, prints one JSON line and exits the process. Nothing here depends on
-//! the UI framework, so both apps are measured the same way.
+//! the UI framework, so both apps are measured the same way. Windows and Linux.
 
 #![allow(dead_code)]
 
@@ -89,13 +89,6 @@ pub fn frame() -> u64 {
 
 #[repr(C)]
 #[derive(Default)]
-struct FileTime {
-    lo: u32,
-    hi: u32,
-}
-
-#[repr(C)]
-#[derive(Default)]
 pub struct MemCounters {
     cb: u32,
     page_faults: u32,
@@ -110,43 +103,135 @@ pub struct MemCounters {
     pub private_bytes: usize,
 }
 
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn GetCurrentProcess() -> isize;
-    fn GetProcessTimes(p: isize, c: *mut FileTime, e: *mut FileTime, k: *mut FileTime, u: *mut FileTime) -> i32;
-    fn K32GetProcessMemoryInfo(p: isize, m: *mut MemCounters, cb: u32) -> i32;
-    fn QueryProcessCycleTime(p: isize, cycles: *mut u64) -> i32;
+use platform::cpu_time;
+pub use platform::{cpu_cycles, memory, tsc_hz};
+
+/// Windows: CPU cycles of every thread and the working set, from kernel32.
+#[cfg(windows)]
+mod platform {
+    use std::time::{Duration, Instant};
+
+    use super::MemCounters;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        lo: u32,
+        hi: u32,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn GetProcessTimes(
+            p: isize,
+            c: *mut FileTime,
+            e: *mut FileTime,
+            k: *mut FileTime,
+            u: *mut FileTime,
+        ) -> i32;
+        fn K32GetProcessMemoryInfo(p: isize, m: *mut MemCounters, cb: u32) -> i32;
+        fn QueryProcessCycleTime(p: isize, cycles: *mut u64) -> i32;
+    }
+
+    /// CPU cycles used by every thread of the process. Unlike GetProcessTimes
+    /// (charged per ~15.6 ms clock tick, which aliases with a 60 Hz frame loop)
+    /// this is exact; `tsc_hz` turns it into time.
+    pub fn cpu_cycles() -> u64 {
+        let mut c = 0u64;
+        // SAFETY: the pseudo handle of the current process and a valid out pointer.
+        unsafe { QueryProcessCycleTime(GetCurrentProcess(), &mut c) };
+        c
+    }
+
+    /// The cycle counter's frequency, measured against the wall clock.
+    pub fn tsc_hz(over: Duration) -> f64 {
+        // SAFETY: rdtsc reads a counter and has no preconditions on x86_64.
+        let (t0, c0) = (Instant::now(), unsafe { core::arch::x86_64::_rdtsc() });
+        std::thread::sleep(over);
+        // SAFETY: as above.
+        let (t1, c1) = (Instant::now(), unsafe { core::arch::x86_64::_rdtsc() });
+        (c1 - c0) as f64 / (t1 - t0).as_secs_f64()
+    }
+
+    /// Process CPU time (user + kernel), all threads.
+    pub(super) fn cpu_time() -> Duration {
+        let (mut c, mut e, mut k, mut u) = Default::default();
+        // SAFETY: the pseudo handle of the current process and four valid out pointers.
+        unsafe { GetProcessTimes(GetCurrentProcess(), &mut c, &mut e, &mut k, &mut u) };
+        let t = |f: &FileTime| (u64::from(f.hi) << 32 | u64::from(f.lo)) * 100;
+        Duration::from_nanos(t(&k) + t(&u))
+    }
+
+    pub fn memory() -> MemCounters {
+        let mut m = MemCounters {
+            cb: std::mem::size_of::<MemCounters>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: `m` is a writable PROCESS_MEMORY_COUNTERS_EX and `cb` gives its size.
+        unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut m, m.cb) };
+        m
+    }
 }
 
-/// CPU cycles used by every thread of the process. Unlike GetProcessTimes
-/// (charged per ~15.6 ms clock tick, which aliases with a 60 Hz frame loop)
-/// this is exact; `tsc_hz` turns it into time.
-pub fn cpu_cycles() -> u64 {
-    let mut c = 0u64;
-    unsafe { QueryProcessCycleTime(GetCurrentProcess(), &mut c) };
-    c
-}
+/// Linux: `CLOCK_PROCESS_CPUTIME_ID` is the exact CPU time of every thread, in
+/// nanoseconds, so "cycles" are nanoseconds and `tsc_hz` is 1e9. Memory comes
+/// from `/proc/self/status` (`VmRSS`, `VmHWM`, `RssAnon`), read into a stack buffer.
+#[cfg(target_os = "linux")]
+mod platform {
+    use std::fs::File;
+    use std::io::Read;
+    use std::time::Duration;
 
-/// The cycle counter's frequency, measured against the wall clock.
-pub fn tsc_hz(over: Duration) -> f64 {
-    let (t0, c0) = (Instant::now(), unsafe { core::arch::x86_64::_rdtsc() });
-    std::thread::sleep(over);
-    let (t1, c1) = (Instant::now(), unsafe { core::arch::x86_64::_rdtsc() });
-    (c1 - c0) as f64 / (t1 - t0).as_secs_f64()
-}
+    use super::MemCounters;
 
-/// Process CPU time (user + kernel), all threads.
-fn cpu_time() -> Duration {
-    let (mut c, mut e, mut k, mut u) = Default::default();
-    unsafe { GetProcessTimes(GetCurrentProcess(), &mut c, &mut e, &mut k, &mut u) };
-    let t = |f: &FileTime| ((f.hi as u64) << 32 | f.lo as u64) * 100;
-    Duration::from_nanos(t(&k) + t(&u))
-}
+    const CLOCK_PROCESS_CPUTIME_ID: i32 = 2;
 
-pub fn memory() -> MemCounters {
-    let mut m = MemCounters { cb: std::mem::size_of::<MemCounters>() as u32, ..Default::default() };
-    unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut m, m.cb) };
-    m
+    #[repr(C)]
+    struct Timespec {
+        sec: i64,
+        nsec: i64,
+    }
+
+    unsafe extern "C" {
+        fn clock_gettime(clock: i32, ts: *mut Timespec) -> i32;
+    }
+
+    pub fn cpu_cycles() -> u64 {
+        let mut ts = Timespec { sec: 0, nsec: 0 };
+        // SAFETY: a valid clock id and a valid out pointer.
+        unsafe { clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &raw mut ts) };
+        u64::try_from(ts.sec).unwrap_or(0) * 1_000_000_000 + u64::try_from(ts.nsec).unwrap_or(0)
+    }
+
+    pub fn tsc_hz(over: Duration) -> f64 {
+        std::thread::sleep(over); // the warm-up, as on Windows
+        1e9
+    }
+
+    pub(super) fn cpu_time() -> Duration {
+        Duration::from_nanos(cpu_cycles())
+    }
+
+    pub fn memory() -> MemCounters {
+        let mut buf = [0u8; 4096];
+        let n = File::open("/proc/self/status")
+            .and_then(|mut f| f.read(&mut buf))
+            .unwrap_or(0);
+        let text = str::from_utf8(&buf[..n]).unwrap_or("");
+        let kb = |key: &str| {
+            text.lines()
+                .find_map(|l| l.strip_prefix(key))
+                .and_then(|v| v.split_whitespace().next()?.parse::<usize>().ok())
+                .map_or(0, |v| v * 1024)
+        };
+        MemCounters {
+            working_set: kb("VmRSS:"),
+            peak_working_set: kb("VmHWM:"),
+            private_bytes: kb("RssAnon:"),
+            ..MemCounters::default()
+        }
+    }
 }
 
 /// Start the measuring thread. `name` labels the JSON line.
@@ -198,4 +283,35 @@ pub fn start(name: &'static str, cfg: &Config) {
         );
         std::process::exit(0);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::hint::black_box;
+    use std::time::Duration;
+
+    use super::{cpu_cycles, cpu_time, memory, tsc_hz};
+
+    #[test]
+    fn cpu_time_grows_with_work() {
+        let (c0, t0) = (cpu_cycles(), cpu_time());
+        let sum = (0..20_000_000u64).fold(0u64, |a, i| black_box(a.wrapping_add(i)));
+        black_box(sum);
+        assert!(cpu_cycles() > c0, "cycles did not grow");
+        assert!(cpu_time() > t0, "CPU time did not grow");
+    }
+
+    #[test]
+    fn cycle_rate_is_positive() {
+        let hz = tsc_hz(Duration::from_millis(10));
+        assert!(hz.is_finite() && hz > 1e6, "rate {hz}");
+    }
+
+    #[test]
+    fn memory_reports_resident_set() {
+        let m = memory();
+        assert!(m.working_set > 0, "working set is 0");
+        assert!(m.peak_working_set >= m.working_set, "peak below current");
+        assert!(m.private_bytes > 0, "private bytes is 0");
+    }
 }

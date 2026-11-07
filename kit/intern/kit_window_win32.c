@@ -28,6 +28,7 @@
 #  define ID_TIP 1
 #  define ID_ANIM 2
 #  define ID_WAKE 3 /* BK_TIMER_CUSTOM: custom nodes' frames */
+#  define ID_GPU 4  /* checks the GPU device until it is ready */
 #  define ID_USER_BASE 1000
 
 struct BKWindow {
@@ -321,6 +322,14 @@ static double refresh_ms(void)
     ms = 1000.0 / (hz > 1 ? hz : 60);
   }
   return ms;
+}
+
+/* The device starts on a worker thread. The timer switches the window over when it is ready. */
+static void gpu_attach(BKWindow *win)
+{
+  if (BUI_raster_gpu_attach(win->raster, win->hwnd, 0)) {
+    SetTimer(win->hwnd, ID_GPU, (UINT)refresh_ms(), NULL);
+  }
 }
 
 /* Milliseconds since the current animation frame began. */
@@ -630,6 +639,17 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         KillTimer(hwnd, ID_WAKE);
         BK_timer(ctx, BK_TIMER_CUSTOM);
       }
+      else if (wp == ID_GPU) {
+        /* a GPU device that is ready switches an idle window over too */
+        if (!BUI_raster_gpu_pending(win->raster)) {
+          KillTimer(hwnd, ID_GPU);
+        }
+        else if (BUI_raster_gpu_poll(win->raster)) {
+          KillTimer(hwnd, ID_GPU);
+          win->full = 1;
+          host_request(win);
+        }
+      }
       else if (wp >= ID_USER_BASE) {
         KillTimer(hwnd, wp);
         if (win->cb.on_timer) {
@@ -701,7 +721,7 @@ BKWindow *BK_window_new(BKContext *ctx, const char *title, int width, int height
   SetWindowLongPtrW(win->hwnd, GWLP_USERDATA, (LONG_PTR)win);
   g_open++;
   if (BUI_gpu_default()) {
-    BUI_raster_gpu_attach(win->raster, win->hwnd, 0);
+    gpu_attach(win);
   }
   BKHost host = {win,           host_request,       host_set_cursor, host_warp,
                  host_clipboard_get, host_clipboard_set, host_schedule, host_emit};
@@ -791,7 +811,7 @@ BuiRaster *BK_window_raster(BKWindow *win)
 void BK_window_set_gpu(BKWindow *win, int on)
 {
   if (win && on) {
-    BUI_raster_gpu_attach(win->raster, win->hwnd, 0);
+    gpu_attach(win);
     host_request(win);
   }
 }

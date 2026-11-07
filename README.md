@@ -1069,7 +1069,8 @@ BUI has two renderers, and they draw **the same pixels**.
   Windows, a flip-model swap chain presents dirty rectangles. On Linux,
   `libGL`, `libEGL` and `libX11` are loaded at run time (GLX for windows, EGL
   for offscreen), so no GL headers are needed, and BUI falls back to the CPU
-  where OpenGL is missing.
+  where OpenGL is missing. On both platforms the device starts on a worker
+  thread, and the first frames draw on the CPU.
 
 The shaders evaluate the software raster's formulas: the parity test finds 10
 of 172,800 pixels that differ by more than 3/255, on both backends.

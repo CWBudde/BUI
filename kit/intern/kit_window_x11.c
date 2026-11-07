@@ -469,6 +469,9 @@ static void render_window(BKWindow *win)
     win->want_frame = 0;
     win->frame_start = now_ms();
     win->cb.on_frame(win->cb.data, win);
+    if (!win->xid) { /* the frame callback can close the window */
+      return;
+    }
   }
   win->render_pending = 0;
   do_render(win);
@@ -531,6 +534,7 @@ static void close_window(BKWindow *win)
   if (!win->xid) {
     return;
   }
+  BUI_raster_gpu_release(win->raster); /* the GL context uses the window */
   XDestroyWindow(g_dpy, win->xid);
   XFlush(g_dpy);
   win->xid = 0;
@@ -958,6 +962,9 @@ static double next_wait(void)
     if (win->render_pending) {
       return 0.0;
     }
+    if (BUI_raster_gpu_pending(win->raster)) { /* check the device once per refresh */
+      wait = wait < 0 ? refresh_ms() : BK_MIN(wait, refresh_ms());
+    }
     for (int i = 0; i < MAX_TIMERS; i++) {
       if (win->timers[i].id != 0) {
         const double d = BK_MAX(0.0, win->timers[i].due - t);
@@ -1010,6 +1017,13 @@ static void turn(double block_ms)
     handle_event(&ev);
   }
   run_timers();
+  for (BKWindow *win = g_windows; win; win = win->next) {
+    /* a GPU device that is ready switches an idle window over too */
+    if (win->xid && BUI_raster_gpu_pending(win->raster) && BUI_raster_gpu_poll(win->raster)) {
+      win->full = 1;
+      win->render_pending = 1;
+    }
+  }
   int rendered = 0;
   for (BKWindow *win = g_windows; win; win = win->next) {
     if (win->xid && win->render_pending) {

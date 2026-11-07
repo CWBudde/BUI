@@ -90,7 +90,7 @@ The **GPU renderer** uses Direct3D 11 on Windows (`gpu_d3d11.c`) and OpenGL 3.3 
 - **Same formulas, same pixels.** The pixel shader evaluates the software raster's coverage formulas. The `gpu_parity` test draws every primitive both ways and finds 10 of 172,800 pixels that differ by more than 3/255, on both backends.
 - **Atlases.** Text and other coverage masks share one 8-bit atlas, and images share one color atlas, so they're uploaded once and reused. Polygons are covered on the CPU and uploaded as masks.
 - **Damage still counts.** Frames render into a persistent target, so only damaged regions are redrawn. On Windows, presentation uses a flip-model swap chain with dirty rectangles, so the system compositor only recomposes what changed.
-- **No waiting at startup.** On Windows, the device is created on a worker thread. The first frames are drawn on the CPU and the switch happens a few frames in. A lost device falls back to the CPU.
+- **No waiting at startup.** The device is created on a worker thread, on both backends. The first frames are drawn on the CPU and the switch happens a few frames in. A lost device falls back to the CPU.
 - **No GL needed to build.** On Linux, `libGL`, `libEGL` and `libX11` are loaded when first used, never linked. Windows get a GLX context on the same X11 connection as the window; offscreen rendering (tests, screenshots) uses EGL, then a GLX pbuffer.
 - **No shader compiler needed.** The Direct3D shaders (`gpu/shaders/bui_ui.hlsl`) ship as precompiled bytecode, and the OpenGL side carries its GLSL translation in the source.
 
