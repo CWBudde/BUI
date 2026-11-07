@@ -22,6 +22,7 @@ input_row:add(field)
 field:geom(bui.GEOM_PACK, {fill = 1})
 
 local tasks = {}
+local refresh_list
 
 local add_btn = bui.Node("button")
 add_btn:set("text", "Add")
@@ -48,7 +49,7 @@ task_list:set("padding", 4)
 root:add(task_list)
 task_list:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
-local function refresh_list()
+function refresh_list()
     for i = task_list:child_count() - 1, 0, -1 do
         task_list:remove(task_list:child(i))
     end

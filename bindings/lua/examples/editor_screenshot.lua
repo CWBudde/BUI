@@ -131,6 +131,7 @@ end
 -- Write as PPM (BGRA premultiplied -> RGB)
 local out_path = arg and arg[1] or "/tmp/bui_editor_demo.ppm"
 local f = io.open(out_path, "wb")
+if not f then print("Cannot write to " .. out_path); return end
 f:write("P6\n" .. rw .. " " .. rh .. "\n255\n")
 for y = 0, rh - 1 do
   for x = 0, rw - 1 do
