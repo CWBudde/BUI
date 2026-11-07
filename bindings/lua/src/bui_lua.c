@@ -175,6 +175,41 @@ static int l_image_decode_frame(lua_State *L) {
   return 4; /* format, width, height, rgba_bytes */
 }
 
+static int l_image_poll(lua_State *L) {
+  lua_pushinteger(L, BK_image_poll());
+  return 1;
+}
+
+static int l_image_set_budget(lua_State *L) {
+  BK_image_set_budget((size_t)luaL_checkinteger(L, 1));
+  return 0;
+}
+
+static int l_set_font(lua_State *L) {
+  BK_set_font(luaL_checkstring(L, 1));
+  return 0;
+}
+
+static int l_link_fields(lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 1);
+  BKNode **fields = (BKNode **)malloc((size_t)n * sizeof(BKNode *));
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, 1, i + 1);
+    luabui_Node *ud = (luabui_Node *)luaL_checkudata(L, -1, LUABUI_NODE_MT);
+    fields[i] = ud->node;
+    lua_pop(L, 1);
+  }
+  BK_link_fields(fields, n);
+  free(fields);
+  return 0;
+}
+
+static int l_scale(lua_State *L) {
+  lua_pushnumber(L, BK_scale());
+  return 1;
+}
+
 /* ------------------------------------------------------------------ */
 /* Factory functions                                                  */
 /* ------------------------------------------------------------------ */
@@ -233,6 +268,9 @@ static int l_new_window(lua_State *L) {
 
   luabui_Window *wud = (luabui_Window *)lua_newuserdata(L, sizeof(luabui_Window));
   wud->win = win;
+  wud->L = L;
+  wud->on_close_ref = LUA_NOREF;
+  wud->on_timer_ref = LUA_NOREF;
   luaL_getmetatable(L, LUABUI_WINDOW_MT);
   lua_setmetatable(L, -2);
   return 1;
@@ -282,7 +320,9 @@ static const struct luaL_Reg bui_module[] = {
   {"window_supported", l_window_supported},
   {"set_animations", l_set_animations},
   {"set_scale", l_set_scale},
+  {"scale",     l_scale},
   {"set_theme", l_set_theme},
+  {"set_font",  l_set_font},
   {"theme_name",l_theme_name},
   {"theme_color",l_theme_color},
   {"unit",      l_unit},
@@ -291,9 +331,12 @@ static const struct luaL_Reg bui_module[] = {
   {"icon_names", l_icon_names},
   {"image_probe", l_image_probe},
   {"image_stats", l_image_stats},
+  {"image_poll", l_image_poll},
+  {"image_set_budget", l_image_set_budget},
   {"image_decode", l_image_decode},
   {"image_decode_frame", l_image_decode_frame},
   {"image_load",   l_image_load},
+  {"link_fields", l_link_fields},
   {"Video",        l_video_new},
   {NULL, NULL}
 };

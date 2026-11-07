@@ -386,6 +386,86 @@ static int l_ctx_cursor(lua_State *L) {
   return 1;
 }
 
+static int l_ctx_focus_node(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  if (lua_isnil(L, 2)) {
+    BK_focus_node(cud->ctx, NULL);
+  } else {
+    luabui_Node *ud = CHECK_NODE(L, 2);
+    BK_focus_node(cud->ctx, ud->node);
+  }
+  return 0;
+}
+
+static int l_ctx_popup_owner(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  int i = (int)luaL_checkinteger(L, 2);
+  if (i < 0) i = BK_popup_count(cud->ctx) + i;
+  BKNode *n = BK_popup_owner(cud->ctx, i);
+  if (!n) return 0;
+  void *existing = luabui_lookup_node(L, n);
+  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
+  ud->node = n; luaL_getmetatable(L, LUABUI_NODE_MT); lua_setmetatable(L, -2);
+  lua_newtable(L); lua_setuservalue(L, -2); luabui_map_node(L, n, -1);
+  return 1;
+}
+
+static int l_ctx_menu_rows(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  int i = (int)luaL_checkinteger(L, 2);
+  if (i < 0) i = BK_popup_count(cud->ctx) + i;
+  BKNode *p = BK_popup(cud->ctx, i);
+  if (!p) { lua_pushnil(L); return 1; }
+  int n = BK_menu_row_count(p);
+  lua_createtable(L, n, 0);
+  for (int k = 0; k < n; k++) {
+    int r[4];
+    BK_menu_row_rect(p, k, r);
+    lua_createtable(L, 0, 5);
+    lua_pushstring(L, BK_menu_row_text(p, k)); lua_setfield(L, -2, "text");
+    lua_pushinteger(L, r[0]); lua_setfield(L, -2, "x");
+    lua_pushinteger(L, r[1]); lua_setfield(L, -2, "y");
+    lua_pushinteger(L, r[2]); lua_setfield(L, -2, "w");
+    lua_pushinteger(L, r[3]); lua_setfield(L, -2, "h");
+    lua_rawseti(L, -2, k + 1);
+  }
+  return 1;
+}
+
+static int l_ctx_picker_part(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  const char *name = luaL_checkstring(L, 2);
+  int i = (int)luaL_optinteger(L, 3, -1);
+  if (i < 0) i = BK_popup_count(cud->ctx) + i;
+  BKNode *p = BK_popup(cud->ctx, i);
+  if (!p) return 0;
+  BKNode *n = BK_picker_part(p, name);
+  if (!n) return 0;
+  void *existing = luabui_lookup_node(L, n);
+  if (existing) { lua_pushvalue(L, (int)(intptr_t)existing); return 1; }
+  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
+  ud->node = n; luaL_getmetatable(L, LUABUI_NODE_MT); lua_setmetatable(L, -2);
+  lua_newtable(L); lua_setuservalue(L, -2); luabui_map_node(L, n, -1);
+  return 1;
+}
+
+static int l_ctx_modal(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  lua_pushboolean(L, cud->ctx ? BK_modal_active(cud->ctx) : 0);
+  return 1;
+}
+
+static int l_ctx_tooltip(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  lua_pushboolean(L, cud->ctx ? BK_tooltip_visible(cud->ctx) : 0);
+  return 1;
+}
+
 static int l_ctx_undo(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   lua_pushboolean(L, cud->ctx ? BK_undo(cud->ctx) : 0);
@@ -594,9 +674,12 @@ static const luaL_Reg ctx_methods[] = {
   {"bind",          l_ctx_bind},
   {"close_popups",  l_ctx_close_popups},
   {"focus",         l_ctx_focus},
+  {"focus_node",    l_ctx_focus_node},
   {"hover",         l_ctx_hover},
   {"cursor",        l_ctx_cursor},
   {"set_pointer",   l_ctx_set_pointer},
+  {"modal",         l_ctx_modal},
+  {"tooltip",       l_ctx_tooltip},
   {"undo",          l_ctx_undo},
   {"redo",          l_ctx_redo},
   {"undo_depth",    l_ctx_undo_depth},
@@ -605,6 +688,9 @@ static const luaL_Reg ctx_methods[] = {
   {"clipboard_set", l_ctx_clipboard_set},
   {"popup_count",   l_ctx_popup_count},
   {"popup",         l_ctx_popup},
+  {"popup_owner",   l_ctx_popup_owner},
+  {"menu_rows",     l_ctx_menu_rows},
+  {"picker_part",   l_ctx_picker_part},
   {"open_menu",     l_ctx_open_menu},
   {"open_pie",      l_ctx_open_pie},
   {"free",          l_ctx_free},

@@ -136,6 +136,25 @@ check(type(bui.theme_color) == "function", "bui.theme_color not a function")
 local u = bui.unit()
 check(type(u) == "number", "bui.unit() not a number")
 
+-- Scale
+local scl = bui.scale()
+check(type(scl) == "number", "scale not a number, got " .. type(scl))
+
+-- Set font
+bui.set_font("sans")
+
+-- Image poll / budget
+local polled = bui.image_poll()
+check(type(polled) == "number", "image_poll not a number, got " .. type(polled))
+bui.image_set_budget(4194304)
+
+-- Link fields
+local f1 = bui.Node("number")
+f1:set("value", 1)
+local f2 = bui.Node("number")
+f2:set("value", 2)
+bui.link_fields({f1, f2})
+
 -- Close popups
 ctx:close_popups()
 

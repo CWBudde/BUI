@@ -284,6 +284,50 @@ inv_root:add(inv_btn)
 inv_btn:invalidate()
 inv_root:relayout()
 
+-- ── Ramp ────────────────────────────────────────────────────────────
+
+local rn = bui.Node("ramp")
+local rc = rn:ramp_count()
+check(type(rc) == "number", "ramp_count not a number")
+
+rn:ramp_set({{0, 0,0,0,1}, {1, 1,1,1,1}})
+local pos, r1, g1, b1, a1 = rn:ramp_get(0)
+check(pos ~= nil, "ramp_get pos nil")
+check(pos == 0, "ramp_get[0] pos ~= 0")
+
+local ev1, ev2, ev3, ev4 = rn:ramp_eval(0.5)
+check(ev1 ~= nil, "ramp_eval result nil")
+
+rn:ramp_set_color({1, 1, 1, 1})
+check(rn:ramp_count() > 0, "ramp empty after set_color")
+
+-- ── Curve ───────────────────────────────────────────────────────────
+
+local cv = bui.Node("curve")
+local cc = cv:curve_count(0)
+check(type(cc) == "number", "curve_count not a number")
+
+cv:curve_set(0, {{0, 0}, {1, 1}})
+local cx, cy = cv:curve_get(0, 0)
+check(cx ~= nil, "curve_get x nil")
+check(cx == 0, "curve_get[0] x ~= 0")
+
+local ce = cv:curve_eval(0, 0.5)
+check(type(ce) == "number", "curve_eval not a number")
+
+-- ── Histogram ───────────────────────────────────────────────────────
+
+local hist = bui.Node("histogram")
+hist:set_histogram({0.1, 0.3, 0.5, 0.2, 0.8, 0.4}, 1)
+hist:set_histogram({0.1, 0.2, 0.3}, 1)
+-- Just check it doesn't crash
+
+-- ── Grid colors ─────────────────────────────────────────────────────
+
+local gv = bui.Node("gridview")
+gv:set_grid_colors({{1,0,0,1}, {0,1,0,1}, {0,0,1,1}})
+-- Just check it doesn't crash
+
 -- ── All tests passed ─────────────────────────────────────────────────
 
 io.write("OK: test_widgets.lua\n")

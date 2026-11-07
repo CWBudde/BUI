@@ -96,6 +96,36 @@ local focus = ctx:focus()
 local hover = ctx:hover()
 -- hover may be nil
 
+-- ── Focus_node ────────────────────────────────────────────────────────
+
+ctx:focus_node(nil)
+-- Focus_node with a real node
+ctx:focus_node(btn)
+local new_focus = ctx:focus()
+-- focus_node returns without blocking
+
+-- ── Modal / Tooltip ────────────────────────────────────────────────────
+
+local modal = ctx:modal()
+check(modal ~= nil, "modal returned nil (should be boolean)")
+local tip = ctx:tooltip()
+check(tip ~= nil, "tooltip returned nil (should be boolean)")
+
+-- ── Menu rows (after no popups: nil) ──────────────────────────────────
+
+local mr = ctx:menu_rows(-1)
+check(mr == nil, "menu_rows(-1) should be nil with no popups, got " .. tostring(mr))
+
+-- ── Picker part (after no popups: nil) ────────────────────────────────
+
+local pp = ctx:picker_part("area")
+check(pp == nil, "picker_part with no popup should be nil, got " .. tostring(pp))
+
+-- ── Popup owner (after no popups: nil) ────────────────────────────────
+
+local po = ctx:popup_owner(-1)
+check(po == nil, "popup_owner(-1) should be nil with no popups, got " .. tostring(po))
+
 -- ── Set pointer ──────────────────────────────────────────────────────
 
 ctx:set_pointer(100, 100)

@@ -605,6 +605,153 @@ static int l_node_selection(lua_State *L) {
   return 2;
 }
 
+/* ------------------------------------------------------------------ */
+/* Ramp, Curve, Histogram, Grid colors                                 */
+/* ------------------------------------------------------------------ */
+
+static int l_node_ramp_count(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  lua_pushinteger(L, ud->node ? BK_ramp_count(ud->node) : 0);
+  return 1;
+}
+
+static int l_node_ramp_get(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int i = (int)luaL_checkinteger(L, 2);
+  float pos;
+  float rgba[4];
+  BK_ramp_get(ud->node, i, &pos, rgba);
+  lua_pushnumber(L, pos);
+  lua_pushnumber(L, rgba[0]);
+  lua_pushnumber(L, rgba[1]);
+  lua_pushnumber(L, rgba[2]);
+  lua_pushnumber(L, rgba[3]);
+  return 5;
+}
+
+static int l_node_ramp_set(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  luaL_checktype(L, 2, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 2);
+  float *pos = (float *)malloc((size_t)n * sizeof(float));
+  float (*rgba)[4] = (float(*)[4])malloc((size_t)n * 4 * sizeof(float));
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, 2, i + 1);
+    if (lua_istable(L, -1) && lua_rawlen(L, -1) >= 5) {
+      lua_rawgeti(L, -1, 1); pos[i] = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+      for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 2); rgba[i][j] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
+    }
+    lua_pop(L, 1);
+  }
+  BK_ramp_set(ud->node, pos, rgba, n);
+  free(pos); free(rgba);
+  return 0;
+}
+
+static int l_node_ramp_eval(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  float t = (float)luaL_checknumber(L, 2);
+  float rgba[4];
+  BK_ramp_evaluate(ud->node, t, rgba);
+  lua_pushnumber(L, rgba[0]);
+  lua_pushnumber(L, rgba[1]);
+  lua_pushnumber(L, rgba[2]);
+  lua_pushnumber(L, rgba[3]);
+  return 4;
+}
+
+static int l_node_ramp_set_color(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  luaL_checktype(L, 2, LUA_TTABLE);
+  float rgba[4];
+  for (int i = 0; i < 4; i++) { lua_rawgeti(L, 2, i + 1); rgba[i] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
+  BK_ramp_set_active_color(ud->node, rgba);
+  return 0;
+}
+
+static int l_node_curve_count(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  int ch = (int)luaL_optinteger(L, 2, 0);
+  lua_pushinteger(L, ud->node ? BK_curve_count(ud->node, ch) : 0);
+  return 1;
+}
+
+static int l_node_curve_get(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int ch = (int)luaL_checkinteger(L, 2);
+  int i = (int)luaL_checkinteger(L, 3);
+  float xy[2];
+  BK_curve_get(ud->node, ch, i, xy);
+  lua_pushnumber(L, xy[0]);
+  lua_pushnumber(L, xy[1]);
+  return 2;
+}
+
+static int l_node_curve_set(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int ch = (int)luaL_checkinteger(L, 2);
+  luaL_checktype(L, 3, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 3);
+  float (*xy)[2] = (float(*)[2])malloc((size_t)n * 2 * sizeof(float));
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, 3, i + 1);
+    if (lua_istable(L, -1) && lua_rawlen(L, -1) >= 2) {
+      lua_rawgeti(L, -1, 1); xy[i][0] = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+      lua_rawgeti(L, -1, 2); xy[i][1] = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+  }
+  BK_curve_set(ud->node, ch, xy, n);
+  free(xy);
+  return 0;
+}
+
+static int l_node_curve_eval(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int ch = (int)luaL_checkinteger(L, 2);
+  float x = (float)luaL_checknumber(L, 3);
+  lua_pushnumber(L, BK_curve_evaluate(ud->node, ch, x));
+  return 1;
+}
+
+static int l_node_set_histogram(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  luaL_checktype(L, 2, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 2);
+  int channels = (int)luaL_optinteger(L, 3, 1);
+  float *bins = (float *)malloc((size_t)n * sizeof(float));
+  for (int i = 0; i < n; i++) { lua_rawgeti(L, 2, i + 1); bins[i] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
+  BK_histogram_set(ud->node, bins, n, channels);
+  free(bins);
+  return 0;
+}
+
+static int l_node_set_grid_colors(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  luaL_checktype(L, 2, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, 2);
+  float (*colors)[4] = (float(*)[4])malloc((size_t)n * 4 * sizeof(float));
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, 2, i + 1);
+    if (lua_istable(L, -1)) {
+      for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); colors[i][j] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
+    }
+    lua_pop(L, 1);
+  }
+  BK_gridview_set_colors(ud->node, colors, n);
+  free(colors);
+  return 0;
+}
+
 static int l_node_set_menus(lua_State *L) {
   luabui_Node *ud = CHECK_NODE(L, 1);
   if (!ud->node) return luaL_error(L, "attempt to use freed node");
@@ -655,6 +802,14 @@ static int l_node_custom_set(lua_State *L) {
   BK_node_set_ref(ud->node, (void *)(intptr_t)luaL_ref(L, LUA_REGISTRYINDEX));
 
   BK_custom_set(ud->node, &cls, (void *)L);
+  return 0;
+}
+
+static int l_node_set_image_frame(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  int frame = (int)luaL_checkinteger(L, 2);
+  BK_node_set_image_frame(ud->node, frame);
   return 0;
 }
 
@@ -717,6 +872,7 @@ static const luaL_Reg node_methods[] = {
   {"set_image",        l_node_set_image},
   {"set_imbuf",        l_node_set_imbuf},
   {"set_image_source", l_node_set_image_source},
+  {"set_image_frame",  l_node_set_image_frame},
   {"set_video",        l_node_set_video},
   {"canvas_set",   l_node_canvas_set},
   {"canvas_delete",l_node_canvas_delete},
@@ -734,6 +890,17 @@ static const luaL_Reg node_methods[] = {
   {"select",       l_node_select},
   {"row_count",    l_node_row_count},
   {"set_menus",    l_node_set_menus},
+  {"ramp_count",   l_node_ramp_count},
+  {"ramp_get",     l_node_ramp_get},
+  {"ramp_set",     l_node_ramp_set},
+  {"ramp_eval",    l_node_ramp_eval},
+  {"ramp_set_color", l_node_ramp_set_color},
+  {"curve_count",  l_node_curve_count},
+  {"curve_get",    l_node_curve_get},
+  {"curve_set",    l_node_curve_set},
+  {"curve_eval",   l_node_curve_eval},
+  {"set_histogram", l_node_set_histogram},
+  {"set_grid_colors", l_node_set_grid_colors},
   {"custom_set",   l_node_custom_set},
   {"custom_data",  l_node_custom_data},
   {"__gc",         l_node_gc},

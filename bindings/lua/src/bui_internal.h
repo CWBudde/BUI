@@ -24,6 +24,9 @@ typedef struct {
 
 typedef struct {
   BKWindow *win;
+  lua_State *L;
+  int on_close_ref;  /* LUA_NOREF if not set */
+  int on_timer_ref;  /* LUA_NOREF if not set */
 } luabui_Window;
 
 typedef struct {

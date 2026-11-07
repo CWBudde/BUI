@@ -1,6 +1,7 @@
 /* BUI Lua binding: BKWindow userdata.
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #include "bui_internal.h"
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /* Window methods                                                     */
@@ -133,9 +134,57 @@ static int l_win_frames(lua_State *L) {
   return 1;
 }
 
+/* ------------------------------------------------------------------ */
+/* Callbacks                                                           */
+/* ------------------------------------------------------------------ */
+
+static int l_win_on_close_cb(void *data, BKWindow *win) {
+  luabui_Window *wud = (luabui_Window *)data;
+  if (wud->on_close_ref == LUA_NOREF) return 1;
+  lua_State *L = wud->L;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, wud->on_close_ref);
+  if (lua_isfunction(L, -1)) {
+    luabui_Window *self = (luabui_Window *)lua_newuserdata(L, sizeof(luabui_Window));
+    memcpy(self, wud, sizeof(luabui_Window));
+    luaL_getmetatable(L, LUABUI_WINDOW_MT);
+    lua_setmetatable(L, -2);
+    lua_call(L, 1, 1);
+    int close = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    return close ? 1 : 0; /* return 1 to close, 0 to keep open */
+  }
+  lua_pop(L, 1);
+  return 1;
+}
+
+static int l_win_set_on_close(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  if (!wud->win) return 0;
+  if (wud->on_close_ref != LUA_NOREF) {
+    luaL_unref(L, LUA_REGISTRYINDEX, wud->on_close_ref);
+    wud->on_close_ref = LUA_NOREF;
+  }
+  if (lua_isfunction(L, 2)) {
+    lua_pushvalue(L, 2);
+    wud->on_close_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    BKWindowCallbacks cb;
+    memset(&cb, 0, sizeof(cb));
+    cb.data = wud;
+    cb.on_close = l_win_on_close_cb;
+    BK_window_set_callbacks(wud->win, &cb);
+  } else {
+    BKWindowCallbacks cb;
+    memset(&cb, 0, sizeof(cb));
+    BK_window_set_callbacks(wud->win, &cb);
+  }
+  return 0;
+}
+
 static int l_win_free(lua_State *L) {
   luabui_Window *wud = CHECK_WIN(L, 1);
   if (wud->win) {
+    if (wud->on_close_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, wud->on_close_ref);
+    if (wud->on_timer_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, wud->on_timer_ref);
     BK_window_free(wud->win);
     wud->win = NULL;
   }
@@ -145,6 +194,8 @@ static int l_win_free(lua_State *L) {
 static int l_win_gc(lua_State *L) {
   luabui_Window *wud = (luabui_Window *)luaL_checkudata(L, 1, LUABUI_WINDOW_MT);
   if (wud->win) {
+    if (wud->on_close_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, wud->on_close_ref);
+    if (wud->on_timer_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, wud->on_timer_ref);
     BK_window_free(wud->win);
     wud->win = NULL;
   }
@@ -177,6 +228,7 @@ static const luaL_Reg win_methods[] = {
   {"frames",       l_win_frames},
   {"wm",           l_win_wm},
   {"wm_get",       l_win_wm_get},
+  {"on_close",     l_win_set_on_close},
   {"free",         l_win_free},
   {"__gc",         l_win_gc},
   {"__tostring",   l_win_tostring},
