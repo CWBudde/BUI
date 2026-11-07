@@ -5,24 +5,42 @@
 include(FetchContent)
 
 # Try system Lua 5.4 first, then fetch from lua.org
+# Note: find_package(Lua) with "5.4" matches 5.4 or newer (QUIET skips the
+# version check in older CMake). We verify the major.minor ourselves.
 find_package(Lua 5.4 QUIET)
+
+# Also try the lowercase form (some Homebrew setups provide it)
 if(NOT Lua_FOUND)
+  find_package(lua 5.4 QUIET)
+endif()
+
+if(Lua_FOUND AND Lua_VERSION VERSION_GREATER_EQUAL 5.4 AND Lua_VERSION VERSION_LESS 5.5)
+  message(STATUS "bui-lua: using system Lua ${Lua_VERSION} (${Lua_INCLUDE_DIR})")
+  # CMake's FindLua sets LUA_LIBRARY and LUA_INCLUDE_DIR but does not
+  # define an imported target until CMake 3.24. Use the variables directly.
+  if(NOT LUA_LIBRARY OR NOT LUA_INCLUDE_DIR)
+    message(FATAL_ERROR "bui-lua: system Lua ${Lua_VERSION} found but LUA_LIBRARY/LUA_INCLUDE_DIR not set")
+  endif()
+  add_library(bui_lua_sys INTERFACE)
+  target_include_directories(bui_lua_sys INTERFACE ${LUA_INCLUDE_DIR})
+  target_link_libraries(bui_lua_sys INTERFACE ${LUA_LIBRARY})
+  set(LUA_TARGET bui_lua_sys)
+else()
+  # Clear cached find results from previous runs so we always fetch
+  unset(LUA_LIBRARY CACHE)
+  unset(LUA_INCLUDE_DIR CACHE)
+  # Fetch Lua 5.4.7 from lua.org and build from source
   FetchContent_Declare(
     lua-5.4.7
     URL      https://www.lua.org/ftp/lua-5.4.7.tar.gz
     URL_HASH SHA256=9fbf5e28ef86c69858f6d3d34eccc32e911c1a28b4120ff3e84aaa70cfbf1e30
     SOURCE_SUBDIR src
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
   FetchContent_MakeAvailable(lua-5.4.7)
   set(LUA_SRC_DIR ${lua-5.4.7_SOURCE_DIR}/src)
-  set(LUA_INCLUDE_DIR ${LUA_SRC_DIR})
-  set(LUA_LIBRARY lua-5.4.7)
-else()
-  set(LUA_SRC_DIR ${LUA_INCLUDE_DIR})
-endif()
+  message(STATUS "bui-lua: building Lua 5.4.7 from ${LUA_SRC_DIR}")
 
-# When we fetched Lua, build it as a library
-if(NOT TARGET ${LUA_LIBRARY})
   set(LUA_SRC
     ${LUA_SRC_DIR}/lapi.c      ${LUA_SRC_DIR}/lauxlib.c
     ${LUA_SRC_DIR}/lbaselib.c   ${LUA_SRC_DIR}/lcode.c
@@ -48,7 +66,7 @@ if(NOT TARGET ${LUA_LIBRARY})
   else()
     target_compile_options(bui_lua PRIVATE -w -fvisibility=hidden)
   endif()
-  set(LUA_LIBRARY bui_lua)
+  set(LUA_TARGET bui_lua)
 endif()
 
 # linenoise (vendored, single-file MIT library)
@@ -65,7 +83,7 @@ set(LUABUI_SRC
     src/bui_window.c
     src/bui_image.c)
 
-set(LUABUI_LIBS ${LUA_LIBRARY} linenoise bui::kit bui::gpu bui::core bui::api)
+set(LUABUI_LIBS ${LUA_TARGET} linenoise bui::kit bui::gpu bui::core bui_api)
 
 # bui-lua executable
 add_executable(bui-lua src/main.c ${LUABUI_SRC})
@@ -81,7 +99,6 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/bui.lua ${CMAKE_CURRENT_BINARY_DIR}/b
 add_library(_bui MODULE ${LUABUI_SRC})
 target_link_libraries(_bui PRIVATE ${LUABUI_LIBS})
 target_include_directories(_bui PRIVATE src)
-# Export luaopen_bui so require("_bui") finds luaopen_bui
 set_target_properties(_bui PROPERTIES MODULE_NAME "_bui")
 if(MSVC)
   set_target_properties(_bui PROPERTIES PREFIX "" SUFFIX ".dll")
@@ -94,8 +111,6 @@ else()
 endif()
 
 if(BUI_BUILD_TESTS)
-  # Run the tests through the bui-lua executable (--headless is accepted but
-  # not strictly needed: ctx:render() works without a display).
   add_test(NAME bui_lua_basic
     COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_basic.lua
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

@@ -235,7 +235,14 @@ LUAMOD_API int luaopen_bui(lua_State *L) {
 
   /* Version constants */
   lua_pushstring(L, BUI_KIT_VERSION_STRING); lua_setfield(L, -2, "KIT_VERSION");
-  lua_pushstring(L, BUI_VERSION);             lua_setfield(L, -2, "_VERSION");
+  {
+    int vmaj, vmin, vpat;
+    bui_get_version(&vmaj, &vmin, &vpat);
+    char vbuf[32];
+    int n = snprintf(vbuf, sizeof(vbuf), "%d.%d.%d", vmaj, vmin, vpat);
+    lua_pushlstring(L, vbuf, (size_t)n);
+    lua_setfield(L, -2, "_VERSION");
+  }
 
   /* Event constants */
   lua_pushinteger(L, BK_EV_CHANGE); lua_setfield(L, -2, "EV_CHANGE");   lua_pushinteger(L, BK_EV_CLICK); lua_setfield(L, -2, "EV_CLICK");

@@ -82,9 +82,16 @@ btn:set("value", 1)
 -- TreeItem factory
 local item = bui.TreeItem("test", 0)
 check(item ~= nil, "bui.TreeItem() returned nil")
-item:set("_id", 42)
-check(item:get("_id") == 42, "TreeItem._id not 42")
+item:set("icon", 3)
+check(item:get("icon") == 3, "TreeItem.icon not 3")
 item:set_values({"a", "b", "c"})
+
+-- Sub-items and hierarchy
+local child = bui.TreeItem("child", 0)
+item:add(child)
+check(item:child_count() == 1, "TreeItem.child_count not 1")
+local c = item:child(0)
+check(c ~= nil, "TreeItem.child(0) returned nil")
 
 -- Context creation (headless)
 local root = bui.Node("frame")
@@ -102,7 +109,8 @@ check(w == 100, "ctx:render() width: " .. tostring(w))
 check(h == 100, "ctx:render() height: " .. tostring(h))
 
 -- Needs render
-check(bui.needs_render ~= nil, "bui.needs_render missing or ctx:needs_render missing")
+local nr = ctx:needs_render()
+check(type(nr) == "boolean" or type(nr) == "number", "needs_render should be boolean/number, got " .. type(nr))
 
 -- Input forwarding
 local ok = ctx:press(50, 50, 0)
