@@ -4,7 +4,7 @@ local bui = require("bui")
 local root = bui.Node("frame")
 root:set("padding", 0)
 
--- Header
+-- Header (pack from top, natural height, fill horizontal)
 local header = bui.Node("row")
 header:set("padding", 8)
 local htitle = bui.Node("label")
@@ -15,16 +15,19 @@ job_btn:set("text", "New Job")
 job_btn:geom(bui.GEOM_PACK, {side = 1})
 header:add(job_btn)
 root:add(header)
+header:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
--- Tabs
+-- Tabs (pack from top, natural height, fill horizontal)
 local tabs = bui.Node("tabs")
 tabs:set_strs("items", {"Overview", "Jobs", "Nodes", "Settings"})
 root:add(tabs)
+tabs:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
--- Content area
-local content_area = bui.Node("column")
+-- Content area (expand = take remaining vertical space, fill = fill both axes)
+local content_area = bui.Node("frame")
 content_area:set("padding", 8)
 root:add(content_area)
+content_area:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
 local status_lbl = bui.Node("label")
 status_lbl:set("text", "Ready")
@@ -47,11 +50,13 @@ local NODE_DATA = {
 }
 
 local function build_overview()
-  local col = bui.Node("column")
+  local col = bui.Node("frame")
   col:set("padding", 4)
+  col:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
   local cards_row = bui.Node("row")
   cards_row:set("padding", 4)
+  cards_row:geom(bui.GEOM_PACK, {side = 0, fill = 1})
   local function card(label, val)
     local c = bui.Node("column")
     c:set("padding", 4)
@@ -69,6 +74,7 @@ local function build_overview()
   local status_panel = bui.Node("panel")
   status_panel:set("text", "System Status")
   status_panel:set("collapsed", 0)
+  status_panel:geom(bui.GEOM_PACK, {side = 0, fill = 1})
   local body = status_panel:child(0)
   if body then
     body:set("padding", 4)
@@ -80,8 +86,9 @@ local function build_overview()
 end
 
 local function build_jobs()
-  local col = bui.Node("column")
+  local col = bui.Node("frame")
   col:set("padding", 4)
+  col:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
   local hl = bui.Node("label")
   hl:set("text", "Active Render Jobs")
@@ -108,8 +115,9 @@ local function build_jobs()
 end
 
 local function build_nodes()
-  local col = bui.Node("column")
+  local col = bui.Node("frame")
   col:set("padding", 4)
+  col:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
   local wt = bui.Node("toggle")
   wt:set("text", "Wake idle nodes")
@@ -129,8 +137,9 @@ local function build_nodes()
 end
 
 local function build_settings()
-  local col = bui.Node("column")
+  local col = bui.Node("frame")
   col:set("padding", 4)
+  col:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
   local function prop_row(label_text, widget)
     local r = bui.Node("row")
