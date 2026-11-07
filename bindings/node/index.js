@@ -17,6 +17,7 @@ const native = globalThis.__BUI_NATIVE__ ?? loadAddon()
 function loadAddon () {
   const path = require('node:path')
   const { TAG, packageName } = require('./platform')
+  const pkg = packageName()
   // a relative path starts at the working directory, not at this package
   const env = process.env.BUI_NODE_ADDON && path.resolve(process.env.BUI_NODE_ADDON)
   const built = path.join(__dirname, `blenderui.${TAG}.node`) // npm run build in a clone
@@ -25,10 +26,10 @@ function loadAddon () {
     if (require('node:fs').existsSync(built)) return require(built)
     // a literal name: `bun build --compile` (and other bundlers) can then embed the addon
     if (TAG === 'win32-x64') return require('@blender-ui/native-win32-x64')
-    return require(packageName())
+    return require(pkg)
   } catch (err) {
     throw new Error(`@blender-ui/native: no native addon for ${TAG}. ` +
-      `The prebuilt one is the optional dependency ${packageName()} (Windows x64, Linux x64 with glibc 2.35 ` +
+      `The prebuilt one is the optional dependency ${pkg} (Windows x64, Linux x64 with glibc 2.35 ` +
       'or later, macOS): install without --omit=optional / --no-optional. Elsewhere, build it from a clone of ' +
       'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler), ' +
       'then use that package, or point BUI_NODE_ADDON at the built blenderui.<platform>-<arch>.node. ' +
@@ -91,20 +92,14 @@ class Window {
   flush () {
     this._scheduled = false
     if (this._orphans.length > 0) this._sweep()
-    if (this.closed) {
-      this._ops = []
-      this._strings = []
-      this._stringIds.clear()
-      return
-    }
-    if (!this._ops.length) return
-    const ops = Int32Array.from(this._ops)
+    if (this._ops.length === 0) return
+    const ops = this.closed ? null : Int32Array.from(this._ops)
     const strings = this._strings
-    this._ops = []
+    this._ops.length = 0 // the array keeps its capacity for the next tick
     this._strings = []
     this._stringIds.clear()
     // while animating, changes render on the next vsync (one rebuild per frame)
-    this.app.native.commit(this.id, ops, strings, this._inFrame || this._framePending)
+    if (ops) this.app.native.commit(this.id, ops, strings, this._inFrame || this._framePending)
   }
 
   /**
@@ -126,12 +121,12 @@ class Window {
 
   _frame () {
     this._framePending = false
-    const cbs = [...this._frameCallbacks.values()]
-    this._frameCallbacks.clear()
+    const cbs = this._frameCallbacks // callbacks requested in a callback run in the next frame
+    this._frameCallbacks = new Map()
     this._inFrame = true
     const now = performance.now()
     try {
-      for (const cb of cbs) {
+      for (const cb of cbs.values()) {
         try { cb(now) } catch (err) { queueMicrotask(() => { throw err }) }
       }
     } finally {
@@ -181,11 +176,15 @@ class Window {
   }
 
   _op (...args) {
-    for (const a of args) this._ops.push(a)
-    if (!this._scheduled) {
-      this._scheduled = true
-      queueMicrotask(() => this.flush())
-    }
+    this._ops.push(...args)
+    this._schedule()
+  }
+
+  /** Flush once, at the end of this tick. */
+  _schedule () {
+    if (this._scheduled) return
+    this._scheduled = true
+    queueMicrotask(() => this.flush())
   }
 
   _s (str) {
@@ -200,10 +199,7 @@ class Window {
   /** A node of `document` was removed: freed at the next flush unless reinserted. */
   _orphan (node) {
     this._orphans.push(node)
-    if (!this._scheduled) {
-      this._scheduled = true
-      queueMicrotask(() => this.flush())
-    }
+    this._schedule()
   }
 
   _sweep () {
