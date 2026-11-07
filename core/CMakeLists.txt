@@ -46,7 +46,7 @@ add_library(bui_core_cxx OBJECT
 )
 target_include_directories(bui_core_cxx PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_SOURCE_DIR}/types/dna/include
+  ${BUI_SOURCE_DIR}/types/dna/include
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/intern
 )
@@ -69,7 +69,7 @@ add_library(bui::core ALIAS bui_core)
 
 target_include_directories(bui_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_SOURCE_DIR}/types/dna/include
+  ${BUI_SOURCE_DIR}/types/dna/include
   # headers #include "intern/*.c" inline implementations, relative to module root
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
