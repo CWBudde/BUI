@@ -36,8 +36,7 @@
     "cli.js",
     "features.js",
     "features.json",
-    "blenderui.*.node",
-    "bui-runtime.*",
+    "platform.js",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"

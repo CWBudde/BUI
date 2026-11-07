@@ -13,8 +13,9 @@
 # One-time setup (repository Settings > Secrets and variables > Actions):
 #   CARGO_REGISTRY_TOKEN   a crates.io API token (scopes: publish-new, publish-update)
 # npm and PyPI need no secret: both use trusted publishing (OIDC). On npmjs.com, each of
-# @blender-ui/native and @blender-ui/react lists this repository and the workflow file
-# release.yml as its trusted publisher. See docs/publishing.md.
+# @blender-ui/native, its platform packages (@blender-ui/native-<tag>, bindings/node/platform.js)
+# and @blender-ui/react lists this repository and the workflow file release.yml as its trusted
+# publisher. See docs/publishing.md.
 
 name: release
 
@@ -101,12 +102,47 @@ jobs:
             [ "$PUBLISH" = true ] && sleep 20
           done
 
+  npm-native:
+    name: npm native (${{ matrix.os }})
+    needs: versions
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        # ubuntu-22.04: the addon then needs glibc 2.35 or later
+        os: [ubuntu-22.04, macos-15, macos-15-intel]
+    env:
+      # the oldest macOS the kit supports (Rust, the cc crate and CMake read it)
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: X11 and Wayland headers (Linux; without the Wayland ones the addon is X11 only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libwayland-dev libxkbcommon-dev wayland-protocols pkg-config
+      - name: Build the addon and the runtimes
+        working-directory: bindings/node
+        run: npm run build
+      - name: The Linux addon has the Wayland host
+        if: runner.os == 'Linux'
+        run: grep -q xdg_wm_base bindings/node/blenderui.linux-x64.node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-native-${{ matrix.os }}
+          path: |
+            bindings/node/blenderui.*.node
+            bindings/node/bui-runtime*
+          if-no-files-found: error
+
   npm:
     name: npm
-    needs: [versions, ci]
-    # runs when the versions match and CI passed (or was skipped on purpose)
-    if: ${{ !cancelled() && needs.versions.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
-    # the native addon ships prebuilt for Windows x64 (other systems build it from source)
+    needs: [versions, ci, npm-native]
+    # runs when the versions match, the native builds passed and CI passed (or was skipped on purpose)
+    if: ${{ !cancelled() && needs.versions.result == 'success' && needs.npm-native.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    # builds the Windows x64 addon, then publishes one package per platform and the main package
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -125,30 +161,43 @@ jobs:
         run: npm install -g npm@^11.5.1
       - uses: oven-sh/setup-bun@v2 # the runtime tests build a Bun executable too
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: npm-native-*
+          path: bindings/node
+          merge-multiple: true
       - name: Install workspace dependencies
         working-directory: bindings
         run: npm ci
-      - name: Publish the npm packages, native first, with no token (OIDC)
+      - name: Build the Windows addon and stage the platform packages
+        working-directory: bindings/node
+        run: npm run build && node scripts/platforms.js --main
+      - name: Publish the npm packages, platforms first, with no token (OIDC)
         run: |
-          # the workspaces of bindings/package.json, in order: native first, the frameworks depend on it
-          for pkg in $(node -p "require('./bindings/package.json').workspaces.join(' ')"); do
-            cd "bindings/$pkg"
-            name=$(node -p "require('./package.json').name")
-            version=$(node -p "require('./package.json').version")
+          # the platform packages (@blender-ui/native-<tag>), then the workspaces of
+          # bindings/package.json in order: native first, the frameworks depend on it
+          dirs="$(ls -d bindings/node/npm/*) $(node -p "require('./bindings/package.json').workspaces.map(w => 'bindings/' + w).join(' ')")"
+          missing=0
+          for dir in $dirs; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
             if ! npm view "$name" name >/dev/null 2>&1; then
               # trusted publishing can only be configured on a package that exists
-              echo "::warning::$name is not on npm yet: publish it once by hand (cd bindings/$pkg && npm publish --access public), then add its trusted publisher (docs/publishing.md). Skipping."
-              cd ../..
+              echo "::warning::$name is not on npm yet: publish it once by hand (a platform package: node bindings/node/scripts/platforms.js --version 0.0.0-bootstrap, then npm publish --access public --tag bootstrap in its folder; otherwise cd $dir && npm publish --access public), then add its trusted publisher (docs/publishing.md). Skipping."
+              missing=1
               continue
+            fi
+            if [ "$name" = @blender-ui/native ] && [ "$missing" = 1 ]; then
+              echo "::error::a platform package is missing: @blender-ui/native would list an optional dependency that does not exist"
+              exit 1
             fi
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "::notice::$name@$version is already on npm; skipping"
-            else
-              flags="--access public --provenance"
-              [ "$PUBLISH" = true ] || flags="$flags --dry-run"
-              npm publish $flags
+              continue
             fi
-            cd ../..
+            flags="--access public --provenance"
+            [ "$PUBLISH" = true ] || flags="$flags --dry-run"
+            (cd "$dir" && npm publish $flags)
           done
 
   github-release:

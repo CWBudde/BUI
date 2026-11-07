@@ -33,8 +33,9 @@ static int offscreen_start(void)
     return SKIP; /* a build without the GPU renderer */
   }
   const int was_pending = BUI_raster_gpu_pending(r);
-  int switched = 0;
-  for (int i = 0; i < 1000 && BUI_raster_gpu_pending(r); i++) {
+  int switched = 0, polls = 0;
+  /* 30 s: a software driver (llvmpipe, WARP) on a CI runner compiles the shaders slowly */
+  for (; polls < 6000 && BUI_raster_gpu_pending(r); polls++) {
     switched |= BUI_raster_gpu_poll(r);
     sleep_ms(5);
   }
@@ -44,8 +45,8 @@ static int offscreen_start(void)
   if (!pending && !gpu) {
     return SKIP; /* no GPU device on this machine */
   }
-  printf("offscreen: pending at start %d, switched %d, pending at end %d\n", was_pending, switched,
-         pending);
+  printf("offscreen: pending at start %d, switched %d, pending at end %d, after about %d ms\n",
+         was_pending, switched, pending, polls * 5);
   return was_pending && switched && gpu && !pending ? PASS : FAIL;
 }
 

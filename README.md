@@ -399,10 +399,11 @@ npm install @blender-ui/native          # the DOM-like API, without React
 [![@blender-ui/react](https://img.shields.io/npm/v/@blender-ui/react?label=%40blender-ui%2Freact)](https://www.npmjs.com/package/@blender-ui/react)
 [![@blender-ui/native](https://img.shields.io/npm/v/@blender-ui/native?label=%40blender-ui%2Fnative)](https://www.npmjs.com/package/@blender-ui/native)
 
-The npm packages are prebuilt for **Windows x64**. On **Linux**, build the
-addon from a clone (`npm install` then `npm run build` in `bindings/`, with
-Rust, CMake and a C compiler); windows are native X11 windows there. On
-**macOS**, JavaScript runs headless for now (see [Platforms](#34-platforms)).
+The npm packages are prebuilt for **Windows x64**, **Linux x64** (glibc 2.35
+or later; native X11 windows) and **macOS**. Elsewhere, build the addon from a
+clone (`npm install` then `npm run build` in `bindings/`, with Rust, CMake and
+a C compiler). On **macOS**, JavaScript runs headless for now (see
+[Platforms](#34-platforms)).
 
 **C and C++.** Build from source with CMake 3.20+ and a C11 / C++20 compiler
 (MSVC, GCC or MinGW-w64, or Clang); on Linux, also the X11 headers:
@@ -742,8 +743,9 @@ These snippets are small. This is a larger example, a task list in React, and no
 <br><sub>A task list in React (<code>examples/site/js/todo_react.js</code>); the DOM-like version draws the same</sub>
 </p>
 
-Node.js 18+ or Bun. Prebuilt for Windows x64; on Linux, build the addon from
-source (`npm run build` in `bindings/node`) and windows are native. Guide:
+Node.js 18+ or Bun. Prebuilt for Windows x64, Linux x64 (glibc 2.35 or later)
+and macOS; elsewhere, build the addon from source (`npm run build` in
+`bindings/node`). Guide:
 [docs/javascript.md](docs/javascript.md).
 
 ## 13. First app: Dear ImGui
@@ -1317,7 +1319,7 @@ transforms, OpenType features, multi-column layout. Guide:
 - **Tests**: `new App({ headless: true })` renders off-screen, and
   `win.click(x, y)` simulates input.
 
-Limits: npm packages are prebuilt for Windows x64 only; events reach
+Limits: npm packages are prebuilt for Windows x64, Linux x64 and macOS only; events reach
 JavaScript after BUI handled them (no native `preventDefault`), and
 `event.target` is the deepest _listening_ element. Guide:
 [docs/javascript.md](docs/javascript.md); website:
@@ -1669,7 +1671,7 @@ py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
 | Window                       | Native (Win32)                   | Native (X11, and Wayland: experimental)                                  | Native (Cocoa), experimental |
 | Python (`pip install`)       | Works: wheels                    | Works: wheels (native X11 host)                                          | Works: wheels                |
 | Rust (`cargo add blenderui`) | Works                            | Works                                                                    | Experimental                 |
-| JavaScript / React           | Works: prebuilt on npm           | Works: build the addon from source (`npm run build`); native X11 windows | Headless (see below)         |
+| JavaScript / React           | Works: prebuilt on npm           | Works: prebuilt on npm (glibc 2.35+); native X11 windows                 | Headless (see below)         |
 | C, C++, Dear ImGui           | Works                            | Works                                                                    | Experimental                 |
 | Renderer                     | CPU raster, or GPU (Direct3D 11) | CPU raster, or GPU (OpenGL 3.3)                                          | CPU raster                   |
 | HiDPI                        | Per-monitor DPI                  | `Xft.dpi`                                                                | Retina (backing scale)       |
@@ -1727,7 +1729,7 @@ wins.
 | `BUI_FILEDIALOG`                 | `native` (or `system`, `tk`), Python: file dialogs use the OS's instead of Blender's File Browser.                                                                                                                           |
 | `BUI_BOOKMARKS`                  | The File Browser's bookmarks file.                                                                                                                                                                                           |
 | `BUIPY_BUILD_DIR`                | Running Python from a source checkout: the folder holding the built `buipy` extension.                                                                                                                                       |
-| `BUI_NODE_ADDON`                 | `@blender-ui/native`: load this `.node` addon instead of the bundled one.                                                                                                                                                    |
+| `BUI_NODE_ADDON`                 | `@blender-ui/native`: load this `.node` addon instead of the bundled one (a relative path starts at the working directory).                                                                                                                                                  |
 | `BUI_HEADLESS`                   | `1`: `bui build` apps and `bui run` render off-screen (same as `--headless`).                                                                                                                                                |
 | `BUI_SOURCE_DIR`, `BUI_TEXT_GDI` | Build time, Rust: build the C library from this checkout; use GDI text.                                                                                                                                                      |
 

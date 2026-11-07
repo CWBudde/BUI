@@ -22,10 +22,10 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const features = require('./features.js')
+const platform = require('./platform.js')
 
 const MAGIC = Buffer.from('BUIAPP01')
-const TAG = `${process.platform}-${process.arch}`
-const EXE = process.platform === 'win32' ? '.exe' : ''
+const { TAG, EXE } = platform
 
 function fail (msg) {
   console.error(`bui: ${msg}`)
@@ -49,17 +49,19 @@ function parse (argv) {
 }
 
 /** The QuickJS runtime `name` (features.json runtimes; "full" is bui-runtime
- *  itself) shipped in this package, or the workspace build's full one. */
+ *  itself): `npm run build` here, this platform's package, or the workspace build's full one. */
 function runtimePath (name = 'full') {
   const file = name === 'full' ? `bui-runtime.${TAG}${EXE}` : `bui-runtime-${name}.${TAG}${EXE}`
-  const shipped = path.join(__dirname, file)
-  if (fs.existsSync(shipped)) return shipped
+  for (const dir of [__dirname, platform.packageDir()]) {
+    if (dir && fs.existsSync(path.join(dir, file))) return path.join(dir, file)
+  }
   for (const profile of ['dist', 'release']) { // npm run build, or a plain cargo build
     const built = path.join(__dirname, '../rust/target', profile, `bui-runtime${EXE}`)
     if (name === 'full' && fs.existsSync(built)) return built
   }
   if (name !== 'full') return runtimePath('full') // a smaller one wasn't built: the full one works
-  fail(`no bui-runtime for ${TAG}: prebuilt for Windows x64; run \`npm run build\` in bindings/node to build it`)
+  fail(`no bui-runtime for ${TAG}: install ${platform.packageName()} (an optional dependency), ` +
+    'or run `npm run build` in bindings/node to build it')
 }
 
 /** The runtime an app needs: explicit features, else detected ones. */
