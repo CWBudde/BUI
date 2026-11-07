@@ -443,11 +443,20 @@ pub fn open_window(cx: &mut App, id: u32, config: WindowConfig, sink: Sink) {
         gpu: config.gpu,
         ..Default::default()
     };
-    let handle = cx.open_window(opts, |_, cx| cx.new(|_| JsView::new(id, sink)));
-    if let Ok(handle) = handle {
-        let st = cx.global_mut::<UiState>();
-        st.by_native.insert(handle.id.0, id);
-        st.windows.insert(id, handle);
+    let handle = cx.open_window(opts, |_, cx| cx.new(|_| JsView::new(id, sink.clone())));
+    match handle {
+        Ok(handle) => {
+            let st = cx.global_mut::<UiState>();
+            st.by_native.insert(handle.id.0, id);
+            st.windows.insert(id, handle);
+        }
+        Err(e) => {
+            // Say why, then close the window for JavaScript: with quitOnLastWindowClosed the app
+            // ends instead of running with nothing to see.
+            eprintln!("blenderui: could not open window {id}: {e}. Is there a display? Check \
+                       DISPLAY (X11) or WAYLAND_DISPLAY and XDG_RUNTIME_DIR (Wayland).");
+            sink(Event { kind: "close".into(), window: id, ..Default::default() });
+        }
     }
 }
 
