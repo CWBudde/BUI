@@ -1284,6 +1284,18 @@ static int l_treeitem_tostring(lua_State *L) {
   return 1;
 }
 
+static int l_treeitem_set_ref(lua_State *L) {
+  luabui_TreeItem *tud = CHECK_TREEITEM(L, 1);
+  if (tud->item) BK_tree_item_set_ref(tud->item, (void *)(intptr_t)luaL_checkinteger(L, 2));
+  return 0;
+}
+
+static int l_treeitem_ref(lua_State *L) {
+  luabui_TreeItem *tud = CHECK_TREEITEM(L, 1);
+  lua_pushinteger(L, (lua_Integer)(intptr_t) (tud->item ? BK_tree_item_ref(tud->item) : NULL));
+  return 1;
+}
+
 static const luaL_Reg treeitem_methods[] = {
   {"add",        l_treeitem_add},
   {"clear",      l_treeitem_clear},
@@ -1294,6 +1306,8 @@ static const luaL_Reg treeitem_methods[] = {
   {"set",        l_treeitem_set},
   {"get",        l_treeitem_get},
   {"set_values", l_treeitem_set_values},
+  {"set_ref",    l_treeitem_set_ref},
+  {"ref",        l_treeitem_ref},
   {"free",       l_treeitem_free},
   {"__gc",       l_treeitem_gc},
   {"__tostring", l_treeitem_tostring},

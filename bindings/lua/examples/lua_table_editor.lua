@@ -185,7 +185,7 @@ local function build_subtree(parent_item, t, parent_data)
     local item = bui.TreeItem(key_str, item_icon)
     item:set_values({key_str, vt, fmt_val(v)})
     local id = next_id()
-    item:set("_id", id)
+    item:set_ref(id)
     item_meta[id] = {
       type   = vt,
       key    = k,
@@ -214,7 +214,7 @@ local function rebuild_tree(tree, source, meta_clean)
     local item = bui.TreeItem(key_str, item_icon)
     item:set_values({key_str, vt, fmt_val(v)})
     local id = next_id()
-    item:set("_id", id)
+    item:set_ref(id)
     item_meta[id] = {
       type   = vt,
       key    = k,
@@ -326,7 +326,7 @@ local function refresh_editor()
     return
   end
 
-  local id = sel:get("_id")
+  local id = sel:ref()
   local meta = item_meta[id]
   if not meta then edit_id = nil; return end
   edit_id = id
@@ -569,7 +569,7 @@ local function search_filter()
     local item = bui.TreeItem(key_str, item_icon)
     item:set_values({key_str, vt, fmt_val(v)})
     local id = next_id()
-    item:set("_id", id)
+      item:set_ref(id)
       item_meta[id] = {
         type   = vt,
         key    = k,
