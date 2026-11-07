@@ -190,6 +190,32 @@ def site_native(theme, which):
         run([path, "--screenshot", out] + args, env=child_env(theme))
 
 
+def site_lua(theme):
+    """Lua shots: run bui-lua headless to render the table editor."""
+    build = os.environ.get("BUI_BUILD_DIR", os.path.join(ROOT, "build"))
+    exe = os.path.join(build, "bindings", "lua", "bui-lua" + (".exe" if os.name == "nt" else ""))
+    if not os.path.exists(exe):
+        print("lua: bui-lua not built in %s, skipped" % build)
+        return
+    script = os.path.join(ROOT, "bindings", "lua", "examples", "editor_screenshot.lua")
+    import subprocess, tempfile
+    for name in ("lua-editor",):
+        out_ppm = os.path.join(SITE_OUT, "%s-%s.ppm" % (name, theme))
+        run([exe, script, out_ppm], env=child_env(theme))
+        if os.path.exists(out_ppm):
+            import pngopt
+            with open(out_ppm, "rb") as f:
+                header = f.read(15)
+            assert header[:3] == b"P6\n"
+            dims = header[3:].split(b" " if os.name == "nt" else b" ")
+            w, h = int(dims[0]), int(dims[1].split(b"\n")[0])
+            rgb = f.read()
+            out_png = os.path.join(SITE_OUT, "%s-%s.png" % (name, theme))
+            pngopt.write_png(out_png, w, h, rgb)
+            os.remove(out_ppm)
+            print("  ->", out_png)
+
+
 def site(only, themes, example=None):
     os.makedirs(SITE_OUT, exist_ok=True)
     before = set(os.listdir(SITE_OUT))
@@ -207,6 +233,8 @@ def site(only, themes, example=None):
             site_native(theme, "imgui")
         if only in (None, "c"):
             site_native(theme, "c")
+        if only in (None, "lua"):
+            site_lua(theme)
     # lossless recompression of what other toolchains wrote
     import pngopt
     for f in sorted(os.listdir(SITE_OUT)):
@@ -223,7 +251,7 @@ def site(only, themes, example=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--site", action="store_true")
-    ap.add_argument("--only", choices=("python", "rust", "js", "imgui", "c"))
+    ap.add_argument("--only", choices=("python", "rust", "js", "imgui", "c", "lua"))
     ap.add_argument("--theme", choices=THEMES)
     ap.add_argument("--example", help="with --only rust: just this example (e.g. site_data_table)")
     ap.add_argument("--site-python", choices=THEMES, help=argparse.SUPPRESS)

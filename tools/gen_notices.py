@@ -108,6 +108,12 @@ VENDORED = [
     ("Tailwind CSS v4 theme values", "The default theme behind the Tailwind support (blenderui-tailwind)",
      "MIT", "https://tailwindcss.com",
      lambda: MIT.format(holder="Tailwind Labs, Inc.")),
+    ("Lua 5.4.7", "The Lua runtime embedded in bui-lua (bindings/lua, fetched from lua.org)",
+     "MIT", "https://www.lua.org",
+     lambda: MIT.format(holder="1994-2024 Lua.org, PUC-Rio")),
+    ("linenoise 1.0", "REPL line editing (bindings/lua/extern/linenoise)",
+     "BSD-2-Clause", "https://github.com/antirez/linenoise",
+     lambda: (lambda t: t[:t.index("*/")].strip())(file_text("bindings/lua/extern/linenoise/linenoise.h"))),
 ]
 
 

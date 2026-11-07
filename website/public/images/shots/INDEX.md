@@ -43,6 +43,12 @@ bindings/node).
 | `js-react-tasks-{dark,light}.png` | The same task list in React (@blender-ui/react, hooks) | `examples/site/js/todo_react.js` |
 | `js-svelte-tasks-{dark,light}.png` | The same task list in Svelte 5 (@blender-ui/svelte, runes); pixel-identical to the React shot | `examples/site/js/TodoSvelte.svelte` (+ `todo_svelte.mjs`) |
 
+## Lua
+
+| Image | Shows | Source |
+| --- | --- | --- |
+| `lua-editor-{dark,light}.png` | The interactive Lua table editor: tree view with three columns, toolbar with demo selector, search, add/delete/export/undo/redo buttons, collapsible editor panel | `bindings/lua/examples/editor_screenshot.lua` |
+
 ## C / C++
 
 | Image | Shows | Source |
