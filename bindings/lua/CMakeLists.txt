@@ -120,4 +120,24 @@ if(BUI_BUILD_TESTS)
     COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_render.lua
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   set_tests_properties(bui_lua_render PROPERTIES TIMEOUT 30)
+
+  add_test(NAME bui_lua_widgets
+    COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_widgets.lua
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(bui_lua_widgets PROPERTIES TIMEOUT 30)
+
+  add_test(NAME bui_lua_context
+    COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_context.lua
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(bui_lua_context PROPERTIES TIMEOUT 30)
+
+  add_test(NAME bui_lua_images
+    COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_images.lua
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(bui_lua_images PROPERTIES TIMEOUT 30)
+
+  add_test(NAME bui_lua_theme
+    COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_theme.lua
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(bui_lua_theme PROPERTIES TIMEOUT 30)
 endif()

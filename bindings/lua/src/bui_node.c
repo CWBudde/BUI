@@ -500,9 +500,9 @@ static int l_node_ta_spans(lua_State *L) {
         spans[i].has_bg = 1;
         for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); spans[i].bg[j] = (float)luaL_optnumber(L, -1, j == 3 ? 1.0 : 0.0); lua_pop(L, 1); }
       }
-      lua_pop(L, 2);
+      lua_pop(L, 1);
     }
-    lua_pop(L, 1);
+    lua_pop(L, 1); /* pop the span table */
   }
   BK_textarea_set_spans(ud->node, spans, n);
   free(spans);
