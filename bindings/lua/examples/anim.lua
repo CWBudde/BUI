@@ -68,7 +68,7 @@ control_row:add(toggle_btn)
 local reset_btn = bui.Node("button")
 reset_btn:set("text", "Reset")
 reset_btn:on(bui.EV_CLICK, function()
-  prog:set("value", 0.5)
+prog:set("factor", 0.5)
   swatch:set("color", {0.28, 0.45, 0.70, 1.0})
   slider:set("value", 50)
 end)
@@ -91,7 +91,7 @@ if win then
       local t = frame * 0.03
 
       -- Animate progress bar (sine wave)
-      prog:set("value", math.sin(t) * 0.45 + 0.5)
+      prog:set("factor", math.sin(t) * 0.45 + 0.5)
 
       -- Animate color swatch (color cycling)
       local r = math.sin(t) * 0.5 + 0.5
