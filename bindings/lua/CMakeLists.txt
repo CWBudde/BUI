@@ -92,3 +92,17 @@ elseif(APPLE)
 else()
   set_target_properties(_bui PROPERTIES PREFIX "" SUFFIX ".so")
 endif()
+
+if(BUI_BUILD_TESTS)
+  # Run the tests through the bui-lua executable (--headless is accepted but
+  # not strictly needed: ctx:render() works without a display).
+  add_test(NAME bui_lua_basic
+    COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_basic.lua
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(bui_lua_basic PROPERTIES TIMEOUT 30)
+
+  add_test(NAME bui_lua_render
+    COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_render.lua
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(bui_lua_render PROPERTIES TIMEOUT 30)
+endif()
