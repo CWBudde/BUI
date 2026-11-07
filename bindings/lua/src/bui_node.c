@@ -775,6 +775,7 @@ static int l_node_set_menus(lua_State *L) {
   BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
   memset(specs, 0, n * sizeof(BKMenuSpec));
   for (int i = 0; i < n; i++) {
+    int top = lua_gettop(L);
     lua_rawgeti(L, 2, i + 1);
     luaL_checktype(L, -1, LUA_TTABLE);
     lua_getfield(L, -1, "text");
@@ -791,14 +792,15 @@ static int l_node_set_menus(lua_State *L) {
     if (lua_isfunction(L, -1)) {
       int ref = luaL_ref(L, LUA_REGISTRYINDEX);
       specs[i].ref = (void *)(intptr_t)ref;
-      /* Store ref in uservalue table for cleanup on next call */
       lua_getuservalue(L, 1);
       lua_getfield(L, -1, "_menu_refs");
       lua_pushinteger(L, ref);
       lua_rawseti(L, -2, lua_rawlen(L, -2) + 1);
       lua_pop(L, 2);
+    } else {
+      lua_pop(L, 1); /* pop nil fn */
     }
-    lua_pop(L, 7);
+    lua_settop(L, top);
   }
   BK_menubutton_set_items(ud->node, specs, n);
   return 0;
