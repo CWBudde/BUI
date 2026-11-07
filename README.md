@@ -443,7 +443,8 @@ cargo add blenderui-imgui
 More: [docs/getting-started.md](docs/getting-started.md) and
 [Install BUI](https://bui.preetham.top/docs/start/installation/) on the website.
 
-## 8. First app: tkinter
+<details>
+<summary><h2 id="8-first-app-tkinter">8. First app: tkinter</h2></summary>
 
 Run any tkinter program on BUI **without changing a line**:
 
@@ -486,7 +487,10 @@ Number fields (`Spinbox`, `Scale`) scrub like Blender's, Ctrl+Z / Ctrl+Shift+Z
 undo edits, and `filedialog` opens Blender's File Browser. Guide:
 [docs/tkinter.md](docs/tkinter.md).
 
-## 9. First app: Blender components
+</details>
+
+<details>
+<summary><h2 id="9-first-app-blender-components">9. First app: Blender components</h2></summary>
 
 Build with Blender's own components:
 
@@ -519,7 +523,10 @@ There are 45 components: layout, values, buttons, views, menus and pie menus,
 the color picker, the color ramp, curve and node editors, areas and templates.
 Reference: [docs/components.md](docs/components.md).
 
-## 10. First app: Qt syntax
+</details>
+
+<details>
+<summary><h2 id="10-first-app-qt-syntax">10. First app: Qt syntax</h2></summary>
 
 Write Qt-style Python. The import is the only line that differs from PySide
 or PyQt, and neither is needed:
@@ -573,7 +580,10 @@ Qt syntax is **partial** (about 24% of Qt's method names on the main widget
 classes); anything missing raises `AttributeError`. Guide:
 [docs/qt.md](docs/qt.md).
 
-## 11. First app: Rust, in rsx and gpui builders
+</details>
+
+<details>
+<summary><h2 id="11-first-app-rust-in-rsx-and-gpui-builders">11. First app: Rust, in rsx and gpui builders</h2></summary>
 
 BUI's Rust crate has **two first-class syntaxes**, and they draw the same
 window:
@@ -686,7 +696,10 @@ Guide: [docs/rust.md](docs/rust.md), and the
 [Rust tutorial](https://bui.preetham.top/docs/tutorials/first-app-rust/) on the
 website.
 
-## 12. First app: JavaScript and React
+</details>
+
+<details>
+<summary><h2 id="12-first-app-javascript-and-react">12. First app: JavaScript and React</h2></summary>
 
 ```jsx
 /** @jsxImportSource @blender-ui/react */
@@ -748,7 +761,10 @@ and macOS; elsewhere, build the addon from source (`npm run build` in
 `bindings/node`). Guide:
 [docs/javascript.md](docs/javascript.md).
 
-## 13. First app: Dear ImGui
+</details>
+
+<details>
+<summary><h2 id="13-first-app-dear-imgui">13. First app: Dear ImGui</h2></summary>
 
 The real Dear ImGui 1.93 runs on BUI: BUI's windows, input, CPU/GPU renderer,
 Blender's theme and the Inter font. Existing ImGui code compiles unchanged.
@@ -841,7 +857,10 @@ A larger example, a scene inspector, once with ImGui's stock widgets and once wi
 
 Guide, coverage and the stock look: [docs/imgui.md](docs/imgui.md).
 
-## 14. First app: C
+</details>
+
+<details>
+<summary><h2 id="14-first-app-c">14. First app: C</h2></summary>
 
 The kit's API is one header, `kit/include/BUI_kit.h`, and it doubles as the
 reference: every function has a one-line comment. This is a shortened
@@ -912,6 +931,8 @@ The window below is a bigger program than the one above, a modifier stack:
 Without a window system, render into a raster instead
 (`BK_render(ctx, raster, w, h, full)`), which is also how tests and
 screenshots work. Guide: [docs/c-api.md](docs/c-api.md).
+
+</details>
 
 ---
 
@@ -1212,7 +1233,8 @@ Coming soon: loading any Blender theme file, beyond Dark and Light. More:
 
 # Part IV: Guides by language
 
-## 23. Python
+<details>
+<summary><h2 id="23-python">23. Python</h2></summary>
 
 `pip install blenderui` gives you four APIs in one package:
 
@@ -1240,7 +1262,10 @@ On the website: [tkinter](https://bui.preetham.top/docs/python/tkinter/),
 [components](https://bui.preetham.top/docs/python/components/),
 [headless testing](https://bui.preetham.top/docs/python/headless-testing/).
 
-## 24. Rust
+</details>
+
+<details>
+<summary><h2 id="24-rust">24. Rust</h2></summary>
 
 The `blenderui` crate is a web-like framework drawn by BUI: every HTML element,
 CSS, Tailwind, HTML-like markup (`rsx!` / `view!`) or gpui-style builders,
@@ -1297,7 +1322,10 @@ transforms, OpenType features, multi-column layout. Guide:
 [Rust section](https://bui.preetham.top/docs/rust/overview/) (including
 [effects and animations](https://bui.preetham.top/docs/rust/effects-and-animations/)).
 
-## 25. JavaScript and React
+</details>
+
+<details>
+<summary><h2 id="25-javascript-and-react">25. JavaScript and React</h2></summary>
 
 - **`@blender-ui/react`**: a React 19.3 renderer. HTML host components, CSS and
   Tailwind, events, Suspense, transitions, actions, and the Blender components.
@@ -1328,7 +1356,10 @@ JavaScript after BUI handled them (no native `preventDefault`), and
 [signals](https://bui.preetham.top/docs/javascript/signals/),
 [standalone executables](https://bui.preetham.top/docs/javascript/standalone-executables/).
 
-## 26. Dear ImGui
+</details>
+
+<details>
+<summary><h2 id="26-dear-imgui">26. Dear ImGui</h2></summary>
 
 | Language | What you use                               | Built by                                |
 | -------- | ------------------------------------------ | --------------------------------------- |
@@ -1351,7 +1382,10 @@ Blender style), [bindings/imgui/blender/README.md](bindings/imgui/blender/README
 (the widget mapping), and the website's
 [Dear ImGui section](https://bui.preetham.top/docs/imgui/cpp/).
 
-## 27. C and embedding
+</details>
+
+<details>
+<summary><h2 id="27-c-and-embedding">27. C and embedding</h2></summary>
 
 The kit's concepts: **nodes** made by type name (`frame`, `slider`, `button`,
 `panel`, `tree`, `canvas`, `filebrowser` ...), **properties** set by name,
@@ -1365,6 +1399,8 @@ it (as `bui.qt.BuiCanvas` does inside Qt). A separate, lower-level layer,
 **render sinks** (`api/bui_c_api.h`), hands the triangles, lines and text of
 the immediate-mode GPU seam to your renderer; the Qt/QPainter backend and the
 SVG recorder use it. Guide: [INTEGRATION.md](INTEGRATION.md).
+
+</details>
 
 ## 28. Where the docs live
 
