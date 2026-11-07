@@ -13,8 +13,9 @@
 # One-time setup (repository Settings > Secrets and variables > Actions):
 #   CARGO_REGISTRY_TOKEN   a crates.io API token (scopes: publish-new, publish-update)
 # npm and PyPI need no secret: both use trusted publishing (OIDC). On npmjs.com, each of
-# @blender-ui/native and @blender-ui/react lists this repository and the workflow file
-# release.yml as its trusted publisher. See docs/publishing.md.
+# @blender-ui/native, its platform packages (@blender-ui/native-<tag>, bindings/node/platform.js)
+# and @blender-ui/react lists this repository and the workflow file release.yml as its trusted
+# publisher. See docs/publishing.md.
 
 name: release
 
@@ -134,7 +135,7 @@ jobs:
     needs: [versions, ci, npm-native]
     # runs when the versions match, the native builds passed and CI passed (or was skipped on purpose)
     if: ${{ !cancelled() && needs.versions.result == 'success' && needs.npm-native.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
-    # builds the Windows x64 addon and publishes it with the Linux and macOS ones
+    # builds the Windows x64 addon, then publishes one package per platform and the main package
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -161,27 +162,35 @@ jobs:
       - name: Install workspace dependencies
         working-directory: bindings
         run: npm ci
-      - name: Publish the npm packages, native first, with no token (OIDC)
+      - name: Build the Windows addon and stage the platform packages
+        working-directory: bindings/node
+        run: npm run build && node scripts/platforms.js
+      - name: Publish the npm packages, platforms first, with no token (OIDC)
         run: |
-          # the workspaces of bindings/package.json, in order: native first, the frameworks depend on it
-          for pkg in $(node -p "require('./bindings/package.json').workspaces.join(' ')"); do
-            cd "bindings/$pkg"
-            name=$(node -p "require('./package.json').name")
-            version=$(node -p "require('./package.json').version")
+          # the platform packages (@blender-ui/native-<tag>), then the workspaces of
+          # bindings/package.json in order: native first, the frameworks depend on it
+          dirs="$(ls -d bindings/node/npm/*) $(node -p "require('./bindings/package.json').workspaces.map(w => 'bindings/' + w).join(' ')")"
+          missing=0
+          for dir in $dirs; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
             if ! npm view "$name" name >/dev/null 2>&1; then
               # trusted publishing can only be configured on a package that exists
-              echo "::warning::$name is not on npm yet: publish it once by hand (cd bindings/$pkg && npm publish --access public), then add its trusted publisher (docs/publishing.md). Skipping."
-              cd ../..
+              echo "::warning::$name is not on npm yet: publish it once by hand (cd $dir && npm publish --access public), then add its trusted publisher (docs/publishing.md). Skipping."
+              missing=1
               continue
+            fi
+            if [ "$name" = @blender-ui/native ] && [ "$missing" = 1 ]; then
+              echo "::error::a platform package is missing: @blender-ui/native would list an optional dependency that does not exist"
+              exit 1
             fi
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "::notice::$name@$version is already on npm; skipping"
-            else
-              flags="--access public --provenance"
-              [ "$PUBLISH" = true ] || flags="$flags --dry-run"
-              npm publish $flags
+              continue
             fi
-            cd ../..
+            flags="--access public --provenance"
+            [ "$PUBLISH" = true ] || flags="$flags --dry-run"
+            (cd "$dir" && npm publish $flags)
           done
 
   github-release:

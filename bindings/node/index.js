@@ -16,16 +16,20 @@ const native = globalThis.__BUI_NATIVE__ ?? loadAddon()
 
 function loadAddon () {
   const path = require('node:path')
+  const { TAG, packageName } = require('./platform')
   // a relative path starts at the working directory, not at this package
   const env = process.env.BUI_NODE_ADDON && path.resolve(process.env.BUI_NODE_ADDON)
+  const built = path.join(__dirname, `blenderui.${TAG}.node`) // npm run build in a clone
   try {
-    // a literal path where a prebuilt binary exists: `bun build --compile` (and
-    // other bundlers) can then embed the addon in the executable
-    if (!env && process.platform === 'win32' && process.arch === 'x64') return require('./blenderui.win32-x64.node')
-    return require(env || path.join(__dirname, `blenderui.${process.platform}-${process.arch}.node`))
+    if (env) return require(env)
+    if (require('node:fs').existsSync(built)) return require(built)
+    // a literal name: `bun build --compile` (and other bundlers) can then embed the addon
+    if (TAG === 'win32-x64') return require('@blender-ui/native-win32-x64')
+    return require(packageName())
   } catch (err) {
-    throw new Error(`@blender-ui/native: no native addon for ${process.platform}-${process.arch}. ` +
-      'Prebuilt binaries are for Windows x64, Linux x64 (glibc 2.35 or later) and macOS; elsewhere, build it from a clone of ' +
+    throw new Error(`@blender-ui/native: no native addon for ${TAG}. ` +
+      `The prebuilt one is the optional dependency ${packageName()} (Windows x64, Linux x64 with glibc 2.35 ` +
+      'or later, macOS): install without --omit=optional / --no-optional. Elsewhere, build it from a clone of ' +
       'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler), ' +
       'then use that package, or point BUI_NODE_ADDON at the built blenderui.<platform>-<arch>.node. ' +
       `(${err.message.split('\n')[0]})`,

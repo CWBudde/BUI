@@ -36,8 +36,7 @@
     "cli.js",
     "features.js",
     "features.json",
-    "blenderui.*.node",
-    "bui-runtime.*",
+    "platform.js",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
@@ -48,6 +47,12 @@
     "prepublishOnly": "node scripts/build.js && node --test",
     "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','THIRD_PARTY_NOTICES.md'])fs.copyFileSync('../../'+f,f);fs.copyFileSync('../../features.json','features.json')\"",
     "postpack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','THIRD_PARTY_NOTICES.md'])fs.rmSync(f,{force:true});fs.rmSync('features.json',{force:true})\""
+  },
+  "optionalDependencies": {
+    "@blender-ui/native-win32-x64": "0.3.1",
+    "@blender-ui/native-linux-x64": "0.3.1",
+    "@blender-ui/native-darwin-arm64": "0.3.1",
+    "@blender-ui/native-darwin-x64": "0.3.1"
   },
   "engines": {
     "node": ">=18"

@@ -37,7 +37,7 @@ Each row has a status: **Works** when it works and is tested, **Partial** when c
     ["Text", "partial", "No text wrapping around floats; right-to-left text is reordered but not shaped; no per-glyph font fallback yet; IME on Windows only"],
     ["Rust components", "partial", "No async resources (<code>use_resource</code>) and no generic components yet"],
     ["Dear ImGui", "partial", "Python and safe Rust skip the <code>va_list</code>, <code>void*</code> and C-callback functions; in the Blender-widgets build, title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing"],
-    ["npm packages", "partial", "Prebuilt for Windows x64, Linux x64 and macOS in one package; no per-platform packages yet"],
+    ["npm packages", "partial", "Prebuilt for Windows x64, Linux x64 and macOS, one optional package per platform; no musl or arm64 Linux"],
     ["macOS", "experimental", "The Cocoa window host is checked by CI and has been tried by hand on two Apple Silicon Macs (<a href='https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md'>testing guide</a>); JavaScript is headless there; no GPU renderer yet"],
   ]}
 />

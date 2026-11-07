@@ -110,7 +110,7 @@ cd ../react && npm publish --access public # @blender-ui/react (runs the tests)
 - **Preview** with `npm pack --dry-run`, which lists what a package will contain.
 - **Releasing again:** bump `version` in the package's `package.json` first; npm refuses to publish the same version twice. When the native package changes in a way React needs, raise React's `@blender-ui/native` range to match.
 
-The native package ships the addon and `bui-runtime` for Windows x64, Linux x64 and macOS (arm64 and x64) in one package. In `release.yml`, the `npm-native` jobs build them on `ubuntu-22.04` (so the addon needs glibc 2.35 or later), `macos-15` and `macos-15-intel`; the `npm` job builds the Windows ones and publishes all of them. Optional per-platform packages (the napi-rs convention) would make each install smaller.
+The addon and `bui-runtime` ship in one package per platform, the napi-rs convention: `@blender-ui/native-win32-x64`, `-linux-x64` (glibc 2.35 or later), `-darwin-arm64` and `-darwin-x64`. `@blender-ui/native` lists them as `optionalDependencies`, so npm and Bun install only the one that matches. `bindings/node/platform.js` lists the platforms. `node scripts/platforms.js` writes each package to `bindings/node/npm/<tag>/` at the main package's version, and stops if `optionalDependencies` does not match. In `release.yml`, the `npm-native` jobs build on `ubuntu-22.04`, `macos-15` and `macos-15-intel`; the `npm` job builds the Windows files, then publishes the platform packages and then the main package. A new platform package must be published once by hand and given its trusted publisher; until then the workflow stops before `@blender-ui/native`.
 
 ## crates.io
 

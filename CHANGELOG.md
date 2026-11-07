@@ -7,9 +7,13 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
-- **npm on Linux and macOS:** `@blender-ui/native` ships the prebuilt addon and `bui-runtime` for Linux x64
-  (glibc 2.35 or later) and macOS (arm64 and x64) as well as Windows x64. `release.yml` builds them on
-  `ubuntu-22.04`, `macos-15` and `macos-15-intel` and publishes them in the one package.
+- **npm on Linux and macOS:** the prebuilt addon and `bui-runtime` ship for Linux x64 (glibc 2.35 or later) and
+  macOS (arm64 and x64) as well as Windows x64, one package per platform: `@blender-ui/native-<tag>`
+  (`bindings/node/platform.js`). `@blender-ui/native` lists them as `optionalDependencies`, so an install gets
+  only its own (about 29 MB). The install command does not change. With `--omit=optional` the addon is missing,
+  and the load error says so. `release.yml` builds them on `ubuntu-22.04`, `macos-15`, `macos-15-intel` and
+  Windows, then publishes the platform packages before `@blender-ui/native`. On macOS, JavaScript still runs
+  headless.
 - **Native Wayland windows (experimental).** `kit/intern/kit_window_wayland.c` is a Wayland host with the same
   `BK_window_*` API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels with server-side
   decorations when offered, a `wl_seat` with xkbcommon (keys, key repeat), the pointer, the clipboard through

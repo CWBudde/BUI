@@ -9,6 +9,7 @@ const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const { table } = require('../features.js')
+const { TAG: tag, EXE: exe } = require('../platform.js')
 
 const debug = process.argv.includes('--debug')
 const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null
@@ -17,8 +18,6 @@ const rust = path.resolve(__dirname, '../../rust')
 // smaller and faster; see bindings/rust/Cargo.toml)
 const profile = debug ? [] : ['--profile', 'dist']
 const target = path.join(rust, 'target', debug ? 'debug' : 'dist')
-const tag = `${process.platform}-${process.arch}`
-const exe = process.platform === 'win32' ? '.exe' : ''
 
 function cargo (args) {
   execFileSync('cargo', ['build', ...args, ...profile], { cwd: rust, stdio: 'inherit' })
