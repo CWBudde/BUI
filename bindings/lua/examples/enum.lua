@@ -26,8 +26,8 @@ status:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 en:on(bui.EV_CHANGE, function()
   local idx = en:get("value")
-  local text = en:get_strs("items", idx >= 0 and idx or 0)
-  status:set("text", "Selected: " .. text)
+  local items = en:get_strs("items")
+  status:set("text", "Selected: " .. items[idx + 1])
 end)
 
 local ctx = bui.Context(root)
