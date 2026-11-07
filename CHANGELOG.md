@@ -46,6 +46,9 @@ All notable changes to **blenderui** (BUI). The format follows
   the host's poll 7 ns).
 
 ### Changed
+- **Lua host:** CI builds `bui-lua` and runs its `bui_lua_*` tests on Linux and Windows (a new `lua` job); the option
+  is in the CMake options tables (README, `docs/`, the website) and the website has a Lua page; the lowercase
+  `find_package(lua)` fallback is config-mode only, which removes CMake's package-name warning.
 - **macOS is no longer labelled experimental.** Three people have tried the Cocoa host by hand and it works, so
   the README, the website and the docs say so (the platform tables, the FAQ, the limits, the roadmap, the landing
   page). What is still true there is unchanged: the CPU raster only (no Metal renderer), and JavaScript windows
@@ -64,6 +67,12 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
 
 ### Fixed
+- **Node: no window and no message.** When the addon could not get a window system (no `DISPLAY` or a display that
+  does not answer, no Wayland socket) it fell back to headless silently, and a window that could not be created
+  was dropped without a word: the app ran with nothing on screen and nothing in the log. The addon now prints why
+  to stderr (and a window that cannot open is reported closed, so the app can end). `BK_window_supported` on Linux also
+  asks Wayland only when the session prefers it, so it no longer says yes through a default Wayland socket that the
+  window host would not use.
 - **Node and Bun:** a relative `BUI_NODE_ADDON` path starts at the working directory, not at the package folder. The load error now shows the cause.
 - **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
 - **X11:** a frame callback that closes its window no longer renders into the closed window.

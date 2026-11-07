@@ -41,6 +41,10 @@ video = [] # <video> through the OS decoders
 gpu = [] # GPU renderers: Direct3D 11 (Windows), OpenGL 3.3 (Linux)
 freetype = [] # Text through the vendored FreeType like Blender's BLF
 filebrowser = [] # Blender's File Browser
+# The Lua host (bindings/lua: bui-lua, bui.so). features.json lists it, so it is here too; the
+# crate's C sources (vendored for crates.io) leave bindings/lua out, so turning it on builds
+# nothing more for Rust.
+lua = []
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = []
 # Also build and link Dear ImGui on BUI and its C API (bindings/imgui: bui_cimgui,

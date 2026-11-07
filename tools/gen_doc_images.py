@@ -24,6 +24,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 """
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -205,11 +206,12 @@ def site_lua(theme):
         if os.path.exists(out_ppm):
             import pngopt
             with open(out_ppm, "rb") as f:
-                header = f.read(15)
-            assert header[:3] == b"P6\n"
-            dims = header[3:].split(b" " if os.name == "nt" else b" ")
-            w, h = int(dims[0]), int(dims[1].split(b"\n")[0])
-            rgb = f.read()
+                data = f.read()
+            # P6 <width> <height> <maxval>, one whitespace byte, then the pixels
+            fields = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", data)
+            assert fields, "not a binary PPM"
+            w, h = int(fields.group(1)), int(fields.group(2))
+            rgb = data[fields.end():]
             out_png = os.path.join(SITE_OUT, "%s-%s.png" % (name, theme))
             pngopt.write_png(out_png, w, h, rgb)
             os.remove(out_ppm)
