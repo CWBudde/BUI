@@ -17,7 +17,7 @@ This page explains each host, how to choose one yourself, and what to expect on 
   ["<strong>Win32</strong>", "done", "Windows. Native, written in C"],
   ["<strong>X11</strong>", "done", "Linux (and Wayland sessions, through XWayland). Native, written in C"],
   ["<strong>Wayland</strong>", "experimental", "Linux. Native, written in C, after Blender's GHOST. CPU renderer"],
-  ["<strong>Cocoa</strong>", "experimental", "macOS. Native, tried by hand on two Apple Silicon Macs so far"],
+  ["<strong>Cocoa</strong>", "experimental", "macOS. Native, tried by hand on three Macs (two Apple Silicon, one Intel) so far"],
   ["<strong>Tk</strong>", "done", "Anywhere Python has <code>tkinter</code>. Python only; the fallback"],
   ["<strong>Headless</strong>", "done", "Anywhere. No window: tests and screenshots"],
 ]} />
@@ -52,7 +52,7 @@ A native Wayland host with the same API, modelled on Blender's `GHOST_SystemWayl
 
 ### macOS (Cocoa) <Badge tone="preview">Experimental</Badge>
 
-A port of Blender's own Cocoa code (GHOST's `GHOST_SystemCocoa.mm` and `GHOST_WindowCocoa.mm`), with Retina scaling. It's written, but it hasn't been run on a real Mac yet.
+A port of Blender's own Cocoa code (GHOST's `GHOST_SystemCocoa.mm` and `GHOST_WindowCocoa.mm`), with Retina scaling. It has been run by hand on three Macs (two Apple Silicon, one Intel); the Intel one ran the wheel and a source build.
 
 - AppKit only works on the **main thread**, so every window call must come from it. On any other thread, the native host reports itself unavailable and Python falls back to Tk.
 - That's also why **JavaScript is headless on macOS** for now: Node runs BUI on its own UI thread, which isn't the main thread.

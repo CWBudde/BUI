@@ -32,6 +32,12 @@ All notable changes to **blenderui** (BUI). The format follows
   the host's poll 7 ns).
 
 ### Changed
+- **macOS docs:** three people have now tried the Cocoa host by hand: two Apple Silicon Macs and an Intel MacBook Pro
+  ([piaoboo](https://github.com/piaoboo), issue #17: the PyPI wheel works, the source build passes 25/25 tests). The
+  guide and the README, website and docs that said "two Apple Silicon Macs" or "nobody has tried an Intel Mac" now
+  say so. [DanNoby](https://github.com/DanNoby)'s 2026-11-07 log (issue #6) confirms the duplicate Objective-C class
+  fix: `test_cocoa_classes_come_from_buipy` and the other 20 `buipy_imgui` tests pass and there is no `objc:` warning.
+  The Xcode toolchain note now says it depends on Command Line Tools older than the SDK, not on the macOS version.
 - **README and website:** the FAQ says macOS has been tried by hand on two Apple Silicon Macs (it said nobody
   had checked), and a new FAQ entry and the roadmap list what people asked for: Vue and Angular (adapters
   over `@blender-ui/native`), and Lua (a community pull request is in review), Ruby and Go through cgo

@@ -47,7 +47,7 @@ Yes, in the ways people notice. An idle window uses no CPU, because BUI redraws 
 
 ## Which platforms does it run on?
 
-Windows and Linux fully; macOS with caveats. The macOS window host is experimental: CI tests it, and two people have tried it by hand on Apple Silicon Macs (the bugs they found are fixed). Nobody has tried an Intel Mac by hand yet ([help test it](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md)), JavaScript runs headless there, and there's no GPU renderer on macOS yet. See [Platforms](../../reference/platforms/).
+Windows and Linux fully; macOS with caveats. The macOS window host is experimental: CI tests it, and three people have tried it by hand on Macs, two Apple Silicon and one Intel (the bugs they found are fixed; the Intel Mac ran the PyPI wheel and a source build, 25/25 tests, but not the by-hand checklist) ([help test it](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md)), JavaScript runs headless there, and there's no GPU renderer on macOS yet. See [Platforms](../../reference/platforms/).
 
 ## Can I use BUI from Vue, Angular, Ruby, Go or Lua?
 

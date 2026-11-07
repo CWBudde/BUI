@@ -1141,7 +1141,7 @@ A **window host** puts a kit context in a top-level window and feeds it input.
 | **Win32** (`kit_window_win32.c`) | Windows                         | BUI's own host. Per-monitor DPI, vsync-paced animation, clipboard, cursors, window-manager features.                                                                                                                            |
 | **X11** (`kit_window_x11.c`)     | Linux (also Wayland, via XWayland) | Input mapping after Blender's GHOST. `Xft.dpi` scaling. libX11 is loaded when the first window opens.                                                                                                                           |
 | **Wayland** (`kit_window_wayland.c`) | Linux, **experimental** | Native Wayland windows, after Blender's `GHOST_SystemWayland`: xdg-shell, server-side decorations when offered, `wl_seat` with xkbcommon, clipboard, cursors, buffer scale, frame callbacks. CPU renderer only: with the GPU renderer on (`BUI_GPU=1`) a Wayland session keeps using X11 through XWayland. `BUI_WINDOW_BACKEND=x11\|wayland` picks one. libwayland loads at run time (Blender's `wayland_dynload`). Needs the Wayland headers to build; without them Linux windows are X11 only. |
-| **Cocoa** (`kit_window_cocoa.m`) | macOS                           | **Experimental.** Ported from Blender's GHOST Cocoa code, with Retina scaling. It's checked by CI and has been tried by hand on two Apple Silicon Macs so far; testing notes in [docs/macos-testing.md](docs/macos-testing.md). |
+| **Cocoa** (`kit_window_cocoa.m`) | macOS                           | **Experimental.** Ported from Blender's GHOST Cocoa code, with Retina scaling. It's checked by CI and has been tried by hand on three Macs (two Apple Silicon, one Intel) so far; testing notes in [docs/macos-testing.md](docs/macos-testing.md). |
 | **Tk**                           | Python, anywhere                | A stdlib `tkinter` window that shows the kit's frame buffer. `BUI_HOST=tk` forces it; it's also the fallback where no native host works.                                                                                        |
 | **Headless**                     | Everywhere                      | No window: render into a raster for tests and screenshots, with a virtual clock that steps animations exactly.                                                                                                                  |
 
@@ -1675,11 +1675,11 @@ py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
 | HiDPI                        | Per-monitor DPI                  | `Xft.dpi`                                                                | Retina (backing scale)       |
 
 **Works** means it works and is tested. **Experimental** means it's written
-but has had little hands-on testing on real hardware (macOS: two Apple Silicon Macs so far, plus CI).
+but has had little hands-on testing on real hardware (macOS: three Macs (two Apple Silicon, one Intel) so far, plus CI).
 
 **macOS.** The macOS window host is new: it's a port of Blender's Cocoa code
-(GHOST). So far it has been checked by CI and tried by hand on two Apple Silicon
-Macs: by [Krish Kalaria](https://github.com/krishkalaria12), who reported issue #3 and fixed it in pull request #4, and by [DanNoby](https://github.com/DanNoby) (17/17 tests; issue #6 added a toolchain note to the guide). If you have another Mac, especially an Intel one, please try it and
+(GHOST). So far it has been checked by CI and tried by hand on three Macs (two Apple
+Silicon, one Intel): by [Krish Kalaria](https://github.com/krishkalaria12), who reported issue #3 and fixed it in pull request #4, by [DanNoby](https://github.com/DanNoby) (17/17 tests; issue #6 added a toolchain note to the guide and found the duplicate Objective-C classes, now fixed), and by [piaoboo](https://github.com/piaoboo) (an Intel MacBook Pro: the wheel works and the source build passes 25/25 tests; issue #17). If you have another Mac, especially one with an older macOS, please try it and
 tell us what happens: [docs/macos-testing.md](docs/macos-testing.md). Python
 can still use the stdlib Tk window there (`BUI_HOST=tk`; this needs Python's
 `tkinter`, for example from python.org or `brew install python-tk`). Node runs
@@ -1856,8 +1856,8 @@ ship. The tables below have the details.
   There is none on macOS (no Metal): macOS always draws on the CPU. Direct3D
   12, Vulkan, Metal and WebGPU backends don't exist yet.
 - **Platforms.** Windows and Linux (X11; Wayland is experimental) are the
-  supported ones. macOS is experimental: checked by CI and tried by hand on two
-  Apple Silicon Macs, and JavaScript windows are headless there. The npm
+  supported ones. macOS is experimental: checked by CI and tried by hand on three
+  Macs (two Apple Silicon, one Intel), and JavaScript windows are headless there. The npm
   packages are prebuilt for Windows x64 only.
 - **Retained mode, no visual editor.** BUI keeps a tree of nodes, like Blender's
   own UI; it is not an immediate-mode library. There is no drag-and-drop UI
@@ -1902,7 +1902,7 @@ ship. The tables below have the details.
 | Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                              |
 | Dear ImGui                                             | Python and safe Rust skip the `va_list`, `void*` and C-callback functions (reachable from C and the Rust FFI); with Blender widgets, window title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing                        |
 | JavaScript / React packages                            | npm packages are prebuilt for Windows x64 only (on Linux, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element                              |
-| macOS                                                  | **Experimental.** The native Cocoa window host is written, checked by CI and tried by hand on two Apple Silicon Macs ([how to help](docs/macos-testing.md)); JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet |
+| macOS                                                  | **Experimental.** The native Cocoa window host is written, checked by CI and tried by hand on three Macs (two Apple Silicon, one Intel) ([how to help](docs/macos-testing.md)); JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet |
 | Themes                                                 | Dark and Light work; loading other Blender theme files doesn't yet                                                                                                                                                                                      |
 
 **Planned (coming soon)**
@@ -1988,9 +1988,9 @@ Loading any other Blender theme file is coming soon.
 <details>
 <summary><b>Does it run on my Mac?</b></summary>
 Yes, with caveats. The Cocoa host is experimental, but it has been tried by hand
-on two Apple Silicon Macs (the bugs they found are fixed) and CI builds and tests
-it on Apple Silicon and Intel runners. Nobody has tried an Intel Mac by hand yet,
-it draws on the CPU (there is no Metal renderer), and JavaScript windows are
+on three Macs, two Apple Silicon and one Intel (the bugs they found are fixed), and CI
+builds and tests it on Apple Silicon and Intel runners. The Intel Mac ran the PyPI wheel and a
+source build (25/25 tests); the by-hand checklist was done on Apple Silicon only. It draws on the CPU (there is no Metal renderer), and JavaScript windows are
 headless there. Python can always fall back to the Tk window
 (<code>BUI_HOST=tk</code>). If you try it, the notes in
 <a href="docs/macos-testing.md">docs/macos-testing.md</a> say what to report.

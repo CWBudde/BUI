@@ -150,7 +150,7 @@ A published crate can't reach files outside itself, so `blenderui-sys` must carr
 
 ## Known gaps before 1.0
 
-- **macOS:** the native Cocoa host has been tried by hand on two Apple Silicon Macs so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
+- **macOS:** the native Cocoa host has been tried by hand on three Macs (two Apple Silicon, one Intel) so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
 - **Windows wheels** are built with MinGW. MSVC builds work (the Rust crate and the CMake build use it), but aren't what's published.
 - **No musllinux or 32-bit wheels** yet.
 - **npm:** prebuilt for Windows x64 only.
