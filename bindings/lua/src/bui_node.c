@@ -753,6 +753,25 @@ static int l_node_set_menus(lua_State *L) {
   if (!ud->node) return luaL_error(L, "attempt to use freed node");
   luaL_checktype(L, 2, LUA_TTABLE);
   int n = (int)lua_rawlen(L, 2);
+
+  /* Free old menu callback refs stored in the uservalue table */
+  lua_getuservalue(L, 1);
+  lua_getfield(L, -1, "_menu_refs");
+  if (lua_istable(L, -1)) {
+    for (int j = 0;; j++) {
+      lua_rawgeti(L, -1, j + 1);
+      if (lua_isnil(L, -1)) { lua_pop(L, 1); break; }
+      int old_ref = (int)lua_tointeger(L, -1);
+      luaL_unref(L, LUA_REGISTRYINDEX, old_ref);
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1); /* pop refs array or nil */
+  /* Create new refs array */
+  lua_newtable(L);
+  lua_setfield(L, -2, "_menu_refs");
+  lua_pop(L, 1); /* pop uservalue */
+
   BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
   memset(specs, 0, n * sizeof(BKMenuSpec));
   for (int i = 0; i < n; i++) {
@@ -768,12 +787,18 @@ static int l_node_set_menus(lua_State *L) {
     specs[i].checked = (int)luaL_optinteger(L, -1, -1);
     lua_getfield(L, -5, "enabled");
     specs[i].enabled = (int)luaL_optinteger(L, -1, 1);
-    /* Store function ref in ref field */
     lua_getfield(L, -6, "fn");
     if (lua_isfunction(L, -1)) {
-      specs[i].ref = (void *)(intptr_t)luaL_ref(L, LUA_REGISTRYINDEX);
+      int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+      specs[i].ref = (void *)(intptr_t)ref;
+      /* Store ref in uservalue table for cleanup on next call */
+      lua_getuservalue(L, 1);
+      lua_getfield(L, -1, "_menu_refs");
+      lua_pushinteger(L, ref);
+      lua_rawseti(L, -2, lua_rawlen(L, -2) + 1);
+      lua_pop(L, 2);
     }
-    lua_pop(L, 7); /* clean up: table + 6 fields */
+    lua_pop(L, 7);
   }
   BK_menubutton_set_items(ud->node, specs, n);
   return 0;
