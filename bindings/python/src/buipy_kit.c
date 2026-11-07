@@ -1892,6 +1892,11 @@ static PyObject *kit_set_theme(PyObject *m, PyObject *arg)
   Py_RETURN_NONE;
 }
 
+static PyObject *kit_version(PyObject *m, PyObject *unused)
+{
+  return PyUnicode_FromString(BK_version_string());
+}
+
 static PyObject *kit_theme_name(PyObject *m, PyObject *unused)
 {
   return PyUnicode_FromString(BK_theme_name());
@@ -2190,6 +2195,7 @@ static PyMethodDef kit_functions[] = {
     {"kit_unit", kit_unit, METH_NOARGS, "U.widget_unit in pixels."},
     {"kit_set_font", kit_set_font, METH_O, "UI font family."},
     {"kit_set_theme", kit_set_theme, METH_O, "Theme: 'dark' (default) or 'light' (Blender's presets)."},
+    {"kit_version", kit_version, METH_NOARGS, "The kit's version, 'MAJOR.MINOR.PATCH' (the same as BUI's)."},
     {"kit_theme_name", kit_theme_name, METH_NOARGS, "The active theme: 'dark' or 'light'."},
     {"kit_theme_color", kit_theme_color, METH_O, "A theme color as (r, g, b, a) 0..1, e.g. 'region_bg', 'regular.inner'."},
     {"kit_icon_names", kit_icon_names, METH_NOARGS, "All icon names."},

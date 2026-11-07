@@ -170,4 +170,4 @@ launches.
 Guide: [docs/javascript.md](https://github.com/ppmpreetham/BUI/blob/main/docs/javascript.md) ·
 Website: [bui.preetham.top](https://bui.preetham.top) ·
 Source: [github.com/ppmpreetham/BUI](https://github.com/ppmpreetham/BUI) ·
-License: GPL-2.0-or-later
+License: GPL-3.0-or-later

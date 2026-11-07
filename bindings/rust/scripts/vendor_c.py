@@ -60,7 +60,23 @@ def check_sources() -> list[str]:
     return missing
 
 
+def ship_licenses() -> list[str]:
+    """Copy LICENSE and THIRD_PARTY_NOTICES.md into every published crate, so the .crate carries them
+    (each crate's `include` names both; the copies are git-ignored)."""
+    crates = []
+    for manifest in sorted((ROOT / "bindings" / "rust").glob("*/Cargo.toml")):
+        text = manifest.read_text(encoding="utf-8")
+        if re.search(r"^publish\s*=\s*false", text, re.M) or "LICENSE" not in text:
+            continue  # not published, or it has no include list that names the files
+        for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+            shutil.copy2(ROOT / name, manifest.parent / name)
+        crates.append(manifest.parent.name)
+    return crates
+
+
 def main() -> None:
+    shipped = ship_licenses()
+    print(f"license files copied into {len(shipped)} crates: {', '.join(shipped)}")
     if DEST.exists():
         shutil.rmtree(DEST)
     for d in DIRS:

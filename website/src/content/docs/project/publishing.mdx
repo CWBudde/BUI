@@ -26,8 +26,8 @@ BUI ships to three registries: **PyPI** (`blenderui`), **npm** (`@blender-ui/nat
 
 ```text
 site-packages/
-  buipy.<abi>.pyd|.so     the C kit + raster engine (one extension module)
-  _buiimgui.<abi>.pyd|.so  Dear ImGui for blenderui.imgui (when CMake builds bui_cimgui)
+  buipy.<abi>.pyd|.so     the C kit + raster engine, with Dear ImGui (blenderui.imgui) when
+                           CMake builds bui_cimgui: one extension module, one kit per process
   bui/                     tksyntax/, qtsyntax.py, components/, host.py ...
   blenderui/               alias package: blenderui.X is bui.X
   blenderui-<v>.dist-info/

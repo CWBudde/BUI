@@ -1,0 +1,75 @@
+---
+title: Limitations
+description: "What BUI doesn't do yet, said plainly, so you can decide before you ship: accessibility, input methods, native look, GPU backends, platforms, and where the numbers come from."
+section: Project
+order: 15
+sources: ["README.md", "docs/macos-testing.md", "docs/getting-started.md", "ARCHITECTURE.md", "gpu/intern/gpu_d3d11.c", "gpu/intern/gpu_gl.c", "website/src/components/landing/FeelPanel.astro"]
+---
+
+Read this page before you pick BUI for something you will ship. Everything here is true today; the [roadmap](../roadmap/) says what is planned.
+
+## Accessibility
+
+BUI has **no accessibility support**. It draws its own widgets and doesn't talk to the platform's accessibility APIs (UI Automation on Windows, AT-SPI on Linux, NSAccessibility on macOS), so screen readers can't see them. Don't use BUI for software that has to be accessible. Accessibility is planned.
+
+## Text
+
+- The font is Blender's Inter, embedded and drawn with FreeType. System fonts are used only with the Windows GDI text option.
+- There is no per-glyph font fallback yet, so a character the font doesn't have shows as a box.
+- There are no input methods (IME): composed input such as Japanese or Chinese, and possibly dead-key accents, isn't expected to work.
+- Right-to-left text is reordered but not shaped (Arabic joining), and there are no OpenType features.
+
+More in [Text and fonts](../../concepts/text-and-fonts/).
+
+## It doesn't look native
+
+BUI looks like Blender. It has Blender's Dark and Light themes (other Blender theme files can't be loaded yet), and it doesn't follow your operating system's theme, accent color or fonts. If your users expect platform-native widgets, use the platform's toolkit.
+
+## Rendering
+
+- The **CPU rasterizer** is the default. It works everywhere and needs no GPU.
+- The optional **GPU renderer** is Direct3D 11 on Windows and OpenGL 3.3 on Linux.
+- **macOS has no GPU renderer** (no Metal), so it always draws on the CPU.
+- Direct3D 12, Vulkan, Metal and WebGPU backends don't exist yet.
+
+## Platforms
+
+- **Windows and Linux** (X11; Wayland through XWayland) are the supported platforms.
+- **macOS is experimental.** CI checks it and two people have tried it by hand on Apple Silicon Macs. JavaScript windows are headless there. See the [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md).
+- The npm packages are prebuilt for **Windows x64 only**. On Linux, build the addon from source.
+
+## Retained mode, and no visual editor
+
+BUI keeps a tree of nodes, like Blender's own UI, and redraws only what changed. It is not an immediate-mode library. There is no drag-and-drop UI designer: you write the UI in code.
+
+## Where the numbers come from
+
+Every performance number on this site was measured on **one Windows 11 laptop** (Ryzen 7 5800U). Linux and macOS haven't been measured yet, so treat the comparisons as results for that machine.
+
+## The home page demos are sketches
+
+The interactive panel on the home page is a **JavaScript imitation** that shows the feel of the widgets in a browser, and says so. The real widgets are native. Run a [Python, Rust or JavaScript example](../../start/installation/) to try them. A WebAssembly build is planned.
+
+## It's a port, not Blender unchanged
+
+BUI's widget drawing and interaction are ported from Blender's UI sources, with edits (each marked `BUI:` in the file). The rest of Blender (its data system, window manager and operators) isn't included, and there is no automated sync with Blender's releases.
+
+## Partial areas
+
+- **Qt syntax** covers about 24% of Qt's method names on the main widget classes.
+- **CSS:** 261 of 745 W3C properties render.
+- **Video** has no audio, and the macOS video backend is untested.
+- **Images:** AVIF, EXR, TIFF, JPEG XL and HEIC aren't supported.
+
+## License
+
+BUI is under the GNU GPL, version 3 or later, like Blender. A program that includes BUI is distributed under the GPL too. See [License and credits](../license-and-credits/).
+
+<CardGrid>
+  <Card title="Roadmap" href="docs/project/roadmap/" icon="map-trifold" kicker="Project">
+    What is planned, and what is done.
+  </Card>
+  <Card title="FAQ" href="docs/project/faq/" icon="question" kicker="Project">
+    Short answers to common questions.
+  </Card>
+</CardGrid>

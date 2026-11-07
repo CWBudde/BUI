@@ -90,4 +90,4 @@ node bench/run.mjs                    # 3 runs per configuration, medians
 See `bench/results.md` for the last run and the website's data-table page for
 the method and the caveats.
 
-License: GPL-2.0-or-later, like the rest of BUI.
+License: GPL-3.0-or-later, like the rest of BUI.

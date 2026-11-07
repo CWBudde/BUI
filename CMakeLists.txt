@@ -28,6 +28,7 @@ option(BUI_BUILD_TESTS "Build BUI test executables" ON)
 option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
 option(BUI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" ON)
+option(BUI_BUILD_LUA_BINDINGS "Build the bui-lua host executable (bundles Lua 5.4)" ON)
 option(BUI_BUILD_QT_BACKEND "Build the Qt/QPainter backend (needs Qt5/Qt6 with Widgets)" OFF)
 # The optional parts (image formats, video, GPU renderers, file browser, Dear
 # ImGui on BUI, ...): one option each, from features.json.
@@ -87,6 +88,10 @@ if(BUI_BUILD_TESTS)
   add_executable(bui_theme_test tests/theme_test.c)
   target_link_libraries(bui_theme_test PRIVATE bui::kit)
   add_test(NAME bui_theme_test COMMAND bui_theme_test)
+  # the kit's version: header macros and the library agree
+  add_executable(bui_version_test tests/version_test.c)
+  target_link_libraries(bui_version_test PRIVATE bui::kit)
+  add_test(NAME bui_version_test COMMAND bui_version_test)
   # images: every format, decode at size, the cache and loader, no leaks
   add_executable(bui_image_test tests/image_test.c)
   target_link_libraries(bui_image_test PRIVATE bui::kit)

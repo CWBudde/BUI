@@ -228,13 +228,16 @@ Blender's Ctrl** (Cmd+C, Cmd+V, Cmd+Z, Cmd+wheel) and **Option is Alt**.
 - **No input method (IME) support yet:** composed input such as Japanese or
   Chinese, and possibly dead-key accents, is not expected to work.
 - Fonts are Blender's (Inter, drawn with FreeType like Blender), not the system font.
-- **Python prints `objc: Class BUIKitView is implemented in both buipy... and _buiimgui...`**
-  (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both extensions are
-  loaded, for example in the Dear ImGui test. Each of the two Python extensions embeds the Cocoa
-  host, so its Objective-C classes exist twice. The tests pass with it (17/17 on [DanNoby](https://github.com/DanNoby)'s Mac),
-  but the Objective-C runtime warns it "may cause spurious casting failures and mysterious
-  crashes", so treat it as a known bug until the host is shared or renamed. It needs a Mac to
-  verify the fix. Reported through [DanNoby](https://github.com/DanNoby)'s test log. Also expected in that log:
+- **Fixed (next release, unreleased): Python printed `objc: Class BUIKitView is implemented in both buipy... and _buiimgui...`**
+  (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both extensions were
+  loaded, for example in the Dear ImGui test. Each of the two Python extensions embedded the
+  whole kit, including the Cocoa host, so its Objective-C classes existed twice (the tests passed,
+  17/17 on [DanNoby](https://github.com/DanNoby)'s Mac, but the Objective-C runtime warned it "may
+  cause spurious casting failures and mysterious crashes"). Dear ImGui is now compiled into
+  `buipy` (`buipy.imgui_module()` is behind `blenderui.imgui`), so a process holds one kit and
+  there is no `_buiimgui` binary. `buipy_imgui` checks, on a Mac, that the four classes come from
+  `buipy` and that nothing is registered twice; it needs a Mac to confirm. Reported through
+  [DanNoby](https://github.com/DanNoby)'s test log. Still expected in that log:
   `gpu_parity: no GPU device, skipped` (there is no Metal renderer) and
   `[imgui-error] Missing End()` (a test of error reporting).
 - Python: when tkinter is importable, BUI starts a hidden Tk first (Tk insists on

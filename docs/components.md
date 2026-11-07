@@ -68,7 +68,7 @@ Value components (`NumberField`, `NumberSlider`, `Checkbox`, `Toggle`,
 |---|---|
 | `value` | Current value (assigning it notifies `on_change`) |
 | `set_value(v, notify=True)` | Set, optionally without the callback |
-| `reset()` | Back to the default (also Backspace over the widget) |
+| `reset()` | Back to the default: the value the widget was made with, or its explicit `default` (also Backspace over the widget; text fields clear) |
 | `on_change=` | `fn(value)`, called when the user or code changes it |
 
 ## Layout

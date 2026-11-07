@@ -163,7 +163,7 @@ def test_slider_relative_drag():
 
 
 def test_value_shortcuts():
-    a, b = NumberField("A", 3.5), NumberField("B", 0.0)
+    a, b = NumberField("A", 3.5), NumberField("B", 2.0)   # B's default is the 2.0 it was made with
     d = Driver(Column(a, b))
     d.hover(a)
     d.key("c", "c", mods(ctrl=True))                  # copy
@@ -172,9 +172,9 @@ def test_value_shortcuts():
     assert b.value == 3.5
     d.key("minus", "-")                               # negate
     assert b.value == -3.5
-    d.key("BackSpace")                                # clear
-    assert b.value == 0
-    assert d.wheel(b, +1, mods(ctrl=True)) and abs(b.value - 0.1) < 1e-9   # Ctrl+Wheel
+    d.key("BackSpace")                                # reset to the default, not to zero
+    assert b.value == 2.0
+    assert d.wheel(b, +1, mods(ctrl=True)) and abs(b.value - 2.1) < 1e-9   # Ctrl+Wheel
 
 
 def test_checkbox_drag_toggle():
@@ -272,9 +272,10 @@ def test_vector_and_color():
     v = VectorField("Loc", (1.0, 2.0, 3.0), on_change=seen.append)
     sw = ColorSwatch("", (1.0, 0.0, 0.0, 1.0))
     d = Driver(Column(v, sw))
+    v.fields[1].set_value(7.0)
     d.hover(v.fields[1])
-    d.key("BackSpace")
-    assert v.value == (1.0, 0.0, 3.0) and seen[-1] == (1.0, 0.0, 3.0)
+    d.key("BackSpace")                                # back to the 2.0 it was made with
+    assert v.value == (1.0, 2.0, 3.0) and seen[-1] == (1.0, 2.0, 3.0)
     d.click(sw)
     tabs = d.ctx.picker_part("tabs")
     d.click(tabs, dx=5)                                # RGB tab

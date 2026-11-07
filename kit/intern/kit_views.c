@@ -997,7 +997,7 @@ static int tree_to_text(BKNode *n, char *buf, int size)
   return 1;
 }
 
-static void tree_reset(BKNode *n, bool zero)
+static void tree_reset(BKNode *n)
 {
 }
 

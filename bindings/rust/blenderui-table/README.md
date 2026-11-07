@@ -61,4 +61,4 @@ the invariants after every event, extreme sizes (`usize::MAX / 4` rows, `NaN`
 and infinite scrolls, zero and negative sizes), and counting-allocator tests
 that a steady-state paint and a text-cache hit allocate nothing.
 
-License: GPL-2.0-or-later, like the rest of BUI.
+License: GPL-3.0-or-later, like the rest of BUI.

@@ -14,5 +14,5 @@ export const site = {
   npm: "https://www.npmjs.com/package/@blender-ui/react",
   crates: "https://crates.io/crates/blenderui",
   discord: "https://discord.gg/MWXZfdyM3D",
-  license: "GPL-2.0-or-later",
+  license: "GPL-3.0-or-later",
 } as const;

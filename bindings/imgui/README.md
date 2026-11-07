@@ -15,7 +15,7 @@ Blender's UI font (Inter, embedded in BUI).
 
 - **C, Python, Rust:** generated from `imgui.h` by `gen/gen.py`
   (`py -3 -I bindings/imgui/gen/gen.py`): the C API `c/cimgui.h` (CMake `bui_cimgui`, with
-  `c/cimgui_impl_bui.h` for this backend), `blenderui.imgui` for Python (`_buiimgui`) and the
+  `c/cimgui_impl_bui.h` for this backend), `blenderui.imgui` for Python (inside `buipy`) and the
   `blenderui-imgui` crate. See [docs/imgui.md](../../docs/imgui.md).
 - **Blender widgets:** `-DBUI_IMGUI_BLENDER_WIDGETS=ON` (default OFF) compiles
   `blender/imgui_widgets_blender.cpp` instead of `imgui_widgets.cpp`: ImGui's widgets are

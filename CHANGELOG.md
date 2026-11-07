@@ -14,15 +14,63 @@ All notable changes to **blenderui** (BUI). The format follows
   and expose `bui._VERSION`. 9 example scripts under `bindings/lua/examples/`:
   `hello.lua`, `counter.lua`, `todos.lua`, `gallery.lua`, `forms.lua`, `dashboard.lua`,
   `anim.lua`, `lua_table_editor.lua`, `editor_screenshot.lua`.
+## [0.4.1] - 2026-11-06
+
+### Added
+- **The C API is versioned.** `BUI_kit.h` has `BUI_KIT_VERSION_MAJOR` / `_MINOR` / `_PATCH`,
+  `BUI_KIT_VERSION_STRING`, `BUI_KIT_VERSION` (0.4.0 is 400) and `BUI_KIT_VERSION_AT_LEAST`, the library
+  reports its own with `BK_version()` and `BK_version_string()` (Python: `buipy.kit_version()`), and
+  `BUI_DEPRECATED` is there for the day a function is retired. The number is BUI's own: `check_versions.py`
+  refuses a release when the header differs, and `bump_version.py` moves it. The stability policy (no
+  promise before 1.0, semantic versioning after, what counts as ABI) is in the header and in the C API
+  guide. Changes that break the C API are listed here under "C API changes" from now on.
+- **Third-party notices** (`THIRD_PARTY_NOTICES.md`), shipped with the wheels, the npm packages and the crates.
+>>>>>>> 753dc91acbd5b2f07300aa61f7e9596ed7947a44
 
 ### Changed
+- **License, following Blender's own wording:** BUI as a whole is under the GNU GPL, version 3 or
+  later (the `LICENSE` file was already the GPLv3 text), and individual files keep their compatible
+  `GPL-2.0-or-later` header, as Blender's do. The Python package, the Rust crates, the npm packages,
+  the README and the website said `GPL-2.0-or-later` for the whole; they now say `GPL-3.0-or-later`.
+- **README:** a lead-in sentence before each screenshot that isn't the output of the snippet above it,
+  plainer headings ("Pick your language", "Python", "Rust: HTML and CSS, without a browser"), and a
+  corrected "Who wrote it?" (the code is written by agents, a human directs and reviews it).
+- **Limitations, said plainly:** a list in the README (Status and roadmap) and a new website page,
+  covering accessibility (none yet), text and input methods, the non-native look, GPU backends,
+  platforms, retained mode with no visual editor, and that the numbers come from one machine. The
+  FAQ answers "is it immediate mode?" and "is it accessible?"; accessibility joins the roadmap.
+
 - **macOS:** the testing guide now lists both testers ([Krish Kalaria](https://github.com/krishkalaria12): issue #3, fixed by
   pull request #4; [DanNoby](https://github.com/DanNoby): 17/17 tests, issue #6), explains the Command Line Tools versus
   SDK mismatch (`ld: tapi error: malformed file`: select the full Xcode toolchain and delete
-  `build/`), and records a known bug from his log: the Python extensions `buipy` and
-  `_buiimgui` each embed the Cocoa host, so Objective-C prints "Class BUIKitView is implemented
-  in both". The docs and the website say two Apple Silicon Macs.
+  `build/`), and records a bug from his log (fixed below: Objective-C printed "Class BUIKitView is
+  implemented in both"). The docs and the website say two Apple Silicon Macs.
+- **Python:** Dear ImGui (`blenderui.imgui`) is compiled into the `buipy` extension; the separate
+  `_buiimgui` extension is gone (the module is still named `_buiimgui`, created by
+  `buipy.imgui_module()`). The public API is unchanged.
 - **CI:** the Apple Silicon runner is `macos-15` (GitHub retired `macos-14`).
+- **Releases:** `tools/bump_version.py --npm patch` moves every published npm package by that kind from its
+  own version (native 0.3.0 to 0.3.1, svelte 0.1.0 to 0.1.1; a package that isn't on npm yet keeps its first
+  version), and `release.yml` skips a package that is not on npm yet with a clear warning instead of failing
+  (a new package's first publish is manual, then it gets a trusted publisher; `tools/release.py` shows it as
+  MANUAL). A release is also refused when `THIRD_PARTY_NOTICES.md` is out of date.
+- **Svelte** now publishes from CI like the other npm packages (its trusted publisher is set up).
+
+### Fixed
+- **Backspace over a Blender value resets it to its default, not to zero** (number fields, sliders,
+  vector fields, checkboxes; the right-click "Reset to Default Value" already did, and the docs always
+  said Backspace resets to the default). A widget's default is the value it was made with, or an
+  explicit `default`, in every language: the kit records the first value a widget gets as its default
+  (`NF_DEFAULT_SET`) and the dead "zero" flag of `reset` is gone. Text fields still clear.
+- **Website:** the interactive panel on the home page is labelled as a browser sketch, and it now does
+  what the text next to it says: dragging down across X, Y and Z edits all three, and Ctrl+C / Ctrl+V
+  over a field copy and paste a value.
+- **macOS:** Python printed `objc: Class BUIKitView is implemented in both buipy... and
+  _buiimgui...` (also `BUIKitNSWindow`, `BUIKitWindowDelegate`, `BUIKitAppDelegate`) when both
+  extensions were loaded: each linked the whole kit, Cocoa host included, so the classes were
+  registered twice (reported by [DanNoby](https://github.com/DanNoby), issue #6). A process now
+  holds one kit: `buipy` and Dear ImGui are one binary on every platform, which also means one
+  theme and one set of kit state instead of two.
 
 ## [0.4.0] - 2026-11-06
 
