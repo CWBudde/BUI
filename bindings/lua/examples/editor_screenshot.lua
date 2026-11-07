@@ -145,4 +145,4 @@ for y = 0, rh - 1 do
   end
 end
 f:close()
-print("Wrote /tmp/bui_editor_demo.ppm (" .. rw .. "x" .. rh .. ")")
+print("Wrote " .. out_path .. " (" .. rw .. "x" .. rh .. ")")

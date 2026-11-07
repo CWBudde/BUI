@@ -74,37 +74,37 @@ root:add(control_row)
 local ctx = bui.Context(root)
 local win = bui.Window(ctx, "BUI Animation — Lua", 360, 320)
 
-if not win then
-  print("No window system available")
-  return
-end
+if win then
+  win:show()
 
-win:show()
+  -- Custom animation loop using pump instead of bui.run()
+  local frame = 0
+  while win:is_open() do
+    if running then
+      frame = frame + 1
+      local t = frame * 0.03
 
--- Custom animation loop using pump instead of bui.run()
-local frame = 0
-while win:is_open() do
-  if running then
-    frame = frame + 1
-    local t = frame * 0.03
+      -- Animate progress bar (sine wave)
+      prog:set("value", math.sin(t) * 0.45 + 0.5)
 
-    -- Animate progress bar (sine wave)
-    prog:set("value", math.sin(t) * 0.45 + 0.5)
+      -- Animate color swatch (color cycling)
+      local r = math.sin(t) * 0.5 + 0.5
+      local g = math.sin(t + 2.094) * 0.5 + 0.5
+      local b = math.sin(t + 4.188) * 0.5 + 0.5
+      swatch:set("color", {r, g, b, 1.0})
 
-    -- Animate color swatch (color cycling)
-    local r = math.sin(t) * 0.5 + 0.5
-    local g = math.sin(t + 2.094) * 0.5 + 0.5
-    local b = math.sin(t + 4.188) * 0.5 + 0.5
-    swatch:set("color", {r, g, b, 1.0})
+      -- Animate slider (triangle wave)
+      local phase = (t * 30) % 100
+      slider:set("value", phase)
 
-    -- Animate slider (triangle wave)
-    local phase = (t * 30) % 100
-    slider:set("value", phase)
+      frame_lbl:set("text", "Frame: " .. frame)
+    end
 
-    frame_lbl:set("text", "Frame: " .. frame)
+    bui.pump()
   end
 
-  bui.pump()
+  print("Animator closed (" .. frame .. " frames)")
+else
+  local px, _, w, h = ctx:render(360, 320, 1)
+  print("No window system. Headless render: " .. w .. "x" .. h .. " " .. #px .. " bytes")
 end
-
-print("Animator closed (" .. frame .. " frames)")

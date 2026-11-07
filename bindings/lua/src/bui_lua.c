@@ -135,6 +135,10 @@ static int l_new_window(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) { lua_pushnil(L); return 1; }
 
+  /* Headless mode: --headless flag or BUI_HEADLESS env var skips native windows */
+  const char *hl = getenv("BUI_HEADLESS");
+  if (hl && hl[0] == '1') { lua_pushnil(L); return 1; }
+
   const char *title = luaL_checkstring(L, 2);
   int w = (int)luaL_checkinteger(L, 3);
   int h = (int)luaL_checkinteger(L, 4);
@@ -170,6 +174,18 @@ static int l_new_treeitem(lua_State *L) {
 /* Module entry point                                                 */
 /* ------------------------------------------------------------------ */
 
+static int l_headless(lua_State *L) {
+  const char *hl = getenv("BUI_HEADLESS");
+  lua_pushboolean(L, hl && hl[0] == '1');
+  return 1;
+}
+
+static int l_set_headless(lua_State *L) {
+  int v = lua_toboolean(L, 1);
+  setenv("BUI_HEADLESS", v ? "1" : "0", 1);
+  return 0;
+}
+
 static const struct luaL_Reg bui_module[] = {
   {"Node",      l_new_node},
   {"Context",   l_new_context},
@@ -177,6 +193,8 @@ static const struct luaL_Reg bui_module[] = {
   {"TreeItem",  l_new_treeitem},
   {"run",       l_run},
   {"pump",      l_pump},
+  {"headless",  l_headless},
+  {"set_headless", l_set_headless},
   {"set_scale", l_set_scale},
   {"set_theme", l_set_theme},
   {"theme_name",l_theme_name},

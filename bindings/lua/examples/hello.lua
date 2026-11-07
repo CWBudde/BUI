@@ -20,12 +20,11 @@ if not bui.Window then
 end
 
 local win = bui.Window(ctx, "Hello from Lua", 320, 120)
-if not win then
-    print("No window system available (display not found)")
-    return
+if win then
+    win:show()
+    bui.run()
+    print("Window closed, goodbye!")
+else
+    local px, _, w, h = ctx:render(320, 120, 1)
+    print("No window system. Headless render: " .. w .. "x" .. h .. " " .. #px .. " bytes")
 end
-
-win:show()
--- Note: script blocks here until window closes
-bui.run()
-print("Window closed, goodbye!")

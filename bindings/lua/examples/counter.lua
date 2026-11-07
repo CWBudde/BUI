@@ -47,4 +47,7 @@ local win = bui.Window(ctx, "Counter", 240, 200)
 if win then
     win:show()
     bui.run()
+else
+    local px, _, w, h = ctx:render(240, 200, 1)
+    print("No window system. Headless render: " .. w .. "x" .. h .. " " .. #px .. " bytes")
 end

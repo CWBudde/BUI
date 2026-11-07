@@ -96,13 +96,13 @@ add_section("Labels", function()
     col:add(small)
 end)
 
-print("Gallery created successfully!")
-print("Window support:", bui.Window ~= nil)
-
 local ctx = bui.Context(root)
 local win = bui.Window(ctx, "BUI Widget Gallery", 400, 600)
 
 if win then
     win:show()
     bui.run()
+else
+    local px, _, w, h = ctx:render(400, 600, 1)
+    print("No window system. Headless render: " .. w .. "x" .. h .. " " .. #px .. " bytes")
 end

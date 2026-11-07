@@ -175,4 +175,7 @@ local win = bui.Window(ctx, "BUI Forms — Lua", 420, 700)
 if win then
   win:show()
   bui.run()
+else
+  local px, _, w, h = ctx:render(420, 700, 1)
+  print("No window system. Headless render: " .. w .. "x" .. h .. " " .. #px .. " bytes")
 end

@@ -76,4 +76,7 @@ local win = bui.Window(ctx, "Todo List", 320, 400)
 if win then
     win:show()
     bui.run()
+else
+    local px, _, w, h = ctx:render(320, 400, 1)
+    print("No window system. Headless render: " .. w .. "x" .. h .. " " .. #px .. " bytes")
 end

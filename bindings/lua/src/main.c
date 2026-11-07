@@ -93,9 +93,10 @@ int main(int argc, char **argv) {
     /* Remaining args after script are passed to the script */
   }
 
-  /* Headless mode: check if window system is needed */
+  /* Headless mode: disable native windows so every example can run without
+   * a display. ctx:render() works regardless; bui.Window() returns nil. */
   if (headless) {
-    /* Software raster works without a display */
+    setenv("BUI_HEADLESS", "1", 1);
   }
 
   /* Create Lua state */

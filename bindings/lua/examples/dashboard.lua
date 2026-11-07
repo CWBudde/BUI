@@ -179,4 +179,7 @@ local win = bui.Window(ctx, "BUI Dashboard — Lua", 620, 520)
 if win then
   win:show()
   bui.run()
+else
+  local px, _, w, h = ctx:render(620, 520, 1)
+  print("No window system. Headless render: " .. w .. "x" .. h .. " " .. #px .. " bytes")
 end
