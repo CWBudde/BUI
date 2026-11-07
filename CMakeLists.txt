@@ -27,8 +27,16 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(BUI_BUILD_TESTS "Build BUI test executables" ON)
 option(BUI_BUILD_EXAMPLES "Build BUI example applications" OFF)
 option(BUI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
-option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" OFF)
 option(BUI_BUILD_LUA_BINDINGS "Build the bui-lua host executable (bundles Lua 5.4)" OFF)
+# Python is on by default (ctest, the wheels and the guides build it; it is skipped with a message
+# without the Python dev files), except when only the Lua host was asked for: -DBUI_BUILD_LUA_BINDINGS=ON
+# alone does not also build Python. An explicit -DBUI_BUILD_PYTHON_BINDINGS=... always wins.
+if(BUI_BUILD_LUA_BINDINGS AND NOT DEFINED BUI_BUILD_PYTHON_BINDINGS)
+  set(_bui_python_default OFF)
+else()
+  set(_bui_python_default ON)
+endif()
+option(BUI_BUILD_PYTHON_BINDINGS "Build the buipy CPython bindings (needs Python3 dev files)" ${_bui_python_default})
 option(BUI_BUILD_QT_BACKEND "Build the Qt/QPainter backend (needs Qt5/Qt6 with Widgets)" OFF)
 # The optional parts (image formats, video, GPU renderers, file browser, Dear
 # ImGui on BUI, ...): one option each, from features.json.
@@ -149,7 +157,12 @@ if(BUI_BUILD_PYTHON_BINDINGS)
 endif()
 
 if(BUI_BUILD_LUA_BINDINGS)
-  add_subdirectory(bindings/lua)
+  # the crates.io copy of the C sources (bindings/rust/scripts/vendor_c.py) has no bindings/lua
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/bindings/lua/CMakeLists.txt)
+    add_subdirectory(bindings/lua)
+  else()
+    message(STATUS "BUI: bindings/lua not in this source tree; no Lua host")
+  endif()
 endif()
 
 if(BUI_BUILD_QT_BACKEND)

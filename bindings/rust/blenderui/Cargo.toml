@@ -49,6 +49,8 @@ video = ["blenderui-sys/video"]
 gpu = ["blenderui-sys/gpu"]
 freetype = ["blenderui-sys/freetype"]
 filebrowser = ["blenderui-sys/filebrowser"]
+# the Lua host builds from the repository (bindings/lua), not through cargo
+lua = ["blenderui-sys/lua"]
 # Deprecated no-op: the portable engine is the default everywhere.
 portable-text = ["blenderui-sys/portable-text"]
 
