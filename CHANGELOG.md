@@ -7,6 +7,13 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Lua bindings** (`BUI_BUILD_LUA_BINDINGS`, off by default). A standalone `bui-lua`
+  executable and a `bui.so`/`bui.dll` loadable module for stock Lua 5.4, LuaJIT or
+  LuaRocks. Every BUI widget, event, tree view, file browser and node editor is
+  available from `require("bui")`. The bindings check the kit version at load time
+  and expose `bui._VERSION`. 9 example scripts under `bindings/lua/examples/`:
+  `hello.lua`, `counter.lua`, `todos.lua`, `gallery.lua`, `forms.lua`, `dashboard.lua`,
+  `anim.lua`, `lua_table_editor.lua`, `editor_screenshot.lua`.
 - **npm on Linux and macOS:** the prebuilt addon and `bui-runtime` ship for Linux x64 (glibc 2.35 or later) and
   macOS (arm64 and x64) as well as Windows x64, one package per platform: `@blender-ui/native-<tag>`
   (`bindings/node/platform.js`). `@blender-ui/native` lists them as `optionalDependencies`, so an install gets

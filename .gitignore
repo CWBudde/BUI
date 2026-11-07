@@ -17,5 +17,8 @@ bindings/rust/blenderui-sys/csrc/
 /.claude/worktrees/
 __pycache__/
 *.pyc
+bindings/lua/lua-5.4.7/
 bindings/rust/*/LICENSE
 bindings/rust/*/THIRD_PARTY_NOTICES.md
+bindings/lua/.CMakeLists.txt.swp
+CMakeFiles/
