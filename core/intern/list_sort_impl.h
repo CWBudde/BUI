@@ -132,14 +132,12 @@ struct SortInfo {
   list_node *ranks[MAX_RANKS];
 };
 
-inline void init_sort_info(struct SortInfo *si,
-                           CompareFn func
+BLI_INLINE void init_sort_info(struct SortInfo *si, CompareFn func
 #ifdef SORT_IMPL_USE_THUNK
-                           ,
-                           void *thunk
+                               ,
+                               void *thunk
 #endif
-)
-{
+) {
   si->min_rank = si->n_ranks = 0;
   si->func = func;
   /* we don't need to initialize si->ranks,
@@ -150,15 +148,13 @@ inline void init_sort_info(struct SortInfo *si,
 #endif
 }
 
-inline list_node *merge_lists(list_node *first,
-                              list_node *second,
-                              CompareFn func
+BLI_INLINE list_node *merge_lists(list_node *first, list_node *second,
+                                  CompareFn func
 #ifdef SORT_IMPL_USE_THUNK
-                              ,
-                              void *thunk
+                                  ,
+                                  void *thunk
 #endif
-)
-{
+) {
   /* merge the two lists */
   list_node *list = NULL;
   list_node **pos = &list;
