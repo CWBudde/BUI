@@ -10,6 +10,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #include <stdio.h>
+#include <stdlib.h>
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
@@ -141,6 +142,11 @@ static int close_before_gpu_ready(void)
 
 int main(void)
 {
+#ifndef _WIN32
+  /* this tests the GPU renderer's start on a window (BK_window_set_gpu after creation), which the
+   * X11 host has; kit_window_linux.c would pick Wayland on a Wayland session */
+  setenv("BUI_WINDOW_BACKEND", "x11", 1);
+#endif
   const int display = BK_window_supported();
   const int offscreen = offscreen_start();
   const int results[] = {

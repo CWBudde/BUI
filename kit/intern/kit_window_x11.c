@@ -1,4 +1,5 @@
-/* Native window host (X11, also Wayland through XWayland).
+/* Native window host (X11, also Wayland sessions through XWayland; kit_window_wayland.c is the
+ * native Wayland host).
  *
  * The same BK_window_* API as kit_window_win32.c, on Xlib: input events go
  * straight to BK_* input (button and key mapping after Blender's
@@ -14,6 +15,10 @@
 #include "kit_intern.h"
 
 #ifdef BUI_WINDOW_X11
+
+/* With Wayland support this host's API is bk_x11_window_* and kit_window_linux.c picks one. */
+#  define BK_WINDOW_X11_HOST
+#  include "kit_window_linux.h"
 
 #  include <X11/Xatom.h>
 #  include <X11/Xlib.h>
