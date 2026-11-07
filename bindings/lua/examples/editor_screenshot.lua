@@ -20,11 +20,12 @@ tb:set("padding", 4)
 local title = bui.Node("label")
 title:set("text", "Lua Table Editor")
 tb:add(title)
+title:geom(bui.GEOM_PACK, {side = 0})
 
 local dd = bui.Node("dropdown")
 dd:set_strs("items", {"Person Record", "Project Config", "Game State"})
 tb:add(dd)
-dd:geom(bui.GEOM_PACK, {fill = 1, side = 1})
+dd:geom(bui.GEOM_PACK, {fill = 1})
 
 local add_btn = bui.Node("button"); add_btn:set("text", "+ Add"); tb:add(add_btn); add_btn:geom(bui.GEOM_PACK, {side = 1})
 local del_btn = bui.Node("button"); del_btn:set("text", "Delete"); tb:add(del_btn); del_btn:geom(bui.GEOM_PACK, {side = 1})

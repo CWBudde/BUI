@@ -19,10 +19,12 @@ row:set("padding", 4)
 local count_lbl = bui.Node("label")
 count_lbl:set("text", "Chars: 0")
 row:add(count_lbl)
+count_lbl:geom(bui.GEOM_PACK, {side = 0})
 
 local sel_lbl = bui.Node("label")
 sel_lbl:set("text", "Sel: 0-0")
 row:add(sel_lbl)
+sel_lbl:geom(bui.GEOM_PACK, {side = 0})
 
 ta:on(bui.EV_CHANGE, function()
   local text = ta:get("text")
