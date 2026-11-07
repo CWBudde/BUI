@@ -101,7 +101,7 @@ local function build_jobs()
     local nl = bui.Node("label"); nl:set("text", job[1]); r:add(nl)
     local el = bui.Node("label"); el:set("text", "[" .. job[2] .. "]"); r:add(el)
     local fl = bui.Node("label"); fl:set("text", job[3]); r:add(fl)
-    local bar = bui.Node("progress"); bar:set("value", job[4]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
+    local bar = bui.Node("progress"); bar:set("factor", job[4]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
     local pl = bui.Node("label"); pl:set("text", math.floor(job[4] * 100) .. "%"); r:add(pl)
     col:add(r)
   end
@@ -130,7 +130,7 @@ local function build_nodes()
     r:set("padding", 2)
     local nl = bui.Node("label"); nl:set("text", nd[1]); r:add(nl)
     local sl = bui.Node("label"); sl:set("text", nd[2]); r:add(sl)
-    local bar = bui.Node("progress"); bar:set("value", nd[3]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
+    local bar = bui.Node("progress"); bar:set("factor", nd[3]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
     col:add(r)
   end
 
