@@ -100,7 +100,7 @@ shared (`bui.host`).
 `bui.host.Window` puts a kit context in a top-level window.
 
 - **Native (Windows and Linux).** A window written in C: BUI's own Win32 host on Windows,
-  X11 on Linux (Wayland sessions run it through XWayland). Input goes
+  X11 on Linux (and an experimental native Wayland host; X11 also runs through XWayland). Input goes
   straight into the kit, and frames are presented by blitting only the
   changed tiles. It follows the display's DPI (per-monitor on Windows,
   `Xft.dpi` on X11) and paces animations to the display's refresh rate.

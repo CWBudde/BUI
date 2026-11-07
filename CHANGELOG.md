@@ -10,6 +10,17 @@ All notable changes to **blenderui** (BUI). The format follows
 - **npm on Linux and macOS:** `@blender-ui/native` ships the prebuilt addon and `bui-runtime` for Linux x64
   (glibc 2.35 or later) and macOS (arm64 and x64) as well as Windows x64. `release.yml` builds them on
   `ubuntu-22.04`, `macos-15` and `macos-15-intel` and publishes them in the one package.
+- **Native Wayland windows (experimental).** `kit/intern/kit_window_wayland.c` is a Wayland host with the same
+  `BK_window_*` API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels with server-side
+  decorations when offered, a `wl_seat` with xkbcommon (keys, key repeat), the pointer, the clipboard through
+  `wl_data_device`, cursors, the output's buffer scale, and `wl_surface.frame` pacing into `wl_shm` buffers
+  (only damaged rectangles are copied). It uses Blender's `wayland_dynload` (`kit/extern/wayland_dynload`), so
+  libwayland loads at run time and nothing is linked; libxkbcommon is `dlopen()`ed. A Wayland session gets it;
+  `BUI_WINDOW_BACKEND=x11|wayland` picks one. It draws on the CPU, so with the GPU renderer on (`BUI_GPU=1`, or
+  `BUI_gpu_set_default(1)` before the first window) the session keeps X11 (XWayland): the X11 host and its GPU start
+  (the worker-thread device, the idle switch) are unchanged. Builds without the Wayland headers,
+  `wayland-scanner` and `wayland-protocols` (or with `-DBUI_WAYLAND=OFF`) are X11 only, as before. Not done:
+  IME, client-side decorations (no title bar on GNOME), pointer warping.
 - **Input methods (IME) on Windows**, ported from Blender (`GHOST_ImeWin32`, the text button's IME handling in
   `interface_handlers.cc` and its drawing in `interface_widgets.cc`). Chinese, Japanese and Korean input now
   works in text fields and text areas: the composition is drawn underlined at the caret (a thicker line under
