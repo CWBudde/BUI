@@ -584,7 +584,12 @@ static void test_cache(void)
     printf("cache: decoded %d failed %d cancelled %d evicted %d entries %d bytes %zu\n", st.decoded,
            st.failed, st.cancelled, st.evicted, st.entries, st.bytes);
     CHECK(st.decoded >= 600 && st.failed == 0);
-    CHECK(st.cancelled > 0); /* screens scrolled past before their decodes ran */
+    /* Screens scrolled past before their decodes ran are cancelled, but whether any decode is still
+     * queued when the next screen replaces it depends on how fast the workers are next to this loop
+     * (a fast Mac runner decoded 1375 and cancelled none), so it is reported, not required. */
+    if (st.cancelled == 0) {
+      printf("note: the decoders kept up with the scroll; cancellation was not exercised\n");
+    }
     CHECK(st.evicted > 0);   /* the budget holds fewer than were decoded */
 
     /* a settled frame allocates nothing in the image module (with a budget
