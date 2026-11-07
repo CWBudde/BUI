@@ -8,6 +8,7 @@ root:set("padding", 12)
 local label = bui.Node("label")
 label:set("text", "Count: 0")
 root:add(label)
+label:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 local count = 0
 

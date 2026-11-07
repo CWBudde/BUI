@@ -8,11 +8,13 @@ root:set("padding", 12)
 local title = bui.Node("label")
 title:set("text", "BUI Animation — Lua")
 root:add(title)
+title:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 -- Animated progress bar
 local prog_label = bui.Node("label")
 prog_label:set("text", "Progress:")
 root:add(prog_label)
+prog_label:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 local prog = bui.Node("progress")
 prog:set("value", 0.5)
@@ -23,6 +25,7 @@ prog:geom(bui.GEOM_PACK, {fill = 1})
 local swatch_label = bui.Node("label")
 swatch_label:set("text", "Color Cycle:")
 root:add(swatch_label)
+swatch_label:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 local swatch = bui.Node("swatch")
 swatch:set("color", {0.28, 0.45, 0.70, 1.0})
@@ -33,6 +36,7 @@ swatch:geom(bui.GEOM_PACK, {fill = 1})
 local slider_label = bui.Node("label")
 slider_label:set("text", "Wave:")
 root:add(slider_label)
+slider_label:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 local slider = bui.Node("slider")
 slider:set("min", 0)
@@ -46,6 +50,7 @@ slider:geom(bui.GEOM_PACK, {fill = 1})
 local frame_lbl = bui.Node("label")
 frame_lbl:set("text", "Frame: 0")
 root:add(frame_lbl)
+frame_lbl:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 -- Controls
 local control_row = bui.Node("row")
@@ -70,6 +75,7 @@ end)
 control_row:add(reset_btn)
 
 root:add(control_row)
+control_row:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 local ctx = bui.Context(root)
 local win = bui.Window(ctx, "BUI Animation — Lua", 360, 320)

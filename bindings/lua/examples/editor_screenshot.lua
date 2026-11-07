@@ -30,16 +30,19 @@ local add_btn = bui.Node("button"); add_btn:set("text", "+ Add"); tb:add(add_btn
 local del_btn = bui.Node("button"); del_btn:set("text", "Delete"); tb:add(del_btn); del_btn:geom(bui.GEOM_PACK, {side = 1})
 local exp_btn = bui.Node("button"); exp_btn:set("text", "Export"); tb:add(exp_btn); exp_btn:geom(bui.GEOM_PACK, {side = 1})
 root:add(tb)
+tb:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 -- Main area
 local main_row = bui.Node("row")
 root:add(main_row)
+main_row:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
 -- Tree
 local tree = bui.Node("tree")
 tree:set_strs("headers", {"Key", "Type", "Value"})
 tree:set_strs("columns", {"0", "2", "1", "3"})
 main_row:add(tree)
+tree:geom(bui.GEOM_PACK, {fill = 1})
 
 -- Helper to build a tree item
 local function ti(parent, key, vtype, val, children)
@@ -108,11 +111,13 @@ local etog = bui.Node("toggle"); etog:set("text", "Enabled"); etog:set("value", 
 eb("Apply"):geom(bui.GEOM_PACK, {fill = 1, pady0 = 4})
 eb("Clear Editor"):geom(bui.GEOM_PACK, {fill = 1, pady0 = 2})
 main_row:add(ep)
+ep:geom(bui.GEOM_PACK, {side = 1}) -- pack from right, natural width
 
 -- Status bar
 local st = bui.Node("label")
 st:set("text", "Loaded: Person Record | Entries: 9 | Select an entry to edit")
 root:add(st)
+st:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 -- Render headless
 local ctx = bui.Context(root)
