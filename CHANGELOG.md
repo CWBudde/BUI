@@ -7,6 +7,9 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **npm on Linux and macOS:** `@blender-ui/native` ships the prebuilt addon and `bui-runtime` for Linux x64
+  (glibc 2.35 or later) and macOS (arm64 and x64) as well as Windows x64. `release.yml` builds them on
+  `ubuntu-22.04`, `macos-15` and `macos-15-intel` and publishes them in the one package.
 - **Input methods (IME) on Windows**, ported from Blender (`GHOST_ImeWin32`, the text button's IME handling in
   `interface_handlers.cc` and its drawing in `interface_widgets.cc`). Chinese, Japanese and Korean input now
   works in text fields and text areas: the composition is drawn underlined at the caret (a thicker line under

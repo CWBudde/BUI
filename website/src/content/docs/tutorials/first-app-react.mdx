@@ -5,7 +5,7 @@ description: Write a React counter with a Blender slider, run it on Bun or Node.
 section: Tutorials
 order: 50
 languages: ["javascript"]
-badges: ["15 minutes", "Windows x64 prebuilt"]
+badges: ["15 minutes", "Windows, Linux and macOS prebuilt"]
 sources: ["docs/javascript.md", "bindings/react/examples/counter.jsx", "bindings/react/examples/counter.js", "bindings/react/README.md", "bindings/react/index.js", "bindings/node/index.js", "bindings/node/cli.js"]
 ---
 
@@ -14,7 +14,7 @@ You know React. Here's the twist: the same components, hooks and JSX render into
 You'll build a counter with a Blender slider, learn the one thing that's different about hooks here (they hold **signals**), and ship it.
 
 <Callout type="warning" title="Platforms">
-The npm packages include a prebuilt native addon for **Windows x64**. On **Linux**, build the addon from source first ([installation](../../start/installation/)); windows are native there too. On **macOS**, JavaScript runs headless for now.
+The npm packages include a prebuilt native addon for **Windows x64**, **Linux x64** (glibc 2.35 or later; native windows) and **macOS**. On other systems, build the addon from source first ([installation](../../start/installation/)). On **macOS**, JavaScript runs headless for now.
 </Callout>
 
 ## Set up
@@ -137,7 +137,7 @@ This writes `app.exe`: BUI plus the small [QuickJS](https://github.com/quickjs-n
 - QuickJS has no Node modules (`fs`, `net` …). If your app needs them, build with `--bun` for a full Bun runtime (about 115 MB).
 - `npx bui run app.jsx` runs on the QuickJS runtime without making an executable.
 
-The prebuilt runtime is for Windows x64. On other platforms, `npm run build` in `bindings/node` builds it from source.
+Prebuilt runtimes are for Windows x64, Linux x64 and macOS. On other platforms, `npm run build` in `bindings/node` builds it from source.
 
 ## Next steps
 

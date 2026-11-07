@@ -25,7 +25,7 @@ function loadAddon () {
     return require(env || path.join(__dirname, `blenderui.${process.platform}-${process.arch}.node`))
   } catch (err) {
     throw new Error(`@blender-ui/native: no native addon for ${process.platform}-${process.arch}. ` +
-      'Prebuilt binaries are for Windows x64; elsewhere, build it from a clone of ' +
+      'Prebuilt binaries are for Windows x64, Linux x64 (glibc 2.35 or later) and macOS; elsewhere, build it from a clone of ' +
       'https://github.com/ppmpreetham/BUI with `npm run build` in bindings/node (needs Rust, CMake and a C compiler), ' +
       'then use that package, or point BUI_NODE_ADDON at the built blenderui.<platform>-<arch>.node. ' +
       `(${err.message.split('\n')[0]})`,

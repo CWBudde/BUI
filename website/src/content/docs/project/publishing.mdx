@@ -110,7 +110,7 @@ cd ../react && npm publish --access public # @blender-ui/react (runs the tests)
 - **Preview** with `npm pack --dry-run`, which lists what a package will contain.
 - **Releasing again:** bump `version` in the package's `package.json` first; npm refuses to publish the same version twice. When the native package changes in a way React needs, raise React's `@blender-ui/native` range to match.
 
-The native package ships `blenderui.win32-x64.node` and `bui-runtime.win32-x64.exe`, and its `os` and `cpu` fields limit it to Windows x64. More platforms would mean building both on each platform, typically in CI, and publishing optional per-platform packages, the napi-rs convention.
+The native package ships the addon and `bui-runtime` for Windows x64, Linux x64 and macOS (arm64 and x64) in one package. In `release.yml`, the `npm-native` jobs build them on `ubuntu-22.04` (so the addon needs glibc 2.35 or later), `macos-15` and `macos-15-intel`; the `npm` job builds the Windows ones and publishes all of them. Optional per-platform packages (the napi-rs convention) would make each install smaller.
 
 ## crates.io
 
@@ -153,7 +153,7 @@ A published crate can't reach files outside itself, so `blenderui-sys` must carr
 - **macOS:** the native Cocoa host has been tried by hand on two Apple Silicon Macs so far. With `BUI_HOST=tk`, the wheels use the standard Tk window instead.
 - **Windows wheels** are built with MinGW. MSVC builds work (the Rust crate and the CMake build use it), but aren't what's published.
 - **No musllinux or 32-bit wheels** yet.
-- **npm:** prebuilt for Windows x64 only.
+- **npm:** prebuilt for Windows x64, Linux x64 (glibc) and macOS; no musl or arm64 Linux.
 
 ## Next steps
 

@@ -101,12 +101,40 @@ jobs:
             [ "$PUBLISH" = true ] && sleep 20
           done
 
+  npm-native:
+    name: npm native (${{ matrix.os }})
+    needs: versions
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        # ubuntu-22.04: the addon then needs glibc 2.35 or later
+        os: [ubuntu-22.04, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+      - name: Build the addon and the runtimes
+        working-directory: bindings/node
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-native-${{ matrix.os }}
+          path: |
+            bindings/node/blenderui.*.node
+            bindings/node/bui-runtime*
+          if-no-files-found: error
+
   npm:
     name: npm
-    needs: [versions, ci]
-    # runs when the versions match and CI passed (or was skipped on purpose)
-    if: ${{ !cancelled() && needs.versions.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
-    # the native addon ships prebuilt for Windows x64 (other systems build it from source)
+    needs: [versions, ci, npm-native]
+    # runs when the versions match, the native builds passed and CI passed (or was skipped on purpose)
+    if: ${{ !cancelled() && needs.versions.result == 'success' && needs.npm-native.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    # builds the Windows x64 addon and publishes it with the Linux and macOS ones
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -125,6 +153,11 @@ jobs:
         run: npm install -g npm@^11.5.1
       - uses: oven-sh/setup-bun@v2 # the runtime tests build a Bun executable too
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: npm-native-*
+          path: bindings/node
+          merge-multiple: true
       - name: Install workspace dependencies
         working-directory: bindings
         run: npm ci

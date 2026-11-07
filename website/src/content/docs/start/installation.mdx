@@ -89,11 +89,11 @@ For the DOM-like API without a framework:
 npm install @blender-ui/native
 ```
 
-<Callout type="warning" title="Prebuilt for Windows x64">
-The npm packages include a prebuilt native addon for **Windows x64**. On **Linux**, build the addon from source (below); windows are native there too. On **macOS**, JavaScript runs headless for now, because macOS only allows windows on the main thread and BUI runs its own UI thread under Node.
+<Callout type="warning" title="Prebuilt platforms">
+The npm packages include a prebuilt native addon for **Windows x64**, **Linux x64** (glibc 2.35 or later; native windows) and **macOS**. On other systems, build the addon from source (below). On **macOS**, JavaScript runs headless for now, because macOS only allows windows on the main thread and BUI runs its own UI thread under Node.
 </Callout>
 
-To build the addon from a clone (Linux, or to hack on BUI), you need what the Rust crate needs: Rust, CMake and a C compiler.
+To build the addon from a clone (another system, or to hack on BUI), you need what the Rust crate needs: Rust, CMake and a C compiler.
 
 ```sh
 cd bindings
@@ -152,7 +152,7 @@ Want ImGui's widgets to *be* Blender's widgets? Build with `-DBUI_IMGUI_BLENDER_
 | Window | Native (Win32) | Native (X11; Wayland through XWayland) | Native (Cocoa), experimental |
 | Python wheels | Yes | Yes | Yes |
 | Rust | Yes | Yes | Yes, experimental |
-| JavaScript and React | Yes, prebuilt | Yes, build the addon | Headless for now |
+| JavaScript and React | Yes, prebuilt | Yes, prebuilt (glibc 2.35+) | Headless for now |
 | C, C++, Dear ImGui | Yes | Yes | Yes, experimental |
 | GPU renderer | Direct3D 11 | OpenGL 3.3 | Not yet: CPU raster |
 
