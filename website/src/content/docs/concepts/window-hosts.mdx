@@ -17,7 +17,7 @@ This page explains each host, how to choose one yourself, and what to expect on 
   ["<strong>Win32</strong>", "done", "Windows. Native, written in C"],
   ["<strong>X11</strong>", "done", "Linux (and Wayland sessions, through XWayland). Native, written in C"],
   ["<strong>Wayland</strong>", "experimental", "Linux. Native, written in C, after Blender's GHOST. CPU renderer"],
-  ["<strong>Cocoa</strong>", "experimental", "macOS. Native, tried by hand on three Macs (two Apple Silicon, one Intel) so far"],
+  ["<strong>Cocoa</strong>", "done", "macOS. Native, tried by hand on three Macs (two Apple Silicon, one Intel)"],
   ["<strong>Tk</strong>", "done", "Anywhere Python has <code>tkinter</code>. Python only; the fallback"],
   ["<strong>Headless</strong>", "done", "Anywhere. No window: tests and screenshots"],
 ]} />
@@ -50,9 +50,9 @@ Wayland sessions can run it through XWayland, which every mainstream desktop pro
 
 A native Wayland host with the same API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels (with server-side decorations when the compositor offers them), a `wl_seat` with xkbcommon for keys and key repeat, the pointer, the clipboard through `wl_data_device`, cursors from the cursor theme, the output's buffer scale, and frame callbacks for pacing. Damaged rectangles are copied into `wl_shm` buffers. libwayland-client and libwayland-cursor load at run time through Blender's `wayland_dynload`, so nothing is linked. A session with `WAYLAND_DISPLAY` gets this host; set `BUI_WINDOW_BACKEND=x11` to use X11, or `wayland` to force this one. It draws on the CPU: with the [GPU renderer](../rendering/) on (`BUI_GPU=1`), a Wayland session keeps X11 through XWayland until Wayland has its own EGL renderer. Per-window `BK_window_set_gpu` on a Wayland window is ignored for the same reason. Not done yet: IME, client-side decorations when the compositor has no server-side ones (GNOME shows no title bar), pointer warping, window positions.
 
-### macOS (Cocoa) <Badge tone="preview">Experimental</Badge>
+### macOS (Cocoa)
 
-A port of Blender's own Cocoa code (GHOST's `GHOST_SystemCocoa.mm` and `GHOST_WindowCocoa.mm`), with Retina scaling. It has been run by hand on three Macs (two Apple Silicon, one Intel); the Intel one ran the wheel and a source build.
+A port of Blender's own Cocoa code (GHOST's `GHOST_SystemCocoa.mm` and `GHOST_WindowCocoa.mm`), with Retina scaling. It works: CI checks it, and it has been run by hand on three Macs (two Apple Silicon, one Intel).
 
 - AppKit only works on the **main thread**, so every window call must come from it. On any other thread, the native host reports itself unavailable and Python falls back to Tk.
 - That's also why **JavaScript is headless on macOS** for now: Node runs BUI on its own UI thread, which isn't the main thread.

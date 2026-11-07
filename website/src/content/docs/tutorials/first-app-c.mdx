@@ -128,7 +128,7 @@ Then run `bui_kit_hello` from the build folder. A small window opens with a **Si
    }
    ```
 
-   Idea five, **the window loop**. `BK_window_new` puts the context in a native window: Win32 on Windows, X11 on Linux, Cocoa on macOS (still experimental). `BK_window_run` handles messages until every window is closed. From then on, input goes in, frames come out, and only the changed parts of the window are redrawn, all without leaving C.
+   Idea five, **the window loop**. `BK_window_new` puts the context in a native window: Win32 on Windows, X11 on Linux, Cocoa on macOS. `BK_window_run` handles messages until every window is closed. From then on, input goes in, frames come out, and only the changed parts of the window are redrawn, all without leaving C.
 
 8. **Or render without a window.**
 

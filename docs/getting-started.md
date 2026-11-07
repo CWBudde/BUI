@@ -104,8 +104,8 @@ shared (`bui.host`).
   straight into the kit, and frames are presented by blitting only the
   changed tiles. It follows the display's DPI (per-monitor on Windows,
   `Xft.dpi` on X11) and paces animations to the display's refresh rate.
-- **Native (macOS, experimental).** A Cocoa window (a port of Blender's GHOST
-  code; new, checked by CI and tried by hand on three Macs (two Apple Silicon, one Intel)) with Retina scaling. It needs the main
+- **Native (macOS).** A Cocoa window (a port of Blender's GHOST
+  code; checked by CI and tried by hand on three Macs (two Apple Silicon, one Intel)) with Retina scaling. It needs the main
   thread. See [macos-testing.md](macos-testing.md).
 - **Tk (with `BUI_HOST=tk`, or where no native host works).** A stdlib `tkinter` window that
   shows the kit's frame buffer and forwards input to it. The UI and the API

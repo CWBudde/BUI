@@ -53,7 +53,7 @@ int main(void)
   host.emit = on_event;                     /* the window fills in the rest */
   BK_context_set_host(ctx, &host);
 
-  if (BK_window_supported()) {              /* Win32, X11, Cocoa (experimental) */
+  if (BK_window_supported()) {              /* Win32, X11, Cocoa */
     BKWindow *win = BK_window_new(ctx, "BUI from C", 320, 120);
     BK_window_show(win);
     BK_window_run();

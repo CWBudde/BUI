@@ -32,6 +32,10 @@ All notable changes to **blenderui** (BUI). The format follows
   the host's poll 7 ns).
 
 ### Changed
+- **macOS is no longer labelled experimental.** Three people have tried the Cocoa host by hand and it works, so
+  the README, the website and the docs say so (the platform tables, the FAQ, the limits, the roadmap, the landing
+  page). What is still true there is unchanged: the CPU raster only (no Metal renderer), and JavaScript windows
+  are headless. The native Wayland host is now the only experimental window host.
 - **macOS docs:** three people have now tried the Cocoa host by hand: two Apple Silicon Macs and an Intel MacBook Pro
   ([piaoboo](https://github.com/piaoboo), issue #17: the PyPI wheel works, the source build passes 25/25 tests). The
   guide and the README, website and docs that said "two Apple Silicon Macs" or "nobody has tried an Intel Mac" now

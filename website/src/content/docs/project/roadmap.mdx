@@ -38,7 +38,7 @@ Each row has a status: **Works** when it works and is tested, **Partial** when c
     ["Rust components", "partial", "No async resources (<code>use_resource</code>) and no generic components yet"],
     ["Dear ImGui", "partial", "Python and safe Rust skip the <code>va_list</code>, <code>void*</code> and C-callback functions; in the Blender-widgets build, title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing"],
     ["npm packages", "partial", "Prebuilt for Windows x64 only; on Linux, build the addon from source"],
-    ["macOS", "experimental", "The Cocoa window host is checked by CI and has been tried by hand on three Macs (two Apple Silicon, one Intel) (<a href='https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md'>testing guide</a>); JavaScript is headless there; no GPU renderer yet"],
+    ["macOS", "partial", "The Cocoa window host works: checked by CI and tried by hand on three Macs (two Apple Silicon, one Intel) (<a href='https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md'>testing guide</a>); JavaScript is headless there; no GPU renderer yet"],
   ]}
 />
 
@@ -77,7 +77,7 @@ The documentation grows alongside BUI. These lists come straight from the pages 
 
 ## Help make it happen
 
-The quickest wins are the experimental rows: if you have a Mac, running the Cocoa host and reporting what happens is enormously useful. The [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md) walks you through it. Bug reports, missing tkinter or Qt behaviour, CSS features and docs are all welcome too. Start with [CONTRIBUTING.md](https://github.com/ppmpreetham/BUI/blob/main/CONTRIBUTING.md).
+The quickest wins are the experimental rows: if you use Wayland, trying the native Wayland host and reporting what happens is enormously useful. On a Mac with an older macOS, the [macOS testing guide](https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md) walks you through it. Bug reports, missing tkinter or Qt behaviour, CSS features and docs are all welcome too. Start with [CONTRIBUTING.md](https://github.com/ppmpreetham/BUI/blob/main/CONTRIBUTING.md).
 
 <Callout type="joke">
 Our roadmap has no dates on it. Like a good render, it's done when the noise goes away.
