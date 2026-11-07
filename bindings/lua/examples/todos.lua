@@ -7,28 +7,29 @@ root:set("padding", 8)
 
 local header = bui.Node("label")
 header:set("text", "Todo List")
-header:set("value", 18) -- font size
+header:set("value", 18)
 root:add(header)
+header:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 local input_row = bui.Node("row")
 root:add(input_row)
+input_row:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
 local field = bui.Node("text")
 field:set("placeholder", "Add a task...")
 input_row:add(field)
-field:geom(bui.GEOM_PACK, {fill = 1, side = 0})
+field:geom(bui.GEOM_PACK, {fill = 1})
+
+local tasks = {}
 
 local add_btn = bui.Node("button")
 add_btn:set("text", "Add")
-local tasks = {}  -- Lua-side storage
-
 add_btn:on(bui.EV_CLICK, function()
     local text = field:get("value")
     if text and #text > 0 then
         table.insert(tasks, text)
         field:set("value", "")
-        -- In a real app, update a list node here
-        print("Added:", text)
+        refresh_list()
     end
 end)
 input_row:add(add_btn)
@@ -36,36 +37,32 @@ input_row:add(add_btn)
 -- Separator
 local sep = bui.Node("separator")
 root:add(sep)
+sep:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
--- Task list (using a column for simplicity)
+-- Task list
 local task_list = bui.Node("column")
 task_list:set("padding", 4)
 root:add(task_list)
+task_list:geom(bui.GEOM_PACK, {side = 0, expand = 1, fill = 3})
 
 local function refresh_list()
-    -- Rebuild task list nodes
-    -- (Since we can't easily remove and re-add children in a loop,
-    --  this demonstrates the concept)
-    print("Tasks (" .. #tasks .. "):")
-    for i, t in ipairs(tasks) do
-        print("  " .. i .. ". " .. t)
+    for i = task_list:child_count() - 1, 0, -1 do
+        task_list:remove(task_list:child(i))
     end
+    for _, t in ipairs(tasks) do
+        local l = bui.Node("label")
+        l:set("text", t)
+        l:geom(bui.GEOM_PACK, {side = 0, fill = 1})
+        task_list:add(l)
+    end
+    root:relayout()
 end
 
-local refresh_btn = bui.Node("button")
-refresh_btn:set("text", "Show Tasks")
-refresh_btn:on(bui.EV_CLICK, function()
-    refresh_list()
-end)
-root:add(refresh_btn)
-refresh_btn:geom(bui.GEOM_PACK, {fill = 1, pady0 = 4})
-
--- Clear button
 local clear = bui.Node("button")
 clear:set("text", "Clear All")
 clear:on(bui.EV_CLICK, function()
     tasks = {}
-    print("Tasks cleared")
+    refresh_list()
 end)
 root:add(clear)
 clear:geom(bui.GEOM_PACK, {fill = 1, pady0 = 4})
