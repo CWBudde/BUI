@@ -1,0 +1,52 @@
+version = '2'
+
+[linters]
+default = 'all'
+disable = [
+  'depguard',
+  'exhaustive',
+  # Zero values are meaningful here (PackOptions{Fill: FillX}). exhaustruct_v5 is the same rule's
+  # new major version since golangci-lint 2.13; the deprecated name stays active under 'all' too.
+  'exhaustruct',
+  'exhaustruct_v5',
+  # style linters that fight the cgo/UI-thread design of this binding
+  'funcorder',
+  'gochecknoglobals',
+  'gochecknoinits',
+  'noinlineerr',
+  'nonamedreturns',
+  'paralleltest',
+  'testpackage',
+  'varnamelen',
+  'godox',
+  'gomodguard',
+  'ireturn',
+  'mnd',
+  'musttag',
+  'nlreturn',
+  'sqlclosecheck',
+  'wsl',
+]
+enable = ['wsl_v5']
+
+[linters.settings.wsl_v5]
+allow-first-in-block = true
+allow-whole-block = false
+branch-max-lines = 2
+disable = ['decl']
+
+[linters.exclusions]
+generated = 'lax'
+presets = ['comments', 'common-false-positives', 'legacy', 'std-error-handling']
+paths = ['third_party/', 'builtin$', 'examples/']
+
+[[linters.exclusions.rules]]
+linters = ['cyclop', 'err113', 'forbidigo', 'funlen', 'goconst', 'gosec', 'lll', 'noctx']
+path = '_test\.go'
+
+[formatters]
+enable = ['gci', 'gofumpt', 'goimports']
+
+[formatters.exclusions]
+generated = 'lax'
+paths = ['third_party/', 'builtin$', 'examples/']
