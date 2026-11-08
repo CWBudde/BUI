@@ -3498,7 +3498,7 @@ void bk_html_te_draw(BKTextEdit *te, const BKRect *cr, const uchar color[4])
     bk_text(tx, base, s, len, white, false);
     bk_clip_pop();
   }
-  else if (bk_te_caret_visible(te)) { /* Chrome hides the caret over a range selection, and blinks it */
+  else { /* Chrome hides the caret over a range selection */
     bk_fill(floorf(tx + caret_px), (float)cr->ymin, html_bw(), (float)h, color);
   }
   bk_clip_pop();

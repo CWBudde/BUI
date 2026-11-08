@@ -250,13 +250,6 @@ void bk_ctx_arm_timer(BKContext *ctx)
 {
   /* the context's one frame timer: custom nodes' wakes and animated images */
   double due = bk_image_next_due(ctx);
-  BKNode *editing = ctx->focus;
-  if (editing && editing->edit && editing->edit->blink_t0 > 0.0) { /* the caret's next blink */
-    const double t = bk_te_next_toggle(editing->edit);
-    if (due == 0.0 || t < due) {
-      due = t;
-    }
-  }
   for (BKCustom *c = g_customs; c; c = c->next) {
     if (c->wake_at > 0.0 && bk_ctx(c->node) == ctx && (due == 0.0 || c->wake_at < due)) {
       due = c->wake_at;
@@ -288,10 +281,6 @@ void bk_custom_timer(BKContext *ctx)
       c->want_frame = 1;
       any = true;
     }
-  }
-  if (ctx->focus && ctx->focus->edit) { /* the caret blinks: redraw the field being edited */
-    bk_invalidate(ctx->focus);
-    any = true;
   }
   bk_ctx_arm_timer(ctx);
   if (any) {
