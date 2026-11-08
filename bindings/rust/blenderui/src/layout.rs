@@ -1196,6 +1196,7 @@ impl<'a> Builder<'a> {
                     // browser-look controls in plain HTML; Blender widgets inside
                     // `styled` and for the Blender components (`bui-blender`)
                     spec.html = !self.nodes[i].styled && self.attr(i, "bui-blender").is_none();
+                    spec.bare = spec.html && self.styles[style].border_drawn.iter().all(|d| !d);
                     self.nodes[i].content = Content::Widget(spec);
                 } else {
                     self.children(i, div.children);

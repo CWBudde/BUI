@@ -79,6 +79,8 @@ pub(crate) struct WidgetSpec {
     /// Drawn like a browser's form control (plain HTML outside `styled`);
     /// false: a Blender widget (inside `styled`, or a Blender component).
     pub html: bool,
+    /// An HTML text field whose CSS has `border-style: none` (`border-none`): drawn with no frame.
+    pub bare: bool,
     /// `<optgroup>` labels: (index of the option they come before, label).
     pub groups: Vec<(usize, String)>,
     /// `<meter>`'s low, high and optimum.
@@ -158,6 +160,7 @@ impl WidgetSpec {
             disabled: attr(attrs, "disabled").is_some(),
             name: attr(attrs, "name").map(str::to_owned),
             html: false,
+            bare: false,
             groups: Vec::new(),
             meter: [None; 3],
         }
@@ -451,6 +454,9 @@ fn sync(n: *mut sys::BKNode, old: Option<&WidgetSpec>, spec: &WidgetSpec) {
         let set_str = |k: &CStr, v: &str| { let c = cstr(v); sys::BK_set_str(n, k.as_ptr(), c.as_ptr()); };
         if old.is_none_or(|o| o.html != spec.html) {
             set_num(c"html", spec.html as i32 as f64);
+        }
+        if old.is_none_or(|o| o.bare != spec.bare) {
+            set_num(c"bare", spec.bare as i32 as f64);
         }
         if old.is_none_or(|o| o.disabled != spec.disabled) {
             set_num(c"enabled", (!spec.disabled) as i32 as f64);

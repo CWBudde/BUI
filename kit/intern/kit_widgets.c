@@ -3646,7 +3646,9 @@ static void html_text_draw(BKNode *n)
 {
   const BKRect r = bk_node_rect(n);
   const int hs = html_state(n);
-  html_field_frame(&r, hs, n->edit != NULL);
+  if (!(n->flags & NF_BARE)) { /* `border: none`: no frame and no focus ring, as in Chrome */
+    html_field_frame(&r, hs, n->edit != NULL);
+  }
   const BKRect cr = html_inset(&r, 4, 3, 4, 3);
   const uchar *tc = hs == HS_DISABLED ? kHtmlFieldTextDisabled : kHtmlText;
   if (n->edit) {

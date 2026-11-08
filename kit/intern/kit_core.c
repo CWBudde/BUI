@@ -779,6 +779,7 @@ static const struct {
     {"viewevents", NF_VIEWEVENTS, false}, {"noscrollbar", NF_NOSCROLLBAR, true},
     {"opaque", NF_OPAQUE, false},
     {"html", NF_HTML, true}, /* Chrome's form-control look (kit_widgets.c) */
+    {"bare", NF_BARE, false},
     {"active_default", NF_ACTIVE_DEFAULT, false},
 };
 
