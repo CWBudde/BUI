@@ -1,0 +1,107 @@
+---
+title: Go
+description: "Use BUI from Go with package bui: build a widget tree, handle clicks, and render it headless, with no cgo by default."
+section: Go
+order: 10
+status: preview
+badges: ["Experimental"]
+sources: ["bindings/go/README.md", "bindings/go/docs/design.md", "bindings/go/bui.go", "bindings/go/headless.go", "bindings/go/window.go", "bindings/go/node.go", "bindings/go/engine_cgo.go", "bindings/go/engine_nocgo.go", "bindings/go/internal/engine/cgoengine/cgoengine.go", "bindings/go/examples/counter/main.go", "bindings/go/go.mod"]
+---
+
+Package `bui` drives BUI's widget tree from Go: create nodes, set their properties, lay them out and handle their clicks. By default it needs no C toolchain at all, so `CGO_ENABLED=0 go build` works for any operating system and architecture Go supports.
+
+The binding is experimental, and the API is small and will change. For now it renders **headless**: into memory, with synthetic input, which is what tests and screenshots need. Windows come later; until then you get them only through the cgo engine on Linux.
+
+## Install it
+
+You need Go 1.26 or newer. The module is `github.com/ppmpreetham/BUI/bindings/go`. It has no tagged release yet, so take it at a commit:
+
+```sh
+go get github.com/ppmpreetham/BUI/bindings/go@main
+```
+
+## A first tree
+
+This builds a frame with one button, renders it, and clicks the button in the middle. It prints `clicked`:
+
+```go title="main.go"
+package main
+
+import (
+	"fmt"
+
+	bui "github.com/ppmpreetham/BUI/bindings/go"
+)
+
+func main() {
+	root := bui.NewNode("frame")
+	defer root.Close()
+
+	button := bui.NewNode("button")
+	button.SetStr("text", "Add step")
+	root.Add(button)
+	button.Pack(bui.PackOptions{Fill: bui.FillX})
+	button.OnClick(func() { fmt.Println("clicked") })
+
+	view := bui.NewHeadless(root, 320, 120)
+	defer view.Close()
+
+	view.Render() // lays out the tree, so Rect is valid from here on
+	x, y, w, h := button.Rect()
+	view.Press(x+w/2, y+h/2)
+	view.Release(x+w/2, y+h/2)
+}
+```
+
+`NewNode` takes the kit's widget types (`frame`, `button`, `label`, `slider`, `text` and the rest). `SetStr` and `SetNum` set their properties by name, and `Pack` places a node with BUI's Tk-style geometry manager. `Headless` owns the raster: `Render` lays out and draws the tree, and `Press` and `Release` send a left-button click.
+
+## Two engines
+
+The same API runs on two engines. You pick one when you build:
+
+| Build | Engine | Windows | Needs |
+| --- | --- | --- | --- |
+| Default, any platform | The kit as an embedded WebAssembly module, run by [wazero](https://github.com/tetratelabs/wazero) | None yet: `NewWindow` and `Run` return `ErrNoDisplay` | Only Go |
+| `-tags bui_cgo`, Linux | The kit itself, from the static libraries of BUI's CMake build | X11, and Wayland on request | cgo, a C and C++ toolchain, and that build |
+
+Both engines draw the same pixels: the binding's tests compare them exactly.
+
+**The WebAssembly engine** compiles the module at the first kit call, in about 0.2 to 0.3 seconds, and caches the result, so later starts take about 25 ms. On amd64 and arm64 it renders at about 2 to 4 times the native time. Other architectures fall back to wazero's interpreter, which is far slower and fit for tests rather than interaction.
+
+**The cgo engine** links the libraries you build at the repository's root. You need the X11 headers (`libx11-dev`) for windows:
+
+```sh
+cmake -S . -B build -DBUI_BUILD_TESTS=OFF -DBUI_BUILD_EXAMPLES=OFF
+cmake --build build --target bui_kit
+cd bindings/go
+go run -tags bui_cgo ./examples/counter
+```
+
+`examples/counter` opens a window with a slider, a button and two labels, one of which a goroutine updates every second through `bui.Do`. The cgo engine opens X11 windows, through XWayland on a Wayland desktop. Set `BUI_WINDOW_BACKEND=wayland` for native Wayland windows.
+
+## Threading
+
+Call `bui.Run` from the main goroutine. Every call that touches the kit belongs on the UI thread: the main goroutine before and after `Run`, and your handlers and `Do` functions while it runs. Other goroutines hand work to the UI thread with `bui.Do`, the one function that's safe from anywhere.
+
+## Limitations
+
+- **No windows yet with the default engine.** `Supported` is false, and `NewWindow` and `Run` return `ErrNoDisplay` on every platform. Only the cgo engine on Linux opens windows.
+- **Software rendering only.** `Headless` draws into a CPU raster, and the WebAssembly engine has no GPU renderer.
+- **No GPU, video, file browser or IME.** None of them is in the module, and the binding exposes none of them.
+- **A WebAssembly trap ends the process.** After a fault inside the module its state is unknown, so the process ends with a message instead of returning an error. Running out of the module's 1 GiB of memory counts as such a fault.
+- **Generic properties.** You set properties by name with `SetStr` and `SetNum`; there are no typed widget structs.
+- **Images stay pending** on the WebAssembly engine, which has no worker threads to decode them. The API sets no image source today.
+
+## Next steps
+
+<CardGrid>
+  <Card title="The kit API" href="docs/c/c-api/" icon="book" kicker="C & C++">
+    The C API whose nodes, properties and events the Go package wraps.
+  </Card>
+  <Card title="How it works" href="docs/concepts/how-it-works/" icon="lightbulb-filament" kicker="Concepts">
+    The kit, the widget tree and how BUI renders it.
+  </Card>
+  <Card title="CMake options" href="docs/reference/cmake-options/" icon="terminal" kicker="Reference">
+    Every build option of the libraries the cgo engine links.
+  </Card>
+</CardGrid>

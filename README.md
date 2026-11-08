@@ -9,7 +9,7 @@
     BUI
   </h1>
 
-**Blender's user interface, as a library you can use from Python, Rust, JavaScript (React, Svelte), C, C++ and Dear ImGui.**
+**Blender's user interface, as a library you can use from Python, Rust, JavaScript (React, Svelte), Go, C, C++ and Dear ImGui.**
 
 People spent decades building and optimizing Blender's GUI. It's battery and memory efficient, and super duper fast. We decoupled it, to give everyone a chance to build their own products with it. It supports multiple languages and frameworks, so you won't miss a beat!
 
@@ -18,7 +18,7 @@ People spent decades building and optimizing Blender's GUI. It's battery and mem
 [![crates.io](https://img.shields.io/crates/v/blenderui?label=crates.io%20blenderui)](https://crates.io/crates/blenderui)
 [![@blender-ui/react](https://img.shields.io/npm/v/@blender-ui/react?label=%40blender-ui%2Freact)](https://www.npmjs.com/package/@blender-ui/react)
 [![Wheels](https://github.com/ppmpreetham/BUI/actions/workflows/wheels.yml/badge.svg)](https://github.com/ppmpreetham/BUI/actions/workflows/wheels.yml)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](#44-license-and-credits)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](#45-license-and-credits)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/MWXZfdyM3D)
 
@@ -91,31 +91,32 @@ more to say.
 26. [Dear ImGui](#26-dear-imgui)
 27. [C and embedding](#27-c-and-embedding)
 28. [Lua](#28-lua)
-29. [Where the docs live](#29-where-the-docs-live)
+29. [Go](#29-go)
+30. [Where the docs live](#30-where-the-docs-live)
 
 **[Part V: Performance](#part-v-performance)**
 
-30. [Before you read the numbers](#30-before-you-read-the-numbers)
-31. [Start time and battery](#31-start-time-and-battery)
-32. [Frame times](#32-frame-times)
-33. [JavaScript and React: startup and animation](#33-javascript-and-react-startup-and-animation)
-34. [Run the benchmarks yourself](#34-run-the-benchmarks-yourself)
+31. [Before you read the numbers](#31-before-you-read-the-numbers)
+32. [Start time and battery](#32-start-time-and-battery)
+33. [Frame times](#33-frame-times)
+34. [JavaScript and React: startup and animation](#34-javascript-and-react-startup-and-animation)
+35. [Run the benchmarks yourself](#35-run-the-benchmarks-yourself)
 
 **[Part VI: Reference](#part-vi-reference)**
 
-35. [Platforms](#35-platforms)
-36. [Environment variables](#36-environment-variables)
-37. [Building from source and CMake options](#37-building-from-source-and-cmake-options)
-38. [Coverage](#38-coverage)
-39. [Repository layout](#39-repository-layout)
-40. [Examples](#40-examples)
+36. [Platforms](#36-platforms)
+37. [Environment variables](#37-environment-variables)
+38. [Building from source and CMake options](#38-building-from-source-and-cmake-options)
+39. [Coverage](#39-coverage)
+40. [Repository layout](#40-repository-layout)
+41. [Examples](#41-examples)
 
 **[Part VII: The project](#part-vii-the-project)**
 
-41. [Status and roadmap](#41-status-and-roadmap)
-42. [FAQ](#42-faq)
-43. [Contributing and publishing](#43-contributing-and-publishing)
-44. [License and credits](#44-license-and-credits)
+42. [Status and roadmap](#42-status-and-roadmap)
+43. [FAQ](#43-faq)
+44. [Contributing and publishing](#44-contributing-and-publishing)
+45. [License and credits](#45-license-and-credits)
 
 ---
 
@@ -172,7 +173,7 @@ in any language, can have both: Blender's feel, and Blender's efficiency.
   [concepts](#part-iii-concepts) are explained in plain words.
 
 Before you ship something with BUI, read the
-[known limitations](#41-status-and-roadmap): no accessibility support yet, no
+[known limitations](#42-status-and-roadmap): no accessibility support yet, no
 input methods, and it looks like Blender, not like your operating system.
 
 ## 4. Pick your language
@@ -189,6 +190,7 @@ all get the same widgets and interactions:
 | **JavaScript / React / Svelte** on Node.js or Bun: a DOM-like API, JSX or Svelte components                                                              | The same engine and components in native windows, over napi-rs; React's hooks backed by signals; Svelte 5 components                            | Working               |
 | **Dear ImGui** from C++, C, Python or Rust                                                                                                               | The real Dear ImGui on BUI windows in Blender's theme, or a build where ImGui's widgets _are_ Blender's widgets                                 | Working               |
 | **C** (`BUI_kit.h`)                                                                                                                                      | The kit itself: nodes, widgets, windows                                                                                                         | Working               |
+| **Go** (`bindings/go`): package `bui`, with no cgo by default                                                                                            | Nodes, properties, events and headless rendering, through an embedded WebAssembly build of the kit; windows only through cgo on Linux for now   | Experimental          |
 | **MyGo**                                                                                                                                                 | MyGo                                                                                                                                            | Not yet (coming soon) |
 
 Not sure which to pick? If you already have code, use the row that matches it.
@@ -404,7 +406,7 @@ The npm packages are prebuilt for **Windows x64**, **Linux x64** (glibc 2.35
 or later; native X11 windows) and **macOS**. Elsewhere, build the addon from a
 clone (`npm install` then `npm run build` in `bindings/`, with Rust, CMake and
 a C compiler). On **macOS**, JavaScript runs headless for now (see
-[Platforms](#35-platforms)).
+[Platforms](#36-platforms)).
 
 **C and C++.** Build from source with CMake 3.20+ and a C11 / C++20 compiler
 (MSVC, GCC or MinGW-w64, or Clang); on Linux, also the X11 headers:
@@ -1453,9 +1455,46 @@ All 26 run headless (`bui-lua --headless app.lua`) for CI and documentation scre
 
 </details>
 
+<details>
+<summary><h2 id="29-go">29. Go</h2></summary>
+
+The Go module `github.com/ppmpreetham/BUI/bindings/go` (in `bindings/go`) drives the kit from package `bui`. By default it runs
+the kit as an embedded WebAssembly module in [wazero](https://github.com/tetratelabs/wazero), so it needs no C toolchain and
+builds with `CGO_ENABLED=0` for any platform. It is experimental, and its window hosts come later: for now it renders headless
+with `Headless`, which draws into memory and takes synthetic input.
+
+```go
+root := bui.NewNode("frame")
+defer root.Close()
+
+button := bui.NewNode("button")
+button.SetStr("text", "Add step")
+root.Add(button)
+button.Pack(bui.PackOptions{Fill: bui.FillX})
+button.OnClick(func() { fmt.Println("clicked") })
+
+view := bui.NewHeadless(root, 320, 120)
+defer view.Close()
+view.Render()
+x, y, w, h := button.Rect()
+view.Press(x+w/2, y+h/2)
+view.Release(x+w/2, y+h/2) // prints "clicked"
+```
+
+With `-tags bui_cgo` on Linux the binding calls the kit natively instead, from the libraries of the CMake build in `build/`
+(`cmake --build build --target bui_kit`), and opens windows through the kit's own hosts. Both engines draw the same pixels.
+
+**Limits:** software rendering only; no GPU, video, file browser or IME; no windows yet on the default engine (`NewWindow` and
+`Run` report `ErrNoDisplay`); and a trap in the wasm module ends the process.
+
+Guide: [bindings/go/README.md](bindings/go/README.md), and the design notes with the measurements in
+[bindings/go/docs/design.md](bindings/go/docs/design.md).
+
+</details>
+
 ---
 
-## 29. Where the docs live
+## 30. Where the docs live
 
 | Guide                                              | What's inside                                                                                                                        |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1469,6 +1508,7 @@ All 26 run headless (`bui-lua --headless app.lua`) for CI and documentation scre
 | [Dear ImGui](docs/imgui.md)                        | Dear ImGui on BUI from C++, C, Python and Rust; the Blender-widgets build; coverage                                                  |
 | [C API](docs/c-api.md)                             | The C kit (`BUI_kit.h`)                                                                                                              |
 | [Lua](bindings/lua/README.md)                      | Standalone `bui-lua` or loadable module; every widget, tree view, file browser, node editor                                          |
+| [Go](bindings/go/README.md)                        | The Go module: the wasm and cgo engines, `Headless`, building the libraries, limits                                                  |
 | [Integration](INTEGRATION.md)                      | Embedding BUI drawing in C, C++, Qt or PySide hosts                                                                                  |
 | [Architecture](ARCHITECTURE.md)                    | Modules and what was taken from Blender                                                                                              |
 | [Syntax coverage](SYNTAX_COVERAGE.md)              | The Qt and tkinter surface, exactly                                                                                                  |
@@ -1480,15 +1520,15 @@ All 26 run headless (`bui-lua --headless app.lua`) for CI and documentation scre
 
 # Part V: Performance
 
-## 30. Before you read the numbers
+## 31. Before you read the numbers
 
 These numbers were measured on a Ryzen 7 5800U laptop (Windows 11, on AC
 power) **before the latest features landed**: Dear ImGui, the Linux GPU
 renderer, the light theme, and the Blender search and expression code. They
 show the shape of things, not a promise for your machine. Rerun them with the
-tools in [Run the benchmarks yourself](#34-run-the-benchmarks-yourself).
+tools in [Run the benchmarks yourself](#35-run-the-benchmarks-yourself).
 
-## 31. Start time and battery
+## 32. Start time and battery
 
 The same small settings window (a label, text field, checkbox, slider and
 button) written each of the five ways, from [`bench/apps`](bench/apps), on
@@ -1533,7 +1573,7 @@ uses more memory (the GPU device), and pays off on large, animated scenes
 (below). Node's event loop accounts for the JavaScript idle figure, Python's
 times include starting the interpreter, and memory doesn't count GPU memory.
 
-## 32. Frame times
+## 33. Frame times
 
 Python and C, on the full component demo (520×900):
 
@@ -1587,7 +1627,7 @@ gpui-fast's heavy-scene frame rate varies between sessions on this laptop
 [bindings/rust/bench/README.md](bindings/rust/bench/README.md).
 </details>
 
-## 33. JavaScript and React: startup and animation
+## 34. JavaScript and React: startup and animation
 
 **Startup.** These launch a small React app (the counter above) that quits once
 its first frame is on screen. Each figure is the median of 12 launches after a
@@ -1681,7 +1721,7 @@ What this means:
 Method, the memory breakdown and how to rerun:
 [docs/javascript.md](docs/javascript.md#performance).
 
-## 34. Run the benchmarks yourself
+## 35. Run the benchmarks yourself
 
 Every number above comes from a tool in this repo. Build in release mode, close
 other heavy apps, and plug the laptop in. Run one benchmark (and one build) at
@@ -1754,7 +1794,7 @@ py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
 
 # Part VI: Reference
 
-## 35. Platforms
+## 36. Platforms
 
 |                              | Windows                          | Linux                                                    | macOS                  |
 | ---------------------------- | -------------------------------- | -------------------------------------------------------- | ---------------------- |
@@ -1763,6 +1803,7 @@ py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
 | Rust (`cargo add blenderui`) | Works                            | Works                                                    | Works                  |
 | JavaScript / React           | Works: prebuilt on npm           | Works: prebuilt on npm (glibc 2.35+); native X11 windows | Headless (see below)   |
 | C, C++, Dear ImGui           | Works                            | Works                                                    | Works                  |
+| Go (`bindings/go`)           | Headless (built, not run)        | Headless; windows with `-tags bui_cgo`                   | Headless               |
 | Renderer                     | CPU raster, or GPU (Direct3D 11) | CPU raster, or GPU (OpenGL 3.3)                          | CPU raster             |
 | HiDPI                        | Per-monitor DPI                  | `Xft.dpi`                                                | Retina (backing scale) |
 
@@ -1793,8 +1834,9 @@ and on an NVIDIA GPU.
 | `blenderui` on crates.io                                               | Any platform with CMake and a C compiler                         | Rust 1.88+. `blenderui-imgui` (Dear ImGui) is on crates.io too.                 |
 | `@blender-ui/native`, `@blender-ui/react`, `@blender-ui/svelte` on npm | Windows x64                                                      | Node.js 18+ (22.15+ for Svelte) or Bun. Elsewhere, build the addon from source. |
 | C and C++ (CMake)                                                      | Windows, Linux, macOS                                            | CMake 3.20+, a C11 and C++20 compiler.                                          |
+| Go module `github.com/ppmpreetham/BUI/bindings/go`                     | Any platform Go supports                                         | Go 1.26+. No tagged release yet. The cgo engine needs Linux.                    |
 
-## 36. Environment variables
+## 37. Environment variables
 
 Most are read by the C library, so they work the same from every language.
 On/off variables look at the first character: `1`, `y`, `Y`, `t` or `T` is on.
@@ -1827,7 +1869,7 @@ Every variable, with defaults and where it's read:
 [Environment variables](https://bui.preetham.top/docs/reference/environment-variables/)
 and [docs/getting-started.md](docs/getting-started.md#environment-variables).
 
-## 37. Building from source and CMake options
+## 38. Building from source and CMake options
 
 You need **CMake 3.20+**, a **C11 / C++20 compiler** (MSVC, GCC/MinGW or
 Clang) and **Python 3.11+** with headers. On Linux, also the X11 headers.
@@ -1863,7 +1905,7 @@ Rebuild the docs screenshots with `python tools/gen_doc_images.py` (and the
 website's dark and light shots with `--site`). More:
 [CMake options](https://bui.preetham.top/docs/reference/cmake-options/).
 
-## 38. Coverage
+## 39. Coverage
 
 | API                               | Coverage                                                                                                                      | Status   |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------- |
@@ -1882,7 +1924,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 [SYNTAX_COVERAGE.md](SYNTAX_COVERAGE.md), [docs/rust.md](docs/rust.md#coverage),
 [docs/imgui.md](docs/imgui.md#coverage).
 
-## 39. Repository layout
+## 40. Repository layout
 
 | Path                                                    | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1895,12 +1937,13 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | `bindings/rust/`                                        | `blenderui`, `blenderui-sys`, `blenderui-macros`, `blenderui-tailwind`, `blenderui-imgui`, `blenderui-jsview`, `blenderui-node`, `blenderui-qjs`, and the benchmark                                                                                                                                                                                                                                                                             |
 | `bindings/node/`, `bindings/react/`, `bindings/svelte/` | `@blender-ui/native`, `@blender-ui/react` and `@blender-ui/svelte`                                                                                                                                                                                                                                                                                                                                                                              |
 | `bindings/imgui/`                                       | Dear ImGui (vendored), the BUI backend, Blender style, the C API and its generator, the Blender-widgets build                                                                                                                                                                                                                                                                                                                                   |
+| `bindings/go/`                                          | The Go module `github.com/ppmpreetham/BUI/bindings/go`: package `bui`, the wasm engine with its committed `bui_kit.wasm` (built from the commit in `BUI_COMMIT`), the opt-in cgo engine, and the engines' conformance and pixel tests                                                                                                                                                                                                           |
 | `backends/qt/`                                          | C++ Qt/QPainter render-sink backend                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `bench/`                                                | The start time and battery benchmark; `bench/images/` (decoders, thumbnail grid)                                                                                                                                                                                                                                                                                                                                                                |
 | `examples/`, `tools/`                                   | Demos, the website's screenshot programs (`examples/site/`), the icon and theme generators, the docs screenshot generator                                                                                                                                                                                                                                                                                                                       |
 | `website/`                                              | The documentation website, [bui.preetham.top](https://bui.preetham.top)                                                                                                                                                                                                                                                                                                                                                                         |
 
-## 40. Examples
+## 41. Examples
 
 | File                                                                                                                                                                                                                          | Shows                                                                                                                                                                                                                                                           |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1929,7 +1972,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 
 # Part VII: The project
 
-## 41. Status and roadmap
+## 42. Status and roadmap
 
 **Known limitations.** Read these before you pick BUI for something you will
 ship. The tables below have the details.
@@ -1969,7 +2012,7 @@ ship. The tables below have the details.
   video has no audio, and image formats such as AVIF, EXR, TIFF, JPEG XL and
   HEIC aren't supported.
 - **License.** GPL: a program that includes BUI is distributed under the GPL too
-  ([why](#42-faq)).
+  ([why](#43-faq)).
 
 **Done**
 
@@ -1996,6 +2039,7 @@ ship. The tables below have the details.
 | Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                                |
 | Dear ImGui                                             | Python and safe Rust skip the `va_list`, `void*` and C-callback functions (reachable from C and the Rust FFI); with Blender widgets, window title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing                          |
 | JavaScript / React packages                            | npm packages are prebuilt for Windows x64, Linux x64 (glibc 2.35+) and macOS (elsewhere, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element |
+| Go (`bindings/go`)                                     | Experimental. The default wasm engine has no window host yet, so it renders headless; windows only through cgo on Linux (`-tags bui_cgo`). No GPU, video, file browser or IME                                                                             |
 | macOS                                                  | The native Cocoa window host works: checked by CI and tried by hand on three Macs (two Apple Silicon, one Intel) ([testing notes](docs/macos-testing.md)); JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet     |
 | Themes                                                 | Dark and Light work; loading other Blender theme files doesn't yet                                                                                                                                                                                        |
 
@@ -2011,12 +2055,13 @@ ship. The tables below have the details.
 | **Accessibility**                    | Screen-reader support through UI Automation (Windows), AT-SPI (Linux) and NSAccessibility (macOS)                                                           |
 | **Qt parity**                        | Measure against PySide6, run the same programs on Qt and BUI, fill in the missing classes, then `install()` so `import PySide6` programs run unchanged      |
 | **More JavaScript frameworks**       | Vue and Angular, as thin adapters over `@blender-ui/native` (the layer React and Svelte share)                                                              |
-| **More languages**                   | Lua (26 examples, every widget), Ruby, Go (through cgo), C#, Zig, Swift, Kotlin and MyGo over the same C header; Godot, Unity and Bevy; Flutter |
+| **Go windows**                       | Window hosts for the Go binding's wasm engine, so that a Go program opens windows without cgo                                                               |
+| **More languages**                   | Lua (26 examples, every widget), Ruby, C#, Zig, Swift, Kotlin and MyGo over the same C header; Godot, Unity and Bevy; Flutter |
 
 Our roadmap has no dates on it. Like a good render, it's done when the noise
 goes away.
 
-## 42. FAQ
+## 43. FAQ
 
 <details>
 <summary><b>Do I need Blender installed?</b></summary>
@@ -2096,8 +2141,10 @@ Lua is now supported: <code>cmake -DBUI_BUILD_LUA_BINDINGS=ON</code> builds
 (a loadable module) for Lua 5.4, LuaJIT or LuaRocks. There are 26 examples and
 every BUI widget type works. Vue and Angular would be thin adapters over
 <code>@blender-ui/native</code>, the layer React and Svelte already share
-(<a href="docs/javascript.md">how to add a framework</a>). Ruby and Go
-(through cgo) would call the C kit, <code>BUI_kit.h</code>. If you want one
+(<a href="docs/javascript.md">how to add a framework</a>). Go has an experimental
+binding in <code>bindings/go</code>: it renders headless with no cgo, and opens windows
+through cgo on Linux (<code>-tags bui_cgo</code>). Ruby would call the C kit,
+<code>BUI_kit.h</code>. If you want one
 sooner, open an issue or a pull request:
 <a href="CONTRIBUTING.md">CONTRIBUTING.md</a> says how.
 </details>
@@ -2106,7 +2153,7 @@ sooner, open an issue or a pull request:
 <summary><b>Is it ready for production?</b></summary>
 Much of it is complete and tested (the C kit, tkinter, the components, Rust,
 Dear ImGui, JavaScript), and some parts are partial or experimental (Qt syntax,
-parts of CSS and text, macOS). <a href="#40-status-and-roadmap">Status and
+parts of CSS and text, macOS). <a href="#42-status-and-roadmap">Status and
 roadmap</a> shows which is which. Pin your version, and test on the platforms
 you ship.
 </details>
@@ -2139,7 +2186,7 @@ changelog. Pin a release number, not a commit. From 1.0 it follows semantic vers
 
 <details>
 <summary><b>Is BUI accessible to screen readers?</b></summary>
-Not yet. See the <a href="#40-status-and-roadmap">known limitations</a>.
+Not yet. See the <a href="#42-status-and-roadmap">known limitations</a>.
 </details>
 
 <details>
@@ -2160,7 +2207,7 @@ ship. (This is a summary, not legal advice.)
  </picture>
 </a>
 
-## 43. Contributing and publishing
+## 44. Contributing and publishing
 
 Contributions are welcome: bug reports, missing tkinter/Qt behavior, CSS
 features, platform hosts and docs. If you have a Mac, running the Cocoa host
@@ -2173,7 +2220,7 @@ Releases go to PyPI (`blenderui`, wheels built by CI on a `v*` tag), crates.io
 (the eight Rust crates, in dependency order) and npm (`@blender-ui/native`, `@blender-ui/react`). The steps are
 in [docs/publishing.md](docs/publishing.md).
 
-## 44. License and credits
+## 45. License and credits
 
 **License.** BUI follows Blender's licensing. BUI as a whole is licensed under
 the **GNU General Public License, version 3 or later** (the text is in
