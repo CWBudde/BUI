@@ -9,9 +9,48 @@ sources: ["CHANGELOG.md", "bindings/python/bui/_version.py", "bindings/node/pack
 
 Here's the story of BUI so far, in plain words: what the first release gave you, and what's waiting in the next one. For every detail, read the full [CHANGELOG.md](https://github.com/ppmpreetham/BUI/blob/main/CHANGELOG.md); it follows [Keep a Changelog](https://keepachangelog.com), and versions follow [Semantic Versioning](https://semver.org).
 
-## Coming in the next release
+## Coming in 0.5.0
 
-These changes are on `main` and listed under **Unreleased** in the changelog.
+The biggest release since 0.1.0: faster on Linux, input methods, a Wayland host, Lua, and a lot of polish. Everything here is on `main`; the details are under **Unreleased** in the changelog.
+
+### Faster to start on Linux
+
+The GPU renderer no longer makes the first frame wait for the OpenGL driver: the device starts on a worker thread, the first frames draw on the CPU, and the window switches over when the GPU is ready (also when it is idle). Start times drop by 50 to 80 percent: Rust from 169 to 61 ms, JavaScript from 207 to 101 ms, Python components from 216 to 96 ms. The [benchmarks page](../../performance/benchmarks/) has a Linux tab with all the numbers, and Rust compile times too.
+
+### Chinese, Japanese and Korean input (Windows)
+
+Text fields and text areas now work with input methods, ported from Blender's own code: the composition is drawn at the caret, the candidate window follows it, and shortcuts keep working because the input method is on only while you edit text. See [text and fonts](../../concepts/text-and-fonts/).
+
+### Native Wayland windows (experimental)
+
+A Wayland host with the same API as X11, modelled on Blender's. It's used on Wayland sessions that don't ask for the GPU renderer, and `BUI_WINDOW_BACKEND` picks one. See [window hosts](../../concepts/window-hosts/).
+
+### Lua
+
+A `bui-lua` executable and a `bui` module for Lua 5.4, LuaJIT and LuaRocks, with every widget and event, 26 examples and tests, from [seclorum](https://github.com/seclorum). See the [Lua page](../../lua/overview/).
+
+### npm packages for Linux and macOS
+
+`@blender-ui/native` now comes prebuilt for Linux x64 and macOS as well as Windows, one small package per platform, installed automatically. From [concprog](https://github.com/concprog).
+
+### macOS works
+
+Three people have tried the Cocoa host by hand (two Apple Silicon Macs and an Intel one), and it's no longer labelled experimental. See [platforms](../../reference/platforms/).
+
+### Fixed
+
+- Python: an occasional crash when a BUI window and Tk shared a thread.
+- Node: when no window could be opened, the app now says why instead of running silently.
+- CSS: `color-mix()` keeps the other color's hue for white, grays and black (from HEOJUNFO).
+- Building BUI as a CMake subproject, and a debug link error (from giraldeau and concprog).
+
+### Thanks
+
+seclorum, concprog, HEOJUNFO, giraldeau, YuFu-Onship, piaoboo and DanNoby, and everyone who tested and reported on Discord.
+
+## From 0.1.0 to 0.4.1
+
+These changes shipped between 0.1.0 and 0.4.1; the changelog lists them by version.
 
 ### Closer to Blender 5.x
 

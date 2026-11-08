@@ -7,20 +7,22 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
-- **Lua bindings** (`BUI_BUILD_LUA_BINDINGS`, off by default). A standalone `bui-lua`
-  executable and a `bui.so`/`bui.dll` loadable module for stock Lua 5.4, LuaJIT or
-  LuaRocks. Every BUI widget, event, tree view, file browser and node editor is
-  available from `require("bui")`. The bindings check the kit version at load time
-  and expose `bui._VERSION`. 9 example scripts under `bindings/lua/examples/`:
-  `hello.lua`, `counter.lua`, `todos.lua`, `gallery.lua`, `forms.lua`, `dashboard.lua`,
-  `anim.lua`, `lua_table_editor.lua`, `editor_screenshot.lua`.
+- **Lua bindings** (`BUI_BUILD_LUA_BINDINGS`, off by default; pull requests #19 and #20 by seclorum). A standalone
+  `bui-lua` executable (with a REPL) and a `bui.so`/`bui.dll` loadable module for stock Lua 5.4, LuaJIT or LuaRocks.
+  Every BUI widget, event, tree view, file browser, menu (submenus included) and node editor is available from
+  `require("bui")`, the bindings check the kit version at load time and expose `bui._VERSION`, and seven test
+  suites (`bui_lua_*`) run under `ctest`. 26 example scripts in `bindings/lua/examples/`: `hello`, `counter`,
+  `todos`, `gallery`, `forms`, `dashboard`, `anim`, `lua_table_editor`, `editor_screenshot`, `box`, `canvas`,
+  `curve`, `enum`, `grid`, `histogram`, `listview`, `menubar`, `popover`, `ramp`, `split`, `textarea`, `menus`,
+  `color_picker`, `filebrowser_demo`, `image_viewer` and `data_table`. CI builds and tests it on Linux and Windows, and it
+  now builds on Windows (a `linenoise` stand-in and a `setenv` shim).
 - **npm on Linux and macOS:** the prebuilt addon and `bui-runtime` ship for Linux x64 (glibc 2.35 or later) and
   macOS (arm64 and x64) as well as Windows x64, one package per platform: `@blender-ui/native-<tag>`
   (`bindings/node/platform.js`). `@blender-ui/native` lists them as `optionalDependencies`, so an install gets
   only its own (about 29 MB). The install command does not change. With `--omit=optional` the addon is missing,
   and the load error says so. `release.yml` builds them on `ubuntu-22.04`, `macos-15`, `macos-15-intel` and
   Windows, then publishes the platform packages before `@blender-ui/native`. On macOS, JavaScript still runs
-  headless.
+  headless. (concprog, pull request #16)
 - **Native Wayland windows (experimental).** `kit/intern/kit_window_wayland.c` is a Wayland host with the same
   `BK_window_*` API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels with server-side
   decorations when offered, a `wl_seat` with xkbcommon (keys, key repeat), the pointer, the clipboard through
@@ -36,7 +38,7 @@ All notable changes to **blenderui** (BUI). The format follows
   `interface_handlers.cc` and its drawing in `interface_widgets.cc`). Chinese, Japanese and Korean input now
   works in text fields and text areas: the composition is drawn underlined at the caret (a thicker line under
   the clause being converted), the candidate window follows the caret instead of the top left corner of the
-  window (issue #14), and the result is typed in like any other text. The IME is on only while a field is being
+  window (issue #14, reported by YuFu-Onship), and the result is typed in like any other text. The IME is on only while a field is being
   edited, so shortcuts keep working with a CJK keyboard; number fields and password fields take no IME, as in
   Blender. A composition that is still going when another field takes over stays in the field it was in.
 - **C API changes:** one platform independent IME API for every window host and binding: `BKImeEvent`,
@@ -46,6 +48,14 @@ All notable changes to **blenderui** (BUI). The format follows
   the host's poll 7 ns).
 
 ### Changed
+- **Website:** the benchmarks page has a Windows / Linux switch, with the Linux numbers (start time and battery, frame
+  times, JavaScript, React and Svelte, and Rust compile times); the docs have a Lua section, a Wayland section on the
+  window hosts page and a macOS that is no longer marked experimental; the README's first-app and language-guide
+  sections collapse (`<details>`).
+- **Linux GPU renderer start** is 50 to 80 percent sooner (the first frame no longer waits for the OpenGL driver):
+  for example Rust 169 to 61 ms, JavaScript 207 to 101 ms, Python components 216 to 96 ms, and the same gpui code
+  110 to 23 ms. CPU renderer start, frame time and memory are unchanged. The numbers are in the website's
+  benchmarks page, the Linux tab.
 - **Lua host:** CI builds `bui-lua` and runs its `bui_lua_*` tests on Linux and Windows (a new `lua` job); the option
   is in the CMake options tables (README, `docs/`, the website) and the website has a Lua page; the lowercase
   `find_package(lua)` fallback is config-mode only, which removes CMake's package-name warning.
@@ -63,8 +73,8 @@ All notable changes to **blenderui** (BUI). The format follows
   had checked), and a new FAQ entry and the roadmap list what people asked for: Vue and Angular (adapters
   over `@blender-ui/native`), and Lua (a community pull request is in review), Ruby and Go through cgo
   (over the C kit). None of them exists yet.
-- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU. A window switches to the GPU when the device is ready, also when it is idle (Linux and Windows; `BUI_raster_gpu_pending`).
-- **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged.
+- **Linux GPU start:** the OpenGL context and device are created on a worker thread, as on Direct3D 11. The first frames draw on the CPU. A window switches to the GPU when the device is ready, also when it is idle (Linux and Windows; `BUI_raster_gpu_pending`). (concprog, pull request #10)
+- **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged. (concprog, pull request #10)
 
 ### Fixed
 - **Python: an intermittent crash (access violation) when a native window and Tk share a thread.** The C callbacks the kit
@@ -78,11 +88,28 @@ All notable changes to **blenderui** (BUI). The format follows
   to stderr (and a window that cannot open is reported closed, so the app can end). `BK_window_supported` on Linux also
   asks Wayland only when the session prefers it, so it no longer says yes through a default Wayland socket that the
   window host would not use.
-- **Node and Bun:** a relative `BUI_NODE_ADDON` path starts at the working directory, not at the package folder. The load error now shows the cause.
-- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame.
-- **X11:** a frame callback that closes its window no longer renders into the closed window.
-- **X11:** a window that closes while its GPU device starts releases the device before the X window is destroyed (`BUI_raster_gpu_release`), so Mesa no longer prints `failed to create drawable`.
-- **CSS colors:** `color-mix()` in `hsl`, `hwb`, `lch` and `oklch` treats the hue of white, grays, black and `transparent` as missing (CSS Color 4 powerless hue), so the mix keeps the other color's hue: `color-mix(in hsl, white, blue)` is a light blue, not pink.
+- **Node and Bun:** a relative `BUI_NODE_ADDON` path starts at the working directory, not at the package folder. The load error now shows the cause. (concprog, pull request #16)
+- **Rust windows:** a dirty window with a pending frame request waits for that frame instead of a 0 ms timer, so `requestAnimationFrame` callbacks run once per frame. (concprog, pull request #10)
+- **X11:** a frame callback that closes its window no longer renders into the closed window. (concprog, pull request #10)
+- **X11:** a window that closes while its GPU device starts releases the device before the X window is destroyed (`BUI_raster_gpu_release`), so Mesa no longer prints `failed to create drawable`. (concprog, pull request #10)
+- **CSS colors:** `color-mix()` in `hsl`, `hwb`, `lch` and `oklch` treats the hue of white, grays, black and `transparent` as missing (CSS Color 4 powerless hue), so the mix keeps the other color's hue: `color-mix(in hsl, white, blue)` is a light blue, not pink. (HEOJUNFO, pull request #18)
+- **CMake subprojects:** `BUI_kit.h`'s include path is found when BUI is built as a subproject of another CMake
+  project (Francis Giraldeau, pull request #12).
+- **Debug builds:** `core/intern/list_sort_impl.h` (Blender's `list_sort`) declares its helpers `inline`, which in C99
+  gives the linker nothing to call: a debug link failed. They are now `BLI_INLINE`, Blender's `static inline` (concprog, pull request #15).
+- **Windows CI:** the Python Tk-compatibility test is no longer flaky (the GIL fix above), and the image-cache test no
+  longer requires a timing-dependent number of cancelled decodes.
+
+### Thanks
+- [seclorum](https://github.com/seclorum): the Lua bindings and their examples (#19, #20).
+- [concprog](https://github.com/concprog): the Linux GPU start, X11 frame pacing and Linux benchmarks (#10), the debug
+  link fix (#15), and the npm packages for Linux and macOS with the `BUI_NODE_ADDON` fix (#16).
+- [HEOJUNFO](https://github.com/HEOJUNFO): `color-mix()` and powerless hues (#18).
+- [giraldeau](https://github.com/giraldeau): building BUI as a CMake subproject (#12).
+- [YuFu-Onship](https://github.com/YuFu-Onship): the input method (IME) report that led to IME support (#14).
+- [piaoboo](https://github.com/piaoboo): the Intel Mac test report (#17).
+- [DanNoby](https://github.com/DanNoby): macOS testing and the Objective-C log (#6), and everyone who reported problems on
+  Discord, including the Linux Mint user whose silent Node app led to the error messages.
 
 ## [0.4.1] - 2026-11-06
 
