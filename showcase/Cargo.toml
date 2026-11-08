@@ -1,0 +1,18 @@
+[package]
+name = "showcase"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "date-picker"
+path = "date-picker/main.rs"
+
+[dependencies]
+blenderui = { path = "../bindings/rust/blenderui" }
+chrono = "0.4"
+chrono-english = "0.1"
+png = "0.17"
+
+# standalone: not a member of bindings/rust's workspace
+[workspace]
