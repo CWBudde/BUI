@@ -1,7 +1,7 @@
 # The Go binding (bindings/go): formatting, lint, tests on the wasm engine on Linux, with its
-# X11 host and real input, and headless on macOS, tests on the cgo engine on Linux, and a
-# byte-for-byte rebuild of the committed bui_kit.wasm. Only changes to the binding or to
-# this file run it; BUI's own jobs are in ci.yml.
+# X11 host and real input, and on macOS, with real windows through the Cocoa host, tests on
+# the cgo engine on Linux, and a byte-for-byte rebuild of the committed bui_kit.wasm. Only
+# changes to the binding or to this file run it; BUI's own jobs are in ci.yml.
 
 name: go
 
@@ -72,6 +72,17 @@ jobs:
           version: v2.15.0
           working-directory: bindings/go
           args: --config .golangci.toml --timeout 5m --build-tags bui_cgo
+
+      # The Cocoa host builds for macOS only. The linter takes the target from GOOS.
+      - name: Run linter on the darwin build
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        env:
+          GOOS: darwin
+          CGO_ENABLED: "0"
+        with:
+          version: v2.15.0
+          working-directory: bindings/go
+          args: --config .golangci.toml --timeout 5m
 
   test-linux:
     name: tests on the wasm engine (Linux)
@@ -160,6 +171,24 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go test ./...
+
+      # The runner has a logged-in session, so the Cocoa host opens real windows and takes the
+      # events its tests make. Programs on macOS build it without cgo, so these do too. Without
+      # the session every test would skip and go test still pass, so any skip but the one for
+      # the subprocess fails the step.
+      - name: Run the Cocoa tests without cgo
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          log="$RUNNER_TEMP/cocoa.log"
+          go test -count=1 -v ./internal/host/cocoa > "$log" 2>&1 || { cat "$log"; exit 1; }
+          echo "$(grep -c '^--- PASS' "$log") passed, $(grep -c '^--- SKIP' "$log") skipped"
+          if grep '^--- SKIP' "$log" | grep -v '^--- SKIP: TestChildProcess '; then
+            echo "unexpected skips:"
+            grep -A1 '^--- SKIP' "$log"
+            exit 1
+          fi
 
   check-wasm:
     name: wasm module matches its sources
