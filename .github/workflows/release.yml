@@ -170,7 +170,8 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Upgrade npm to 11.5.1+ for trusted publishing (Node 22 ships an older one)
         run: npm install -g npm@^11.5.1
-      - uses: oven-sh/setup-bun@v2 # the runtime tests build a Bun executable too
+      - uses: oven-sh/setup-bun@v2 # the runtime tests build a Bun executable too (they skip it when Bun is missing)
+        continue-on-error: true # setup-bun downloads from GitHub, which answers 504 now and then
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/download-artifact@v4
         with:
