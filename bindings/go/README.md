@@ -5,21 +5,23 @@ Experimental Go bindings for BUI, which provides Blender's UI widgets as a C lib
 input. It was developed as [bui-go](https://github.com/CWBudde/bui-go) and moved here.
 
 **Status: experimental.** The API is small and will change. It has the wasm engine, the public API, headless rendering and a
-window host for X11 in pure Go, so on Linux it opens real windows without cgo. The macOS host follows; until then macOS and
-Windows render headless only: see [Limits](#limits).
+window host for X11 and one for macOS, both in pure Go, so on Linux and macOS it opens real windows without cgo. Windows
+renders headless only: see [Limits](#limits).
 
 ## Try it
 
-You need Go 1.26 or newer, and no C toolchain. On Linux, with an X server or XWayland, this opens a real window from a static
-binary:
+You need Go 1.26 or newer, and no C toolchain. On Linux, with an X server or XWayland, and on macOS, this opens a real window
+from a binary built without cgo, in `bindings/go`:
 
 ```sh
 CGO_ENABLED=0 go run ./examples/counter
 ```
 
-On macOS and Windows that example exits with `ErrNoDisplay`, as they have no window host yet. To render without a window, drive
-the tree with `Headless`, which renders into memory and takes synthetic input, on any platform and with no display. In a module
-that requires `github.com/ppmpreetham/BUI/bindings/go`, this prints `clicked`:
+On Windows that example exits with `ErrNoDisplay`, as it has no window host yet. On macOS the window has a menu, takes the
+mouse, scroll and keys, quits with Cmd+Q, keeps drawing while you drag its edge and follows a move to a screen of another
+scale. To render without a window, drive the tree with `Headless`, which renders into memory and takes synthetic input, on
+any platform and with no display. In a module that requires `github.com/ppmpreetham/BUI/bindings/go`, this prints
+`clicked`:
 
 ```go
 package main
@@ -51,6 +53,8 @@ func main() {
 ```
 
 The module has no tagged release yet, so take it at a commit, for example `go get github.com/ppmpreetham/BUI/bindings/go@main`.
+CI runs the tests on Linux and on macOS, including the Cocoa host's tests, which open real windows there. Nothing builds or runs
+them on Windows, so that platform is untested.
 
 In a window program the same calls look like this:
 
@@ -64,7 +68,7 @@ button.OnClick(func() { /* runs on the UI thread */ })
 bui.Do(func() { clock.SetStr("text", "updated") }) // safe from any goroutine
 ```
 
-`examples/counter` is such a program. With the cgo engine it opens the same window through BUI's own X11 host:
+`examples/counter` is such a program. With the cgo engine on Linux it opens the same window through BUI's own X11 host:
 
 ```sh
 go run -tags bui_cgo ./examples/counter   # needs BUI's libraries, see "Engines"
@@ -74,12 +78,15 @@ go run -tags bui_cgo ./examples/counter   # needs BUI's libraries, see "Engines"
 
 The same API runs on two engines, chosen when you build:
 
-| Build                    | Engine                                                                                  | Windows                                                                                              | Needs                                      |
-| ------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Default, on any platform | WebAssembly: an embedded module, in [wazero](https://github.com/tetratelabs/wazero)     | X11 on Linux, in pure Go. None yet on macOS and Windows: `NewWindow` and `Run` report `ErrNoDisplay` | Nothing but Go                             |
-| `-tags bui_cgo`, Linux   | Native: the static libraries of BUI's CMake build, in `build/` at the repository's root | X11, and Wayland on request, through BUI's own hosts                                                 | cgo, a C and C++ toolchain, and that build |
+| Build                    | Engine                                                                                  | Windows                                                                                                       | Needs                                      |
+| ------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Default, on any platform | WebAssembly: an embedded module, in [wazero](https://github.com/tetratelabs/wazero)     | X11 on Linux and Cocoa on macOS, in pure Go. None yet on Windows: `NewWindow` and `Run` report `ErrNoDisplay` | Nothing but Go                             |
+| `-tags bui_cgo`, Linux   | Native: the static libraries of BUI's CMake build, in `build/` at the repository's root | X11, and Wayland on request, through BUI's own hosts                                                          | cgo, a C and C++ toolchain, and that build |
 
-Both engines draw the same pixels: the tests compare them exactly.
+Both engines draw the same pixels: the tests compare them exactly. On macOS the wasm engine opens windows through
+`internal/host/cocoa`, a Go port of BUI's `kit_window_cocoa.m` that reaches AppKit through
+[purego](https://github.com/ebitengine/purego) and the Objective-C runtime, so it needs no cgo. Its windows have mouse, scroll,
+keys, cursors, the clipboard, a menu, live resize and scale changes between screens.
 
 **Building the cgo engine.** It links `libbui_kit.a`, `libbui_gpu.a` and `libbui_core.a` from `build/kit`, `build/gpu` and
 `build/core` at the root of this repository, with the headers in `kit/include` and `gpu/include`. Build them at the root, then
@@ -114,13 +121,21 @@ that time. The module loads at the first kit call, so importing the package cost
 
 ## Limits
 
-- **No windows on macOS and Windows yet with the default engine.** The wasm engine has a window host only for X11 on Linux. On
-  other platforms `Supported` is false, and `NewWindow` and `Run` report `ErrNoDisplay`. The cgo engine opens windows on Linux
-  only, through BUI's own hosts.
+- **No window host on Windows yet with the default engine.** The wasm engine has window hosts for X11 on Linux and for
+  Cocoa on macOS. On Windows `Supported` is false, and `NewWindow` and `Run` report `ErrNoDisplay`. The cgo engine opens
+  windows on Linux only, through BUI's own hosts.
 - **Software rendering only.** `Headless` draws into a CPU raster on both engines, and the wasm engine has no GPU renderer.
 - **No GPU, video, file browser or IME.** The module is built without them, and the binding exposes none of them.
 - **A wasm trap ends the process.** After a fault in the module its state is unknown, so any trap, an out-of-memory included,
   ends the process with a message rather than returning a Go error.
+
+### Limits of the Cocoa host
+
+- No IME. A dead key types nothing and is not composed with the next key, which types its plain character, as in BUI's C host:
+  neither passes keys through AppKit's text input.
+- Its input has been driven only by events its tests make, not by a hand on a real mouse and keyboard. Moving a window to a
+  screen of another scale is tested with a faked backing scale, not on a real second screen.
+- Every macOS program built with the binding contains purego, also one that only renders headless.
 
 ### Limits of the wasm engine
 
@@ -153,6 +168,7 @@ Call `bui.Run` from the main goroutine. Kit calls are valid only on the UI threa
 
 ```sh
 CGO_ENABLED=0 xvfb-run -a go test ./...                # the wasm engine, with no cgo at all
+CGO_ENABLED=0 go test -v ./internal/host/cocoa         # on macOS: the Cocoa host, opening real windows
 xvfb-run -a go test -race ./...                        # the wasm engine, with the race detector
 xvfb-run -a go test -race -tags bui_cgo ./...          # the cgo engine, compared with the wasm one
 BUI_TEST_XDOTOOL=1 xvfb-run -a go test -race -run '^TestX' .                # real input, through the Go X11 host
@@ -161,10 +177,13 @@ go test -tags bui_xlibref ./internal/host/x11/         # key translation against
 ./scripts/check-wasm.sh                                # rebuild bui_kit.wasm and require the committed bytes
 ```
 
-Tests that need a window are skipped when there is no display, and on macOS and Windows with the wasm engine, which has no
-window host there. `BUI_TEST_XDOTOOL=1` sends real clicks and keys and changes the keyboard layout, so use a display of its own.
-`TestXTypingOnAGermanLayout` runs only with the Go X11 host, which always delivers UTF-8. `internal/host/x11` starts its own
-Xvfb when it can, so its tests do not depend on `DISPLAY`.
+Tests that need a window are skipped when there is no display, and on Windows with the wasm engine, which has no window
+host there. On macOS package `bui`'s window tests skip too: AppKit needs the main thread, and `go test` runs each test on
+another goroutine. The Cocoa host's own tests run AppKit on the main thread from their `TestMain`, and need a logged-in
+session; [`docs/design.md`](docs/design.md), "Running the macOS tests by hand", has the combinations to run on a Mac.
+`BUI_TEST_XDOTOOL=1` sends real clicks and keys and changes the keyboard layout, so use a display of its own.
+`TestXTypingOnAGermanLayout` runs only with the Go X11 host, which always delivers UTF-8. `internal/host/x11` starts its
+own Xvfb when it can, so its tests do not depend on `DISPLAY`.
 
 `TestSjljFreeTypeOverflow` builds its probe with `scripts/build-wasm.sh probe`, which needs the pinned wasi-sdk and this
 repository's history. It skips without the SDK, which `scripts/build-wasm.sh sdk` fetches on Linux x86_64. The image tests read
@@ -175,12 +194,13 @@ repository's history. It skips without the SDK, which `scripts/build-wasm.sh sdk
 ```sh
 just setup-deps   # treefmt, prettier, gofumpt, gci, shfmt
 just fmt          # format with treefmt
-just lint         # golangci-lint, at the version pinned in the justfile, also with -tags bui_cgo
+just lint         # golangci-lint, at the version pinned in the justfile, also with -tags bui_cgo and for darwin
 just check        # formatting, go.mod tidiness, lint and tests
 ```
 
 CI runs the formatting, the linter, the tests on the wasm engine on Linux, with the X11 host's own tests and real input, and on
-macOS headless, the tests on the cgo engine on Linux with the comparison against libX11, and `check-wasm`, in
+macOS, with the Cocoa host's tests, the tests on the cgo engine on Linux with the comparison against libX11, and
+`check-wasm`, in
 [`.github/workflows/go.yml`](../../.github/workflows/go.yml).
 
 ## Licence and source of the binary
@@ -193,7 +213,8 @@ text. Its files carry the SPDX header `GPL-2.0-or-later`, as BUI's files do. We 
 this package.
 
 **We read a binary with the wasm engine as distributable under GPLv3,** as the whole is: it includes wazero, which is Apache-2.0,
-and as we understand it that licence is compatible with GPLv3 but not with GPLv2.
+and as we understand it that licence is compatible with GPLv3 but not with GPLv2. On macOS it also includes purego, which is
+Apache-2.0 too, with code from Go's runtime under Go's BSD licence.
 [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) lists the third-party parts and their licences, under "The Go binding",
 and [`licenses/`](licenses) holds the texts that only the binding brings.
 

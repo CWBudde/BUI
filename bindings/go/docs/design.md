@@ -2,8 +2,7 @@
 
 Why BUI's Go binding runs the kit as WebAssembly, what that was measured to cost, and what it cannot do. The README covers use;
 this file holds the reasons and the numbers behind it. The binding was developed as [bui-go](https://github.com/CWBudde/bui-go),
-where every measurement here was taken, and moved here from its commit `d21272d`. Its Cocoa window host is not in this tree
-yet, so the parts of this file about it are left out.
+where every measurement here was taken, and moved here from its commit `d21272d`, with both of its window hosts.
 
 Unless a section says otherwise, the facts here were established against BUI `e3aba90`, wazero v1.12.0, wasi-sdk 34.0
 (clang 23.1.0, wasi-libc `2e6fb9d8ee0c`) and Go 1.26.8, on an Intel i7-1255U (12 threads) running Linux 6.8. That laptop was
@@ -40,12 +39,14 @@ package bui                  public API; owns emitDepth, deferred frees, the Do 
   engine_cgo.go              //go:build bui_cgo
   engine_nocgo.go            //go:build !bui_cgo
   host_x11.go                //go:build linux && !bui_cgo; the wasm engine's host on Linux
-  host_none.go               //go:build !linux && !bui_cgo; no windows, on a platform without a Go host
+  host_darwin.go             //go:build !bui_cgo; the wasm engine's host on macOS, internal/host/cocoa
+  host_none.go               //go:build !linux && !darwin && !bui_cgo; no windows, on a platform without a Go host
   internal/engine            interfaces only: Kit (nodes, geometry, render, input), Host (window, loop, wake)
   internal/engine/cgoengine  //go:build bui_cgo && cgo && linux; the C calls, bridge.c, bridge.h
   internal/engine/wasmengine no constraint: pure Go; embeds bui_kit.wasm; wazero setup and marshalling
   internal/enginetest        shared conformance suite; its golden test links both engines into one test binary
   internal/host/x11          Go port of kit_window_x11.c
+  internal/host/cocoa        darwin only: Go port of kit_window_cocoa.m, through purego and the Objective-C runtime
 wasm/                        the binding's own C: shim.c (exports, BKHost trampolines), compat.c (libc gaps)
 ```
 
@@ -65,7 +66,8 @@ Decisions behind it:
 - **A node's identity is a `uint32` id in the kit's `ref` field.** `void *` is 32 bits in the module, so it cannot hold a
   `cgo.Handle`, and one id table in package `bui` serves both engines. Kit objects cross the seam as opaque `uintptr` values,
   separate from node ids, because tree walks pass through kit-internal nodes that have no id.
-- **`BK_window_*` comes from `kit_window_null.c` in the module.** The Go host owns the window, loop, timers and cursor.
+- **`BK_window_*` comes from `kit_window_null.c` in the module.** A Go window host owns the window, loop, timers and cursor:
+  the X11 one on Linux, the Cocoa one on macOS.
 - **A C shim is needed.** `BKHost` holds function pointers, so `shim.c` fills it with trampolines that call wazero imports.
   They pass scalars only, so Go never parses a C struct layout. The shim keeps the bridge's null-node and no-handle filtering,
   so those events never cross into Go.
@@ -402,17 +404,19 @@ desktop with both they would open different kinds of window.
 ## What has been run
 
 In bui-go, as of 2026-11-08, CI passed the native engine, the wasm engine with and without cgo, tests with cgo on on macOS and
-Linux arm64 (which selected the wasm engine), a cross-build without cgo for Linux, Windows and macOS on amd64 and arm64, and the
-module's byte-identical rebuild. In this tree `.github/workflows/go.yml` runs the formatting, the linter, the tests on the wasm
-engine on Linux, with cgo off, with the race detector and with real input through `xdotool`, the tests without cgo on macOS, the
-tests on the cgo engine on Linux, which compare both engines, against the kit built from the checkout, with the X11 host's key
-translation compared with libX11, and the rebuild.
+Linux arm64 (which selected the wasm engine), the Cocoa host's tests without cgo on macOS, a cross-build without cgo for Linux,
+Windows and macOS on amd64 and arm64, and the module's byte-identical rebuild. In this tree `.github/workflows/go.yml` runs the
+formatting, the linter (also on the darwin build), the tests on the wasm engine on Linux, with cgo off, with the race detector
+and with real input through `xdotool`, the tests without cgo on macOS with the Cocoa host's tests, the tests on the cgo engine
+on Linux, which compare both engines, against the kit built from the checkout, with the X11 host's key translation compared
+with libX11, and the rebuild. GitHub's macOS runner has a logged-in session, so the Cocoa tests open real windows there and
+take the events they make; the step fails if any of them skips, but the one that only runs as a subprocess.
 
 - **Windows is built, not run.**
-- **The wasm engine has no window host on macOS and Windows here.** bui-go's Cocoa host follows in a later pull request. A Windows
-  host would be a port of `kit_window_win32.c` (987 lines).
-- **A real pointer on a real desktop has not been tried.** Drawing, the `Do` ticker, resizing and the close button were checked on a
-  real X session and window manager, through `xdotool windowsize` and `wmctrl -c`. Hovering and dragging were driven on Xvfb only.
+- **The wasm engine has no window host on Windows here.** A Windows host would be a port of `kit_window_win32.c` (987 lines).
+- **A real pointer on a real X desktop has not been tried.** Drawing, the `Do` ticker, resizing and the close button were
+  checked on a real X session and window manager, through `xdotool windowsize` and `wmctrl -c`. Hovering and dragging were
+  driven on Xvfb only.
 
 ### On a MacBook
 
@@ -422,6 +426,164 @@ On 2026-11-07, at bui-go's `a06371a`, on an Apple M5 Pro with macOS 27.2, over S
   same skipped tests. The skips need a display or Xvfb, the opt-in `xdotool` run, a subprocess, or BUI's test images.
 - **Pixels match Linux amd64.** `TestGoldenPinned` runs here and passes against the hashes pinned on Linux amd64, and it fails when
   the first or last of the 29 hashes is changed.
+- **A GUI program started over SSH reaches the logged-in session,** with the user logged in at the console. A small AppKit probe
+  listed its own window as on screen when started directly, even though `launchctl managername` says `Background`, and also through
+  `launchctl bootstrap gui/501` with a temporary plist. `launchctl asuser 501`, run as that user without `sudo`, fails with
+  "Operation not permitted" when switching audit session. Neither working method took focus from the user (`NSApp.isActive` stayed 0), as the probe is an
+  accessory app that orders itself front.
+- **Screenshots need Screen Recording and synthetic input needs Accessibility.** Without grants, `CGPreflightScreenCaptureAccess`
+  and `AXIsProcessTrusted` return 0, `screencapture -l` on the probe's own window fails with "could not create image from window",
+  and a key event sent to its own pid with `CGEventPostToPid` doesn't arrive. With both granted, both return 1, the capture shows the
+  window's red, and the event arrives.
+- **Only `launchctl bootstrap gui/501` gets the grants.** The same binary started directly from SSH still reads 0 for both and fails
+  both actions. So a test that needs a permission has to run as an agent in the GUI domain; a test that only opens a window doesn't.
+- **A grant holds for one binary at one path.** On this ad-hoc signed binary it was lost with the same code hash at another path, and
+  with a different hash at the granted path, and it came back when the granted binary was restored. Rebuilding the same source in
+  another directory also changed the hash. `go test` builds a new binary each time, so tests that need a permission need a fixed
+  binary and a new grant whenever it changes. Whether a real signing identity avoids that hasn't been tried.
+
+### The Cocoa spike
+
+On 2026-11-07, on the same MacBook. `internal/host/cocoa` is about 750 lines of Go through purego and the Objective-C runtime, built
+with `CGO_ENABLED=0`. It opens a window and presents the raster, and it has no input, activation, menu, cursors or clipboard.
+
+- **The window draws correctly.** A build of `examples/counter` made on Linux, captured on screen twice, shows a 320x188 window as
+  640x376 pixels, with sharp text, upright, in the right colours, and the label moved from "Running for 3 s" to "Running for 9 s". That
+  was checked by eye. `TestLayerHoldsTheRaster` compares exactly: all 480,000 pixels of the layer match the raster, and 244 of 600 rows
+  differ when it is flipped.
+- **It presents through a layer.** Each frame is copied into a `CFData` and wrapped in a `CGImage`, which is set as the contents of a
+  layer-hosting view, with animations off.
+- **The loop fits the main thread.** Package `bui` already locks its `init` to the main thread, and the host pulls events with
+  `nextEventMatchingMask:` rather than `[NSApp run]`, as bui-go's X11 host does with its socket. `Wake` works from any goroutine:
+  500 round trips against a blocked loop, with collections forced, took 51-86 µs on average, and the slowest took 199 µs to 4 ms.
+- **Frame time is about 1.6x that of bui-go's X11 host,** but on different machines, so this is only a rough comparison. Memory grew by 1.7 MB between
+  2000 and 6000 presents, so there is no frame-sized leak.
+
+  | Present        | Cocoa, M5 Pro, load 11-16       | X11 on Xvfb, i7-1255U, load 3 |
+  | -------------- | ------------------------------- | ----------------------------- |
+  | Counter window | 419-424 µs                      | 241-310 µs                    |
+  | 1920x1080      | 5.38-6.77 ms (median about 5.4) | 3.3-3.47 ms                   |
+
+  With the 4.4 ms dense render, a 1080p frame costs about 10 ms, under the 16 ms of 60 Hz. The clock stops when Core Animation is
+  handed the frame, and the window server draws later, so this isn't time to screen.
+
+- **Every darwin build changes.** purego brings its own `fakecgo`, also for programs that only use `Headless`, and `counter` grows by
+  0.77 MB, from 11.23 to 12.00 MB.
+- **Tests with screenshots don't need a grant on the program under test.** The grant sits on a small fixed helper, run as an agent,
+  that captures the program's window. `counter` was rebuilt just before the capture and still worked. Synthetic input hasn't been
+  tried this way.
+- **Other tests:** with this host, `go test -count=1 -v ./...` has 334 passes, 54 skips and no failures on Go 1.27.1 and 1.26.8, with and
+  without cgo. `-race` on the package passes with cgo, and a cross-build without cgo works for Linux, Windows and macOS on amd64 and arm64.
+
+**Not tried:** a click on the real close button (`TestCloseEndsRun` closes it from code), dragging a window's edge, whose nested
+AppKit loop the host doesn't handle yet, moving between screens of different scale, and activation. The layer and the delegate are
+each leaked once per window. "Menu, quit and live resize" below handles the drag and the leaks, and "Scale changes" the screens.
+
+### Input on macOS
+
+On 2026-11-07, Christian counted 1.6x as close and lifted the hold on the port. Its first part takes the input of
+`kit_window_cocoa.m`'s view, with the same mappings: the left, right and middle buttons, moves and drags, the pointer leaving,
+wheel notches, a trackpad's precise deltas summed into notches, keys with their layout's keysym and text, modifier keys as key
+events, cursors, `Warp` and the clipboard. Command maps to Ctrl, as Blender's macOS keymaps use it for Ctrl's shortcuts.
+
+- **The tests make their own events,** with `NSEvent` and `CGEvent`, and need no grant. Mouse events go through the queue, `NSApp`
+  and the window, as the window server's would. Keys go to the window directly, because `NSApp` only sends keys to the key window,
+  which a test app can't have: tests run under the prohibited activation policy, as anything else comes to the front by itself
+  once it waits for events, and took focus from the user's editor for seconds during a run. A middle button and scrolling go to the
+  view directly, as `NSEvent` can't make them for a window.
+- **Each test fails when its handler is broken.** All 47 handler breaks tried failed their test, run on the MacBook.
+- **Input tests wait for the window to come on screen.** AppKit drops mouse events that reach a window before the window server
+  reports it visible (`occlusionState`), as no hand could click it yet. On the MacBook that gap is too short to hit, but on GitHub's
+  runner six input tests lost their clicks when they ran right after a test that left no window behind. A probe there found the
+  window visible to AppKit, hit-testing to the view and the posted events dequeued and dispatched, with no click arriving; the same
+  events sent half a second later arrived. `openInput` now pumps until the window is visible, for at most 5 s.
+- **What tests don't reach:** the real clipboard (they use a private pasteboard), a real warp, which would move the user's pointer,
+  `pressedMouseButtons`, and activation, which the tests turn off. A hand on the MacBook is the check left for those.
+- **Two changes from the C host:**
+  - BUI clamps the cursor to 0-7, which hides the pointer for `BK_CURSOR_NESW` and everything after it. Here those show the
+    arrow, or `operationNotAllowedCursor` for `BK_CURSOR_NOT_ALLOWED`.
+  - Trackpad momentum after a key press is dropped until the next gesture or wheel event. BUI clears that on any event without
+    momentum, which includes the event ending the gesture, so momentum after a key pressed during the gesture still scrolls,
+    with the new modifier.
+- **As in the C host and bui-go's X11 host:** a window freed inside one of its own events is released between loop turns, and a panic in a
+  handler ends the process.
+- **Still missing:** IME. "Menu, quit and live resize" and "Scale changes" cover the rest.
+
+### Menu, quit and live resize
+
+On 2026-11-08 the host got the rest of what `app_init` and the window delegate do in the C host, apart from scale changes, which
+"Scale changes" covers.
+
+- **The menu bar** has the C host's application menu (Hide, Hide Others, Show All, Quit) and Window menu (Minimize, Zoom, Full
+  Screen, Close), unless NSApp has a menu already. AppKit adds Close All and a second Full Screen item to the Window menu itself.
+- **Quitting ends `Run`, not the process.** NSApp's delegate answers `applicationShouldTerminate:` by closing every window and
+  cancelling, so Cmd+Q, the Dock's Quit and the quit Apple Event that logging out sends all end the loop. AppKit's own answer
+  would `exit()` from inside it. The tests quit in a child process that must print a line after `Run` returns: without the delegate,
+  `terminate:` ends the child with exit status 0.
+- **Dragging an edge keeps drawing.** AppKit runs its own loop until the button goes up. `windowDidResize:` renders each new size
+  during it, as in the C host. A wake also signals a run-loop source in the common modes, so `Do`, and the renders it asks for,
+  run inside that loop and in others that take only their own events. The wake's posted event still ends the host's own wait.
+  A wake doesn't run inside a loop nested in its own work; the next turn runs it.
+- **A test drags a real corner.** Events posted to the application's own queue start AppKit's resize, and with ten drags of 5 points
+  the window grew from 200 x 132 to 250 x 182 points. That moves no real pointer.
+- **The layer and the delegate are released** with their window. Tests watch both go away.
+- **What tests can't reach:** Cmd+W and Minimize act on the key window, which a test app under the prohibited activation policy
+  never has. The menu's items are checked, but not what they do.
+
+### Scale changes
+
+Also on 2026-11-08, the host began to follow a window to a screen of another backing scale, as the C host's `on_backing_changed`
+does, and took `BUI_UI_SCALE` as the C host and bui-go's X11 host do.
+
+- **A move between screens** reaches the delegate as `windowDidChangeBackingProperties:`. The layer takes the new pixels per
+  point. Unless `BUI_UI_SCALE` fixes the scale, the kit takes the new one and `NodeRelayout` runs on the root. Then the window
+  renders in full at its new size in pixels, and clicks map through the new pixels per point.
+- **`BUI_UI_SCALE`** sets the kit's scale, as in the C host: a window of w x h takes w*scale/px x h*scale/px points, so the kit
+  sees w*scale x h*scale pixels. Without it, the scale is the backing scale and at least 1, so w x h takes w x h points as before.
+  A window that opens on another screen than the main one takes that screen's scale.
+- **The relayout changes nothing today.** `BK_set_scale` only stores the factor, and sizes measured before it stay cached until
+  a relayout. But the raster's size changes with the pixels per point, and the kit measures everything again on any new size. The
+  host still calls it, as the C host does, in case the kit stops doing that.
+- **Each window keeps its own scale.** The kit's scale is process-wide, so each window selects its own before it renders, takes
+  input or fires a timer. Otherwise two windows on screens of different scale would draw and measure at whichever changed last, as
+  in the C host. A test moves one of two windows and checks that the other still lays out at its own. Code run by a wake, not
+  being tied to a window, finds the last window's scale, but changing the tree only marks it for the next render.
+- **`engine.Kit` has `ContextRoot` and `NodeRelayout` for it.** Both mirror the C API, and the wasm module exports both. A
+  conformance test on both engines keeps the raster's size, so it shows a button that stays at its old size after `SetScale` until
+  `NodeRelayout` runs.
+- **The tests fake the screen.** The MacBook has one scale, so the tests replace the backing scale the host reads and post
+  `NSWindowDidChangeBackingPropertiesNotification` within the process. Removing the handler or the layer's update fails them, and
+  so does ignoring `BUI_UI_SCALE`. A real move between screens, and a window that opens on another screen, are left to a hand
+  with a second screen.
+
+### Running the macOS tests by hand
+
+CI covers what the Cocoa host's tests reach. A Mac adds Go 1.26, the oldest `go.mod` allows, alongside the newest, cgo on and off,
+and the race detector, which CI does not run there. With cgo on, the engine is still the wasm one, as `bui_cgo` is for Linux, but
+purego then uses Go's `runtime/cgo` instead of its own `fakecgo`. In `bindings/go`, logged in at the Mac or over SSH:
+
+```sh
+rc=0
+for tc in local go1.26.8; do
+  for cgo in 1 0; do
+    GOTOOLCHAIN=$tc CGO_ENABLED=$cgo go test -count=1 ./... || { echo "FAIL $tc cgo=$cgo"; rc=1; }
+  done
+done
+go test -race -count=3 ./internal/host/cocoa || rc=1
+test $rc -eq 0
+```
+
+Every combination runs even after one fails, and the last line fails if any did. bui-go ran this over SSH on the MacBook of "On a
+MacBook", where Go is only on the path of a login shell.
+
+- **Nothing may take the user's focus.** Tests run under the prohibited activation policy, and each input test fails if the app
+  became active. The frontmost app should be the same before and after.
+- **No grant is needed.** Tests make their own events, use a private pasteboard and don't warp the pointer. Screenshots and real
+  input would need Screen Recording and Accessibility, granted by hand in System Settings to a fixed binary run as an agent, as
+  "On a MacBook" describes.
+- **What only a hand checks:** a real click, drag, scroll and typing, the real clipboard, a warp, and activation, as
+  `examples/counter` shows them, as well as Cmd+W, Minimize, the Dock's Quit, the close button and dragging an edge with the real
+  pointer.
 
 ## Known limits
 
@@ -431,8 +593,9 @@ On 2026-11-07, at bui-go's `a06371a`, on an Apple M5 Pro with macOS 27.2, over S
   but a bug inside the kit can go undetected here that would crash natively.
 - Linear memory never shrinks: the largest raster or string a process had stays in its footprint, and a scratch buffer stays at its
   largest size too. Past 1 GiB the process ends (see "Out of memory").
-- Core X cursors, not the desktop's cursor theme. No Compose or IME input.
-- No window host on macOS and Windows yet (`NewWindow` and `Run` report `ErrNoDisplay` there).
+- Core X cursors on X11, not the desktop's cursor theme. No Compose or IME input. On macOS a dead key is not composed with
+  the next key, as in BUI's C host: neither passes keys through AppKit's text input.
+- No window host on Windows yet (`NewWindow` and `Run` report `ErrNoDisplay` there).
 - No worker threads. Video and the file browser are off, and an image source stays pending forever (see "Images without threads").
 - Only the embedded Inter face works by default. Named families need a mount or `BUI_text_add_font`.
 - Custom nodes with a C `draw` callback are not reachable. The Go binding does not expose them today.
