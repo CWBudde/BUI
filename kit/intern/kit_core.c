@@ -467,7 +467,14 @@ void bk_draw_tree(BKNode *n)
   if (n->cls->draw) {
     const float saved = bk_text_scale;
     bk_text_scale = n->font_scale > 0.0f ? n->font_scale : 1.0f;
-    if (!(BK_HTML(n) && bk_html_draw(n))) {
+    bool done = false;
+    if (BK_HTML(n)) { /* a browser draws no text shadow */
+      const int shadow = bk_text_shadow;
+      bk_text_shadow = 0;
+      done = bk_html_draw(n);
+      bk_text_shadow = shadow;
+    }
+    if (!done) {
       n->cls->draw(n);
     }
     bk_text_scale = saved;

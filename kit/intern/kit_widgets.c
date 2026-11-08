@@ -774,7 +774,6 @@ static void panel_draw(BKNode *n)
   /* title: paneltitle style (soft shadow) for panels, widget style for sub-panels;
    * its rect reaches 2 px below the header (title_rect.ymin - 2) */
   BKRect tr = {(int)tx - bk_pad(), n->y, n->x + n->w - (sub ? 0 : (int)uu), n->y + hh + 2};
-  extern int bk_text_shadow;
   const int shadow = bk_text_shadow;
   bk_text_shadow = sub ? 1 : 3;
   bk_text_in(&tr, n->text, bk_theme.text, BK_ALIGN_LEFT, false);

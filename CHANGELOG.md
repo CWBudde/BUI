@@ -15,6 +15,7 @@ All notable changes to **blenderui** (BUI). The format follows
   moves or the text changes); Blender's own fields keep Blender's solid caret. The window wakes only for the next toggle, so an idle window still sleeps.
 
 ### Fixed
+- **Browser-look form controls** drew their text with Blender's UI drop shadow, which made it look heavy next to the page's text. They draw none now, as in a browser.
 - **macOS:** the npm `bui-runtime` (and the release build of the addon) failed to link with `Undefined symbols: ___isPlatformVersionAtLeast`: the
   Cocoa host asked for ProMotion with `@available`, which needs a symbol from clang's runtime that a Rust binary linked with
   `-nodefaultlibs` does not have. It asks by selector now.
@@ -92,6 +93,7 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Benchmarks on Linux:** `bindings/rust/bench/common/measure.rs` measures CPU time (`CLOCK_PROCESS_CPUTIME_ID`) and memory (`/proc/self/status`) on Linux, so `bui-bench`, `bench_frames` and `cargo test` build there; Windows is unchanged. (concprog, pull request #10)
 
 ### Fixed
+- **Browser-look form controls** drew their text with Blender's UI drop shadow, which made it look heavy next to the page's text. They draw none now, as in a browser.
 - **Python: an intermittent crash (access violation) when a native window and Tk share a thread.** The C callbacks the kit
   makes into Python (host hooks, window timer and close, reference counting) ran without the GIL when a window message
   was dispatched from inside Tk's `update()`, which releases the GIL around Tcl and whose notifier dispatches every
@@ -168,6 +170,7 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Svelte** now publishes from CI like the other npm packages (its trusted publisher is set up).
 
 ### Fixed
+- **Browser-look form controls** drew their text with Blender's UI drop shadow, which made it look heavy next to the page's text. They draw none now, as in a browser.
 - **Backspace over a Blender value resets it to its default, not to zero** (number fields, sliders,
   vector fields, checkboxes; the right-click "Reset to Default Value" already did, and the docs always
   said Backspace resets to the default). A widget's default is the value it was made with, or an
@@ -568,6 +571,7 @@ The newest work. Details for some items follow in the sections below.
 - **C:** `BK_window_wake_init` / `BK_window_wake` (a cross-thread wake through a message-only window) and `BK_window_set_keep_alive`.
 
 ### Fixed
+- **Browser-look form controls** drew their text with Blender's UI drop shadow, which made it look heavy next to the page's text. They draw none now, as in a browser.
 - **GPU text:** `BUI_gpu_slug()` read the environment on every text run, which pushed the GPU raster from 1.6 to 9.4 ms per frame at 3,000 cells. It now reads it once.
 - **`WindowHandle::update`:** `cx.notify()` inside the closure didn't re-render that window.
 - **Python, hidden Tk root:** BUI's hidden Tk root (started before the first window on macOS, and by the Tk host) became `tkinter._default_root`, so a real tkinter program's `StringVar()` bound to the hidden interpreter and its widgets never saw the value.

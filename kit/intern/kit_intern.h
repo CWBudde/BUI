@@ -682,6 +682,7 @@ extern const BKClass bk_cls_column, bk_cls_row, bk_cls_split, bk_cls_grid, bk_cl
  * own measure/draw; they return false for classes without a browser look. */
 #define BK_HTML_FONT (40.0f / 33.0f) /* 13.333px text over the 11px UI text */
 extern float bk_html_text_scale;
+extern int bk_text_shadow; /* 0 none, 1 drop shadow (Blender UI text), 3 blurred; browser-look controls draw none */
 bool bk_html_measure(BKNode *n, int *r_w, int *r_h);
 bool bk_html_draw(BKNode *n);
 /* CSS px -> device px */
