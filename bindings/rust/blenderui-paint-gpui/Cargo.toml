@@ -16,5 +16,5 @@ publish = false
 [workspace]
 
 [dependencies]
-blenderui-paint = { path = "../blenderui-paint", version = "0.4.1" }
+blenderui-paint = { path = "../blenderui-paint", version = "0.5.0" }
 gpui = { package = "gpui-pre", version = "=0.3.11" }

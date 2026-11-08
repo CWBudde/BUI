@@ -6,6 +6,8 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-08
+
 ### Added
 - **Lua bindings** (`BUI_BUILD_LUA_BINDINGS`, off by default; pull requests #19 and #20 by seclorum). A standalone
   `bui-lua` executable (with a REPL) and a `bui.so`/`bui.dll` loadable module for stock Lua 5.4, LuaJIT or LuaRocks.
