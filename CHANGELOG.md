@@ -6,6 +6,11 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **macOS:** the npm `bui-runtime` (and the release build of the addon) failed to link with `Undefined symbols: ___isPlatformVersionAtLeast`: the
+  Cocoa host asked for ProMotion with `@available`, which needs a symbol from clang's runtime that a Rust binary linked with
+  `-nodefaultlibs` does not have. It asks by selector now.
+
 ## [0.5.0] - 2026-11-08
 
 ### Added

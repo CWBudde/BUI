@@ -966,10 +966,17 @@ static double refresh_ms(void)
     return ms;
   }
   double hz = 0.0;
+  /* macOS 12 and later (ProMotion). Asked by selector, not with `@available`: that compiles to a
+   * call to ___isPlatformVersionAtLeast in clang's runtime, which a Rust binary linked with
+   * -nodefaultlibs (the npm bui-runtime) does not have, so it failed to link on macOS. */
 #  if defined(MAC_OS_VERSION_12_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_12_0
-  if (@available(macOS 12.0, *)) {
-    hz = (double)[[NSScreen mainScreen] maximumFramesPerSecond];
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wunguarded-availability-new"
+  NSScreen *screen = [NSScreen mainScreen];
+  if ([screen respondsToSelector:@selector(maximumFramesPerSecond)]) {
+    hz = (double)[screen maximumFramesPerSecond];
   }
+#    pragma clang diagnostic pop
 #  endif
   if (hz <= 1.0) {
     CGDisplayModeRef mode = CGDisplayCopyDisplayMode(CGMainDisplayID());
