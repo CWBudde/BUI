@@ -109,6 +109,7 @@ info_row:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 local rc_label = bui.Node("label")
 rc_label:set("text", "Rows: " .. tree:row_count())
 info_row:add(rc_label)
+rc_label:geom(bui.GEOM_PACK, {side = 0})
 
 ctx = bui.Context(root)
 

@@ -1,6 +1,7 @@
 /* BUI Lua binding: BKContext userdata and BKHost callback bridge.
  * SPDX-License-Identifier: GPL-2.0-or-later */
 #include "bui_internal.h"
+#include "../../../kit/intern/kit_intern.h"
 
 int luabui_host_requested = 0;
 
@@ -102,6 +103,24 @@ static void host_emit(void *data, BKNode *node, int kind, void *ref, double a, d
   }
   lua_settop(L, top);
 }
+
+/* ------------------------------------------------------------------ */
+/* Ref hooks (retain/release for BKMenuSpec refs embedded in menu
+ * copies).  Lua registry refs are permanent so retain is a no-op;
+ * release calls luaL_unref to let the GC reclaim the closure.       */
+/* ------------------------------------------------------------------ */
+
+/* Retain/release hooks are intentionally NOT set up.  The BUI engine calls
+ * bk_retain / bk_release when deep-copying menu specs (bk_menuspec_copy /
+ * bk_menuspec_free) and the menubutton stores a persistent copy in its own
+ * MenuButtonData.  If we set up ref hooks here, the same Lua registry ref
+ * would be freed twice — once when the menu popup copy is released and
+ * again when the menubutton's persistent copy is released.
+ *
+ * Instead, Lua refs are freed manually: the menubutton's refs are tracked
+ * in _menu_refs and freed on the next set_menus call (see l_node_set_menus);
+ * one-shot open_menu / open_pie refs are small and reclaimed on context
+ * close. */
 
 /* ------------------------------------------------------------------ */
 /* Initialization                                                     */
@@ -516,69 +535,49 @@ static int l_ctx_popup(lua_State *L) {
 static int l_ctx_open_menu(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  /* owner node (optional), items table, title (optional), at_x/at_y (optional) */
   BKNode *owner = NULL;
   if (!lua_isnil(L, 2)) {
     luabui_Node *oud = CHECK_NODE(L, 2);
     if (oud->node) owner = oud->node;
   }
-  luaL_checktype(L, 3, LUA_TTABLE);
-  int n = (int)lua_rawlen(L, 3);
-  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
-  memset(specs, 0, n * sizeof(BKMenuSpec));
-  for (int i = 0; i < n; i++) {
-    lua_rawgeti(L, 3, i + 1);
-    if (lua_istable(L, -1)) {
-      lua_getfield(L, -1, "text"); specs[i].text = lua_tostring(L, -1); lua_pop(L, 1);
-      lua_getfield(L, -1, "icon"); specs[i].icon = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
-      lua_getfield(L, -1, "enabled"); specs[i].enabled = (int)luaL_optinteger(L, -1, 1); lua_pop(L, 1);
-      lua_getfield(L, -1, "checked"); specs[i].checked = (int)luaL_optinteger(L, -1, -1); lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
-  }
+  BKMenuSpec *specs;
+  int n = luabui_build_menuspec(L, 3, &specs);
   const char *title = luaL_optstring(L, 4, NULL);
   int ax = (int)luaL_optinteger(L, 5, -100000);
   int ay = (int)luaL_optinteger(L, 6, -100000);
-  BK_open_menu(cud->ctx, owner, specs, n, title, ax, ay);
+  if (specs) BK_open_menu(cud->ctx, owner, specs, n, title, ax, ay);
   return 0;
 }
 
 static int l_ctx_open_pie(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  luaL_checktype(L, 2, LUA_TTABLE);
-  int n = (int)lua_rawlen(L, 2);
-  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
-  memset(specs, 0, n * sizeof(BKMenuSpec));
-  for (int i = 0; i < n; i++) {
-    lua_rawgeti(L, 2, i + 1);
-    if (lua_istable(L, -1)) {
-      lua_getfield(L, -1, "text"); specs[i].text = lua_tostring(L, -1); lua_pop(L, 1);
-      lua_getfield(L, -1, "icon"); specs[i].icon = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
-  }
+  BKMenuSpec *specs;
+  int n = luabui_build_menuspec(L, 2, &specs);
   const char *title = luaL_optstring(L, 3, NULL);
-  BK_open_pie(cud->ctx, specs, n, title);
+  if (specs) BK_open_pie(cud->ctx, specs, n, title);
   return 0;
 }
 
 /* Nullify all node userdata pointers in the node map. Called before freeing
  * a context so that node __gc (which runs later) sees ud->node == NULL and
  * does not try to access freed C memory. */
-static void nullify_node_map(lua_State *L) {
+/* Only nullify nodes that belong to `ctx`.  Nodes from other contexts
+ * must stay valid — a filebrowser or popup context can be freed without
+ * disrupting the main UI context. */
+static void nullify_ctx_nodes(lua_State *L, BKContext *ctx) {
   lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_NODE_MAP);
-  /* Iterate the weak-keyed node map: key = lightuserdata(BKNode*), value = userdata */
   lua_pushnil(L);
   while (lua_next(L, -2)) {
-    /* stack: map, key, value */
     if (lua_isuserdata(L, -1) && luaL_testudata(L, -1, LUABUI_NODE_MT)) {
       luabui_Node *ud = (luabui_Node *)lua_touserdata(L, -1);
-      ud->node = NULL;
+      if (ud->node && bk_ctx(ud->node) == ctx) {
+        ud->node = NULL;
+      }
     }
-    lua_pop(L, 1); /* pop value */
+    lua_pop(L, 1);
   }
-  lua_pop(L, 1); /* pop map */
+  lua_pop(L, 1);
 }
 
 /* Clear all callback refs from the context */
@@ -602,7 +601,7 @@ static int l_ctx_free(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (cud->ctx) {
     unref_bind_refs(L);
-    nullify_node_map(L);
+    nullify_ctx_nodes(L, cud->ctx);
     BK_context_free(cud->ctx);
     cud->ctx = NULL;
   }
@@ -613,7 +612,7 @@ static int l_ctx_gc(lua_State *L) {
   luabui_Context *cud = (luabui_Context *)luaL_checkudata(L, 1, LUABUI_CONTEXT_MT);
   if (cud->ctx) {
     unref_bind_refs(L);
-    nullify_node_map(L);
+    nullify_ctx_nodes(L, cud->ctx);
     BK_context_free(cud->ctx);
     cud->ctx = NULL;
   }

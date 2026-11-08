@@ -29,11 +29,13 @@ local multi_cb = bui.Node("checkbox")
 multi_cb:set("text", "Multi")
 multi_cb:set("value", 0)
 control_row:add(multi_cb)
+multi_cb:geom(bui.GEOM_PACK, {side = 0})
 
 local hidden_cb = bui.Node("checkbox")
 hidden_cb:set("text", "Hidden")
 hidden_cb:set("value", 0)
 control_row:add(hidden_cb)
+hidden_cb:geom(bui.GEOM_PACK, {side = 0})
 
 -- File browser node
 local fb = bui.Node("filebrowser")

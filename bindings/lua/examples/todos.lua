@@ -38,6 +38,7 @@ add_btn:on(bui.EV_CLICK, function()
     end
 end)
 input_row:add(add_btn)
+add_btn:geom(bui.GEOM_PACK, {side = 0})
 
 -- Separator
 local sep = bui.Node("separator")

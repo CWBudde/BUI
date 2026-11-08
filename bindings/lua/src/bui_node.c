@@ -748,13 +748,62 @@ static int l_node_set_grid_colors(lua_State *L) {
   return 0;
 }
 
+/* Recursive menu-spec builder.
+ *
+ * `idx` — absolute stack index of a Lua array-of-tables (items table).
+ * Allocates a BKMenuSpec[] as a Lua userdata (traced by GC) and pushes it
+ * on the stack.  Sub-menu arrays are also userdata allocations that remain
+ * on the Lua stack (above the parent).  Caller must keep the stack intact
+ * until the menu is installed (e.g. BK_menubutton_set_items has completed
+ * its deep copy), then pop everything at once.
+ *
+ * Returns the number of items, writes `*out` to the BKMenuSpec pointer. */
+
+int luabui_build_menuspec(lua_State *L, int idx, BKMenuSpec **out) {
+  luaL_checktype(L, idx, LUA_TTABLE);
+  int n = (int)lua_rawlen(L, idx);
+  if (n <= 0) { *out = NULL; return 0; }
+  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, (size_t)n * sizeof(BKMenuSpec));
+  memset(specs, 0, (size_t)n * sizeof(BKMenuSpec));
+  *out = specs;
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, idx, i + 1);
+    if (!lua_istable(L, -1)) { lua_pop(L, 1); continue; }
+
+    lua_getfield(L, -1, "text");    specs[i].text = lua_tostring(L, -1); lua_pop(L, 1);
+    lua_getfield(L, -1, "icon");    specs[i].icon = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+    lua_getfield(L, -1, "shortcut");specs[i].shortcut = lua_tostring(L, -1); lua_pop(L, 1);
+    lua_getfield(L, -1, "checked"); specs[i].checked = (int)luaL_optinteger(L, -1, -1); lua_pop(L, 1);
+    lua_getfield(L, -1, "enabled"); specs[i].enabled = (int)luaL_optinteger(L, -1, 1); lua_pop(L, 1);
+    lua_getfield(L, -1, "fn");
+    if (lua_isfunction(L, -1)) {
+      specs[i].ref = (void *)(intptr_t)luaL_ref(L, LUA_REGISTRYINDEX);
+    } else {
+      lua_pop(L, 1);
+    }
+
+    /* Sub-menu: process so sub userdata stays on stack above item table */
+    lua_getfield(L, -1, "sub");
+    if (lua_istable(L, -1)) {
+      BKMenuSpec *sub = NULL;
+      specs[i].nsub = luabui_build_menuspec(L, lua_gettop(L), &sub);
+      specs[i].sub = sub;
+      /* stack: [item_table, sub_table, sub_userdata] */
+      lua_remove(L, -2); /* pop sub_table */
+      lua_remove(L, -2); /* pop item_table, sub_userdata now at top */
+    } else {
+      lua_pop(L, 1); /* pop nil sub */
+      lua_pop(L, 1); /* pop item table */
+    }
+  }
+  return n;
+}
+
 static int l_node_set_menus(lua_State *L) {
   luabui_Node *ud = CHECK_NODE(L, 1);
   if (!ud->node) return luaL_error(L, "attempt to use freed node");
-  luaL_checktype(L, 2, LUA_TTABLE);
-  int n = (int)lua_rawlen(L, 2);
 
-  /* Free old menu callback refs stored in the uservalue table */
+  /* Free old refs stored in the uservalue table */
   lua_getuservalue(L, 1);
   lua_getfield(L, -1, "_menu_refs");
   if (lua_istable(L, -1)) {
@@ -772,37 +821,23 @@ static int l_node_set_menus(lua_State *L) {
   lua_setfield(L, -2, "_menu_refs");
   lua_pop(L, 1); /* pop uservalue */
 
-  BKMenuSpec *specs = (BKMenuSpec *)lua_newuserdata(L, n * sizeof(BKMenuSpec));
-  memset(specs, 0, n * sizeof(BKMenuSpec));
-  for (int i = 0; i < n; i++) {
-    int top = lua_gettop(L);
-    lua_rawgeti(L, 2, i + 1);
-    luaL_checktype(L, -1, LUA_TTABLE);
-    lua_getfield(L, -1, "text");
-    specs[i].text = lua_tostring(L, -1);
-    lua_getfield(L, -2, "icon");
-    specs[i].icon = (int)luaL_optinteger(L, -1, 0);
-    lua_getfield(L, -3, "shortcut");
-    specs[i].shortcut = lua_tostring(L, -1);
-    lua_getfield(L, -4, "checked");
-    specs[i].checked = (int)luaL_optinteger(L, -1, -1);
-    lua_getfield(L, -5, "enabled");
-    specs[i].enabled = (int)luaL_optinteger(L, -1, 1);
-    lua_getfield(L, -6, "fn");
-    if (lua_isfunction(L, -1)) {
-      int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-      specs[i].ref = (void *)(intptr_t)ref;
-      lua_getuservalue(L, 1);
-      lua_getfield(L, -1, "_menu_refs");
-      lua_pushinteger(L, ref);
-      lua_rawseti(L, -2, lua_rawlen(L, -2) + 1);
-      lua_pop(L, 2);
-    } else {
-      lua_pop(L, 1); /* pop nil fn */
+  BKMenuSpec *specs;
+  int n = luabui_build_menuspec(L, 2, &specs);
+  if (specs) {
+    /* Collect refs from the tree into _menu_refs for cleanup on the next call.
+     * We walk the built tree rather than re-parsing the Lua table. */
+    lua_getuservalue(L, 1);
+    lua_getfield(L, -1, "_menu_refs");
+    for (int i = 0; i < n; i++) {
+      if (specs[i].ref) {
+        lua_pushinteger(L, (lua_Integer)(intptr_t)specs[i].ref);
+        lua_rawseti(L, -2, lua_rawlen(L, -2) + 1);
+      }
     }
-    lua_settop(L, top);
+    lua_pop(L, 2); /* pop _menu_refs, uservalue */
+
+    BK_menubutton_set_items(ud->node, specs, n);
   }
-  BK_menubutton_set_items(ud->node, specs, n);
   return 0;
 }
 
@@ -1249,6 +1284,18 @@ static int l_treeitem_tostring(lua_State *L) {
   return 1;
 }
 
+static int l_treeitem_set_ref(lua_State *L) {
+  luabui_TreeItem *tud = CHECK_TREEITEM(L, 1);
+  if (tud->item) BK_tree_item_set_ref(tud->item, (void *)(intptr_t)luaL_checkinteger(L, 2));
+  return 0;
+}
+
+static int l_treeitem_ref(lua_State *L) {
+  luabui_TreeItem *tud = CHECK_TREEITEM(L, 1);
+  lua_pushinteger(L, (lua_Integer)(intptr_t) (tud->item ? BK_tree_item_ref(tud->item) : NULL));
+  return 1;
+}
+
 static const luaL_Reg treeitem_methods[] = {
   {"add",        l_treeitem_add},
   {"clear",      l_treeitem_clear},
@@ -1259,6 +1306,8 @@ static const luaL_Reg treeitem_methods[] = {
   {"set",        l_treeitem_set},
   {"get",        l_treeitem_get},
   {"set_values", l_treeitem_set_values},
+  {"set_ref",    l_treeitem_set_ref},
+  {"ref",        l_treeitem_ref},
   {"free",       l_treeitem_free},
   {"__gc",       l_treeitem_gc},
   {"__tostring", l_treeitem_tostring},

@@ -10,6 +10,7 @@ header:set("padding", 8)
 local htitle = bui.Node("label")
 htitle:set("text", "Render Farm Dashboard")
 header:add(htitle)
+htitle:geom(bui.GEOM_PACK, {side = 0})
 local job_btn = bui.Node("button")
 job_btn:set("text", "New Job")
 job_btn:set("icon", bui.icon_id("ADD"))
@@ -94,6 +95,7 @@ local function build_jobs()
   local hl = bui.Node("label")
   hl:set("text", "Active Render Jobs")
   col:add(hl)
+  hl:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
   for _, job in ipairs(JOB_DATA) do
     local r = bui.Node("row")
@@ -101,9 +103,10 @@ local function build_jobs()
     local nl = bui.Node("label"); nl:set("text", job[1]); r:add(nl)
     local el = bui.Node("label"); el:set("text", "[" .. job[2] .. "]"); r:add(el)
     local fl = bui.Node("label"); fl:set("text", job[3]); r:add(fl)
-    local bar = bui.Node("progress"); bar:set("value", job[4]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
+    local bar = bui.Node("progress"); bar:set("factor", job[4]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
     local pl = bui.Node("label"); pl:set("text", math.floor(job[4] * 100) .. "%"); r:add(pl)
     col:add(r)
+    r:geom(bui.GEOM_PACK, {side = 0, fill = 1})
   end
 
   local btn = bui.Node("button")
@@ -124,14 +127,16 @@ local function build_nodes()
   wt:set("text", "Wake idle nodes")
   wt:set("value", 1)
   col:add(wt)
+  wt:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
   for _, nd in ipairs(NODE_DATA) do
     local r = bui.Node("row")
     r:set("padding", 2)
     local nl = bui.Node("label"); nl:set("text", nd[1]); r:add(nl)
     local sl = bui.Node("label"); sl:set("text", nd[2]); r:add(sl)
-    local bar = bui.Node("progress"); bar:set("value", nd[3]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
+    local bar = bui.Node("progress"); bar:set("factor", nd[3]); bar:geom(bui.GEOM_PACK, {fill = 1}); r:add(bar)
     col:add(r)
+    r:geom(bui.GEOM_PACK, {side = 0, fill = 1})
   end
 
   return col
@@ -148,19 +153,21 @@ local function build_settings()
     local l = bui.Node("label"); l:set("text", label_text); r:add(l)
     widget:geom(bui.GEOM_PACK, {fill = 1})
     r:add(widget)
+    col:add(r)
+    r:geom(bui.GEOM_PACK, {side = 0, fill = 1})
     return r
   end
 
   local max_num = bui.Node("number")
   max_num:set("value", 4); max_num:set("min", 1); max_num:set("max", 32)
-  col:add(prop_row("Max jobs:", max_num))
+  prop_row("Max jobs:", max_num)
 
   local prio_dd = bui.Node("dropdown")
   prio_dd:set_strs("items", {"Low", "Normal", "High", "Critical"})
-  col:add(prop_row("Priority:", prio_dd))
+  prop_row("Priority:", prio_dd)
 
-  local ecb = bui.Node("checkbox"); ecb:set("text", "Email on completion"); ecb:set("value", 1); col:add(ecb)
-  local scb = bui.Node("checkbox"); scb:set("text", "Sound on error");  scb:set("value", 0); col:add(scb)
+  local ecb = bui.Node("checkbox"); ecb:set("text", "Email on completion"); ecb:set("value", 1); col:add(ecb); ecb:geom(bui.GEOM_PACK, {side = 0, fill = 1})
+  local scb = bui.Node("checkbox"); scb:set("text", "Sound on error");  scb:set("value", 0); col:add(scb); scb:geom(bui.GEOM_PACK, {side = 0, fill = 1})
 
   local btn = bui.Node("button")
   btn:set("text", "Save Settings")

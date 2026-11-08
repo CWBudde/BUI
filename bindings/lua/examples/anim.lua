@@ -64,15 +64,17 @@ toggle_btn:on(bui.EV_CHANGE, function()
   running = toggle_btn:get("value") > 0
 end)
 control_row:add(toggle_btn)
+toggle_btn:geom(bui.GEOM_PACK, {side = 0})
 
 local reset_btn = bui.Node("button")
 reset_btn:set("text", "Reset")
 reset_btn:on(bui.EV_CLICK, function()
-prog:set("factor", 0.5)
+  prog:set("factor", 0.5)
   swatch:set("color", {0.28, 0.45, 0.70, 1.0})
   slider:set("value", 50)
 end)
 control_row:add(reset_btn)
+reset_btn:geom(bui.GEOM_PACK, {side = 0})
 
 root:add(control_row)
 control_row:geom(bui.GEOM_PACK, {side = 0, fill = 1})
