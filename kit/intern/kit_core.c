@@ -1047,6 +1047,15 @@ int BK_set_num(BKNode *n, const char *key, double v)
     bk_invalidate(n);
     return 1;
   }
+  if (strcmp(key, "text_color") == 0) { /* 0xAARRGGBB */
+    const uint32_t argb = (uint32_t)v;
+    n->text_color[0] = (uchar)(argb >> 16);
+    n->text_color[1] = (uchar)(argb >> 8);
+    n->text_color[2] = (uchar)argb;
+    n->text_color[3] = (uchar)(argb >> 24);
+    bk_invalidate(n);
+    return 1;
+  }
   if (strcmp(key, "font_scale") == 0) {
     n->font_scale = (float)v;
     bk_relayout(n);

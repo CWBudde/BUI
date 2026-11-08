@@ -3649,7 +3649,7 @@ static void html_text_draw(BKNode *n)
     html_field_frame(&r, hs, n->edit != NULL);
   }
   const BKRect cr = html_inset(&r, 4, 3, 4, 3);
-  const uchar *tc = hs == HS_DISABLED ? kHtmlFieldTextDisabled : kHtmlText;
+  const uchar *tc = hs == HS_DISABLED ? kHtmlFieldTextDisabled : n->text_color[3] ? n->text_color : kHtmlText;
   if (n->edit) {
     bk_html_te_draw(n->edit, &cr, tc);
     return;

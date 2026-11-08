@@ -1197,6 +1197,17 @@ impl<'a> Builder<'a> {
                     // `styled` and for the Blender components (`bui-blender`)
                     spec.html = !self.nodes[i].styled && self.attr(i, "bui-blender").is_none();
                     spec.bare = spec.html && self.styles[style].border_drawn.iter().all(|d| !d);
+                    if spec.html && matches!(spec.kind, crate::widgets::WKind::Text { .. }) {
+                        // a form control does not inherit its text style; one that differs from the
+                        // parent's was given by the CSS of the field itself
+                        let (own, up) = (&self.styles[style], &self.styles[parent_style]);
+                        let c = own.color;
+                        spec.text_color = (c != up.color && c.a > 0.0).then(|| {
+                            let b = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
+                            b(c.a) << 24 | b(c.r) << 16 | b(c.g) << 8 | b(c.b)
+                        });
+                        spec.font_px = (own.font_size != up.font_size).then_some(own.font_size);
+                    }
                     self.nodes[i].content = Content::Widget(spec);
                 } else {
                     self.children(i, div.children);

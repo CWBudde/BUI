@@ -81,6 +81,10 @@ pub(crate) struct WidgetSpec {
     pub html: bool,
     /// An HTML text field whose CSS has `border-style: none` (`border-none`): drawn with no frame.
     pub bare: bool,
+    /// A browser-look text field with its own CSS `color` / `font-size` (they differ from the parent's):
+    /// 0xAARRGGBB and CSS px. None: Chrome's field text (black, 13.33px).
+    pub text_color: Option<u32>,
+    pub font_px: Option<f32>,
     /// `<optgroup>` labels: (index of the option they come before, label).
     pub groups: Vec<(usize, String)>,
     /// `<meter>`'s low, high and optimum.
@@ -161,6 +165,8 @@ impl WidgetSpec {
             name: attr(attrs, "name").map(str::to_owned),
             html: false,
             bare: false,
+            text_color: None,
+            font_px: None,
             groups: Vec::new(),
             meter: [None; 3],
         }
@@ -457,6 +463,11 @@ fn sync(n: *mut sys::BKNode, old: Option<&WidgetSpec>, spec: &WidgetSpec) {
         }
         if old.is_none_or(|o| o.bare != spec.bare) {
             set_num(c"bare", spec.bare as i32 as f64);
+        }
+        if old.is_none_or(|o| (o.text_color, o.font_px) != (spec.text_color, spec.font_px)) {
+            set_num(c"text_color", f64::from(spec.text_color.unwrap_or(0)));
+            // the kit's 1.0 is Chrome's 13.33px form-control text
+            set_num(c"font_scale", spec.font_px.map_or(0.0, |px| f64::from(px) * 3.0 / 40.0));
         }
         if old.is_none_or(|o| o.disabled != spec.disabled) {
             set_num(c"enabled", (!spec.disabled) as i32 as f64);
