@@ -38,7 +38,7 @@ Each row has a status: **Works** when it works and is tested, **Partial** when c
     ["Rust components", "partial", "No async resources (<code>use_resource</code>) and no generic components yet"],
     ["Dear ImGui", "partial", "Python and safe Rust skip the <code>va_list</code>, <code>void*</code> and C-callback functions; in the Blender-widgets build, title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing"],
     ["npm packages", "partial", "Prebuilt for Windows x64, Linux x64 and macOS, one optional package per platform; no musl or arm64 Linux"],
-    ["Go", "experimental", "The <code>bindings/go</code> module renders headless with no cgo, through an embedded WebAssembly build of the kit. Windows only through cgo on Linux (<code>-tags bui_cgo</code>); no GPU, video, file browser or IME"],
+    ["Go", "experimental", "The <code>bindings/go</code> module runs an embedded WebAssembly build of the kit with no cgo: X11 windows on Linux through a host written in Go, headless elsewhere. With <code>-tags bui_cgo</code> it calls the kit natively on Linux. No GPU, video, file browser or IME"],
     ["macOS", "partial", "The Cocoa window host works: checked by CI and tried by hand on three Macs (two Apple Silicon, one Intel) (<a href='https://github.com/ppmpreetham/BUI/blob/main/docs/macos-testing.md'>testing guide</a>); JavaScript is headless there; no GPU renderer yet"],
   ]}
 />
@@ -54,7 +54,7 @@ Each row has a status: **Works** when it works and is tested, **Partial** when c
     ["More GPU backends", "planned", "Vulkan and WebGPU, drawing the same instance stream as Direct3D 11 and OpenGL"],
     ["Accessibility", "planned", "Screen-reader support through UI Automation (Windows), AT-SPI (Linux) and NSAccessibility (macOS)"],
     ["More JavaScript frameworks", "planned", "Vue and Angular, as thin adapters over <code>@blender-ui/native</code> (the layer React and Svelte share)"],
-    ["Go windows", "planned", "Window hosts for the Go binding's WebAssembly engine, so that a Go program opens windows without cgo"],
+    ["Go windows", "planned", "Window hosts for the Go binding's WebAssembly engine on macOS and Windows, as it has on Linux (X11), so that a Go program opens windows there without cgo"],
     ["More languages", "planned", "Lua (a community pull request is in review), Ruby, C#, Zig, Swift, Kotlin and MyGo over the same C header; Godot, Unity and Bevy; Flutter"],
   ]}
 />
