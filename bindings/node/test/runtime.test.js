@@ -12,7 +12,10 @@ const cli = path.join(__dirname, '..', 'cli.js')
 const app = path.join(__dirname, 'fixtures', 'react-app.jsx')
 const hasBun = spawnSync('bun', ['--version'], { shell: true }).status === 0
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bui-test-'))
-test.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+// Windows keeps a just-exited executable locked for a moment (EBUSY): retry, and never fail a test run over a temp folder
+test.after(() => {
+  try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch {}
+})
 
 function check (stdout, runtime) {
   const line = stdout.trim().split('\n').pop()

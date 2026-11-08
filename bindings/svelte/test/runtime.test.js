@@ -17,7 +17,10 @@ const app = path.join(here, 'fixtures', 'app.js')
 const bun = spawnSync('bun', ['-e', 'process.stdout.write(process.execPath)'], { encoding: 'utf8', shell: true }).stdout?.trim()
 const hasBun = Boolean(bun)
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bui-svelte-test-'))
-test.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+// Windows keeps a just-exited executable locked for a moment (EBUSY): retry, and never fail a test run over a temp folder
+test.after(() => {
+  try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch {}
+})
 const env = { ...process.env, BUI_HEADLESS: '1' }
 
 function check (r, runtime) {
