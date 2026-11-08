@@ -227,6 +227,8 @@ typedef struct BKTextEdit {
   char mask[8]; /* shown instead of each character (password fields), "" = none */
   struct BKTextUndo *undo; /* Blender's interface_undo.cc text stack (Ctrl+Z while typing) */
   BKImeComp ime;
+  double blink_t0;           /* when the caret last moved or the text last changed (bk_time) */
+  int blink_caret, blink_len; /* what blink_t0 was taken at */
 } BKTextEdit;
 
 enum { TE_NONE = 0, TE_CHANGED, TE_CONFIRM, TE_CANCEL, TE_NEXT, TE_PREV };
@@ -240,6 +242,11 @@ void bk_te_drag(BKTextEdit *te, float px);
 void bk_te_select_word(BKTextEdit *te, int index);
 void bk_te_draw(BKTextEdit *te, const BKRect *rect, const uchar color[4]);
 bool bk_te_delete_selection(BKTextEdit *te);
+/* The caret blinks (about every 530 ms, as in browsers): solid right after it moves or the text
+ * changes, then on and off. The draw code asks; the context's frame timer wakes the window at
+ * the next change while a field is edited (bk_ctx_arm_timer). */
+bool bk_te_caret_visible(BKTextEdit *te);
+double bk_te_next_toggle(BKTextEdit *te); /* in bk_time() seconds */
 
 /* -------------------------------------------------------------------- */
 /* Input methods (kit_ime.c). Blender: GHOST_ImeWin32 + the wm/ui IME handlers. */
