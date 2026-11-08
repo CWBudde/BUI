@@ -85,7 +85,9 @@ jobs:
         run: |
           version="${TAG#v}"
           for crate in blenderui-tailwind blenderui-macros blenderui-sys blenderui-paint blenderui-table blenderui-vlist blenderui blenderui-imgui; do
-            if [ "$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/$crate/$version")" = 200 ]; then
+            # crates.io's API wants an identifying User-Agent (curl's default can be refused, which made
+            # this check fail and a re-run try to publish a crate that was already there)
+            if [ "$(curl -s -A 'bui-release-ci (https://github.com/ppmpreetham/BUI)' -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/$crate/$version")" = 200 ]; then
               echo "::notice::$crate $version is already on crates.io; skipping"
               continue
             fi
@@ -93,7 +95,16 @@ jobs:
             [ "$PUBLISH" = true ] || flags="$flags --dry-run"
             # uploads of the big blenderui-sys crate sometimes time out (HTTP 408): retry
             for attempt in 1 2 3; do
-              cargo publish -p "$crate" $flags && break
+              log=$(mktemp)
+              rc=0
+              cargo publish -p "$crate" $flags > "$log" 2>&1 || rc=$?
+              cat "$log"
+              [ "$rc" = 0 ] && break
+              # published by an earlier run, but not visible to the check above: nothing to do
+              if grep -q "already exists on crates.io" "$log"; then
+                echo "::notice::$crate $version is already on crates.io; skipping"
+                break
+              fi
               [ "$attempt" = 3 ] && exit 1
               echo "::warning::$crate: attempt $attempt failed; retrying"
               sleep $((attempt * 30))
