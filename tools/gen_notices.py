@@ -9,7 +9,7 @@ Three parts, all read from the repository so the file cannot drift from the code
    FreeType, Inter, Dear ImGui, ...): their own license files, copied verbatim.
 2. What only the Go binding brings (wazero, and the wasi-sdk runtime inside bui_kit.wasm): the
    texts in bindings/go/licenses, copied there from the pinned sources.
-3. The Rust crates the Rust crates, the Node addon and the QuickJS runtime are built from
+3. The crates that the Rust crates, the Node addon and the QuickJS runtime are built from
    (`cargo metadata`, normal dependencies only): name, version, license, and each distinct
    license text found in the crate's source, once, with the crates that use it.
 

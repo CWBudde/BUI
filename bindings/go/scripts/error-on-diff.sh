@@ -14,7 +14,7 @@ trap 'rm -rf "$TMP"' EXIT
 git ls-files -z | xargs -0 git checkout-index --prefix "$TMP/" --
 cd "$TMP"
 
-# Initializie as git repo to enable diff
+# Initialize as git repo to enable diff
 git init . 2>/dev/null
 git add . 2>/dev/null
 cd "$TMP/$REL"
