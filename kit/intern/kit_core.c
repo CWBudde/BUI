@@ -3306,10 +3306,9 @@ void bk_te_draw(BKTextEdit *te, const BKRect *rect, const uchar color[4])
     bk_text(tx, bk_text_baseline(rect), te->text, te->len, color, false);
   }
   const float m = 0.2f * h;
-  if (bk_te_caret_visible(te)) {
-    bk_fill(floorf(tx + caret_px), rect->ymin + m, BK_MAX(1.0f, floorf(0.1f * bk_unit() + 0.5f)),
-            h - 2 * m, bk_theme.cursor);
-  }
+  /* Blender's caret is solid (interface_widgets.cc, ui_draw_but_TEX); only the HTML look blinks. */
+  bk_fill(floorf(tx + caret_px), rect->ymin + m, BK_MAX(1.0f, floorf(0.1f * bk_unit() + 0.5f)),
+          h - 2 * m, bk_theme.cursor);
   bk_clip_pop();
   bk_ime_set_candidate(&te->ime, (int)floorf(tx + caret_px) + 5, rect->ymax + 1);
 }

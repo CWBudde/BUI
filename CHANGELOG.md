@@ -11,8 +11,8 @@ All notable changes to **blenderui** (BUI). The format follows
   so a view can follow the typing (a search box, a date field that lights up a calendar).
 
 ### Changed
-- **Text fields:** the caret blinks (about every 530 ms, solid right after it moves or the text changes), in Blender's fields, the HTML look
-  and text areas. The window wakes only for the next toggle, so an idle window still sleeps.
+- **Text fields:** in the HTML look (browser-style inputs and text areas) the caret blinks like a browser's (about every 530 ms, solid right after it
+  moves or the text changes); Blender's own fields keep Blender's solid caret. The window wakes only for the next toggle, so an idle window still sleeps.
 
 ### Fixed
 - **macOS:** the npm `bui-runtime` (and the release build of the addon) failed to link with `Undefined symbols: ___isPlatformVersionAtLeast`: the
