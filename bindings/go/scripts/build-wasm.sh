@@ -15,6 +15,7 @@
 #                                 wasm/sjlj_probe.c, for the setjmp test. It
 #                                 never downloads the SDK, and exits with
 #                                 status 2 when the SDK is not there.
+#   scripts/build-wasm.sh sdk     only downloads and checks the SDK, for CI
 #
 # Outputs go to $BUI_WASM_BUILD_DIR/out (default: the gitignored build/wasm).
 # The SDK downloads into the gitignored third_party/. BUILD_JOBS limits
@@ -25,8 +26,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 commit="$(tr -d '[:space:]' <"$root/BUI_COMMIT")"
 jobs="${BUILD_JOBS:-4}"
 mode="${1:-kit}"
-case "$mode" in kit | probe) ;; *)
-	echo "usage: $0 [probe]" >&2
+case "$mode" in kit | probe | sdk) ;; *)
+	echo "usage: $0 [probe | sdk]" >&2
 	exit 1
 	;;
 esac
@@ -78,6 +79,7 @@ if [ "$(head -n1 "$sdk/VERSION")" != "$sdk_version" ]; then
 	echo "build-wasm: $sdk is not wasi-sdk $sdk_version" >&2
 	exit 1
 fi
+[ "$mode" = sdk ] && exit 0
 cc="$sdk/bin/clang"
 cxx="$sdk/bin/clang++"
 
