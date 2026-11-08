@@ -88,6 +88,7 @@ A `<title>` element sets the window title.
 | `.checked`, `.disabled`, `.selected`, `.open` | Boolean attributes: `true` sets them, `false` removes them |
 | `.min`, `.max`, `.step` | Number attributes (`f64`) |
 | `.colspan` | Table cell spans (`u32`) |
+| `live` (in `rsx!`: `<input live>`; `.attr("live", "")`) | A text field or `textarea` that reports every keystroke to `on_input` / `on_change`, not only on Enter or blur |
 
 Text children are `&'static str`, `String` or `SharedString`.
 

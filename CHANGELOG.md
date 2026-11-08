@@ -6,6 +6,14 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+### Added
+- **Rust:** `<input live>` (and `<textarea live>`): the field reports every keystroke to `on_input` / `on_change`, not only on Enter or blur,
+  so a view can follow the typing (a search box, a date field that lights up a calendar).
+
+### Changed
+- **Text fields:** the caret blinks (about every 530 ms, solid right after it moves or the text changes), in Blender's fields, the HTML look
+  and text areas. The window wakes only for the next toggle, so an idle window still sleeps.
+
 ### Fixed
 - **macOS:** the npm `bui-runtime` (and the release build of the addon) failed to link with `Undefined symbols: ___isPlatformVersionAtLeast`: the
   Cocoa host asked for ProMotion with `@available`, which needs a symbol from clang's runtime that a Rust binary linked with

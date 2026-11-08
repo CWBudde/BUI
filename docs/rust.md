@@ -236,7 +236,9 @@ in a browser.
 Every element has `.child(..)`, `.children(..)`, `.id(..)`, `.class(..)`,
 `.attr(name, value)` and typed attributes: `.href`, `.value`, `.placeholder`,
 `.input_type`, `.name`, `.checked`, `.disabled`, `.selected`, `.open`, `.min`,
-`.max`, `.step`, `.src`, `.alt`, `.title`, `.colspan`. `FluentBuilder` adds
+`.max`, `.step`, `.src`, `.alt`, `.title`, `.colspan`. A text field with the
+`live` attribute (`<input live>`) reports every keystroke to `on_input` and
+`on_change`, not only on Enter or blur. `FluentBuilder` adds
 `.when(cond, |el| ..)`, `.when_some(opt, |el, v| ..)` and `.map(..)`.
 Text children are `&'static str`, `String` or `SharedString`.
 

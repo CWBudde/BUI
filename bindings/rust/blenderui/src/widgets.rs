@@ -72,6 +72,8 @@ pub(crate) struct WidgetSpec {
     pub items: Vec<String>,
     pub color: Option<Rgba>,
     pub placeholder: String,
+    /// `<input live>`: on_input / on_change fire per keystroke (the kit's "live"), not on Enter or blur.
+    pub live: bool,
     pub disabled: bool,
     pub name: Option<String>,
     /// Drawn like a browser's form control (plain HTML outside `styled`);
@@ -152,6 +154,7 @@ impl WidgetSpec {
             items: Vec::new(),
             color: None,
             placeholder: attr(attrs, "placeholder").unwrap_or("").to_owned(),
+            live: attr(attrs, "live").is_some(),
             disabled: attr(attrs, "disabled").is_some(),
             name: attr(attrs, "name").map(str::to_owned),
             html: false,
@@ -460,6 +463,9 @@ fn sync(n: *mut sys::BKNode, old: Option<&WidgetSpec>, spec: &WidgetSpec) {
         }
         if old.is_none_or(|o| o.placeholder != spec.placeholder) && !spec.placeholder.is_empty() {
             set_str(c"placeholder", &spec.placeholder);
+        }
+        if old.is_none_or(|o| o.live != spec.live) && matches!(spec.kind, WKind::Text { .. } | WKind::TextArea) {
+            set_num(c"live", spec.live as i32 as f64);
         }
         if let WKind::Text { mask: true } = spec.kind {
             if old.is_none() {
