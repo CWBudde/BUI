@@ -1,5 +1,8 @@
 # run with treefmt --allow-missing-formatter
 
+# The tree is this directory, not the enclosing git repository, which treefmt would take by default.
+tree-root-file = "treefmt.toml"
+
 [global]
 excludes = [
   # vendored / generated C and binaries
