@@ -3,11 +3,13 @@
     python tools/gen_notices.py            # (re)write the file
     python tools/gen_notices.py --check    # exit 1 when the file is out of date (CI, releases)
 
-Two parts, both read from the repository so the file cannot drift from the code:
+Three parts, all read from the repository so the file cannot drift from the code:
 
 1. The C and C++ libraries and the assets vendored in the tree (Wuffs, libjpeg-turbo, libwebp,
    FreeType, Inter, Dear ImGui, ...): their own license files, copied verbatim.
-2. The Rust crates the Rust crates, the Node addon and the QuickJS runtime are built from
+2. What only the Go binding brings (wazero, and the wasi-sdk runtime inside bui_kit.wasm): the
+   texts in bindings/go/licenses, copied there from the pinned sources.
+3. The crates that the Rust crates, the Node addon and the QuickJS runtime are built from
    (`cargo metadata`, normal dependencies only): name, version, license, and each distinct
    license text found in the crate's source, once, with the crates that use it.
 
@@ -117,6 +119,87 @@ VENDORED = [
 ]
 
 
+def go_texts(*names: str) -> str:
+    """Texts from bindings/go/licenses, each under a heading with its file name when there are several."""
+    texts = [file_text(f"bindings/go/licenses/{n}") for n in names]
+    if len(texts) == 1:
+        return texts[0]
+    return "\n\n".join(f"=== {n} ===\n\n{t}" for n, t in zip(names, texts))
+
+
+LLVM_LICENSE = "Apache-2.0 WITH LLVM-exception, and older NCSA and MIT"
+LLVM_SOURCE = "https://github.com/llvm/llvm-project"
+
+# What a program built with the Go binding (bindings/go) contains beyond the kit and the tree's
+# parts above: (name and version, where it ends up, license, source, license text)
+GO_BINDING = [
+    ("wazero 1.12.0", "Runs bui_kit.wasm: the program, as a Go module", "Apache-2.0",
+     "https://github.com/tetratelabs/wazero", lambda: go_texts("wazero.txt", "wazero-NOTICE.txt")),
+    ("golang.org/x/sys 0.44.0", "CPU features and system calls for wazero: the program, as a Go module",
+     "BSD-3-Clause", "https://pkg.go.dev/golang.org/x/sys", lambda: go_texts("x-sys.txt")),
+    ("wasi-libc, from wasi-sdk 34.0", "The C library in bui_kit.wasm",
+     "Apache-2.0 WITH LLVM-exception, Apache-2.0 or MIT", "https://github.com/WebAssembly/wasi-libc",
+     lambda: go_texts("wasi-libc.txt", "wasi-libc-LICENSE-APACHE-LLVM.txt", "wasi-libc-LICENSE-APACHE.txt",
+                      "wasi-libc-LICENSE-MIT.txt")),
+    ("musl, in wasi-libc", "The C library in bui_kit.wasm", "MIT", "https://musl.libc.org",
+     lambda: go_texts("wasi-libc-musl.txt")),
+    ("cloudlibc, in wasi-libc", "The C library in bui_kit.wasm", "BSD-2-Clause",
+     "https://github.com/NuxiNL/cloudlibc", lambda: go_texts("wasi-libc-cloudlibc.txt")),
+    ("dlmalloc, in wasi-libc", "malloc in bui_kit.wasm", "CC0, by the notice in dlmalloc/src/malloc.c (lines 1-5)",
+     "https://github.com/WebAssembly/wasi-libc/tree/main/dlmalloc", lambda: go_texts("wasi-libc-dlmalloc.txt")),
+    ("libc++, from wasi-sdk 34.0", "The C++ standard library in bui_kit.wasm", LLVM_LICENSE, LLVM_SOURCE,
+     lambda: go_texts("llvm-libcxx.txt")),
+    ("libc++abi, from wasi-sdk 34.0", "C++ exceptions and RTTI in bui_kit.wasm", LLVM_LICENSE, LLVM_SOURCE,
+     lambda: go_texts("llvm-libcxxabi.txt")),
+    ("libunwind, from wasi-sdk 34.0", "Unwinding for C++ exceptions in bui_kit.wasm", LLVM_LICENSE, LLVM_SOURCE,
+     lambda: go_texts("llvm-libunwind.txt")),
+    ("compiler-rt builtins, from wasi-sdk 34.0", "Compiler helper functions in bui_kit.wasm", LLVM_LICENSE,
+     LLVM_SOURCE, lambda: go_texts("llvm-compiler-rt.txt")),
+    ("Wayland's xdg-shell and xdg-decoration protocols", "Code wayland-scanner generates into libbui_kit.a, "
+     "which the cgo engine (tag bui_cgo) links", "MIT", "https://gitlab.freedesktop.org/wayland/wayland-protocols",
+     lambda: go_texts("wayland-protocols-xdg-shell.txt", "wayland-protocols-xdg-decoration.txt")),
+    ("Notices inside BUI's own sources", "The kit, on either engine (the last item above says which parts)", "Various, see the text",
+     "This repository", lambda: go_texts("bui-source-notices.txt")),
+]
+
+GO_NOTES = """A program built with the Go binding (`bindings/go`) contains BUI's kit, and with it the
+tree's Wuffs, libjpeg-turbo, libwebp, FreeType, Inter, stb_truetype and NanoSVG above. With the
+default wasm engine the kit is `bindings/go/internal/engine/wasmengine/bui_kit.wasm`, built from the
+commit in `bindings/go/BUI_COMMIT` with `BUI_GPU=OFF`, so without the Slug shaders; with the cgo
+engine (the tag `bui_cgo`) it is the libraries of the tree's own CMake build, which hold them when
+`BUI_GPU` is on. It contains none of the Rust crates below, and neither Dear ImGui, Tailwind's theme,
+Lua nor linenoise. The table lists what the binding adds.
+
+What is not known, or not covered here:
+
+- wasi-sdk's archive carries none of its license texts, so they come from the sources it was
+  built from. The tag `wasi-sdk-34` pins them as submodules, and the archive's own `VERSION` file
+  names the same commits: wasi-libc `2e6fb9d8ee0cdf9e431fbcabe8af3115de000a13` and llvm-project
+  `895aa2c896ada719451be2e3673c83da8ddf1141`.
+- wasi-libc also holds `fts` and `emmalloc`, under their own licenses. Neither is in
+  `bui_kit.wasm`, whose name section shows `dlmalloc` and no `fts_open`.
+- The Wayland protocol code is generated at build time from the build machine's
+  wayland-protocols. The texts here are from wayland-protocols 1.49, which need not be the version
+  a given build used. Every Linux build of the kit with `BUI_WAYLAND` contains this code, not only
+  the Go binding's.
+- A cgo program also links the C and C++ runtime of the machine it is built on
+  (`-lstdc++ -ldl -lm -lpthread`), and the kit opens libX11 with `dlopen` at run time, and for a
+  Wayland window libwayland-client, libwayland-cursor and libxkbcommon. None of these is in this
+  repository.
+- The Slug entry above is the standard MIT text with the name from the comment in
+  `gpu/intern/gpu_gl.c`. That comment names no upstream revision, so the revision BUI ported is
+  not known.
+- In BUI's own sources (the last entry): the list merge sort in `core/intern/list_sort_impl.h` has
+  MIT wording and no copyright line; the dual quaternion conversion in
+  `core/intern/math_rotation_c.c` carries only the SPDX identifier Zlib; and
+  `core/include/BLI_build_config.h`, based on Chromium's `build_config.h`, names "a BSD-style
+  license" whose text is not in the tree. Of the code these notices cover, `bui_kit.wasm` holds the
+  atomic operations from jemalloc, `wcwidth` and FreeType's hash table, while the name section shows
+  no symbol from the merge sort, the quaternion conversion or MurmurHash; the cgo engine's libraries
+  hold all of them.
+"""
+
+
 def run_metadata() -> dict:
     env = dict(os.environ, RUSTC_WRAPPER="")
     r = subprocess.run(["cargo", "metadata", "--format-version", "1", "--locked"],
@@ -162,8 +245,9 @@ def render() -> str:
 
 BUI is licensed under the GNU General Public License, version 3 or later (see `LICENSE`), like
 Blender, which it is derived from. This file lists the other software and assets that BUI's
-packages (the Python wheels, the npm packages, the Rust crates and the prebuilt runtimes) include,
-and their licenses. It is generated by `tools/gen_notices.py`: do not edit it by hand.
+packages (the Python wheels, the npm packages, the Rust crates and the prebuilt runtimes) and
+programs built with its Go binding include, and their licenses. It is generated by
+`tools/gen_notices.py`: do not edit it by hand.
 
 ## Libraries and assets in the BUI tree
 
@@ -173,6 +257,17 @@ and their licenses. It is generated by `tools/gen_notices.py`: do not edit it by
         out.append(f"| {name} | {use} | {lic} | {src} |")
     out.append("\nThe parts of Blender that BUI is derived from are GPL-2.0-or-later and are covered by `LICENSE`.\n")
     for name, _, lic, _, text in VENDORED:
+        out.append(f"### {name}\n\nLicense: {lic}\n\n````text\n{text()}\n````\n")
+
+    out.append("""## The Go binding
+
+""" + GO_NOTES + """
+| Part | Where it ends up | License | Source |
+| --- | --- | --- | --- |""")
+    for name, use, lic, src, _ in GO_BINDING:
+        out.append(f"| {name} | {use} | {lic} | {src} |")
+    out.append("")
+    for name, _, lic, _, text in GO_BINDING:
         out.append(f"### {name}\n\nLicense: {lic}\n\n````text\n{text()}\n````\n")
 
     meta = run_metadata()
@@ -216,7 +311,7 @@ def main() -> int:
         print("THIRD_PARTY_NOTICES.md is up to date")
         return 0
     OUT.write_text(text, encoding="utf-8", newline="\n")
-    print(f"wrote {OUT.name}: {len(VENDORED)} vendored parts, {text.count('### Used by')} distinct crate license texts, {len(text) // 1024} KB")
+    print(f"wrote {OUT.name}: {len(VENDORED)} vendored parts, {len(GO_BINDING)} Go binding parts, {text.count('### Used by')} distinct crate license texts, {len(text) // 1024} KB")
     return 0
 
 

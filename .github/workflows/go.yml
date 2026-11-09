@@ -1,0 +1,138 @@
+# The Go binding (bindings/go): formatting, lint, tests on the wasm engine without cgo on
+# Linux and macOS, and a byte-for-byte rebuild of the committed bui_kit.wasm. Only changes
+# to the binding or to this file run it; BUI's own jobs are in ci.yml.
+
+name: go
+
+on:
+  push:
+    branches: [main]
+    paths: ["bindings/go/**", ".github/workflows/go.yml"]
+  pull_request:
+    paths: ["bindings/go/**", ".github/workflows/go.yml"]
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: bindings/go
+
+jobs:
+  format:
+    name: formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bindings/go/go.mod
+
+      - uses: extractions/setup-just@v4
+
+      - name: Install formatters
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          just setup-deps
+
+      - name: Check formatting
+        run: just check-formatted
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bindings/go/go.mod
+
+      - name: Check tidy
+        run: ./scripts/error-on-diff.sh go mod tidy
+
+      # Keep the version in sync with golangci_lint_version in bindings/go/justfile.
+      - name: Run linter
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          working-directory: bindings/go
+          args: --config .golangci.toml --timeout 5m
+
+      # The cgo engine type-checks against the tree's headers; it needs no libraries for that.
+      - name: Run linter on the cgo engine
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          working-directory: bindings/go
+          args: --config .golangci.toml --timeout 5m --build-tags bui_cgo
+
+  test-linux:
+    name: tests without cgo (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      # The setjmp probe's test builds it from BUI_COMMIT, which a shallow clone lacks.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bindings/go/go.mod
+
+      - name: Install an X server
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+
+      - uses: actions/cache@v4
+        with:
+          path: bindings/go/third_party/dl
+          key: wasi-sdk-${{ hashFiles('bindings/go/scripts/build-wasm.sh') }}
+
+      - name: Fetch the pinned wasi-sdk, for the setjmp probe
+        run: ./scripts/build-wasm.sh sdk
+
+      - name: Run tests with no cgo at all
+        env:
+          CGO_ENABLED: "0"
+        run: xvfb-run -a go test ./...
+
+  test-macos:
+    name: tests without cgo (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bindings/go/go.mod
+
+      # Only the Linux x86_64 wasi-sdk is pinned, so the setjmp probe's test skips here.
+      - name: Run tests, headless
+        env:
+          CGO_ENABLED: "0"
+        run: go test ./...
+
+  check-wasm:
+    name: wasm module matches its sources
+    runs-on: ubuntu-latest
+    steps:
+      # build-wasm.sh takes BUI's sources at BUI_COMMIT from this clone's history.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build
+
+      - uses: actions/cache@v4
+        with:
+          path: bindings/go/third_party/dl
+          key: wasi-sdk-${{ hashFiles('bindings/go/scripts/build-wasm.sh') }}
+
+      - name: Rebuild, and check the bytes and the size
+        run: ./scripts/check-wasm.sh

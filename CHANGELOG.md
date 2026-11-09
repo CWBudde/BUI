@@ -7,6 +7,15 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Go binding** (`bindings/go`, the module `github.com/ppmpreetham/BUI/bindings/go`; experimental), moved here from
+  [bui-go](https://github.com/CWBudde/bui-go). Package `bui` builds node trees, sets properties, handles clicks and changes, and
+  renders headless with `Headless`. By default it runs the kit as an embedded WebAssembly module in wazero, so it needs no C
+  toolchain and builds with `CGO_ENABLED=0` for any platform; `bui_kit.wasm` is committed and rebuilds byte for byte from the
+  commit in `bindings/go/BUI_COMMIT` (`scripts/check-wasm.sh`). With `-tags bui_cgo` on Linux it calls the kit natively, from
+  the libraries of the CMake build in `build/`, and opens windows through the kit's own hosts; the tests compare both engines'
+  pixels exactly. Limits: software rendering only, no GPU, video, file browser or IME, no windows yet on the default engine
+  (`NewWindow` and `Run` report `ErrNoDisplay`), and a trap in the wasm module ends the process. CI runs it in `go.yml`, and
+  `THIRD_PARTY_NOTICES.md` lists what it adds (wazero, and the wasi-sdk runtime in the module).
 - **Rust:** `<input live>` (and `<textarea live>`): the field reports every keystroke to `on_input` / `on_change`, not only on Enter or blur,
   so a view can follow the typing (a search box, a date field that lights up a calendar).
 
