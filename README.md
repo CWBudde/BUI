@@ -190,7 +190,7 @@ all get the same widgets and interactions:
 | **JavaScript / React / Svelte** on Node.js or Bun: a DOM-like API, JSX or Svelte components                                                              | The same engine and components in native windows, over napi-rs; React's hooks backed by signals; Svelte 5 components                            | Working               |
 | **Dear ImGui** from C++, C, Python or Rust                                                                                                               | The real Dear ImGui on BUI windows in Blender's theme, or a build where ImGui's widgets _are_ Blender's widgets                                 | Working               |
 | **C** (`BUI_kit.h`)                                                                                                                                      | The kit itself: nodes, widgets, windows                                                                                                         | Working               |
-| **Go** (`bindings/go`): package `bui`, with no cgo by default                                                                                            | Nodes, properties, events, headless rendering and X11 windows on Linux, through an embedded WebAssembly build of the kit                        | Experimental          |
+| **Go** (`bindings/go`): package `bui`, with no cgo by default                                                                                            | Nodes, properties, events, headless rendering, and windows on Linux (X11) and macOS, through an embedded WebAssembly build of the kit           | Experimental          |
 | **MyGo**                                                                                                                                                 | MyGo                                                                                                                                            | Not yet (coming soon) |
 
 Not sure which to pick? If you already have code, use the row that matches it.
@@ -1461,9 +1461,10 @@ All 26 run headless (`bui-lua --headless app.lua`) for CI and documentation scre
 
 The Go module `github.com/ppmpreetham/BUI/bindings/go` (in `bindings/go`) drives the kit from package `bui`. By default it runs
 the kit as an embedded WebAssembly module in [wazero](https://github.com/tetratelabs/wazero), so it needs no C toolchain and
-builds with `CGO_ENABLED=0` for any platform. It is experimental. On Linux it opens real windows through its own X11 host in
-pure Go (`CGO_ENABLED=0 go run ./examples/counter`), and on every platform it renders headless with `Headless`, which draws into
-memory and takes synthetic input. A macOS host comes later.
+builds with `CGO_ENABLED=0` for any platform. It is experimental. On Linux and macOS it opens real windows through its
+own hosts in pure Go: one for X11, and one for Cocoa, which reaches AppKit through
+[purego](https://github.com/ebitengine/purego) (`CGO_ENABLED=0 go run ./examples/counter` in `bindings/go`). On every
+platform it renders headless with `Headless`, which draws into memory and takes synthetic input. A Windows host comes later.
 
 ```go
 root := bui.NewNode("frame")
@@ -1486,8 +1487,8 @@ view.Release(x+w/2, y+h/2) // prints "clicked"
 With `-tags bui_cgo` on Linux the binding calls the kit natively instead, from the libraries of the CMake build in `build/`
 (`cmake --build build --target bui_kit`), and opens windows through the kit's own hosts. Both engines draw the same pixels.
 
-**Limits:** software rendering only; no GPU, video, file browser or IME; no windows yet on macOS and Windows with the default
-engine (`NewWindow` and `Run` report `ErrNoDisplay`); its X11 host has core X cursors only, no Compose and no INCR clipboard
+**Limits:** software rendering only; no GPU, video, file browser or IME; no windows yet on Windows with the default engine
+(`NewWindow` and `Run` report `ErrNoDisplay`); its X11 host has core X cursors only, no Compose and no INCR clipboard
 transfers; and a trap in the wasm module ends the process.
 
 Guide: [bindings/go/README.md](bindings/go/README.md), and the design notes with the measurements in
@@ -1806,7 +1807,7 @@ py bindings/python/bench/tk_canvas_bench.py 3000 one    # move one
 | Rust (`cargo add blenderui`) | Works                            | Works                                                    | Works                  |
 | JavaScript / React           | Works: prebuilt on npm           | Works: prebuilt on npm (glibc 2.35+); native X11 windows | Headless (see below)   |
 | C, C++, Dear ImGui           | Works                            | Works                                                    | Works                  |
-| Go (`bindings/go`)           | Headless (built, not run)        | X11 windows in pure Go; BUI's with `-tags bui_cgo`       | Headless               |
+| Go (`bindings/go`)           | Headless (built, not run)        | X11 windows in pure Go; BUI's with `-tags bui_cgo`       | Headless and windows   |
 | Renderer                     | CPU raster, or GPU (Direct3D 11) | CPU raster, or GPU (OpenGL 3.3)                          | CPU raster             |
 | HiDPI                        | Per-monitor DPI                  | `Xft.dpi`                                                | Retina (backing scale) |
 
@@ -2042,7 +2043,7 @@ ship. The tables below have the details.
 | Rust components                                        | No async resources (`use_resource`); no generic components                                                                                                                                                                                                |
 | Dear ImGui                                             | Python and safe Rust skip the `va_list`, `void*` and C-callback functions (reachable from C and the Rust FFI); with Blender widgets, window title bars, tooltips, plain popups, tables and the color picker keep ImGui's drawing                          |
 | JavaScript / React packages                            | npm packages are prebuilt for Windows x64, Linux x64 (glibc 2.35+) and macOS (elsewhere, build the addon from source); events reach JavaScript after BUI handled them (no native `preventDefault`), and `event.target` is the deepest _listening_ element |
-| Go (`bindings/go`)                                     | Experimental. Windows on Linux only: X11 through a Go host with no cgo, or BUI's own hosts with `-tags bui_cgo`; headless elsewhere. No GPU, video, file browser or IME                                                                                   |
+| Go (`bindings/go`)                                     | Experimental. Windows in pure Go with no cgo on Linux (X11) and macOS (Cocoa), or BUI's own hosts on Linux with `-tags bui_cgo`; headless on Windows. No GPU, video, file browser or IME                                                                  |
 | macOS                                                  | The native Cocoa window host works: checked by CI and tried by hand on three Macs (two Apple Silicon, one Intel) ([testing notes](docs/macos-testing.md)); JavaScript is headless there (Node's UI thread isn't the main thread); no GPU renderer yet     |
 | Themes                                                 | Dark and Light work; loading other Blender theme files doesn't yet                                                                                                                                                                                        |
 
@@ -2058,7 +2059,7 @@ ship. The tables below have the details.
 | **Accessibility**                    | Screen-reader support through UI Automation (Windows), AT-SPI (Linux) and NSAccessibility (macOS)                                                           |
 | **Qt parity**                        | Measure against PySide6, run the same programs on Qt and BUI, fill in the missing classes, then `install()` so `import PySide6` programs run unchanged      |
 | **More JavaScript frameworks**       | Vue and Angular, as thin adapters over `@blender-ui/native` (the layer React and Svelte share)                                                              |
-| **Go windows**                       | Window hosts for the Go binding's wasm engine on macOS and Windows, so a Go program opens windows there without cgo                                         |
+| **Go windows**                       | A window host for the Go binding's wasm engine on Windows, so that a Go program opens windows there without cgo                                             |
 | **More languages**                   | Lua (26 examples, every widget), Ruby, C#, Zig, Swift, Kotlin and MyGo over the same C header; Godot, Unity and Bevy; Flutter |
 
 Our roadmap has no dates on it. Like a good render, it's done when the noise
@@ -2145,8 +2146,8 @@ Lua is now supported: <code>cmake -DBUI_BUILD_LUA_BINDINGS=ON</code> builds
 every BUI widget type works. Vue and Angular would be thin adapters over
 <code>@blender-ui/native</code>, the layer React and Svelte already share
 (<a href="docs/javascript.md">how to add a framework</a>). Go has an experimental
-binding in <code>bindings/go</code>: with no cgo it opens X11 windows on Linux and
-renders headless everywhere, and with <code>-tags bui_cgo</code> it calls the kit
+binding in <code>bindings/go</code>: with no cgo it opens windows on Linux (X11) and
+macOS and renders headless everywhere, and with <code>-tags bui_cgo</code> it calls the kit
 natively on Linux. Ruby would call the C kit,
 <code>BUI_kit.h</code>. If you want one
 sooner, open an issue or a pull request:

@@ -7,8 +7,9 @@ Three parts, all read from the repository so the file cannot drift from the code
 
 1. The C and C++ libraries and the assets vendored in the tree (Wuffs, libjpeg-turbo, libwebp,
    FreeType, Inter, Dear ImGui, ...): their own license files, copied verbatim.
-2. What only the Go binding brings (wazero, xgb and X11's keysym tables, and the wasi-sdk runtime
-   inside bui_kit.wasm): the texts in bindings/go/licenses, copied there from the pinned sources.
+2. What only the Go binding brings (wazero, xgb and X11's keysym tables, purego on macOS, and
+   the wasi-sdk runtime inside bui_kit.wasm): the texts in bindings/go/licenses, copied there
+   from the pinned sources.
 3. The crates that the Rust crates, the Node addon and the QuickJS runtime are built from
    (`cargo metadata`, normal dependencies only): name, version, license, and each distinct
    license text found in the crate's source, once, with the crates that use it.
@@ -142,6 +143,9 @@ GO_BINDING = [
     ("X11's keysym tables", "Keysym names and characters in bindings/go/internal/host/x11/keysyms_gen.go, "
      "generated from keysymdef.h, XF86keysym.h and Sunkeysym.h: the program, on Linux with the wasm engine", "MIT-style (X11)",
      "https://gitlab.freedesktop.org/xorg/proto/xorgproto", lambda: go_texts("x11-keysyms.txt")),
+    ("purego 0.11.3", "Calls AppKit for the Cocoa window host: the program on macOS, as a Go module",
+     "Apache-2.0, and BSD-3-Clause for the parts from Go's runtime", "https://github.com/ebitengine/purego",
+     lambda: go_texts("purego.txt")),
     ("wasi-libc, from wasi-sdk 34.0", "The C library in bui_kit.wasm",
      "Apache-2.0 WITH LLVM-exception, Apache-2.0 or MIT", "https://github.com/WebAssembly/wasi-libc",
      lambda: go_texts("wasi-libc.txt", "wasi-libc-LICENSE-APACHE-LLVM.txt", "wasi-libc-LICENSE-APACHE.txt",
@@ -192,6 +196,10 @@ What is not known, or not covered here:
   The text here holds the notices of `keysymdef.h` and of the first notice in `Sunkeysym.h`
   (Oracle); `Sunkeysym.h`'s second notice, The Open Group's of 1991 and 1998, worded as the one
   of `keysymdef.h`, is missing from it, and `XF86keysym.h` carries none.
+- purego includes code from Go's own runtime (`runtime/cgo`), under Go's BSD-3-Clause license, as
+  its README lists: on macOS without cgo its `internal/fakecgo` stands in for `runtime/cgo`. Go's
+  `LICENSE` is the same text as golang.org/x/sys's above. Every macOS program built with the
+  binding contains purego, also one that only renders headless.
 - A cgo program also links the C and C++ runtime of the machine it is built on
   (`-lstdc++ -ldl -lm -lpthread`), and the kit opens libX11 with `dlopen` at run time, and for a
   Wayland window libwayland-client, libwayland-cursor and libxkbcommon. None of these is in this

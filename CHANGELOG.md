@@ -14,14 +14,18 @@ All notable changes to **blenderui** (BUI). The format follows
   commit in `bindings/go/BUI_COMMIT` (`scripts/check-wasm.sh`). With `-tags bui_cgo` on Linux it calls the kit natively, from
   the libraries of the CMake build in `build/`, and opens windows through the kit's own hosts; the tests compare both engines'
   pixels exactly. Limits: software rendering only, no GPU, video, file browser or IME, no windows on the default engine outside
-  Linux (`NewWindow` and `Run` report `ErrNoDisplay` there), and a trap in the wasm module ends the process. CI runs it in
+  Linux and macOS (`NewWindow` and `Run` report `ErrNoDisplay` there), and a trap in the wasm module ends the process. CI runs it in
   `go.yml`, and `THIRD_PARTY_NOTICES.md` lists what it adds (wazero, and the wasi-sdk runtime in the module).
 - **Go: an X11 window host in pure Go** (`bindings/go/internal/host/x11`; experimental), moved from bui-go, so the default wasm
   engine opens windows on Linux with no cgo. It is a port of `kit_window_x11.c` on [xgb](https://github.com/jezek/xgb), as the
   module cannot reach the X server or libX11 from inside wazero. It follows `Xft.dpi` and `BUI_UI_SCALE`, always delivers UTF-8,
   and its key translation is tested against libX11's on 13 layouts; it has core X cursors only, no Compose or IME, and refuses
-  clipboard text that X sends by INCR (past about 256 KiB). macOS and Windows still render headless. `go.yml` runs its tests,
+  clipboard text that X sends by INCR (past about 256 KiB). Windows still renders headless. `go.yml` runs its tests,
   real input and the cgo engine on Linux, and `THIRD_PARTY_NOTICES.md` adds xgb and X11's keysym tables.
+- **Go binding on macOS:** the default engine opens real windows, with no cgo, through `bindings/go/internal/host/cocoa`, a Go
+  port of `kit_window_cocoa.m` that reaches AppKit through purego: mouse, scroll, keys, cursors, the clipboard, the C host's menus,
+  quitting by Cmd+Q, live resize and scale changes between screens. No IME, and a dead key is not composed with the next key, as
+  in the C host. The macOS job in `go.yml` runs its tests, which open real windows, and `THIRD_PARTY_NOTICES.md` adds purego.
 - **Rust:** `<input live>` (and `<textarea live>`): the field reports every keystroke to `on_input` / `on_change`, not only on Enter or blur,
   so a view can follow the typing (a search box, a date field that lights up a calendar).
 

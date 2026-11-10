@@ -4,6 +4,9 @@
 # so a different golangci-lint on PATH cannot give a local result that differs from CI.
 golangci_lint_version := "2.15.0"
 golangci_lint := "go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v" + golangci_lint_version
+# The same linter, run on the darwin build (the Cocoa host): -exec sets GOOS for the linter
+# only, as go run would build the linter itself for macOS otherwise.
+golangci_lint_darwin := "go run -exec 'env GOOS=darwin CGO_ENABLED=0' github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v" + golangci_lint_version
 
 # Install development dependencies (formatters and linters)
 setup-deps:
@@ -23,15 +26,18 @@ default: check
 fmt:
     treefmt --allow-missing-formatter
 
-# Run linter, on the default build and on the cgo engine's (which needs the headers, not the libraries)
+# Run linter, on the default build, on the cgo engine's (which needs the headers, not the libraries)
+# and on the darwin build
 lint:
     {{golangci_lint}} run --config ./.golangci.toml --timeout 5m
     {{golangci_lint}} run --config ./.golangci.toml --timeout 5m --build-tags bui_cgo
+    {{golangci_lint_darwin}} run --config ./.golangci.toml --timeout 5m
 
 # Run linter (with fix)
 lint-fix:
     {{golangci_lint}} run --config ./.golangci.toml --timeout 5m --fix
     {{golangci_lint}} run --config ./.golangci.toml --timeout 5m --fix --build-tags bui_cgo
+    {{golangci_lint_darwin}} run --config ./.golangci.toml --timeout 5m --fix
 
 # Format and fix lint issues
 fix: lint-fix fmt
