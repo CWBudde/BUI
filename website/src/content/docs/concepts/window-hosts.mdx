@@ -4,7 +4,7 @@ description: The native Win32, X11 and Cocoa windows, the Tk fallback, headless 
 section: Concepts
 order: 50
 languages: ["python", "rust", "javascript", "c"]
-sources: ["docs/getting-started.md", "README.md", "ARCHITECTURE.md", "kit/CMakeLists.txt", "kit/intern/kit_window_win32.c", "kit/intern/kit_window_x11.c", "kit/intern/kit_window_cocoa.m", "bindings/python/bui/host.py", "bindings/rust/blenderui-sys/build.rs", "docs/javascript.md", "docs/rust.md", "docs/components.md"]
+sources: ["docs/getting-started.md", "README.md", "ARCHITECTURE.md", "kit/CMakeLists.txt", "kit/intern/kit_window_win32.c", "kit/intern/kit_window_x11.c", "kit/intern/kit_window_cocoa.m", "bindings/go/internal/host/x11/host.go", "bindings/go/README.md", "bindings/python/bui/host.py", "bindings/rust/blenderui-sys/build.rs", "docs/javascript.md", "docs/rust.md", "docs/components.md"]
 ---
 
 A **window host** is the small piece of BUI that talks to your operating system. It opens the window, shows the frame BUI drew, and passes the mouse and keyboard back to the kit. You rarely think about it, and that's the point: the right one is picked for you.
@@ -17,6 +17,7 @@ This page explains each host, how to choose one yourself, and what to expect on 
   ["<strong>Win32</strong>", "done", "Windows. Native, written in C"],
   ["<strong>X11</strong>", "done", "Linux (and Wayland sessions, through XWayland). Native, written in C"],
   ["<strong>Wayland</strong>", "experimental", "Linux. Native, written in C, after Blender's GHOST. CPU renderer"],
+  ["<strong>X11, in Go</strong>", "experimental", "Linux. The Go binding's own host, a port of the X11 one to pure Go"],
   ["<strong>Cocoa</strong>", "done", "macOS. Native, tried by hand on three Macs (two Apple Silicon, one Intel)"],
   ["<strong>Tk</strong>", "done", "Anywhere Python has <code>tkinter</code>. Python only; the fallback"],
   ["<strong>Headless</strong>", "done", "Anywhere. No window: tests and screenshots"],
@@ -26,7 +27,7 @@ All of them run the same kit, so your UI looks and behaves the same in each. The
 
 ## Native windows
 
-The native hosts are written in C (`kit/intern/kit_window_win32.c`, `kit_window_x11.c`, `kit_window_cocoa.m`). Input goes straight into the kit, and only the changed tiles are put on screen. Nothing on the input → render → present path leaves C, which is why an input event reaches the screen in about 0.06 ms.
+BUI's native hosts are written in C (`kit/intern/kit_window_win32.c`, `kit_window_x11.c`, `kit_window_cocoa.m`); the Go binding adds one written in Go, described below. Input goes straight into the kit, and only the changed tiles are put on screen. Nothing on the input → render → present path leaves C, which is why an input event reaches the screen in about 0.06 ms.
 
 Every native host gives you:
 
@@ -49,6 +50,10 @@ Wayland sessions can run it through XWayland, which every mainstream desktop pro
 ### Linux (Wayland) <Badge tone="preview">Experimental</Badge>
 
 A native Wayland host with the same API, modelled on Blender's `GHOST_SystemWayland`: xdg-shell toplevels (with server-side decorations when the compositor offers them), a `wl_seat` with xkbcommon for keys and key repeat, the pointer, the clipboard through `wl_data_device`, cursors from the cursor theme, the output's buffer scale, and frame callbacks for pacing. Damaged rectangles are copied into `wl_shm` buffers. libwayland-client and libwayland-cursor load at run time through Blender's `wayland_dynload`, so nothing is linked. A session with `WAYLAND_DISPLAY` gets this host; set `BUI_WINDOW_BACKEND=x11` to use X11, or `wayland` to force this one. It draws on the CPU: with the [GPU renderer](../rendering/) on (`BUI_GPU=1`), a Wayland session keeps X11 through XWayland until Wayland has its own EGL renderer. Per-window `BK_window_set_gpu` on a Wayland window is ignored for the same reason. Not done yet: IME, client-side decorations when the compositor has no server-side ones (GNOME shows no title bar), pointer warping, window positions.
+
+### Linux (X11, in Go) <Badge tone="preview">Experimental</Badge>
+
+The [Go binding](../../go/overview/) runs the kit as a WebAssembly module by default, inside wazero's sandbox, where it can neither open a socket to the X server nor load libX11. So it brings a host of its own: a port of `kit_window_x11.c` to pure Go, on the X client [xgb](https://github.com/jezek/xgb), with no cgo. Of the list above it has HiDPI, following `Xft.dpi` and `BUI_UI_SCALE` as the C host does, the clipboard, cursors with warping, paced animation and one loop; the Go API sets only a window's title and size. It always delivers UTF-8 text. It has the core X cursors only, not the desktop's theme, no Compose or IME input, and it refuses clipboard text past about 256 KiB, which X sends in parts (INCR). Built with `-tags bui_cgo`, the Go binding calls the kit natively and uses the C hosts above instead.
 
 ### macOS (Cocoa)
 

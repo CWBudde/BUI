@@ -4,8 +4,8 @@ package wasmengine
 
 import "github.com/ppmpreetham/BUI/bindings/go/internal/engine"
 
-// Host is the window system of the wasm engine, which has no window host yet: windows are
-// unsupported, so package bui's Run reports ErrNoDisplay. It never touches the module, so its
+// Host is the window system of a platform without a Go host: windows are unsupported,
+// so package bui's Run reports ErrNoDisplay. It never touches the module, so its
 // calls cost nothing.
 type Host struct{}
 

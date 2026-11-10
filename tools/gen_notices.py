@@ -7,8 +7,8 @@ Three parts, all read from the repository so the file cannot drift from the code
 
 1. The C and C++ libraries and the assets vendored in the tree (Wuffs, libjpeg-turbo, libwebp,
    FreeType, Inter, Dear ImGui, ...): their own license files, copied verbatim.
-2. What only the Go binding brings (wazero, and the wasi-sdk runtime inside bui_kit.wasm): the
-   texts in bindings/go/licenses, copied there from the pinned sources.
+2. What only the Go binding brings (wazero, xgb and X11's keysym tables, and the wasi-sdk runtime
+   inside bui_kit.wasm): the texts in bindings/go/licenses, copied there from the pinned sources.
 3. The crates that the Rust crates, the Node addon and the QuickJS runtime are built from
    (`cargo metadata`, normal dependencies only): name, version, license, and each distinct
    license text found in the crate's source, once, with the crates that use it.
@@ -137,6 +137,11 @@ GO_BINDING = [
      "https://github.com/tetratelabs/wazero", lambda: go_texts("wazero.txt", "wazero-NOTICE.txt")),
     ("golang.org/x/sys 0.44.0", "CPU features and system calls for wazero: the program, as a Go module",
      "BSD-3-Clause", "https://pkg.go.dev/golang.org/x/sys", lambda: go_texts("x-sys.txt")),
+    ("xgb 1.3.1", "The X protocol for the X11 host, on Linux with the wasm engine: the program, as a Go module", "BSD-3-Clause",
+     "https://github.com/jezek/xgb", lambda: go_texts("xgb.txt")),
+    ("X11's keysym tables", "Keysym names and characters in bindings/go/internal/host/x11/keysyms_gen.go, "
+     "generated from keysymdef.h, XF86keysym.h and Sunkeysym.h: the program, on Linux with the wasm engine", "MIT-style (X11)",
+     "https://gitlab.freedesktop.org/xorg/proto/xorgproto", lambda: go_texts("x11-keysyms.txt")),
     ("wasi-libc, from wasi-sdk 34.0", "The C library in bui_kit.wasm",
      "Apache-2.0 WITH LLVM-exception, Apache-2.0 or MIT", "https://github.com/WebAssembly/wasi-libc",
      lambda: go_texts("wasi-libc.txt", "wasi-libc-LICENSE-APACHE-LLVM.txt", "wasi-libc-LICENSE-APACHE.txt",
@@ -182,6 +187,11 @@ What is not known, or not covered here:
   wayland-protocols. The texts here are from wayland-protocols 1.49, which need not be the version
   a given build used. Every Linux build of the kit with `BUI_WAYLAND` contains this code, not only
   the Go binding's.
+- The X11 host's keysym tables are generated from the X11 headers of the machine that ran
+  `internal/host/x11/gen`. The committed file regenerates byte for byte from xorgproto 2023.2's.
+  The text here holds the notices of `keysymdef.h` and of the first notice in `Sunkeysym.h`
+  (Oracle); `Sunkeysym.h`'s second notice, The Open Group's of 1991 and 1998, worded as the one
+  of `keysymdef.h`, is missing from it, and `XF86keysym.h` carries none.
 - A cgo program also links the C and C++ runtime of the machine it is built on
   (`-lstdc++ -ldl -lm -lpthread`), and the kit opens libX11 with `dlopen` at run time, and for a
   Wayland window libwayland-client, libwayland-cursor and libxkbcommon. None of these is in this

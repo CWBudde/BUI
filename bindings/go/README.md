@@ -4,13 +4,22 @@ Experimental Go bindings for BUI, which provides Blender's UI widgets as a C lib
 `github.com/ppmpreetham/BUI/bindings/go`, and package `bui` drives BUI's C kit: nodes, properties, geometry, rendering and
 input. It was developed as [bui-go](https://github.com/CWBudde/bui-go) and moved here.
 
-**Status: experimental.** The API is small and will change. This first part has the wasm engine, the public API and headless
-rendering. Its window hosts follow, so by default it does not open windows yet: see [Limits](#limits).
+**Status: experimental.** The API is small and will change. It has the wasm engine, the public API, headless rendering and a
+window host for X11 in pure Go, so on Linux it opens real windows without cgo. The macOS host follows; until then macOS and
+Windows render headless only: see [Limits](#limits).
 
 ## Try it
 
-You need Go 1.26 or newer, and no C toolchain. `Headless` renders a node tree into memory and takes synthetic input, on any
-platform and with no display. In a module that requires `github.com/ppmpreetham/BUI/bindings/go`, this prints `clicked`:
+You need Go 1.26 or newer, and no C toolchain. On Linux, with an X server or XWayland, this opens a real window from a static
+binary:
+
+```sh
+CGO_ENABLED=0 go run ./examples/counter
+```
+
+On macOS and Windows that example exits with `ErrNoDisplay`, as they have no window host yet. To render without a window, drive
+the tree with `Headless`, which renders into memory and takes synthetic input, on any platform and with no display. In a module
+that requires `github.com/ppmpreetham/BUI/bindings/go`, this prints `clicked`:
 
 ```go
 package main
@@ -55,8 +64,7 @@ button.OnClick(func() { /* runs on the UI thread */ })
 bui.Do(func() { clock.SetStr("text", "updated") }) // safe from any goroutine
 ```
 
-`examples/counter` is such a program. With the default engine it exits with `ErrNoDisplay`. With the cgo engine on Linux, it
-opens a real window:
+`examples/counter` is such a program. With the cgo engine it opens the same window through BUI's own X11 host:
 
 ```sh
 go run -tags bui_cgo ./examples/counter   # needs BUI's libraries, see "Engines"
@@ -66,10 +74,10 @@ go run -tags bui_cgo ./examples/counter   # needs BUI's libraries, see "Engines"
 
 The same API runs on two engines, chosen when you build:
 
-| Build                    | Engine                                                                                  | Windows                                               | Needs                                      |
-| ------------------------ | --------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
-| Default, on any platform | WebAssembly: an embedded module, in [wazero](https://github.com/tetratelabs/wazero)     | None yet: `NewWindow` and `Run` report `ErrNoDisplay` | Nothing but Go                             |
-| `-tags bui_cgo`, Linux   | Native: the static libraries of BUI's CMake build, in `build/` at the repository's root | X11, and Wayland on request, through BUI's own hosts  | cgo, a C and C++ toolchain, and that build |
+| Build                    | Engine                                                                                  | Windows                                                                                              | Needs                                      |
+| ------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Default, on any platform | WebAssembly: an embedded module, in [wazero](https://github.com/tetratelabs/wazero)     | X11 on Linux, in pure Go. None yet on macOS and Windows: `NewWindow` and `Run` report `ErrNoDisplay` | Nothing but Go                             |
+| `-tags bui_cgo`, Linux   | Native: the static libraries of BUI's CMake build, in `build/` at the repository's root | X11, and Wayland on request, through BUI's own hosts                                                 | cgo, a C and C++ toolchain, and that build |
 
 Both engines draw the same pixels: the tests compare them exactly.
 
@@ -88,13 +96,14 @@ Without the X11 headers (`libx11-dev`) CMake builds the kit with no window host,
 host also needs `libwayland-dev`, `libxkbcommon-dev` and `wayland-protocols`. The tag fails to build without cgo or off Linux,
 rather than falling back to the wasm engine.
 
-**Wayland.** BUI's libraries can open native Wayland windows, and the kit picks them whenever `WAYLAND_DISPLAY` is set. The cgo
-engine sets `BUI_WINDOW_BACKEND=x11` for them when the variable is unset, so its windows are X11 ones, which a Wayland desktop
-provides through XWayland, as the Go window hosts that follow will need. Set `BUI_WINDOW_BACKEND=wayland` to get native Wayland
-windows from the cgo engine. The wasm engine ignores the variable.
+**Wayland.** The Go window host needs X11, which a Wayland desktop provides through XWayland. BUI's libraries can also open
+native Wayland windows, and the kit picks them whenever `WAYLAND_DISPLAY` is set, so the cgo engine sets
+`BUI_WINDOW_BACKEND=x11` for them when the variable is unset, and both engines open the same kind of window. Set
+`BUI_WINDOW_BACKEND=wayland` to get native Wayland windows from the cgo engine. The wasm engine ignores the variable.
 
 **Speed.** On amd64 and arm64 wazero compiles the module, which renders at about 2-4x native time and handles a hover at
-about 1.2-3x. A dense 1920x1080 frame rendered in about 8-10 ms on the amd64 laptop of those measurements, when it was not loaded. Other architectures use wazero's
+about 1.2-3x. A dense 1920x1080 frame rendered in about 8-10 ms on the amd64 laptop of those measurements, when it was not loaded,
+and presenting it through the X11 host took about 4 ms more on Xvfb, so a full frame takes about 13 ms. Other architectures use wazero's
 interpreter, at 100-1000x native: a small tree renders in about 36 ms and a dense full-HD frame in over a second, so they
 are for correctness rather than interaction. [`docs/design.md`](docs/design.md) has the measurements, and `scripts/bench.sh`
 records new ones.
@@ -105,8 +114,9 @@ that time. The module loads at the first kit call, so importing the package cost
 
 ## Limits
 
-- **No windows yet with the default engine.** The wasm engine has no window host in this tree: `Supported` is false, and
-  `NewWindow` and `Run` report `ErrNoDisplay` on every platform. Only the cgo engine opens windows, through BUI's own hosts.
+- **No windows on macOS and Windows yet with the default engine.** The wasm engine has a window host only for X11 on Linux. On
+  other platforms `Supported` is false, and `NewWindow` and `Run` report `ErrNoDisplay`. The cgo engine opens windows on Linux
+  only, through BUI's own hosts.
 - **Software rendering only.** `Headless` draws into a CPU raster on both engines, and the wasm engine has no GPU renderer.
 - **No GPU, video, file browser or IME.** The module is built without them, and the binding exposes none of them.
 - **A wasm trap ends the process.** After a fault in the module its state is unknown, so any trap, an out-of-memory included,
@@ -116,6 +126,8 @@ that time. The module loads at the first kit call, so importing the package cost
 
 - No worker threads. Image sources would stay pending forever, though the API sets none today.
 - Only the embedded Inter font works by default.
+- Core X cursors, not the desktop's theme, and no Compose or IME input. A dead key types its own character.
+- Clipboard text that takes X's INCR transfer, past about 256 KiB, is refused in both directions.
 - `EvalNumber` accepts an expression whose intermediate inf or nan turns finite again, such as `1/(1/0)`, as wasm has no
   floating-point exception flags.
 - No guard pages: inside the module a NULL read or a bad offset returns what memory holds, where native code would crash.
@@ -135,6 +147,7 @@ Call `bui.Run` from the main goroutine. Kit calls are valid only on the UI threa
 - `Run` on the main goroutine is documented, not enforced.
 - `Do` calls made after the last `Run` stay queued, and a leftover `Do(bui.Quit)` ends the next `Run` immediately.
 - Continuous rendering could delay `Do` on the native engine.
+- The window manager's close button is tested through the message it sends, not through a real window manager.
 
 ## Tests
 
@@ -142,13 +155,16 @@ Call `bui.Run` from the main goroutine. Kit calls are valid only on the UI threa
 CGO_ENABLED=0 xvfb-run -a go test ./...                # the wasm engine, with no cgo at all
 xvfb-run -a go test -race ./...                        # the wasm engine, with the race detector
 xvfb-run -a go test -race -tags bui_cgo ./...          # the cgo engine, compared with the wasm one
-BUI_TEST_XDOTOOL=1 xvfb-run -a go test -race -tags bui_cgo -run '^TestX' .
+BUI_TEST_XDOTOOL=1 xvfb-run -a go test -race -run '^TestX' .                # real input, through the Go X11 host
+BUI_TEST_XDOTOOL=1 xvfb-run -a go test -race -tags bui_cgo -run '^TestX' .  # real input, through BUI's own X11 host
+go test -tags bui_xlibref ./internal/host/x11/         # key translation against libX11, needs its headers (libx11-dev)
 ./scripts/check-wasm.sh                                # rebuild bui_kit.wasm and require the committed bytes
 ```
 
-Tests that need a window are skipped when there is no display, and on the wasm engine, which has none. `BUI_TEST_XDOTOOL=1`
-sends real clicks and keys and changes the keyboard layout, so use a display of its own. It needs the cgo engine for now: on the
-wasm engine those tests fail, as they find no display. `TestXTypingOnAGermanLayout` is for the Go X11 host, which is not here yet.
+Tests that need a window are skipped when there is no display, and on macOS and Windows with the wasm engine, which has no
+window host there. `BUI_TEST_XDOTOOL=1` sends real clicks and keys and changes the keyboard layout, so use a display of its own.
+`TestXTypingOnAGermanLayout` runs only with the Go X11 host, which always delivers UTF-8. `internal/host/x11` starts its own
+Xvfb when it can, so its tests do not depend on `DISPLAY`.
 
 `TestSjljFreeTypeOverflow` builds its probe with `scripts/build-wasm.sh probe`, which needs the pinned wasi-sdk and this
 repository's history. It skips without the SDK, which `scripts/build-wasm.sh sdk` fetches on Linux x86_64. The image tests read
@@ -163,7 +179,8 @@ just lint         # golangci-lint, at the version pinned in the justfile, also w
 just check        # formatting, go.mod tidiness, lint and tests
 ```
 
-CI runs the formatting, the linter, the tests without cgo on Linux and macOS, and `check-wasm`, in
+CI runs the formatting, the linter, the tests on the wasm engine on Linux, with the X11 host's own tests and real input, and on
+macOS headless, the tests on the cgo engine on Linux with the comparison against libX11, and `check-wasm`, in
 [`.github/workflows/go.yml`](../../.github/workflows/go.yml).
 
 ## Licence and source of the binary

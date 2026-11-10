@@ -13,9 +13,15 @@ All notable changes to **blenderui** (BUI). The format follows
   toolchain and builds with `CGO_ENABLED=0` for any platform; `bui_kit.wasm` is committed and rebuilds byte for byte from the
   commit in `bindings/go/BUI_COMMIT` (`scripts/check-wasm.sh`). With `-tags bui_cgo` on Linux it calls the kit natively, from
   the libraries of the CMake build in `build/`, and opens windows through the kit's own hosts; the tests compare both engines'
-  pixels exactly. Limits: software rendering only, no GPU, video, file browser or IME, no windows yet on the default engine
-  (`NewWindow` and `Run` report `ErrNoDisplay`), and a trap in the wasm module ends the process. CI runs it in `go.yml`, and
-  `THIRD_PARTY_NOTICES.md` lists what it adds (wazero, and the wasi-sdk runtime in the module).
+  pixels exactly. Limits: software rendering only, no GPU, video, file browser or IME, no windows on the default engine outside
+  Linux (`NewWindow` and `Run` report `ErrNoDisplay` there), and a trap in the wasm module ends the process. CI runs it in
+  `go.yml`, and `THIRD_PARTY_NOTICES.md` lists what it adds (wazero, and the wasi-sdk runtime in the module).
+- **Go: an X11 window host in pure Go** (`bindings/go/internal/host/x11`; experimental), moved from bui-go, so the default wasm
+  engine opens windows on Linux with no cgo. It is a port of `kit_window_x11.c` on [xgb](https://github.com/jezek/xgb), as the
+  module cannot reach the X server or libX11 from inside wazero. It follows `Xft.dpi` and `BUI_UI_SCALE`, always delivers UTF-8,
+  and its key translation is tested against libX11's on 13 layouts; it has core X cursors only, no Compose or IME, and refuses
+  clipboard text that X sends by INCR (past about 256 KiB). macOS and Windows still render headless. `go.yml` runs its tests,
+  real input and the cgo engine on Linux, and `THIRD_PARTY_NOTICES.md` adds xgb and X11's keysym tables.
 - **Rust:** `<input live>` (and `<textarea live>`): the field reports every keystroke to `on_input` / `on_change`, not only on Enter or blur,
   so a view can follow the typing (a search box, a date field that lights up a calendar).
 
