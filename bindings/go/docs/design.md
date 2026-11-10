@@ -2,8 +2,8 @@
 
 Why BUI's Go binding runs the kit as WebAssembly, what that was measured to cost, and what it cannot do. The README covers use;
 this file holds the reasons and the numbers behind it. The binding was developed as [bui-go](https://github.com/CWBudde/bui-go),
-where every measurement here was taken, and moved here from its commit `d21272d`. Its X11 and Cocoa window hosts are not in
-this tree yet, so the parts of this file about them are left out.
+where every measurement here was taken, and moved here from its commit `d21272d`. Its Cocoa window host is not in this tree
+yet, so the parts of this file about it are left out.
 
 Unless a section says otherwise, the facts here were established against BUI `e3aba90`, wazero v1.12.0, wasi-sdk 34.0
 (clang 23.1.0, wasi-libc `2e6fb9d8ee0c`) and Go 1.26.8, on an Intel i7-1255U (12 threads) running Linux 6.8. That laptop was
@@ -39,11 +39,13 @@ GPU rendering, video, the file browser, IME, and windows on Windows and macOS we
 package bui                  public API; owns emitDepth, deferred frees, the Do queue. No cgo.
   engine_cgo.go              //go:build bui_cgo
   engine_nocgo.go            //go:build !bui_cgo
-  host_none.go               //go:build !bui_cgo; the wasm engine's host, which has no windows yet
+  host_x11.go                //go:build linux && !bui_cgo; the wasm engine's host on Linux
+  host_none.go               //go:build !linux && !bui_cgo; no windows, on a platform without a Go host
   internal/engine            interfaces only: Kit (nodes, geometry, render, input), Host (window, loop, wake)
   internal/engine/cgoengine  //go:build bui_cgo && cgo && linux; the C calls, bridge.c, bridge.h
   internal/engine/wasmengine no constraint: pure Go; embeds bui_kit.wasm; wazero setup and marshalling
   internal/enginetest        shared conformance suite; its golden test links both engines into one test binary
+  internal/host/x11          Go port of kit_window_x11.c
 wasm/                        the binding's own C: shim.c (exports, BKHost trampolines), compat.c (libc gaps)
 ```
 
@@ -63,12 +65,12 @@ Decisions behind it:
 - **A node's identity is a `uint32` id in the kit's `ref` field.** `void *` is 32 bits in the module, so it cannot hold a
   `cgo.Handle`, and one id table in package `bui` serves both engines. Kit objects cross the seam as opaque `uintptr` values,
   separate from node ids, because tree walks pass through kit-internal nodes that have no id.
-- **`BK_window_*` comes from `kit_window_null.c` in the module.** A Go window host owns the window, loop, timers and cursor;
-  this tree has none yet.
+- **`BK_window_*` comes from `kit_window_null.c` in the module.** The Go host owns the window, loop, timers and cursor.
 - **A C shim is needed.** `BKHost` holds function pointers, so `shim.c` fills it with trampolines that call wazero imports.
   They pass scalars only, so Go never parses a C struct layout. The shim keeps the bridge's null-node and no-handle filtering,
   so those events never cross into Go.
-- **`Do` wakes through a Go channel** on the wasm engine, since other goroutines must not touch the module.
+- **`Do` wakes through a Go channel** on the wasm engine, since other goroutines must not touch the module. An X11 reader
+  goroutine feeds the same `select` as timers and wakes, so no pipe is needed.
 - **The module loads lazily** behind a `sync.Once`, so importing `bui` costs nothing until the first kit call.
 - **A kit trap is fatal.** After a trap the C state is unknown, so any export error ends the process, as a panic across C
   frames does. It is not surfaced as a Go error.
@@ -248,6 +250,13 @@ an open menu, a scrolled view and a 1080p tree (2026-11-07, `internal/enginetest
 A glyph forced through FreeType's overflow path overflows the cell pool 4-14 times in wasm and 9-22 times natively, where a cell
 is bigger, and still gives an identical bitmap.
 
+### Presenting
+
+Presenting a full frame with `PutImage` took 342 µs at 400x300 and 3.8 ms at 1920x1080 in the 2026-11-07 baseline run, and 1.6
+and 11.9 ms in a busier one (Xvfb, round trip included, 100 iterations). So a full 1080p frame, render plus present, took about
+13 ms: this fits 16 ms when the machine is not loaded. A full frame happens on an expose or a resize, and damage covers the rest,
+so nothing in the API calls for MIT-SHM today.
+
 ### Fuzzing
 
 On 2026-11-07, at 40 s each, the engines showed no difference: `FuzzEvalNumber` 548k executions, `FuzzSetStr` 1.76M,
@@ -322,14 +331,47 @@ run passes `-ldflags='-s=false -w=false'`. The allocation tests skip under `-asa
 ### Failure paths
 
 `TestPanicAcrossCFramesExits` passes on the wasm engine, with panic and `Goexit`. `TestKitFatalPathsExit` covers traps, also
-from inside a handler. On the native engine Xlib's default handler ends the process when the display connection breaks.
+from inside a handler. `internal/host/x11` covers a panic in a `Do` function in the loop, and a broken connection, which closes every
+window and makes `Run` return `ErrDisplayLost`. On the native engine Xlib's default handler ends the process instead.
+
+## The X11 host
+
+`internal/host/x11` is a Go port of `kit_window_x11.c` on `jezek/xgb`.
+
+- **The keyboard speaks just enough XKB.** xgb has no XKB package, so `keyboard_xkb.go` writes out `UseExtension` and `GetMap`.
+  Both are needed: without `UseExtension` the server reports group 2 as Mod5, the same bit as AltGr, and only `GetMap` tells which
+  columns are which, as `us,de` and `de,us` put different things in the same core columns. A server without XKB uses the core
+  keymap and its protocol rules, which only the unit tests exercise.
+- **Keysyms match libX11.** On every keycode under 18 modifier and group states, on us, de, de nodeadkeys, fr, ru, gr, dvorak,
+  us+ru, de+gr, ru+us, us+de, de+us and us+ru+de, the one difference is a deliberate one: Shift+Caps on `µ` gives the real keysym
+  where Xlib's case conversion gives one that names nothing (`go test -tags bui_xlibref ./internal/host/x11/`).
+- **A dead key types its spacing character,** as Xlib's text does. There is no Compose, as in C.
+- **Text is always UTF-8.** The C host's `XLookupString` answers in the locale's encoding, and nothing calls `setlocale`, so typing
+  `ä` natively gives a Latin-1 byte. That is a bug of the C path, not fixed here.
+- **A goroutine moves every event into an unbounded list.** xgb blocks when its queue of 500 events is full, and it reads replies
+  from the same socket, so a UI thread waiting for a reply with nobody reading events would hang forever. Pointer motion replaces
+  its predecessor there, and a turn of the loop handles at most 256 events, so a flood leaves timers and renders their turn.
+- **XKB's event number is registered before the real connection opens.** xgb keeps its decoders in a process-wide map that every
+  connection's goroutine reads without a lock, and that goroutine starts inside `NewConn`. So a short-lived connection asks for the
+  number and is gone before the map changes. An xgb extension connecting later in the same process still writes that map at runtime,
+  which races with this host's reader. That is how xgb works, and no choice here avoids it.
+- **The clipboard refuses what takes INCR, both ways.** Owners send text past about 256 KiB in parts, and this host implements no
+  such transfer: a paste of one fails, and a copy that long is refused to whoever asks. xgb truncates an oversized request's length
+  field rather than failing, so sending it anyway would corrupt the stream of requests. The C host has no INCR either.
+- **Deliberate differences from the C host:** animation pacing is a due time rather than a sleep, so events and `Do` run meanwhile;
+  a pending wake runs even when frames are due, which an animation starved in C; a layout change rereads the keymap; the pixel
+  format is checked, and a depth other than 24 reports `ErrNoDisplay` where C would fail on `XPutImage`.
+- **Core cursors only.** The cursor font gives the classic shapes, where Xlib would load themed ones through libXcursor.
+- **The package's tests start their own Xvfb.** On a shared display, windows of a test binary running in parallel cover theirs and
+  show in the pixels they read back, and clipboards collide. With a server of their own they can also change the layout and send
+  real input. Without Xvfb they use `DISPLAY` and skip what would change it.
 
 ## Wayland
 
 From `v0.5.0` BUI's libraries also hold a native Wayland host, which the kit picks whenever `WAYLAND_DISPLAY` is set and a
-compositor answers. bui-go's Go hosts, which are not in this tree yet, speak only X11, which a Wayland desktop provides through
-XWayland. Left alone, the engines would disagree: on a Wayland-only system the native engine would open a window where the wasm
-engine reports `ErrNoDisplay`, and on a desktop with both they would open different kinds of window.
+compositor answers. The Go host speaks only X11, which a Wayland desktop provides through XWayland. Left alone, the engines would
+disagree: on a Wayland-only system the native engine would open a window where the wasm engine reports `ErrNoDisplay`, and on a
+desktop with both they would open different kinds of window.
 
 - **The native engine defaults the kit to X11.** At start-up it sets `BUI_WINDOW_BACKEND=x11` with C's `setenv` and no
   overwrite, so a value the user or the program set wins, and an `os.Setenv` before the first window still changes it. Go's copy
@@ -361,12 +403,16 @@ engine reports `ErrNoDisplay`, and on a desktop with both they would open differ
 
 In bui-go, as of 2026-11-08, CI passed the native engine, the wasm engine with and without cgo, tests with cgo on on macOS and
 Linux arm64 (which selected the wasm engine), a cross-build without cgo for Linux, Windows and macOS on amd64 and arm64, and the
-module's byte-identical rebuild. In this tree `.github/workflows/go.yml` runs the formatting, the linter, the tests without cgo on
-Linux and macOS, and the rebuild. The cgo engine and the comparison of both engines run locally, as the README describes.
+module's byte-identical rebuild. In this tree `.github/workflows/go.yml` runs the formatting, the linter, the tests on the wasm
+engine on Linux, with cgo off, with the race detector and with real input through `xdotool`, the tests without cgo on macOS, the
+tests on the cgo engine on Linux, which compare both engines, against the kit built from the checkout, with the X11 host's key
+translation compared with libX11, and the rebuild.
 
 - **Windows is built, not run.**
-- **The wasm engine has no window host here.** bui-go's X11 and Cocoa hosts follow in later pull requests. A Windows host would be a
-  port of `kit_window_win32.c` (987 lines).
+- **The wasm engine has no window host on macOS and Windows here.** bui-go's Cocoa host follows in a later pull request. A Windows
+  host would be a port of `kit_window_win32.c` (987 lines).
+- **A real pointer on a real desktop has not been tried.** Drawing, the `Do` ticker, resizing and the close button were checked on a
+  real X session and window manager, through `xdotool windowsize` and `wmctrl -c`. Hovering and dragging were driven on Xvfb only.
 
 ### On a MacBook
 
@@ -385,7 +431,8 @@ On 2026-11-07, at bui-go's `a06371a`, on an Apple M5 Pro with macOS 27.2, over S
   but a bug inside the kit can go undetected here that would crash natively.
 - Linear memory never shrinks: the largest raster or string a process had stays in its footprint, and a scratch buffer stays at its
   largest size too. Past 1 GiB the process ends (see "Out of memory").
-- No window host yet, so no windows on this engine (`NewWindow` and `Run` report `ErrNoDisplay`). No IME input.
+- Core X cursors, not the desktop's cursor theme. No Compose or IME input.
+- No window host on macOS and Windows yet (`NewWindow` and `Run` report `ErrNoDisplay` there).
 - No worker threads. Video and the file browser are off, and an image source stays pending forever (see "Images without threads").
 - Only the embedded Inter face works by default. Named families need a mount or `BUI_text_add_font`.
 - Custom nodes with a C `draw` callback are not reachable. The Go binding does not expose them today.

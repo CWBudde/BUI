@@ -51,7 +51,7 @@ Windows and Linux fully, and macOS too, with caveats. The macOS window host is c
 
 ## Can I use BUI from Vue, Angular, Ruby, Go or Lua?
 
-Go, yes, experimentally: [package `bui`](../../go/overview/) renders headless with no cgo, and opens windows through cgo on Linux. The others not yet, but people have asked and they are on the [roadmap](../roadmap/). Vue and Angular would be thin adapters over `@blender-ui/native`, the layer React and Svelte already share ([how to add a framework](../../javascript/native-api/)). Ruby would call the C kit, `BUI_kit.h`, which has been versioned since 0.4.1. A Lua binding is in review as a community pull request. If you want one sooner, open an issue or a pull request; the [contributing guide](../contributing/) says how.
+Go, yes, experimentally: with no cgo, [package `bui`](../../go/overview/) opens X11 windows on Linux and renders headless everywhere, and with `-tags bui_cgo` it calls the kit natively on Linux. The others not yet, but people have asked and they are on the [roadmap](../roadmap/). Vue and Angular would be thin adapters over `@blender-ui/native`, the layer React and Svelte already share ([how to add a framework](../../javascript/native-api/)). Ruby would call the C kit, `BUI_kit.h`, which has been versioned since 0.4.1. A Lua binding is in review as a community pull request. If you want one sooner, open an issue or a pull request; the [contributing guide](../contributing/) says how.
 
 ## Can I change the colors?
 

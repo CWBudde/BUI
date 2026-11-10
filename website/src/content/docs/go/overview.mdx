@@ -1,16 +1,16 @@
 ---
 title: Go
-description: "Use BUI from Go with package bui: build a widget tree, handle clicks, and render it headless, with no cgo by default."
+description: "Use BUI from Go with package bui: build a widget tree, handle clicks, and open an X11 window or render headless, with no cgo by default."
 section: Go
 order: 10
 status: preview
 badges: ["Experimental"]
-sources: ["bindings/go/README.md", "bindings/go/docs/design.md", "bindings/go/bui.go", "bindings/go/headless.go", "bindings/go/window.go", "bindings/go/node.go", "bindings/go/engine_cgo.go", "bindings/go/engine_nocgo.go", "bindings/go/internal/engine/cgoengine/cgoengine.go", "bindings/go/examples/counter/main.go", "bindings/go/go.mod"]
+sources: ["bindings/go/README.md", "bindings/go/docs/design.md", "bindings/go/bui.go", "bindings/go/headless.go", "bindings/go/window.go", "bindings/go/node.go", "bindings/go/engine_cgo.go", "bindings/go/engine_nocgo.go", "bindings/go/host_x11.go", "bindings/go/internal/host/x11/host.go", "bindings/go/internal/engine/cgoengine/cgoengine.go", "bindings/go/examples/counter/main.go", "bindings/go/go.mod"]
 ---
 
 Package `bui` drives BUI's widget tree from Go: create nodes, set their properties, lay them out and handle their clicks. By default it needs no C toolchain at all, so `CGO_ENABLED=0 go build` works for any operating system and architecture Go supports.
 
-The binding is experimental, and the API is small and will change. For now it renders **headless**: into memory, with synthetic input, which is what tests and screenshots need. Windows come later; until then you get them only through the cgo engine on Linux.
+The binding is experimental, and the API is small and will change. On Linux it opens real **X11 windows** through its own window host, written in Go, still with no cgo. On every platform it also renders **headless**: into memory, with synthetic input, which is what tests and screenshots need. macOS and Windows have no window host yet, so there it renders headless only.
 
 ## Install it
 
@@ -55,18 +55,31 @@ func main() {
 
 `NewNode` takes the kit's widget types (`frame`, `button`, `label`, `slider`, `text` and the rest). `SetStr` and `SetNum` set their properties by name, and `Pack` places a node with BUI's Tk-style geometry manager. `Headless` owns the raster: `Render` lays out and draws the tree, and `Press` and `Release` send a left-button click.
 
+## A window
+
+On Linux, with an X server or XWayland, `examples/counter` opens a window with a slider, a button and two labels, one of which a goroutine updates every second through `bui.Do`. It builds into a static binary:
+
+```sh
+cd bindings/go
+CGO_ENABLED=0 go run ./examples/counter
+```
+
+On macOS and Windows it exits with `ErrNoDisplay`.
+
 ## Two engines
 
 The same API runs on two engines. You pick one when you build:
 
 | Build | Engine | Windows | Needs |
 | --- | --- | --- | --- |
-| Default, any platform | The kit as an embedded WebAssembly module, run by [wazero](https://github.com/tetratelabs/wazero) | None yet: `NewWindow` and `Run` return `ErrNoDisplay` | Only Go |
-| `-tags bui_cgo`, Linux | The kit itself, from the static libraries of BUI's CMake build | X11, and Wayland on request | cgo, a C and C++ toolchain, and that build |
+| Default, any platform | The kit as an embedded WebAssembly module, run by [wazero](https://github.com/tetratelabs/wazero) | X11 on Linux, through a host written in Go. None yet on macOS and Windows: `NewWindow` and `Run` return `ErrNoDisplay` | Only Go |
+| `-tags bui_cgo`, Linux | The kit itself, from the static libraries of BUI's CMake build | X11, and Wayland on request, through BUI's own hosts | cgo, a C and C++ toolchain, and that build |
 
 Both engines draw the same pixels: the binding's tests compare them exactly.
 
-**The WebAssembly engine** compiles the module at the first kit call, in about 0.2 to 0.3 seconds, and caches the result, so later starts take about 25 ms. On amd64 and arm64 it renders at about 2 to 4 times the native time. Other architectures fall back to wazero's interpreter, which is far slower and fit for tests rather than interaction.
+**The WebAssembly engine** compiles the module at the first kit call, in about 0.2 to 0.3 seconds, and caches the result, so later starts take about 25 ms. On amd64 and arm64 it renders at about 2 to 4 times the native time: a dense full-HD frame, drawn and put on an X11 window, took about 13 ms on the laptop it was measured on. Other architectures fall back to wazero's interpreter, which is far slower and fit for tests rather than interaction.
+
+**Its X11 host** is a port of BUI's `kit_window_x11.c` to Go, on the pure-Go X client [xgb](https://github.com/jezek/xgb). The module runs inside wazero's sandbox, where it can neither open a socket to the X server nor load libX11, so the window lives outside it, in Go. The host follows `Xft.dpi` and `BUI_UI_SCALE` as the C host does, and its key translation is tested against libX11's on 13 layouts. Text is always UTF-8.
 
 **The cgo engine** links the libraries you build at the repository's root. You need the X11 headers (`libx11-dev`) for windows:
 
@@ -77,7 +90,7 @@ cd bindings/go
 go run -tags bui_cgo ./examples/counter
 ```
 
-`examples/counter` opens a window with a slider, a button and two labels, one of which a goroutine updates every second through `bui.Do`. The cgo engine opens X11 windows, through XWayland on a Wayland desktop. Set `BUI_WINDOW_BACKEND=wayland` for native Wayland windows.
+The cgo engine opens the same window through BUI's own X11 host. Both engines open X11 windows, through XWayland on a Wayland desktop; set `BUI_WINDOW_BACKEND=wayland` for native Wayland windows from the cgo engine.
 
 ## Threading
 
@@ -85,7 +98,8 @@ Call `bui.Run` from the main goroutine. Every call that touches the kit belongs 
 
 ## Limitations
 
-- **No windows yet with the default engine.** `Supported` is false, and `NewWindow` and `Run` return `ErrNoDisplay` on every platform. Only the cgo engine on Linux opens windows.
+- **No windows on macOS and Windows yet.** The default engine has a window host for X11 on Linux only. Elsewhere `Supported` is false, and `NewWindow` and `Run` return `ErrNoDisplay`.
+- **The Go X11 host is plainer than the C one.** It has the core X cursors, not the desktop's cursor theme, and no Compose or IME input: a dead key types its own character. Clipboard text past about 256 KiB, which X sends in parts (INCR), is refused both ways.
 - **Software rendering only.** `Headless` draws into a CPU raster, and the WebAssembly engine has no GPU renderer.
 - **No GPU, video, file browser or IME.** None of them is in the module, and the binding exposes none of them.
 - **A WebAssembly trap ends the process.** After a fault inside the module its state is unknown, so the process ends with a message instead of returning an error. Running out of the module's 1 GiB of memory counts as such a fault.

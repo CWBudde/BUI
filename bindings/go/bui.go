@@ -3,12 +3,14 @@
 // Package bui is a Go binding to BUI's C kit, which provides Blender's UI widgets.
 //
 // Engines: by default it runs the kit as an embedded WebAssembly module, with no cgo, on
-// every platform. That engine has no window host yet, so it renders headless, and
-// NewWindow and Run report ErrNoDisplay. With the build tag bui_cgo, on Linux with cgo, it
-// calls the kit natively instead, from the static libraries of BUI's CMake build, and
-// opens real windows through the kit's own hosts. The API is the same, and the tests hold
-// both engines to the same pixels. The README has the limits of each engine, and this
-// project's reading of what the wasm engine means for a binary's licence.
+// every platform: with a real window on Linux through a Go X11 host, and headless on other
+// systems, where NewWindow and Run report ErrNoDisplay. With the build tag bui_cgo, on Linux
+// with cgo, it calls the kit natively instead, from the static libraries of BUI's CMake
+// build, and opens real windows through the kit's own hosts. The API is the same, and the
+// tests hold both engines to the same pixels. Text typed on a real window can differ: the
+// wasm engine's X11 host always delivers UTF-8, while the native one gets non-ASCII keys in
+// the C locale's encoding, as nothing sets the locale. The README has the limits of each
+// engine, and this project's reading of what the wasm engine means for a binary's licence.
 //
 // Threading: Run must be called from the main goroutine, and all kit-touching
 // API is UI-thread only, meaning the main goroutine before and after Run, and

@@ -1,6 +1,7 @@
-# The Go binding (bindings/go): formatting, lint, tests on the wasm engine without cgo on
-# Linux and macOS, and a byte-for-byte rebuild of the committed bui_kit.wasm. Only changes
-# to the binding or to this file run it; BUI's own jobs are in ci.yml.
+# The Go binding (bindings/go): formatting, lint, tests on the wasm engine on Linux, with its
+# X11 host and real input, and headless on macOS, tests on the cgo engine on Linux, and a
+# byte-for-byte rebuild of the committed bui_kit.wasm. Only changes to the binding or to
+# this file run it; BUI's own jobs are in ci.yml.
 
 name: go
 
@@ -73,7 +74,7 @@ jobs:
           args: --config .golangci.toml --timeout 5m --build-tags bui_cgo
 
   test-linux:
-    name: tests without cgo (Linux)
+    name: tests on the wasm engine (Linux)
     runs-on: ubuntu-latest
     steps:
       # The setjmp probe's test builds it from BUI_COMMIT, which a shallow clone lacks.
@@ -85,8 +86,10 @@ jobs:
         with:
           go-version-file: bindings/go/go.mod
 
-      - name: Install an X server
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+      # internal/host/x11 starts an Xvfb of its own, and its tests and the real input change
+      # the keyboard layout with setxkbmap.
+      - name: Install an X server and input tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb xdotool x11-xkb-utils
 
       - uses: actions/cache@v4
         with:
@@ -100,6 +103,47 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: xvfb-run -a go test ./...
+
+      # The X11 host reads events on a goroutine of its own.
+      - name: Run the window tests with the race detector
+        run: xvfb-run -a go test -race . ./internal/host/x11/
+
+      - name: Send real input
+        run: BUI_TEST_XDOTOOL=1 xvfb-run -a go test -race -run '^TestX' .
+
+  test-cgo:
+    name: tests on the cgo engine (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bindings/go/go.mod
+
+      - name: Install build tools, the X11 headers, an X server and input tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libx11-dev xvfb xdotool x11-xkb-utils
+
+      # The libraries the tag bui_cgo links ("Engines" in bindings/go/README.md). They come
+      # from this checkout, while bui_kit.wasm is BUI_COMMIT's, and the tests compare the two.
+      - name: Build BUI's kit
+        working-directory: .
+        run: |
+          cmake -S . -B build -G Ninja -DBUI_BUILD_TESTS=OFF -DBUI_BUILD_EXAMPLES=OFF
+          cmake --build build --target bui_kit
+
+      # The Go X11 host against XLookupString, on the layouts the test sets.
+      - name: Compare the X11 host's key translation with libX11
+        run: go test -tags bui_xlibref ./internal/host/x11/
+
+      # This also compares the engines.
+      - name: Run tests with the race detector
+        run: xvfb-run -a go test -race -tags bui_cgo ./...
+
+      - name: Send real input
+        run: BUI_TEST_XDOTOOL=1 xvfb-run -a go test -race -tags bui_cgo -run '^TestX' .
 
   test-macos:
     name: tests without cgo (macOS)

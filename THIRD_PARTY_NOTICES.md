@@ -813,6 +813,11 @@ What is not known, or not covered here:
   wayland-protocols. The texts here are from wayland-protocols 1.49, which need not be the version
   a given build used. Every Linux build of the kit with `BUI_WAYLAND` contains this code, not only
   the Go binding's.
+- The X11 host's keysym tables are generated from the X11 headers of the machine that ran
+  `internal/host/x11/gen`. The committed file regenerates byte for byte from xorgproto 2023.2's.
+  The text here holds the notices of `keysymdef.h` and of the first notice in `Sunkeysym.h`
+  (Oracle); `Sunkeysym.h`'s second notice, The Open Group's of 1991 and 1998, worded as the one
+  of `keysymdef.h`, is missing from it, and `XF86keysym.h` carries none.
 - A cgo program also links the C and C++ runtime of the machine it is built on
   (`-lstdc++ -ldl -lm -lpthread`), and the kit opens libX11 with `dlopen` at run time, and for a
   Wayland window libwayland-client, libwayland-cursor and libxkbcommon. None of these is in this
@@ -833,6 +838,8 @@ What is not known, or not covered here:
 | --- | --- | --- | --- |
 | wazero 1.12.0 | Runs bui_kit.wasm: the program, as a Go module | Apache-2.0 | https://github.com/tetratelabs/wazero |
 | golang.org/x/sys 0.44.0 | CPU features and system calls for wazero: the program, as a Go module | BSD-3-Clause | https://pkg.go.dev/golang.org/x/sys |
+| xgb 1.3.1 | The X protocol for the X11 host, on Linux with the wasm engine: the program, as a Go module | BSD-3-Clause | https://github.com/jezek/xgb |
+| X11's keysym tables | Keysym names and characters in bindings/go/internal/host/x11/keysyms_gen.go, generated from keysymdef.h, XF86keysym.h and Sunkeysym.h: the program, on Linux with the wasm engine | MIT-style (X11) | https://gitlab.freedesktop.org/xorg/proto/xorgproto |
 | wasi-libc, from wasi-sdk 34.0 | The C library in bui_kit.wasm | Apache-2.0 WITH LLVM-exception, Apache-2.0 or MIT | https://github.com/WebAssembly/wasi-libc |
 | musl, in wasi-libc | The C library in bui_kit.wasm | MIT | https://musl.libc.org |
 | cloudlibc, in wasi-libc | The C library in bui_kit.wasm | BSD-2-Clause | https://github.com/NuxiNL/cloudlibc |
@@ -1091,6 +1098,154 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+````
+
+### xgb 1.3.1
+
+License: BSD-3-Clause
+
+````text
+// Copyright (c) 2009 The XGB Authors. All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//    * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//    * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//    * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
+// Subject to the terms and conditions of this License, Google hereby
+// grants to You a perpetual, worldwide, non-exclusive, no-charge,
+// royalty-free, irrevocable (except as stated in this section) patent
+// license to make, have made, use, offer to sell, sell, import, and
+// otherwise transfer this implementation of XGB, where such license
+// applies only to those patent claims licensable by Google that are
+// necessarily infringed by use of this implementation of XGB. If You
+// institute patent litigation against any entity (including a
+// cross-claim or counterclaim in a lawsuit) alleging that this
+// implementation of XGB or a Contribution incorporated within this
+// implementation of XGB constitutes direct or contributory patent
+// infringement, then any patent licenses granted to You under this
+// License for this implementation of XGB shall terminate as of the date
+// such litigation is filed.
+````
+
+### X11's keysym tables
+
+License: MIT-style (X11)
+
+````text
+Copyright 1987, 1994, 1998  The Open Group
+
+Permission to use, copy, modify, distribute, and sell this software and its
+documentation for any purpose is hereby granted without fee, provided that
+the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation.
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE OPEN GROUP BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name of The Open Group shall
+not be used in advertising or otherwise to promote the sale, use or
+other dealings in this Software without prior written authorization
+from The Open Group.
+
+
+Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts
+
+                        All Rights Reserved
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of Digital not be
+used in advertising or publicity pertaining to distribution of the
+software without specific, written prior permission.
+
+DIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+DIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+SOFTWARE.
+
+
+------
+
+
+Copyright (c) 1991, Oracle and/or its affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice (including the next
+paragraph) shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+Copyright 1991, 1998  The Open Group
+
+Permission to use, copy, modify, distribute, and sell this software and its
+documentation for any purpose is hereby granted without fee, provided that
+the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation.
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+OPEN GROUP BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name of The Open Group shall not be
+used in advertising or otherwise to promote the sale, use or other dealings
+in this Software without prior written authorization from The Open Group.
 ````
 
 ### wasi-libc, from wasi-sdk 34.0
