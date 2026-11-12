@@ -5,7 +5,7 @@ section: Go
 order: 10
 status: preview
 badges: ["Experimental"]
-sources: ["bindings/go/README.md", "bindings/go/docs/design.md", "bindings/go/bui.go", "bindings/go/headless.go", "bindings/go/window.go", "bindings/go/node.go", "bindings/go/engine_cgo.go", "bindings/go/engine_nocgo.go", "bindings/go/host_x11.go", "bindings/go/host_darwin.go", "bindings/go/host_none.go", "bindings/go/internal/host/x11/host.go", "bindings/go/internal/host/cocoa/host_darwin.go", "bindings/go/internal/engine/cgoengine/cgoengine.go", "bindings/go/examples/counter/main.go", "bindings/go/go.mod"]
+sources: ["bindings/go/README.md", "bindings/go/docs/design.md", "bindings/go/bui.go", "bindings/go/headless.go", "bindings/go/embed.go", "bindings/go/window.go", "bindings/go/node.go", "bindings/go/engine_cgo.go", "bindings/go/engine_nocgo.go", "bindings/go/host_x11.go", "bindings/go/host_darwin.go", "bindings/go/host_none.go", "bindings/go/internal/host/x11/host.go", "bindings/go/internal/host/cocoa/host_darwin.go", "bindings/go/internal/engine/cgoengine/cgoengine.go", "bindings/go/examples/counter/main.go", "bindings/go/go.mod"]
 ---
 
 Package `bui` drives BUI's widget tree from Go: create nodes, set their properties, lay them out and handle their clicks. By default it needs no C toolchain at all, so `CGO_ENABLED=0 go build` works for any operating system and architecture Go supports.
@@ -64,7 +64,36 @@ cd bindings/go
 CGO_ENABLED=0 go run ./examples/counter
 ```
 
-On macOS and Windows it exits with `ErrNoDisplay`.
+On macOS the same command opens a Cocoa window (see below). On Windows it exits with `ErrNoDisplay`.
+
+## A window of your own
+
+Your program may already have a window, from a game loop or another toolkit. You can show BUI inside it. `Headless` is then the whole interface: you forward your window's input to it, render, and copy the pixels.
+
+- **Input:** `PressMods`, `ReleaseMods`, `Motion` (pass `ModButton1` to drag), `Wheel`, `Scroll`, `Key` with an X keysym name and the typed text, and `ContextMenu`. Coordinates are raster pixels.
+- **Pixels:** `RenderDamage` renders and returns the rectangles whose pixels changed. `Image` returns the last render as an `*image.RGBA`, and `Resize` sets the next render's size. `NeedsRender` tells you whether anything is waiting to be drawn.
+- **The kit's requests:** `SetHost` takes a `bui.Host`. Your host gets redraw requests, cursor changes, pointer warps, the clipboard, and timers, which you fire back with `Timer`. `Animating` is true while a panel opens or another animation runs.
+- **Your own loop:** `Flush` runs queued `Do` functions and deferred frees. `SetWake` names a function that `Do` calls from its own goroutine, so that you can wake your loop.
+
+In outline, with `win` standing for your window and its loop:
+
+```go
+view.SetHost(win)     // win implements bui.Host and notes what the kit asks
+bui.SetWake(win.wake) // called from Do's goroutine: post an event to the loop
+
+for win.next() { // the program's own loop, on the UI thread
+	bui.Flush() // queued Do functions and deferred frees
+	for _, t := range win.dueTimers() {
+		view.Timer(t)
+	}
+	if view.NeedsRender() || view.Animating() {
+		damage := view.RenderDamage(false) // render first: Image copies the last render
+		win.blit(view.Image(), damage)
+	}
+}
+```
+
+Your `Host` methods run inside the kit call that caused them. So they should only note what to do, and leave the doing to your loop. A panic in one ends the process, as a panic in a handler does.
 
 ## Two engines
 
