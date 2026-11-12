@@ -26,6 +26,10 @@ All notable changes to **blenderui** (BUI). The format follows
   port of `kit_window_cocoa.m` that reaches AppKit through purego: mouse, scroll, keys, cursors, the clipboard, the C host's menus,
   quitting by Cmd+Q, live resize and scale changes between screens. No IME, and a dead key is not composed with the next key, as
   in the C host. The macOS job in `go.yml` runs its tests, which open real windows, and `THIRD_PARTY_NOTICES.md` adds purego.
+- **Go: a window of the program's own.** `Headless` takes the kit's pointer and key input with modifiers, returns the raster as an
+  `*image.RGBA` with the rectangles that changed, and resizes. `SetHost` with a `bui.Host` gives the program's window the kit's
+  redraw requests, cursor, pointer warps, clipboard and timers, and `Flush` with `SetWake` runs queued work in a loop of the
+  program's own, so a window host can live outside package `bui`.
 - **Rust:** `<input live>` (and `<textarea live>`): the field reports every keystroke to `on_input` / `on_change`, not only on Enter or blur,
   so a view can follow the typing (a search box, a date field that lights up a calendar).
 

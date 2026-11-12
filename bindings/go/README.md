@@ -52,6 +52,34 @@ func main() {
 }
 ```
 
+`Headless` takes the kit's pointer and key input: `PressMods`, `ReleaseMods`, `Motion` (pass `ModButton1` to drag), `Wheel`,
+`Scroll`, `Key` with an X keysym name and the typed text, and `ContextMenu`. It leaves out the kit's raw `KeyRelease` and
+`Button`, which reach only "events" nodes, and package `bui` has no handler for those yet. Coordinates are raster pixels.
+`Image` returns the last render as an `*image.RGBA`, `RenderDamage` the rectangles whose pixels changed, and `Resize` sets the
+next render's size. So a program can show the raster in a window of its own and forward that window's events.
+
+That window gets the kit's requests through `SetHost`, with a `bui.Host`: `Redraw`, `SetCursor`, `Warp`, the clipboard, and
+`Schedule` for timers, which the program fires back with `Timer`. Without a host, those requests go nowhere. A program with a loop
+of its own runs `Do` functions with `Flush`, and `SetWake` tells it when there are some:
+
+```go
+view.SetHost(win) // win implements bui.Host and notes what the kit asks
+bui.SetWake(win.wake) // called from Do's goroutine: post an event to the loop
+
+for win.next() { // the program's own loop, on the UI thread
+	bui.Flush()           // queued Do functions and deferred frees
+	for _, t := range win.dueTimers() {
+		view.Timer(t)
+	}
+	if view.NeedsRender() || view.Animating() {
+		damage := view.RenderDamage(false) // render first: Image copies the last render
+		win.blit(view.Image(), damage)
+	}
+}
+```
+
+Host methods run inside the kit call that caused them, so they note what to do and leave the doing to the loop.
+
 The module has no tagged release yet, so take it at a commit, for example `go get github.com/ppmpreetham/BUI/bindings/go@main`.
 CI runs the tests on Linux and on macOS, including the Cocoa host's tests, which open real windows there. Nothing builds or runs
 them on Windows, so that platform is untested.
@@ -133,8 +161,9 @@ that time. The module loads at the first kit call, so importing the package cost
 
 - No IME. A dead key types nothing and is not composed with the next key, which types its plain character, as in BUI's C host:
   neither passes keys through AppKit's text input.
-- Its input has been driven only by events its tests make, not by a hand on a real mouse and keyboard. Moving a window to a
-  screen of another scale is tested with a faked backing scale, not on a real second screen.
+- Its tests drive its input with events they make. A hand on a real trackpad and keyboard checked it once, as "By hand on the
+  MacBook" in `docs/design.md` describes. Moving a window to a screen of another scale is tested with a faked backing scale, not
+  on a real second screen.
 - Every macOS program built with the binding contains purego, also one that only renders headless.
 
 ### Limits of the wasm engine

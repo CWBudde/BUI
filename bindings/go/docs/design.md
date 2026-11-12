@@ -336,6 +336,22 @@ run passes `-ldflags='-s=false -w=false'`. The allocation tests skip under `-asa
 from inside a handler. `internal/host/x11` covers a panic in a `Do` function in the loop, and a broken connection, which closes every
 window and makes `Run` return `ErrDisplayLost`. On the native engine Xlib's default handler ends the process instead.
 
+## A window of the program's own
+
+The owner asked on [BUI#8](https://github.com/ppmpreetham/BUI/issues/8) for "render to a pixel buffer + feed events", so that a
+program can be the window. `Headless` renders and takes the kit's input. `Headless.SetHost` adds the other direction: an unexported
+adapter turns a public `bui.Host` into the `engine.WindowHost` the engines call, and installs it with `ContextSetWindowHost`.
+
+- **Each adapter call counts as an emit.** It raises `emitDepth`, so a `Close` in a Host method waits until the kit call it runs in
+  has returned, as from a handler. Without that, `Close` freed the context under `BK_motion`, which the test shows.
+- **A panic in a Host method ends the process on both engines.** The adapter defers `engine.ExitIfUnwinding` itself. The cgo
+  engine's trampolines do too, but the wasm engine's host functions don't, and a public interface should not depend on the engine.
+- **Timers need no bookkeeping.** `BK_timer` ignores a tooltip serial that is no longer current, and the custom-node timer checks
+  the due times and arms itself again. So a host fires every timer it was given, once its time has passed.
+- **`Flush` and `SetWake` are `Run`'s wake for a loop of the program's own.** `Do` still wakes the built-in host as well. That does
+  nothing without a running loop: a buffered channel on X11, a non-blocking pipe natively, a no-op headless. The Cocoa host posts an
+  application-defined event once `Supported` has run, which a program with its own Cocoa loop sees and should ignore.
+
 ## The X11 host
 
 `internal/host/x11` is a Go port of `kit_window_x11.c` on `jezek/xgb`.
@@ -587,7 +603,33 @@ MacBook", where Go is only on the path of a login shell.
   "On a MacBook" describes.
 - **What only a hand checks:** a real click, drag, scroll and typing, the real clipboard, a warp, and activation, as
   `examples/counter` shows them, as well as Cmd+W, Minimize, the Dock's Quit, the close button and dragging an edge with the real
-  pointer.
+  pointer. "By hand on the MacBook" has the last such check.
+
+### By hand on the MacBook
+
+On 2026-11-08, in bui-go at `1ebbfd6`, Christian worked `examples/counter` and a copy of it with a text field, and with an optional
+second window, on the MacBook's trackpad and German keyboard. Both programs were built on the Mac and started over SSH. Each printed
+every event to a log, which was read alongside what he saw.
+
+- **The first show activates.** The window came up in front of VS Code with the focus, and `lsappinfo front` named the program.
+  Asking System Events for the frontmost process over SSH still answered "Code", so it is no use for this check.
+- **Click, drag and hover work.** Seven clicks gave seven counts, the slider followed the pointer, and the button and slider
+  lit up under the pointer and went dark when it left the window.
+- **The wheel scrolls the region, and Cmd+wheel steps a slider.** A plain wheel over the slider leaves it alone and scrolls the
+  window's content when the window is smaller than the content. Cmd+wheel stepped the slider by 0.01 a notch. That is the kit's
+  rule (`bk_value_wheel`: only Ctrl+wheel changes a value, as in Blender), and the host maps Command to Ctrl.
+- **Dragging an edge keeps drawing,** and the clock went on ticking while the button was held.
+- **Typing works, apart from dead keys.** Word jumps, Backspace, Shift-selection, double-click on a word, ß, ü and ö all work.
+  ´ followed by e types "e", and ´ followed by Space types " ". The C host behaves the same: both send `[NSEvent characters]`,
+  which is empty for the dead key, and neither goes through `interpretKeyEvents:`, which would carry the dead key's state.
+- **The real clipboard works both ways.** Cmd+C in the field pasted correctly in another app, and 170 characters copied in
+  another app arrived whole with Cmd+V.
+- **Every way of quitting ends `Run`.** Cmd+Q, the Dock's Quit, the close button and Cmd+W on the last window each printed "clean
+  shutdown", and the process exited with status 0.
+- **Cmd+W and Minimize act on the key window.** With two windows, Cmd+W closed only the key one, and the other went on ticking
+  and counted the first click it got. Cmd+M and the Window menu's Minimize both minimized, and the window drew correctly, with the
+  current time, when restored from the Dock.
+- **Not checked:** a second screen of another scale, and a warp.
 
 ## Known limits
 
